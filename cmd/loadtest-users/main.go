@@ -6,7 +6,7 @@
 // It reads the same environment as the daemon and runs inside the backend pod (kubectl exec) or a
 // one-off Job. Every address carries the run marker (lt-<run>-NNN@loadtest.invalid), so delete
 // removes exactly that run. The credentials never reach a log: `--out -` streams them to the
-// caller's stdout. See docs/loadtest/RUNBOOK.md.
+// caller's stdout. See tools/loadtest/RUNBOOK.md.
 package main
 
 import (

@@ -4,7 +4,7 @@
 // rates and lab start times.
 //
 // It is an operator tool: it never runs in CI and must only be pointed at a stand the owner has
-// agreed to load. --confirm-domain must repeat --domain exactly. See docs/loadtest/RUNBOOK.md.
+// agreed to load. --confirm-domain must repeat --domain exactly. See tools/loadtest/RUNBOOK.md.
 //
 //	loadtest --domain stand.example.com --event-slug loadtest --creds creds.json --teams 14 --members 15
 package main
