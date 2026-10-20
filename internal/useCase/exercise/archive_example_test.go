@@ -209,23 +209,47 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 
 	require.Len(t, variants, 2)
 	base, linked := variants[0], variants[1]
-	require.Len(t, base.Tasks, 1)
+	require.Len(t, base.Tasks, 2)
 	require.Contains(t, string(base.Tasks[0].Description), `"type":"variable"`)
 	require.Contains(t, string(base.Tasks[0].Description), `"varName":"server"`)
-	require.Len(t, base.Topology.Devices, 1)
-	web := base.Topology.Devices[0]
-	require.Equal(t, "web", web.Name)
+	require.Len(t, base.Topology.Devices, 4)
+	devices := map[string]exerciseModel.Device{}
+	for _, device := range base.Topology.Devices {
+		devices[device.Name] = device
+	}
+	web := devices["web"]
+	require.Equal(t, exerciseModel.DeviceTypeUnmanagedSwitch, devices["sw1"].Type)
+	require.Equal(t, exerciseModel.DeviceTypeHub, devices["hub1"].Type)
+	require.Equal(t, exerciseModel.SecurityPresetStandard, web.SecurityPreset)
+	require.Equal(t, exerciseModel.SecurityPresetExtended, devices["db"].SecurityPreset)
 	require.Nil(t, base.Topology.VisualRender, "visual_render: null is no layout")
-	require.Nil(t, web.External)
-	require.Nil(t, web.Persistence)
-	require.Len(t, base.Topology.Connections, 1)
-	var endpointDevices []uuid.UUID
-	for _, endpoint := range base.Topology.Connections[0].Endpoints {
-		if endpoint.Kind == exerciseModel.EndpointDevice {
-			endpointDevices = append(endpointDevices, endpoint.DeviceID)
+	require.True(t, web.WaitReadyFile)
+	require.NotNil(t, web.External)
+	require.EqualValues(t, 80, web.External.Port)
+	require.Equal(t, "http", web.External.Protocol)
+	require.NotNil(t, web.Persistence)
+	require.True(t, web.Persistence.Enabled)
+	require.Equal(t, "5s", web.Persistence.Debounce)
+	require.Len(t, web.EnvVars, 1)
+	require.False(t, web.EnvVars[0].Secret)
+	require.Len(t, base.Topology.Connections, 6)
+	known := map[uuid.UUID]bool{}
+	for _, device := range base.Topology.Devices {
+		known[device.ID] = true
+	}
+	for _, connection := range base.Topology.Connections {
+		for _, endpoint := range connection.Endpoints {
+			if endpoint.Kind == exerciseModel.EndpointDevice {
+				require.True(t, known[endpoint.DeviceID], "a device is referenced by its name")
+			}
 		}
 	}
-	require.Equal(t, []uuid.UUID{web.ID}, endpointDevices, "the device is referenced by its name")
+	second := base.Tasks[1]
+	require.Equal(t, uuid.NullUUID{UUID: web.ID, Valid: true}, second.LinkedDeviceID)
+	require.Equal(t, "FLAG", second.DeviceFlagVar)
+	require.Len(t, second.Flag, 2)
+	require.Len(t, second.Placeholders, 5)
+	require.Len(t, second.Hints, 4)
 	require.Equal(t, uuid.NullUUID{UUID: base.ID, Valid: true}, linked.LinkedTo)
 	require.Equal(t, []string{"ICE{example_flag_2}"}, linked.Tasks[0].Flag)
 	require.Equal(t, []string{"ICE{example_flag}"}, base.Tasks[0].Flag)
@@ -254,31 +278,109 @@ var requiredKeyErrors = map[string]string{
 	"versions":                              "nothing links to",
 	"versions[1].status":                    "versions[1].status: required",
 	"versions[1].variants":                  "nothing links to",
-	"versions[1].variants[1].tasks[1].name": "task name",
-	"versions[1].variants[1].tasks[1].description":                                     "task description",
-	"versions[1].variants[1].tasks[1].difficulty":                                      "task difficulty",
-	"versions[1].variants[1].tasks[1].flag":                                            "task flag",
-	"versions[1].variants[1].tasks[1].attachments[1].file":                             "archive path",
-	"versions[1].variants[1].tasks[1].placeholders[1].kind":                            "placeholder",
-	"versions[1].variants[1].tasks[1].placeholders[1].ip_reference":                    "placeholder",
-	"versions[1].variants[1].tasks[1].hints[1].text":                                   "hint text",
-	"versions[1].variants[1].topology.devices[1].name":                                 `device named "web"`,
-	"versions[1].variants[1].topology.devices[1].type":                                 "device type",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].name":                   "device interface",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                     "device interface",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                "static mode",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref":         "ip address",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.network": "address reference",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.host":    "address reference",
-	"versions[1].variants[1].topology.connections[1].endpoints":                        "two endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[1].kind":                "endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[1].interface":           "endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[2].kind":                "endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[2].device":              "endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[2].interface":           "device or interface",
-	"versions[1].variants[2].linked_to":                                                "every variant",
-	"versions[1].variants[2].tasks[1].flag":                                            "task flag",
-	"versions[1].variants[2].tasks[1].attachments[1].file":                             "archive path",
+	"versions[1].variants[1].tasks[1].name": "task name must be 3-50 characters",
+	"versions[1].variants[1].tasks[1].description":                                           "task description is required before publication",
+	"versions[1].variants[1].tasks[1].difficulty":                                            "task difficulty is invalid",
+	"versions[1].variants[1].tasks[1].flag":                                                  "task flag must use ice{...} without whitespace",
+	"versions[1].variants[1].tasks[1].attachments[1].file":                                   "an archive path is not allowed",
+	"versions[1].variants[1].tasks[1].placeholders[1].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[1].placeholders[1].ip_reference":                          "description placeholder is malformed",
+	"versions[1].variants[1].tasks[1].hints[1].text":                                         "hint text is required before publication",
+	"versions[1].variants[1].tasks[2].name":                                                  "task name must be 3-50 characters",
+	"versions[1].variants[1].tasks[2].description":                                           "task description is required before publication",
+	"versions[1].variants[1].tasks[2].difficulty":                                            "task difficulty is invalid",
+	"versions[1].variants[1].tasks[2].placeholders[1].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[2].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[2].ip_reference":                          "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[3].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[3].ip_reference":                          "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[4].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].placeholders[5].kind":                                  "description placeholder is malformed",
+	"versions[1].variants[1].tasks[2].hints[1].text":                                         "hint text is required before publication",
+	"versions[1].variants[1].tasks[2].hints[2].text":                                         "hint text is required before publication",
+	"versions[1].variants[1].tasks[2].hints[3].text":                                         "hint text is required before publication",
+	"versions[1].variants[1].tasks[2].hints[4].text":                                         "hint text is required before publication",
+	"versions[1].variants[1].topology.internet.dhcp_ranges[1].start":                         "dhcp ranges or internet dns address are invalid",
+	"versions[1].variants[1].topology.internet.dhcp_ranges[1].end":                           "dhcp ranges or internet dns address are invalid",
+	"versions[1].variants[1].topology.devices[1].name":                                       "device named \"web\"",
+	"versions[1].variants[1].topology.devices[1].type":                                       "device type is invalid",
+	"versions[1].variants[1].topology.devices[1].external.port":                              "device external access is invalid",
+	"versions[1].variants[1].topology.devices[1].external.protocol":                          "device external access is invalid",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].name":                         "device interface is invalid",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                           "device interface is invalid",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref":               "static interface requires exactly one ip address",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.host":          "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[1].interfaces[2].name":                         "device interface is invalid",
+	"versions[1].variants[1].topology.devices[1].interfaces[2].ip":                           "device interface is invalid",
+	"versions[1].variants[1].topology.devices[1].interfaces[2].ip.type":                      "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].name":                                       "device named \"db\"",
+	"versions[1].variants[1].topology.devices[2].type":                                       "device type is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].name":                         "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip":                           "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref":               "static interface requires exactly one ip address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref.host":          "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.gateway_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.gateway_ref.host":          "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].dst_ref.network": "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].via_ref.network": "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].via_ref.host":    "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[2].name":                         "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[2].ip":                           "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[2].ip.type":                      "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[3].name":                         "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[3].ip":                           "device interface is invalid",
+	"versions[1].variants[1].topology.devices[2].interfaces[3].ip.type":                      "device interface is invalid",
+	"versions[1].variants[1].topology.devices[3].name":                                       "device named \"sw1\"",
+	"versions[1].variants[1].topology.devices[3].type":                                       "device type is invalid",
+	"versions[1].variants[1].topology.devices[4].name":                                       "device named \"hub1\"",
+	"versions[1].variants[1].topology.devices[4].type":                                       "device type is invalid",
+	"versions[1].variants[1].topology.connections[1].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].interface":                 "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[2].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[2].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[2].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[2].endpoints[1].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[2].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[2].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[2].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
+	"versions[1].variants[1].topology.connections[3].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[3].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[3].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[3].endpoints[1].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[3].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[3].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[3].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
+	"versions[1].variants[1].topology.connections[4].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[1].interface":                 "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[2].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[5].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[5].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[5].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[5].endpoints[1].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[5].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[5].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[5].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
+	"versions[1].variants[1].topology.connections[6].endpoints":                              "connection must have exactly two endpoints",
+	"versions[1].variants[1].topology.connections[6].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[6].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[6].endpoints[1].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
+	"versions[1].variants[1].topology.connections[6].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[6].endpoints[2].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[6].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
+	"versions[1].variants[2].linked_to":                                                      "task difficulty must match at the same position in every variant",
+	"versions[1].variants[2].tasks[1].flag":                                                  "task flag must use ice{...} without whitespace",
+	"versions[1].variants[2].tasks[1].attachments[1].file":                                   "an archive path is not allowed",
 }
 
 // Every key, at every level: an optional key may go (unless its comment says something here needs it, and then
@@ -369,13 +471,16 @@ func TestExampleArchive_LinkedVariantMinimal(t *testing.T) {
 	}
 	tasks, ok := linked["tasks"].([]any)
 	require.True(t, ok)
-	require.Len(t, tasks, 1)
-	task, ok := tasks[0].(map[string]any)
-	require.True(t, ok)
-	for key := range task {
-		require.Contains(t, []string{"flag", "attachments"}, key)
+	require.Len(t, tasks, 2)
+	for _, item := range tasks {
+		task, isMap := item.(map[string]any)
+		require.True(t, isMap)
+		for key := range task {
+			require.Contains(t, []string{"flag", "attachments"}, key)
+		}
 	}
-	require.Equal(t, []any{"ICE{example_flag_2}"}, task["flag"])
+	first := tasks[0].(map[string]any)
+	require.Equal(t, []any{"ICE{example_flag_2}"}, first["flag"])
 }
 
 func TestExampleArchive_FlagCommentWarnsAboutSpaceHash(t *testing.T) {
@@ -420,4 +525,20 @@ func TestExampleArchive_JSONFormImportsToo(t *testing.T) {
 	_, written, err := importExample(t, jsonFiles)
 	require.NoError(t, err)
 	require.Len(t, written, 1)
+}
+
+// The example is also served as text, in both forms: the YAML is the file of the archive as it is, the JSON is the same
+// content with the key order of the YAML and without comments, and an archive built from it imports to the same task.
+func TestExampleDocuments_BothFormsAgree(t *testing.T) {
+	files := exampleEntries(t)
+	yamlText, jsonText, err := exercise.ExampleDocuments()
+	require.NoError(t, err)
+	require.Equal(t, string(files["exercise.yaml"]), yamlText)
+	require.True(t, json.Valid([]byte(jsonText)))
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(jsonText), &top))
+	require.Contains(t, jsonText[:40], `"schema"`, "schema stays the first key")
+	require.NotContains(t, jsonText, "обовʼязкове.", "comments are gone")
+	jsonFiles := replaced(files, "exercise.json", []byte(jsonText))
+	require.Equal(t, parsedContent(t, files), parsedContent(t, jsonFiles))
 }

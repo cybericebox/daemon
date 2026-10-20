@@ -318,6 +318,37 @@ func (h *Handler) importExample(ctx *gin.Context) {
 	serveArchive(ctx, exerciseUseCase.ExampleArchiveFilename, contents)
 }
 
+// exampleDocumentResponse is the example task document in both forms.
+type exampleDocumentResponse struct {
+	Yaml string `json:"Yaml"`
+	Json string `json:"Json"`
+}
+
+// importExampleDocument godoc
+// @Summary  The example task document as text: the commented YAML and the same content as JSON
+// @Tags     exercises
+// @Produce  json
+// @Success  200  {object}  response.Response{Data=exampleDocumentResponse}
+// @Failure  500  {object}  response.Response
+// @Router   /exercises/import/example/document [get]
+func (h *Handler) importExampleDocument(ctx *gin.Context) {
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return
+	}
+	if err := h.useCase.RequireAuthor(ctx, actor); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	yamlText, jsonText, err := exerciseUseCase.ExampleDocuments()
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, exampleDocumentResponse{Yaml: yamlText, Json: jsonText})
+}
+
 // serveArchive answers with a small zip held in memory as one attachment.
 func serveArchive(ctx *gin.Context, name string, contents []byte) {
 	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
