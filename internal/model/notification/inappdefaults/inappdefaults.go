@@ -39,7 +39,7 @@ func All(lang Lang) []Template {
 
 var uk = []Template{
 	{"flag_accepted", "Прапор зараховано", "«{{.Challenge}}»: {{.Points}} балів.", ""},
-	{"event.manager.assigned", "Вам надано доступ до заходу", "Вас призначено {{.role_name}} заходу «{{.event_name}}».", ""},
+	{"event.manager.assigned", "Вам надано доступ до заходу", "Вас призначено {{.role_name}} заходу «{{.event_name}}».", "{{.event_url}}manage/"},
 	{"event.lab.failed", "Лабораторія не працює", "Команда «{{.team_name}}», захід «{{.event_name}}». Перевірте лабораторію на сторінці «Лабораторії».", ""},
 	{"participant.approval_registration.submitted", "Заявку подано", "Заявку на участь у заході «{{.event_name}}» отримано. Очікуйте рішення.", ""},
 	{"participant.approval_registration.approved", "Участь схвалено", "Заявку на участь у заході «{{.event_name}}» схвалено.", "{{.event_url}}"},
@@ -60,7 +60,7 @@ var uk = []Template{
 
 var en = []Template{
 	{"flag_accepted", "Flag accepted", "«{{.Challenge}}»: {{.Points}} points.", ""},
-	{"event.manager.assigned", "You now have access to an event", "You have been assigned as {{.role_name}} of the event «{{.event_name}}».", ""},
+	{"event.manager.assigned", "You now have access to an event", "You have been assigned as {{.role_name}} of the event «{{.event_name}}».", "{{.event_url}}manage/"},
 	{"event.lab.failed", "A lab is down", "Team «{{.team_name}}», event «{{.event_name}}». Check the lab on the «Labs» page.", ""},
 	{"participant.approval_registration.submitted", "Application received", "Your application to «{{.event_name}}» is received. Wait for the decision.", ""},
 	{"participant.approval_registration.approved", "Participation approved", "Your application to «{{.event_name}}» is approved.", "{{.event_url}}"},

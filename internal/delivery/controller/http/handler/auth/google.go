@@ -40,13 +40,17 @@ func (h *Handler) redirectFromQuery(ctx *gin.Context) string {
 // googleRedirect godoc
 // @Summary  Begin Google sign-in (redirects to Google OAuth)
 // @Tags     auth
-// @Param    return_to  query  string  false  "post-auth landing URL"
+// @Param    return_to   query  string  false  "post-auth landing URL"
+// @Param    login_hint  query  string  false  "email address the Google account chooser preselects"
 // @Success  307
 // @Failure  500  {object}  response.Response
 // @Router   /auth/google [get]
 // googleRedirect starts Google sign-in (no intent cookie → callback treats as sign-in).
 func (h *Handler) googleRedirect(ctx *gin.Context) {
-	url, state, err := h.useCase.GetGoogleLoginURL(h.redirectFromQuery(ctx))
+	url, state, err := h.useCase.GetGoogleLoginURL(
+		h.redirectFromQuery(ctx),
+		ctx.Query("login_hint"),
+	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -59,13 +63,17 @@ func (h *Handler) googleRedirect(ctx *gin.Context) {
 // googleRegisterRedirect godoc
 // @Summary  Begin Google registration (sets register intent cookie, redirects to Google OAuth)
 // @Tags     auth
-// @Param    return_to  query  string  false  "post-registration landing URL (kept on /setup)"
+// @Param    return_to   query  string  false  "post-registration landing URL (kept on /setup)"
+// @Param    login_hint  query  string  false  "email address the Google account chooser preselects"
 // @Success  307
 // @Failure  500  {object}  response.Response
 // @Router   /auth/google/register [get]
 // googleRegisterRedirect starts register-with-Google (sets the register intent cookie).
 func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
-	url, state, err := h.useCase.GetGoogleLoginURL(h.redirectFromQuery(ctx))
+	url, state, err := h.useCase.GetGoogleLoginURL(
+		h.redirectFromQuery(ctx),
+		ctx.Query("login_hint"),
+	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -85,14 +93,19 @@ func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
 // @Failure  400  {object}  response.Response
 // @Failure  500  {object}  response.Response
 // @Router   /auth/google/setup [get]
-// googleSetupRedirect starts linking Google to an incomplete account during setup.
+// googleSetupRedirect starts linking Google to an incomplete account during setup; the chooser is hinted with
+// the account's own address (the only identity the link accepts), never with one from the query.
 func (h *Handler) googleSetupRedirect(ctx *gin.Context) {
 	setupToken := ctx.Query("token")
 	if setupToken == "" {
 		response.AbortWithBadRequest(ctx, nil)
 		return
 	}
-	url, state, err := h.useCase.GetGoogleLoginURL(h.redirectFromQuery(ctx))
+	url, state, err := h.useCase.GetGoogleSetupURL(
+		ctx.Request.Context(),
+		setupToken,
+		h.redirectFromQuery(ctx),
+	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -185,8 +198,13 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		)
 		if err != nil {
 			// The setup token is still ours: back to setup with a link error
-			// rather than a generic sign-in failure.
-			response.TemporaryRedirect(ctx, h.setupURL(setupToken, returnTo, "link_failed"))
+			// rather than a generic sign-in failure. A Google account with another
+			// address gets its own code, so the page can name the address to pick.
+			errCode := "link_failed"
+			if errors.Is(err, authModel.ErrAuthGoogleEmailMismatch.Err()) {
+				errCode = "email_mismatch"
+			}
+			response.TemporaryRedirect(ctx, h.setupURL(setupToken, returnTo, errCode))
 			return
 		}
 		response.TemporaryRedirect(ctx, h.setupURL(setupToken, returnTo, ""))
@@ -209,10 +227,13 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 			code,
 			state,
 		); err != nil {
-			response.TemporaryRedirect(
-				ctx,
-				h.hosts.IDURL("/profile/?error=link_failed"),
-			)
+			// A Google account with another address gets its own code: the
+			// connections section names the address to pick.
+			target := "/profile/?error=link_failed"
+			if errors.Is(err, authModel.ErrAuthGoogleEmailMismatch.Err()) {
+				target = "/profile/?tab=connections&error=email_mismatch"
+			}
+			response.TemporaryRedirect(ctx, h.hosts.IDURL(target))
 			return
 		}
 		response.TemporaryRedirect(

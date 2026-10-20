@@ -32,6 +32,7 @@ type eventManagerSignalPayload struct {
 	SubjectUserID string `var:"subject_user_id" desc:"User assigned to the event" default:"01900000-0000-7000-8000-000000000002"`
 	EventTag      string `var:"event_tag" desc:"Event short tag" default:"ctf-2026"`
 	EventName     string `var:"event_name" desc:"Event public name" default:"Cyber ICE Box CTF"`
+	EventURL      string `var:"event_url" desc:"Event site link, ends with a slash (the staff pages are under manage/)" default:"https://ctf-2026.example.org/"`
 	ManagerRole   string `var:"manager_role" desc:"Assigned event role code" default:"moderator"`
 	RoleName      string `var:"role_name" desc:"Assigned event role label" default:"модератором"`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`

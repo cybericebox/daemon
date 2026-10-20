@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func TestNew_DefaultTTL(t *testing.T) {
 
 func TestGetGoogleLoginURL_ContainsState(t *testing.T) {
 	c := mustClient(t)
-	loginURL, state, err := c.GetGoogleLoginURL("")
+	loginURL, state, err := c.GetGoogleLoginURL("", "")
 	if err != nil {
 		t.Fatalf("GetGoogleLoginURL: %v", err)
 	}
@@ -75,10 +76,29 @@ func TestGetGoogleLoginURL_ContainsState(t *testing.T) {
 	}
 }
 
+func TestGetGoogleLoginURL_LoginHint(t *testing.T) {
+	c := mustClient(t)
+	withHint, _, err := c.GetGoogleLoginURL("", "alice@example.test")
+	if err != nil {
+		t.Fatalf("GetGoogleLoginURL: %v", err)
+	}
+	u, err := url.Parse(withHint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("login_hint"); got != "alice@example.test" {
+		t.Fatalf("login_hint = %q", got)
+	}
+	without, _, _ := c.GetGoogleLoginURL("", "")
+	if strings.Contains(without, "login_hint") {
+		t.Fatalf("no hint expected: %q", without)
+	}
+}
+
 func TestGetGoogleLoginURL_UniqueStates(t *testing.T) {
 	c := mustClient(t)
-	_, s1, _ := c.GetGoogleLoginURL("")
-	_, s2, _ := c.GetGoogleLoginURL("")
+	_, s1, _ := c.GetGoogleLoginURL("", "")
+	_, s2, _ := c.GetGoogleLoginURL("", "")
 	// Each call produces a distinct JWT (different IssuedAt at minimum, but JWTs may share same second)
 	// — what matters is both are valid
 	if err := c.ValidateState(s1); err != nil {
@@ -93,7 +113,7 @@ func TestGetGoogleLoginURL_UniqueStates(t *testing.T) {
 
 func TestValidateState_Valid(t *testing.T) {
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	if err := c.ValidateState(state); err != nil {
 		t.Fatalf("expected valid state, got: %v", err)
 	}
@@ -101,7 +121,7 @@ func TestValidateState_Valid(t *testing.T) {
 
 func TestValidateState_Tampered(t *testing.T) {
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	tampered := state[:len(state)-4] + "XXXX"
 	if err := c.ValidateState(tampered); !errors.Is(err, oauth.ErrInvalidState) {
 		t.Fatalf("expected ErrInvalidState, got %v", err)
@@ -114,7 +134,7 @@ func TestValidateState_WrongKey(t *testing.T) {
 	cfg2.StateSignature = "different-key"
 	c2, _ := oauth.New(cfg2)
 
-	_, state, _ := c1.GetGoogleLoginURL("")
+	_, state, _ := c1.GetGoogleLoginURL("", "")
 	if err := c2.ValidateState(state); !errors.Is(err, oauth.ErrInvalidState) {
 		t.Fatalf("expected ErrInvalidState, got %v", err)
 	}
@@ -124,7 +144,7 @@ func TestValidateState_Expired(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.StateTTL = -time.Second // already expired
 	c, _ := oauth.New(cfg)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	if err := c.ValidateState(state); !errors.Is(err, oauth.ErrInvalidState) {
 		t.Fatalf("expected ErrInvalidState for expired state, got %v", err)
 	}
@@ -180,7 +200,7 @@ func TestGetGoogleUser_ValidFlow(t *testing.T) {
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 
 	// Exchange returns a real token pointing to our mock server.
 	// We call GetGoogleUserWithConfig to inject mock config + userinfo URL.
@@ -212,7 +232,7 @@ func TestGetGoogleUser_ReadsGivenAndFamilyName(t *testing.T) {
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	tok, err := googleCfg.Exchange(context.Background(), "any-code")
 	if err != nil {
 		t.Fatalf("mock token exchange: %v", err)
@@ -269,7 +289,7 @@ func TestGetGoogleUser_MissingRequiredFields(t *testing.T) {
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 
 	tok, _ := googleCfg.Exchange(context.Background(), "any-code")
 	_, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok)
@@ -289,7 +309,7 @@ func TestGetGoogleLoginURL_EmbedsRedirect(t *testing.T) {
 	c := mustClient(t)
 
 	wantRedirect := "https://id.example.test/profile"
-	_, state, err := c.GetGoogleLoginURL(wantRedirect)
+	_, state, err := c.GetGoogleLoginURL(wantRedirect, "")
 	if err != nil {
 		t.Fatalf("GetGoogleLoginURL: %v", err)
 	}
@@ -324,7 +344,7 @@ func TestGetGoogleLoginURL_EmbedsRedirect(t *testing.T) {
 func TestGetGoogleLoginURL_EmptyRedirect(t *testing.T) {
 	c := mustClient(t)
 
-	_, state, err := c.GetGoogleLoginURL("")
+	_, state, err := c.GetGoogleLoginURL("", "")
 	if err != nil {
 		t.Fatalf("GetGoogleLoginURL: %v", err)
 	}
@@ -363,7 +383,7 @@ func TestGetGoogleUser_UnverifiedEmailRejected(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv, googleCfg := mockOAuthServer(t, payload)
 			c := mustClient(t)
-			_, state, _ := c.GetGoogleLoginURL("")
+			_, state, _ := c.GetGoogleLoginURL("", "")
 			tok, _ := googleCfg.Exchange(context.Background(), "any-code")
 			_, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok)
 			if !errors.Is(err, oauth.ErrGoogleEmailNotVerified) {
@@ -376,7 +396,7 @@ func TestGetGoogleUser_UnverifiedEmailRejected(t *testing.T) {
 func TestGetGoogleUser_OIDCEmailVerifiedAccepted(t *testing.T) {
 	srv, googleCfg := mockOAuthServer(t, map[string]any{"id": "1", "email": "a@example.com", "email_verified": true})
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	tok, _ := googleCfg.Exchange(context.Background(), "any-code")
 	user, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok)
 	if err != nil || !user.EmailVerified {
@@ -389,7 +409,7 @@ func TestGetGoogleUser_OIDCEmailVerifiedAccepted(t *testing.T) {
 func TestGetGoogleUser_StateIsSingleUse(t *testing.T) {
 	srv, googleCfg := mockOAuthServer(t, map[string]any{"id": "1", "email": "a@example.com", "verified_email": true})
 	c := mustClient(t)
-	_, state, _ := c.GetGoogleLoginURL("")
+	_, state, _ := c.GetGoogleLoginURL("", "")
 	tok, _ := googleCfg.Exchange(context.Background(), "any-code")
 
 	if _, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok); err != nil {
@@ -399,7 +419,7 @@ func TestGetGoogleUser_StateIsSingleUse(t *testing.T) {
 		t.Fatalf("replay must be ErrInvalidState, got %v", err)
 	}
 	// another login is unaffected
-	_, other, _ := c.GetGoogleLoginURL("")
+	_, other, _ := c.GetGoogleLoginURL("", "")
 	if _, _, err := c.GetGoogleUserFromToken(context.Background(), other, srv.URL+"/userinfo", tok); err != nil {
 		t.Fatalf("a fresh state works: %v", err)
 	}

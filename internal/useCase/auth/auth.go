@@ -55,7 +55,7 @@ type INotifier interface {
 
 // IOAuthClient is the OAuth port (satisfied by *oauth.Client).
 type IOAuthClient interface {
-	GetGoogleLoginURL(redirect string) (loginURL, state string, err error)
+	GetGoogleLoginURL(redirect, loginHint string) (loginURL, state string, err error)
 	GetGoogleUser(ctx context.Context, code, state string) (*oauth.GoogleUser, string, error)
 }
 

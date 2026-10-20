@@ -27,9 +27,12 @@ type fakeOAuth struct {
 	user     *oauth.GoogleUser
 	err      error
 	redirect string
+	// what the last GetGoogleLoginURL was asked for
+	loginRedirect, loginHint string
 }
 
-func (f *fakeOAuth) GetGoogleLoginURL(_ string) (string, string, error) {
+func (f *fakeOAuth) GetGoogleLoginURL(redirect, loginHint string) (string, string, error) {
+	f.loginRedirect, f.loginHint = redirect, loginHint
 	return "https://accounts.google/x", "state", nil
 }
 func (f *fakeOAuth) GetGoogleUser(_ context.Context, _, _ string) (*oauth.GoogleUser, string, error) {
@@ -321,7 +324,7 @@ func TestGetGoogleLoginURL_Unconfigured(t *testing.T) {
 		OAuth:    nilClient, // non-nil interface wrapping nil concrete pointer
 		Config:   config.AuthConfig{},
 	})
-	if _, _, err := uc.GetGoogleLoginURL(""); err == nil {
+	if _, _, err := uc.GetGoogleLoginURL("", ""); err == nil {
 		t.Fatal("expected an error when OAuth is unconfigured (typed-nil interface), got nil")
 	}
 }
@@ -443,5 +446,186 @@ func TestUnlinkGoogle_WrongPasswordRefused(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: hashedPassword(t, "Correct!1")}, nil)
 	if err := uc.UnlinkGoogle(context.Background(), uid, "Wrong!1"); !errors.Is(err, authModel.ErrAuthInvalidOldPassword.Err()) {
 		t.Fatalf("want ErrAuthInvalidOldPassword, got %v", err)
+	}
+}
+
+const prefillSigningKey = "test-signing-key-that-is-long-enough"
+
+func newPrefillUC(
+	t *testing.T,
+	gu *oauth.GoogleUser,
+) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *fakeOAuth) {
+	t.Helper()
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	allowSetupLinkIssue(repo)
+	fo := &fakeOAuth{user: gu}
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Sessions: testSessions(t),
+		Repo:     repo,
+		Token:    token.MustNew(token.Config{TokenSignature: prefillSigningKey}),
+		Password: password.New(password.Config{HashCost: 4}),
+		Notifier: &fakeNotifier{},
+		OAuth:    fo,
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Hosts: testHosts("test")},
+	})
+	return uc, repo, fo
+}
+
+// The Google chooser preselects the account it is asked for (login_hint); only a plain address is passed on.
+func TestGetGoogleLoginURL_PassesOnlyAnAddressAsLoginHint(t *testing.T) {
+	cases := map[string]string{
+		"":                          "",
+		"Alice@Example.test":        "alice@example.test",
+		"  bob@example.test ":       "bob@example.test",
+		"not an email":              "",
+		"Eve <eve@example.test>":    "",
+		"a@b.test\r\nX-Injected: 1": "",
+	}
+	for in, want := range cases {
+		uc, _, fo := newPrefillUC(t, nil)
+		if _, _, err := uc.GetGoogleLoginURL("", in); err != nil {
+			t.Fatalf("GetGoogleLoginURL(%q): %v", in, err)
+		}
+		if fo.loginHint != want {
+			t.Errorf("login hint for %q = %q, want %q", in, fo.loginHint, want)
+		}
+	}
+}
+
+// «Продовження реєстрації»: the Google start for a setup link hints the account's own address.
+func TestGetGoogleSetupURL_HintsTheAccountEmail(t *testing.T) {
+	uc, repo, fo := newPrefillUC(t, nil)
+	uid := uuid.Must(uuid.NewV7())
+	setupToken := liveSetupLink(
+		t,
+		repo,
+		token.MustNew(token.Config{TokenSignature: prefillSigningKey}),
+		uid,
+	)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).
+		Return(postgres.User{ID: uid, Email: "Invited@Example.test", Status: string(userModel.UserStatusIncomplete)}, nil)
+
+	if _, _, err := uc.GetGoogleSetupURL(
+		context.Background(),
+		setupToken,
+		"https://event.test/e/1",
+	); err != nil {
+		t.Fatalf("GetGoogleSetupURL: %v", err)
+	}
+	if fo.loginHint != "invited@example.test" || fo.loginRedirect != "https://event.test/e/1" {
+		t.Fatalf("hint=%q redirect=%q", fo.loginHint, fo.loginRedirect)
+	}
+}
+
+// A dead setup link still starts Google (the callback reports the bad link), without a hint.
+func TestGetGoogleSetupURL_BadTokenStartsWithoutHint(t *testing.T) {
+	uc, _, fo := newPrefillUC(t, nil)
+	if _, _, err := uc.GetGoogleSetupURL(context.Background(), "garbage", ""); err != nil {
+		t.Fatalf("GetGoogleSetupURL: %v", err)
+	}
+	if fo.loginHint != "" {
+		t.Fatalf("hint=%q, want none", fo.loginHint)
+	}
+}
+
+// Linking Google from the profile hints the signed-in account's address.
+func TestStartGoogleLink_HintsTheAccountEmail(t *testing.T) {
+	uc, repo, fo := newPrefillUC(t, nil)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).
+		Return(postgres.User{ID: uid, Email: "owner@example.test", Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).
+		AnyTimes()
+	if _, _, err := uc.StartGoogleLink(context.Background(), uid, "Correct!1"); err != nil {
+		t.Fatalf("StartGoogleLink: %v", err)
+	}
+	if fo.loginHint != "owner@example.test" {
+		t.Fatalf("hint=%q", fo.loginHint)
+	}
+}
+
+// After the Google link during setup the account takes Google's given/family name when it has none yet.
+func TestLinkGoogleToSetupFromOAuth_AdoptsGoogleNamesWhenEmpty(t *testing.T) {
+	uc, repo, _ := newPrefillUC(
+		t,
+		&oauth.GoogleUser{
+			GoogleID:   "g-1",
+			Email:      "a@b.test",
+			GivenName:  "Олена",
+			FamilyName: "Коваль",
+		},
+	)
+	uid := uuid.Must(uuid.NewV7())
+	setupToken := liveSetupLink(
+		t,
+		repo,
+		token.MustNew(token.Config{TokenSignature: prefillSigningKey}),
+		uid,
+	)
+	user := postgres.User{ID: uid, Email: "a@b.test", Status: "incomplete", Role: "user"}
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(user, nil).AnyTimes()
+	repo.EXPECT().
+		GetUserByProvider(gomock.Any(), gomock.Any()).
+		Return(postgres.User{}, pgx.ErrNoRows)
+	repo.EXPECT().
+		CreateUserProvider(gomock.Any(), gomock.Any()).
+		Return(postgres.UserProvider{}, nil)
+	var written postgres.UpdateUserParams
+	repo.EXPECT().
+		UpdateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
+			written = arg
+			return 1, nil
+		})
+	if _, err := uc.LinkGoogleToSetupFromOAuth(
+		context.Background(),
+		setupToken,
+		"code",
+		"state",
+	); err != nil {
+		t.Fatalf("LinkGoogleToSetupFromOAuth: %v", err)
+	}
+	if written.FirstName != "Олена" || written.LastName != "Коваль" ||
+		written.Status != "incomplete" {
+		t.Fatalf("names not adopted, or the account left setup: %+v", written)
+	}
+}
+
+// A name already on the account (typed by an organizer in the invitation, or earlier) is never replaced.
+func TestLinkGoogleToSetupFromOAuth_KeepsExistingNames(t *testing.T) {
+	for _, existing := range [][2]string{{"Invited", "Person"}, {"Only", ""}, {"", "Surname"}} {
+		uc, repo, _ := newPrefillUC(
+			t,
+			&oauth.GoogleUser{
+				GoogleID:   "g-1",
+				Email:      "a@b.test",
+				GivenName:  "Google",
+				FamilyName: "Name",
+			},
+		)
+		uid := uuid.Must(uuid.NewV7())
+		setupToken := liveSetupLink(
+			t,
+			repo,
+			token.MustNew(token.Config{TokenSignature: prefillSigningKey}),
+			uid,
+		)
+		repo.EXPECT().GetUserByID(gomock.Any(), uid).
+			Return(postgres.User{ID: uid, Email: "a@b.test", Status: "incomplete", FirstName: existing[0], LastName: existing[1]}, nil).
+			AnyTimes()
+		repo.EXPECT().
+			GetUserByProvider(gomock.Any(), gomock.Any()).
+			Return(postgres.User{}, pgx.ErrNoRows)
+		repo.EXPECT().
+			CreateUserProvider(gomock.Any(), gomock.Any()).
+			Return(postgres.UserProvider{}, nil)
+		// No UpdateUser: nothing to write.
+		if _, err := uc.LinkGoogleToSetupFromOAuth(
+			context.Background(),
+			setupToken,
+			"code",
+			"state",
+		); err != nil {
+			t.Fatalf("%v: %v", existing, err)
+		}
 	}
 }

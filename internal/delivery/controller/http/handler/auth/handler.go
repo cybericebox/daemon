@@ -55,7 +55,8 @@ type (
 			userID uuid.UUID,
 			oldPassword, newPassword string,
 		) error
-		GetGoogleLoginURL(redirect string) (string, string, error)
+		GetGoogleLoginURL(redirect, loginHint string) (string, string, error)
+		GetGoogleSetupURL(ctx context.Context, setupToken, redirect string) (string, string, error)
 		StartGoogleLink(ctx context.Context, userID uuid.UUID, currentPassword string) (string, string, error)
 		GoogleAuth(
 			ctx context.Context,

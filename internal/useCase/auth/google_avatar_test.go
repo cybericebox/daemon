@@ -156,8 +156,10 @@ func TestLinkGoogleToAccountFromOAuth_DoesNotImportAvatar(t *testing.T) {
 	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).Return(postgres.UserProvider{}, nil)
 	repo.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().UpdateUserLastSeen(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	// No GetUserByID or UpdateUser: account linking never reads or changes the
+	// The account is read only to compare its address; no UpdateUser: account linking never changes the
 	// profile, whether its current avatar is empty or explicitly chosen.
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).
+		Return(postgres.User{ID: uid, Email: "a@b.test", Status: "active"}, nil)
 	if err := uc.LinkGoogleToAccountFromOAuth(context.Background(), cookie, "code", "state"); err != nil {
 		t.Fatal(err)
 	}
@@ -184,5 +186,44 @@ func TestBeginGoogleRegistration_ResumedSetupAdoptsMissingAvatar(t *testing.T) {
 	}
 	if !strings.HasPrefix(savedPicture, "/api/auth/avatar/"+uid.String()+"?v=") || *downloads != 1 || av.replacedRefID != uid {
 		t.Fatalf("resuming setup must backfill a missing Google avatar: picture=%q downloads=%d media=%+v", savedPicture, *downloads, av)
+	}
+}
+
+// A signed-in account links exactly the Google account of its own address (the owner's rule); another one is
+// refused before anything is linked. The comparison ignores case.
+func TestLinkGoogleToAccountFromOAuth_LinksOnlyTheAccountEmail(t *testing.T) {
+	for _, tc := range []struct {
+		accountEmail string
+		wantErr      bool
+	}{
+		{"other@b.test", true},
+		{"A@B.test", false},
+	} {
+		uid := uuid.Must(uuid.NewV7())
+		uc, repo, _, rt, _ := newGoogleAvatarUC(t, "a@b.test", http.StatusOK)
+		lifetimes := session.Lifetimes{Idle: time.Hour}
+		ticket := session.NewTicket(uuid.Must(uuid.NewV7()), uid, time.Now(), lifetimes)
+		cookie, err := rt.Codec.Seal(ticket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo.EXPECT().GetUserAccess(gomock.Any(), uid).
+			Return(postgres.GetUserAccessRow{Role: string(rbac.RoleUser), Status: string(userModel.UserStatusActive)}, nil)
+		repo.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+		repo.EXPECT().UpdateUserLastSeen(gomock.Any(), gomock.Any()).
+			Return(int64(1), nil).AnyTimes()
+		repo.EXPECT().GetUserByID(gomock.Any(), uid).
+			Return(postgres.User{ID: uid, Email: tc.accountEmail, Status: "active"}, nil)
+		if !tc.wantErr {
+			repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).
+				Return(postgres.User{}, pgx.ErrNoRows)
+			repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).
+				Return(postgres.UserProvider{}, nil)
+		}
+		err = uc.LinkGoogleToAccountFromOAuth(context.Background(), cookie, "code", "state")
+		mismatch := errors.Is(err, authModel.ErrAuthGoogleEmailMismatch.Err())
+		if tc.wantErr != mismatch || (!tc.wantErr && err != nil) {
+			t.Fatalf("account %q: err = %v", tc.accountEmail, err)
+		}
 	}
 }
