@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -17,16 +18,46 @@ import (
 
 // GetGoogleLoginURL returns the Google OAuth2 consent URL and the state token.
 // redirect is embedded (signed) in the state so it survives the round-trip to
-// Google without relying on a cookie.
-func (u *AuthUseCase) GetGoogleLoginURL(redirect string) (loginURL, state string, err error) {
+// Google without relying on a cookie. loginHint, when it is a plain email
+// address, makes the Google chooser preselect that account; anything else is dropped.
+func (u *AuthUseCase) GetGoogleLoginURL(redirect, loginHint string) (string, string, error) {
 	if !u.oauthConfigured {
 		return "", "", model.ErrPlatform.WithMessage("OAuth is not configured").Err()
 	}
-	loginURL, state, err = u.oauth.GetGoogleLoginURL(redirect)
+	loginURL, state, err := u.oauth.GetGoogleLoginURL(redirect, googleLoginHint(loginHint))
 	if err != nil {
 		return "", "", model.ErrPlatform.WithError(err).WithMessage("Failed to get google login url").Err()
 	}
 	return loginURL, state, nil
+}
+
+// googleLoginHint is the normalized address when value is exactly one plain email address, else "".
+func googleLoginHint(value string) string {
+	email := normalizeEmail(value)
+	if email == "" {
+		return ""
+	}
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Name != "" || addr.Address != email {
+		return ""
+	}
+	return email
+}
+
+// GetGoogleSetupURL starts the Google link of «продовження реєстрації»: the consent URL hints the address of
+// the account behind setupToken, the only Google identity the link accepts. A dead link still starts Google
+// without a hint: the callback reports it.
+func (u *AuthUseCase) GetGoogleSetupURL(
+	ctx context.Context,
+	setupToken, redirect string,
+) (string, string, error) {
+	hint := ""
+	if userID, verifyErr := u.setupTokens.Verify(ctx, setupToken); verifyErr == nil {
+		if user, getErr := u.users.GetByID(ctx, userID); getErr == nil {
+			hint = user.Email
+		}
+	}
+	return u.GetGoogleLoginURL(redirect, hint)
 }
 
 // resolveGoogleUser validates the OAuth callback and returns the verified
@@ -205,10 +236,16 @@ func (u *AuthUseCase) linkGoogleProvider(ctx context.Context, userID uuid.UUID, 
 // account's own address, otherwise anyone could bind THEIR Google identity (or,
 // via a forced GET, a victim's) to an account set up by someone else.
 func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail string) error {
-	return u.linkGoogleToSetup(ctx, setupToken, googleProviderID, googleEmail, "")
+	googleUser := &oauth.GoogleUser{GoogleID: googleProviderID, Email: googleEmail}
+	return u.linkGoogleToSetup(ctx, setupToken, googleUser)
 }
 
-func (u *AuthUseCase) linkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail, googlePicture string) error {
+func (u *AuthUseCase) linkGoogleToSetup(
+	ctx context.Context,
+	setupToken string,
+	googleUser *oauth.GoogleUser,
+) error {
+	googleProviderID, googleEmail := googleUser.GoogleID, googleUser.Email
 	userID, err := u.setupTokens.Verify(ctx, setupToken)
 	if err != nil {
 		return err
@@ -229,10 +266,24 @@ func (u *AuthUseCase) linkGoogleToSetup(ctx context.Context, setupToken, googleP
 	if err = u.linkGoogleProvider(ctx, userID, googleProviderID); err != nil {
 		return err
 	}
+	// The setup form opens prefilled with Google's name when the account has no name at all (a name from the
+	// invitation or typed earlier stays). Best-effort: the link is made, and the form can still be filled in.
+	firstName, lastName := googleUser.FirstLastName()
+	// A name from the provider cannot be sent back for correction: what a name must not hold is dropped.
+	firstName = tools.StripUnsafeDisplayText(firstName)
+	lastName = tools.StripUnsafeDisplayText(lastName)
+	if user.FirstName == "" && user.LastName == "" && (firstName != "" || lastName != "") {
+		_ = u.mutateUser(ctx, userID, func(current *userModel.User) error {
+			if current.FirstName != "" || current.LastName != "" {
+				return nil
+			}
+			return current.UpdateProfile(firstName, lastName, time.Now())
+		})
+	}
 	// Continuing registration (including an invitation) adopts the provider
 	// photo just like Google-first signup. Keep any photo already chosen.
 	if user.Picture == "" {
-		u.adoptProviderAvatar(ctx, userID, googlePicture)
+		u.adoptProviderAvatar(ctx, userID, googleUser.Picture)
 	}
 	return nil
 }
@@ -247,7 +298,7 @@ func (u *AuthUseCase) LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken
 		return "", err
 	}
 	returnTo = u.trustedReturnTo(stateRedirect)
-	return returnTo, u.linkGoogleToSetup(ctx, setupToken, googleUser.GoogleID, googleUser.Email, googleUser.Picture)
+	return returnTo, u.linkGoogleToSetup(ctx, setupToken, googleUser)
 }
 
 // LinkGoogleToAccountFromOAuth links a Google identity to the signed-in user.
@@ -272,7 +323,12 @@ func (u *AuthUseCase) StartGoogleLink(ctx context.Context, userID uuid.UUID, cur
 	if err = u.reauthenticate(ctx, userID, currentPassword); err != nil {
 		return "", "", err
 	}
-	return u.GetGoogleLoginURL("")
+	// The chooser preselects the account's own address (another Google account can still be picked).
+	hint := ""
+	if user, getErr := u.users.GetByID(ctx, userID); getErr == nil {
+		hint = user.Email
+	}
+	return u.GetGoogleLoginURL("", hint)
 }
 
 // UnlinkGoogle removes the user's Google link, refusing if it is the last login

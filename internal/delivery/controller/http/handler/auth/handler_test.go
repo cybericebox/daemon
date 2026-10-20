@@ -42,6 +42,8 @@ type fakeUC struct {
 	avatarBody        string
 	avatarType        string
 	capturedMeta      authModel.SessionMetadata
+	loginHint         string
+	setupStartToken   string
 }
 
 func (f *fakeUC) SignIn(
@@ -86,8 +88,16 @@ func (f *fakeUC) SetAccountPassword(_ context.Context, _ uuid.UUID, _, _ string)
 }
 
 // slice 3 fakeUC method stubs — Google OAuth
-func (f *fakeUC) GetGoogleLoginURL(redirect string) (string, string, error) {
-	f.loginRedirect = redirect
+func (f *fakeUC) GetGoogleLoginURL(redirect, loginHint string) (string, string, error) {
+	f.loginRedirect, f.loginHint = redirect, loginHint
+	return "https://accounts.google/x", "state-xyz", nil
+}
+
+func (f *fakeUC) GetGoogleSetupURL(
+	_ context.Context,
+	setupToken, redirect string,
+) (string, string, error) {
+	f.setupStartToken, f.loginRedirect = setupToken, redirect
 	return "https://accounts.google/x", "state-xyz", nil
 }
 
