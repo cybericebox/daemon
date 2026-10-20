@@ -27,6 +27,11 @@ func (u *MailUseCase) Deliver(ctx context.Context, eventID *uuid.UUID, msg email
 	}
 	note.Recipient = msg.To
 
+	// Before any route or limit is touched: such a message is never sent and never counts as a send.
+	if reservedAddress(msg.To) {
+		return &dispatchModel.SkippedError{Message: dispatchModel.SkippedMessageReserved}
+	}
+
 	route, err := u.platformRoute(ctx)
 	if err != nil {
 		return err
