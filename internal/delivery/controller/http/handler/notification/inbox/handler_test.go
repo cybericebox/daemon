@@ -106,6 +106,7 @@ func TestListInbox_PassesUserID(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, uid, uc.gotUserID)
 	assert.Contains(t, w.Body.String(), `"Items":[]`)
+	assert.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
 
 	id := uuid.Must(uuid.NewV7())
 	w = httptest.NewRecorder()
@@ -130,6 +131,7 @@ func TestInboxSince_BaselineAndCursor(t *testing.T) {
 	assert.Equal(t, uid, uc.gotUserID)
 	assert.Nil(t, uc.sinceCursor)
 	assert.Contains(t, w.Body.String(), `"Unread":2`)
+	assert.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
 
 	id := uuid.Must(uuid.NewV7())
 	cursor := inboxModel.Cursor{ID: id, CreatedAt: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}

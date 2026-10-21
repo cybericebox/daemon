@@ -189,6 +189,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 // @Failure  400  {object}  response.Response
 // @Router   /notifications/inbox [get]
 func (h *Handler) listInbox(ctx *gin.Context) {
+	// Personal data: never kept by the browser or any cache in between.
+	ctx.Header("Cache-Control", "private, no-store")
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	if !ok {
 		response.AbortWithUnauthenticated(ctx)
