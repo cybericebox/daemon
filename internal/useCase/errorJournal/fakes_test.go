@@ -29,6 +29,8 @@ type fakeRepo struct {
 	enqueued      map[uuid.UUID]time.Time
 	afterRecord   func()
 	smtpProviders []SMTPProviderState
+	changes       []Change
+	changeReads   int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -62,6 +64,10 @@ func (r *fakeRepo) Record(_ context.Context, in RecordInput) (RecordResult, erro
 		r.samples[g.ID] = r.samples[g.ID][:in.Keep]
 	}
 	res.Group = *g
+	r.changes = append(r.changes, Change{
+		Seq: int64(len(r.changes) + 1), GroupID: g.ID, SampleID: in.Sample.ID,
+		New: res.Inserted || res.Reopened, Origin: in.Origin,
+	})
 	if in.Notification != nil {
 		if plan := in.Notification(res); plan != nil {
 			pending := false
@@ -133,7 +139,34 @@ func (r *fakeRepo) SetGroupStatus(_ context.Context, id uuid.UUID, s errorJourna
 		return errorJournal.Group{}, errNotFound
 	}
 	g.Status = s
+	r.changes = append(r.changes, Change{Seq: int64(len(r.changes) + 1), GroupID: g.ID})
 	return *g, nil
+}
+
+func (r *fakeRepo) LatestChange(context.Context) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.changeReads++
+	return int64(len(r.changes)), nil
+}
+
+func (r *fakeRepo) ChangesAfter(_ context.Context, after int64, limit int) ([]Change, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.changeReads++
+	var out []Change
+	for _, c := range r.changes {
+		if c.Seq > after && len(out) < limit {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeRepo) reads() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.changeReads
 }
 
 func (r *fakeRepo) ResolveByFingerprint(_ context.Context, fp string, now time.Time) error {

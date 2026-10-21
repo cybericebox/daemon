@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -171,6 +172,16 @@ func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordIn
 		}
 	}
 	if tx != nil {
+		// Last in the transaction: the live stream of the other replicas reads the change log.
+		change := errorJournalUseCase.Change{
+			GroupID:  res.Group.ID,
+			SampleID: s.ID,
+			New:      res.Inserted || res.Reopened,
+			Origin:   in.Origin,
+		}
+		if changeErr := appendChange(ctx, tx, change); changeErr != nil {
+			return errorJournalUseCase.RecordResult{}, changeErr
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return errorJournalUseCase.RecordResult{}, err
 		}
@@ -252,6 +263,9 @@ func (r *Repository) SetGroupStatus(ctx context.Context, id uuid.UUID, status er
 	if err != nil {
 		return errorJournal.Group{}, notFound(err)
 	}
+	if err = r.recordChange(ctx, errorJournalUseCase.Change{GroupID: row.ID}); err != nil {
+		return errorJournal.Group{}, err
+	}
 	return groupOf(row), nil
 }
 
@@ -299,7 +313,15 @@ func (r *Repository) Purge(ctx context.Context, cutoff time.Time) (errorJournalU
 	if res.Groups, err = r.q.PurgeErrorGroups(ctx, cutoff); err != nil {
 		return res, err
 	}
-	res.NotFound, err = r.q.PurgeErrorNotFound(ctx, dateOf(cutoff))
+	if res.NotFound, err = r.q.PurgeErrorNotFound(ctx, dateOf(cutoff)); err != nil {
+		return res, err
+	}
+	// The change log only serves the live stream: a day is far more than any stream polls behind.
+	if pool, ok := r.pool.(interface {
+		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	}); ok {
+		_, err = pool.Exec(ctx, changeRetain)
+	}
 	return res, err
 }
 

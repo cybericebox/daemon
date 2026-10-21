@@ -44,6 +44,8 @@ type Config struct {
 	AgentOfflineAfter time.Duration
 	// WatchEvery is how often the periodic checks (queue, certificates) run.
 	WatchEvery time.Duration
+	// StreamPollEvery is how often an open stream reads the change log (the other replicas' errors); 3 seconds by default.
+	StreamPollEvery time.Duration
 	// AdminURL is the base of the links in messages (https://admin.<domain>); empty leaves links out.
 	AdminURL string
 	// Environment labels messages (development, stage, production).
@@ -89,6 +91,10 @@ type Repository interface {
 	SetChatFailing(ctx context.Context, chatID string, failing bool, reason string, now time.Time) error
 	SuperAdminEmails(ctx context.Context) ([]string, error)
 	RecipientUsers(ctx context.Context, emails []string) ([]RecipientUser, error)
+	// LatestChange is the newest seq of the change log (0: empty); a new stream starts after it.
+	LatestChange(ctx context.Context) (int64, error)
+	// ChangesAfter reads up to limit changes with a seq above after, oldest first.
+	ChangesAfter(ctx context.Context, after int64, limit int) ([]Change, error)
 	// QueueStats reads the job queue: jobs ready to run, and how long the oldest has waited.
 	QueueStats(ctx context.Context, now time.Time) (QueueStats, error)
 }
@@ -120,6 +126,8 @@ type (
 		Keep        int
 		// Count is the occurrences this record adds (at least 1).
 		Count int
+		// Origin names the journal instance that records; it is kept in the change log.
+		Origin string
 		// Notification is evaluated inside the record transaction, before committing the capture.
 		Notification func(RecordResult) *NotificationPlan
 	}
@@ -165,11 +173,12 @@ type Journal struct {
 	tg     Telegram
 	mail   Mailer
 	agents AgentCertificates
-	relay  Relay
-	// instance names this process on the relay.
+	// instance names this process in the change log, so its own events are not shown twice.
 	instance string
-	cfg      Config
-	now      func() time.Time
+	// watchers counts the open streams; the poller runs while there is one.
+	streams streamPoller
+	cfg     Config
+	now     func() time.Time
 
 	queue   chan errorJournal.Event
 	dropped atomic.Int64
@@ -212,9 +221,7 @@ type Dependencies struct {
 	Telegram Telegram
 	Mailer   Mailer
 	Agents   AgentCertificates
-	// Relay carries the live stream to the other replicas; nil keeps it inside this process.
-	Relay  Relay
-	Config Config
+	Config   Config
 }
 
 func New(deps Dependencies) *Journal {
@@ -227,8 +234,7 @@ func New(deps Dependencies) *Journal {
 	}
 	return &Journal{
 		repo: deps.Repo, tg: deps.Telegram, mail: deps.Mailer, agents: deps.Agents, cfg: cfg, now: time.Now,
-		relay: deps.Relay, instance: uuid.Must(uuid.NewV4()).String(),
-		queue: make(chan errorJournal.Event, cfg.BufferSize), hub: NewHub(),
+		queue: make(chan errorJournal.Event, cfg.BufferSize), hub: NewHub(), instance: uuid.Must(uuid.NewV4()).String(),
 		spikes: spikeCounter{hits: map[string][]time.Time{}}, notFound: map[notFoundKey]int64{},
 		offline: map[string]*offlineState{}, certLast: map[string]time.Time{},
 		refusals: map[string]*refusalFold{},
@@ -237,7 +243,19 @@ func New(deps Dependencies) *Journal {
 
 // ErrorJournalStream subscribes to the live stream of recorded errors (the admin page's SSE); call the returned
 // function to end it.
-func (j *Journal) ErrorJournalStream() (<-chan StreamEvent, func()) { return j.hub.Subscribe() }
+// While at least one stream is open on this replica a poller reads the change log, so errors recorded on the other
+// replicas reach it too; with no stream nothing is polled.
+func (j *Journal) ErrorJournalStream() (<-chan StreamEvent, func()) {
+	ch, unsubscribe := j.hub.Subscribe()
+	j.streams.open(j)
+	var once sync.Once
+	return ch, func() {
+		once.Do(func() {
+			unsubscribe()
+			j.streams.close()
+		})
+	}
+}
 
 // Report hands an event to the journal. It never blocks and never fails the caller: a full queue drops the event.
 func (j *Journal) Report(e errorJournal.Event) {
@@ -407,6 +425,7 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	rec, err := j.repo.Record(ctx, RecordInput{
 		Fingerprint: fp, Kind: e.Kind, Source: e.Source, Title: errorJournal.Title(e), At: e.At,
 		Sample: sample, Keep: j.cfg.SamplesPerGroup, Count: max(e.Count, 1),
+		Origin:       j.instance,
 		Notification: func(rec RecordResult) *NotificationPlan { return j.notificationPlan(e, rec, sample) },
 	})
 	if err != nil {
@@ -417,7 +436,7 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	}
 	sample.GroupID = rec.Group.ID
 	isNew := rec.Inserted || rec.Reopened
-	j.publish(ctx, StreamEvent{Group: rec.Group, Sample: &sample, New: isNew})
+	j.hub.Publish(StreamEvent{Group: rec.Group, Sample: &sample, New: isNew})
 	return rec, nil
 }
 
@@ -478,7 +497,7 @@ func (j *Journal) SetErrorGroupStatus(ctx context.Context, id uuid.UUID, status 
 	if err != nil {
 		return errorJournal.Group{}, err
 	}
-	j.publish(ctx, StreamEvent{Group: g})
+	// The streams of every replica, this one included, get the change from the change log.
 	return g, nil
 }
 
