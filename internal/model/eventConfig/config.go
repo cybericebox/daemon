@@ -289,7 +289,7 @@ func (c *EventConfig) SetStandTiming(timing eventStandModel.Timing, now time.Tim
 
 // SetResultsSettings changes the results page settings and the scoreboard
 // visibility together (the «Налаштування результатів» page) without touching
-// other fields. The moderator's early opening is kept.
+// other fields. The moderator's explicit opening is kept.
 func (c *EventConfig) SetResultsSettings(visibility Visibility, in ResultsSettings, now time.Time, by uuid.UUID) error {
 	if !visibility.valid() {
 		return ErrVisibilityInvalid.Err()
@@ -298,6 +298,9 @@ func (c *EventConfig) SetResultsSettings(visibility Visibility, in ResultsSettin
 		return ErrResultsSettingsInvalid.Err()
 	}
 	in.OpenedAt = c.Results.OpenedAt
+	in.FreezeEndMode = in.FreezeEndMode.OrDefault()
+	in.FreezeBannerText = strings.TrimSpace(in.FreezeBannerText)
+	in.FreezeBannerLevel = FreezeBannerLevelOrDefault(in.FreezeBannerLevel)
 	c.ScoreboardVisibility = visibility
 	c.Results = in
 	c.touch(now, by)
@@ -305,7 +308,7 @@ func (c *EventConfig) SetResultsSettings(visibility Visibility, in ResultsSettin
 }
 
 // SetResultsOpened records («Відкрити підсумки») or withdraws a moderator's
-// early end of the freeze. Opening twice keeps the first moment.
+// explicit end of the freeze. Opening twice keeps the first moment.
 func (c *EventConfig) SetResultsOpened(opened bool, now time.Time, by uuid.UUID) {
 	switch {
 	case opened && c.Results.OpenedAt == nil:

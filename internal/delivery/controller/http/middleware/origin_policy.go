@@ -216,6 +216,7 @@ var PublicReadRoutes = map[string]bool{
 	"/api/events/:id/preview-picture/:fileID":   true,
 	"/api/events/:id/results":                   true,
 	"/api/events/:id/results/changes":           true,
+	"/api/events/:id/results/freeze":            true,
 	"/api/events/:id/results/live":              true,
 	"/api/events/self/live-screen":              true,
 	"/api/events/self/live-screen/results":      true,

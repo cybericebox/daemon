@@ -9,7 +9,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/labview"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	siteBannerModel "github.com/cybericebox/daemon/internal/model/siteBanner"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
+	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
 type ownChallengeResponse struct {
@@ -25,7 +27,6 @@ type ownChallengeResponse struct {
 	GroupID          *uuid.UUID                      `json:"GroupID"`
 	GroupName        string                          `json:"GroupName"`
 	GroupOrder       int32                           `json:"GroupOrder"`
-	ContentUpdatedAt *time.Time                      `json:"ContentUpdatedAt"`
 	Infrastructure   bool                            `json:"Infrastructure"`
 	HintsEnabled     bool                            `json:"HintsEnabled"`
 	// MaxAttempts / AttemptsLeft: the team's wrong flag submissions allowed on this task and what remains; both
@@ -151,6 +152,11 @@ type challengeSolveResponse struct {
 	FirstBlood bool `json:"FirstBlood"`
 }
 
+type challengeSolvesPageResponse struct {
+	pagination.CursorPage[challengeSolveResponse]
+	Frozen bool `json:"Frozen"`
+}
+
 // teamMemberResponse.Role is participantModel.TeamRole: 0 captain, 1 member.
 // UserID is omitted for other people unless the caller is the captain.
 type teamMemberResponse struct {
@@ -186,10 +192,9 @@ type scoreboardEntryResponse struct {
 	TeamID   uuid.UUID `json:"TeamID"`
 	TeamName string    `json:"TeamName"`
 	// NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).
-	NameHidden  bool       `json:"NameHidden"`
-	Points      int64      `json:"Points"`
-	Solved      int64      `json:"Solved"`
-	LastSolveAt *time.Time `json:"LastSolveAt"`
+	NameHidden bool  `json:"NameHidden"`
+	Points     int64 `json:"Points"`
+	Solved     int64 `json:"Solved"`
 }
 type ownScoreTimelineEntryResponse struct {
 	EventChallengeID uuid.UUID `json:"EventChallengeID"`
@@ -222,11 +227,10 @@ type eventScoreTimelineEntryResponse struct {
 	SolvedAt         time.Time `json:"SolvedAt"`
 }
 type resultsSnapshotResponse struct {
-	Revision    int64                             `json:"Revision"`
-	GeneratedAt time.Time                         `json:"GeneratedAt"`
-	Scoreboard  []scoreboardEntryResponse         `json:"Scoreboard"`
-	Timeline    []eventScoreTimelineEntryResponse `json:"Timeline"`
-	TotalTeams  int                               `json:"TotalTeams"`
+	Revision   int64                             `json:"Revision"`
+	Scoreboard []scoreboardEntryResponse         `json:"Scoreboard"`
+	Timeline   []eventScoreTimelineEntryResponse `json:"Timeline"`
+	TotalTeams int                               `json:"TotalTeams"`
 	// Tasks: the published tasks count, only on the live screen (view=live).
 	Tasks   *int64                 `json:"Tasks,omitempty"`
 	Freeze  resultsFreezeResponse  `json:"Freeze"`
@@ -236,12 +240,14 @@ type resultsSnapshotResponse struct {
 // resultsFreezeResponse: Applied tells whether this response is the frozen
 // table (the viewer is not a moderator and the freeze is active).
 type resultsFreezeResponse struct {
-	Enabled  bool       `json:"Enabled"`
-	FrozenAt *time.Time `json:"FrozenAt"`
-	FinishAt *time.Time `json:"FinishAt"`
-	OpenedAt *time.Time `json:"OpenedAt"`
-	Active   bool       `json:"Active"`
-	Applied  bool       `json:"Applied"`
+	Enabled     bool                  `json:"Enabled"`
+	FrozenAt    *time.Time            `json:"FrozenAt"`
+	FinishAt    *time.Time            `json:"FinishAt"`
+	OpenedAt    *time.Time            `json:"OpenedAt"`
+	Active      bool                  `json:"Active"`
+	Applied     bool                  `json:"Applied"`
+	BannerText  string                `json:"BannerText"`
+	BannerLevel siteBannerModel.Level `json:"BannerLevel" swaggertype:"string" enums:"info,warning,critical" default:"warning"`
 }
 type resultsDisplayResponse struct {
 	ChartEnabled bool   `json:"ChartEnabled"`
@@ -267,15 +273,23 @@ type publicEventContentResponse struct {
 	Variables map[string]any `json:"Variables"`
 }
 type publicEventPageResponse struct {
-	Page      any            `json:"Page"`
-	Variables map[string]any `json:"Variables"`
+	Page      publicEventPageContentResponse `json:"Page"`
+	Variables map[string]any                 `json:"Variables"`
+}
+type publicEventPageContentResponse struct {
+	Slug     string `json:"Slug"`
+	Title    string `json:"Title"`
+	Document any    `json:"Document"`
 }
 
 func toPublicEventContentResponse(v eventUseCase.PublicEventContentView) publicEventContentResponse {
 	return publicEventContentResponse{Landing: v.Landing, Live: v.Live, Variables: v.Variables}
 }
 func toPublicEventPageResponse(v eventUseCase.PublicEventPageView) publicEventPageResponse {
-	return publicEventPageResponse{Page: v.Page, Variables: v.Variables}
+	return publicEventPageResponse{
+		Page:      publicEventPageContentResponse{Slug: v.Page.Slug, Title: v.Page.Title, Document: v.Page.Document},
+		Variables: v.Variables,
+	}
 }
 
 type submitParticipantFormRequest struct {
@@ -313,8 +327,6 @@ type labStatusResponse struct {
 	VPNCIDR      string                          `json:"VPNCIDR"`
 	InternetCIDR string                          `json:"InternetCIDR"`
 	Access       []labAccessResponse             `json:"Access"`
-	// Queue is set while the Lab waits in the launch queue (Phase Queued); otherwise null.
-	Queue *labview.QueueResponse `json:"Queue"`
 }
 
 type labVPNConfigResponse struct {
@@ -339,7 +351,7 @@ type labAccessResponse struct {
 
 func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeResponse {
 	out := ownChallengeResponse{EventExerciseID: v.EventExerciseID, Lab: labview.ParticipantLab(v.Lab), ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
-		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount, StageID: v.StageID, Closed: v.Closed, Practice: v.Practice,
+		Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount, StageID: v.StageID, Closed: v.Closed, Practice: v.Practice,
 		Prerequisites: make([]challengePrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]challengeFileResponse, 0, len(v.Files)),
 		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal, AwardedPoints: v.AwardedPoints, HintPenalty: v.HintPenalty}
 	if v.SolvedBy != nil {
@@ -354,7 +366,7 @@ func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeRespons
 	return out
 }
 func toScoreboardEntryResponse(v eventUseCase.ScoreboardEntryView) scoreboardEntryResponse {
-	return scoreboardEntryResponse{Rank: v.Rank, TeamID: v.TeamID, TeamName: v.TeamName, NameHidden: v.NameHidden, Points: v.Points, Solved: v.Solved, LastSolveAt: v.LastSolveAt}
+	return scoreboardEntryResponse{Rank: v.Rank, TeamID: v.TeamID, TeamName: v.TeamName, NameHidden: v.NameHidden, Points: v.Points, Solved: v.Solved}
 }
 func toOwnScoreTimelineEntryResponse(v eventUseCase.OwnScoreTimelineEntryView) ownScoreTimelineEntryResponse {
 	return ownScoreTimelineEntryResponse{EventChallengeID: v.EventChallengeID, Points: v.Points, SolvedAt: v.SolvedAt}
@@ -377,6 +389,14 @@ func toOwnTeamResultsResponse(v eventUseCase.OwnTeamResultsView) ownTeamResultsR
 	}
 	return ownTeamResultsResponse{Entry: toScoreboardEntryResponse(v.Entry), Timeline: timeline, Attempts: attempts}
 }
+func toResultsFreezeResponse(f eventUseCase.ResultsFreezeView) resultsFreezeResponse {
+	bannerText, bannerLevel := "", siteBannerModel.LevelWarning
+	if f.Applied {
+		bannerText, bannerLevel = f.BannerText, eventConfigModel.FreezeBannerLevelOrDefault(f.BannerLevel)
+	}
+	return resultsFreezeResponse{Enabled: f.Enabled, FrozenAt: f.FrozenAt, FinishAt: f.FinishAt, OpenedAt: f.OpenedAt, Active: f.Active, Applied: f.Applied, BannerText: bannerText, BannerLevel: bannerLevel}
+}
+
 func toResultsSnapshotResponse(v eventUseCase.ResultsSnapshotView) resultsSnapshotResponse {
 	entries := make([]scoreboardEntryResponse, 0, len(v.Scoreboard))
 	for _, item := range v.Scoreboard {
@@ -386,9 +406,8 @@ func toResultsSnapshotResponse(v eventUseCase.ResultsSnapshotView) resultsSnapsh
 	for _, item := range v.Timeline {
 		timeline = append(timeline, eventScoreTimelineEntryResponse{EventTeamID: item.EventTeamID, EventChallengeID: item.EventChallengeID, ChallengeName: item.ChallengeName, Points: item.Points, SolvedAt: item.SolvedAt})
 	}
-	f := v.Freeze
-	return resultsSnapshotResponse{Revision: v.Revision, GeneratedAt: v.GeneratedAt, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams, Tasks: v.Tasks,
-		Freeze:  resultsFreezeResponse{Enabled: f.Enabled, FrozenAt: f.FrozenAt, FinishAt: f.FinishAt, OpenedAt: f.OpenedAt, Active: f.Active, Applied: f.Applied},
+	return resultsSnapshotResponse{Revision: v.Revision, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams, Tasks: v.Tasks,
+		Freeze:  toResultsFreezeResponse(v.Freeze),
 		Display: resultsDisplayResponse{ChartEnabled: v.Display.ChartEnabled, ChartTeams: v.Display.ChartTeams, RowsLimit: v.Display.RowsLimit}}
 }
 

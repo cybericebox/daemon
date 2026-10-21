@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -30,7 +31,7 @@ func TestOwnChallengeResponseCarriesBoardContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"ContentUpdatedAt":null`, `"Infrastructure":true`, `"HintsEnabled":true`, `"Locked":false`,
+	for _, expected := range []string{`"Infrastructure":true`, `"HintsEnabled":true`, `"Locked":false`,
 		`"Prerequisites":[{"EventChallengeID":"` + prerequisite.String() + `","Name":"Intro","Solved":true}]`,
 		`"Files":[{"FileID":"` + fileID.String() + `","Name":"a.zip","Size":12345}]`, `"SolveCount":3`} {
 		if !strings.Contains(string(body), expected) {
@@ -41,6 +42,23 @@ func TestOwnChallengeResponseCarriesBoardContract(t *testing.T) {
 	for _, expected := range []string{`"Prerequisites":[]`, `"Files":[]`, `"SolveCount":null`} {
 		if !strings.Contains(string(empty), expected) {
 			t.Fatalf("missing %s in %s", expected, empty)
+		}
+	}
+}
+
+func TestOwnChallengeResponseOmitsContentUpdateMetadata(t *testing.T) {
+	updatedAt := time.Date(2026, 10, 20, 14, 0, 0, 0, time.UTC)
+	for _, at := range []*time.Time{nil, &updatedAt} {
+		body, err := json.Marshal(toOwnChallengeResponse(eventUseCase.OwnChallengeView{ContentUpdatedAt: at}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(body, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := fields["ContentUpdatedAt"]; exists {
+			t.Fatalf("participant task exposes content update metadata: %s", body)
 		}
 	}
 }
@@ -102,7 +120,12 @@ func TestParticipantAnswersRoutes(t *testing.T) {
 			if answers != nil && answers["school"] != nil {
 				return eventUseCase.OwnParticipantAnswersView{}, participantModel.ErrParticipantFieldNotEditable.Err()
 			}
-			return eventUseCase.OwnParticipantAnswersView{Form: eventUseCase.ParticipantFormView{Version: 2, Enabled: true}, Answers: map[string]any{"city": "Lviv"}, Editable: true}, nil
+			return eventUseCase.OwnParticipantAnswersView{
+				Form: eventUseCase.ParticipantFormView{Version: 2, Enabled: true, Document: eventContentModel.Document{Blocks: []eventContentModel.Block{
+					{ID: "city", Type: eventContentModel.BlockField, Key: "city", Input: "text", Label: "City"},
+				}}},
+				Answers: map[string]any{"city": "Lviv"}, Editable: true,
+			}, nil
 		},
 	}, allowAllProtection{})
 	router := participantPagesRouter(h, userID, eventID)

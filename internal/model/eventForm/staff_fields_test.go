@@ -78,6 +78,19 @@ func TestKeepStaffAnswersProtectsRecordedValues(t *testing.T) {
 	}
 }
 
+func TestStaffAnswerWriteHelpersKeepUnknownKeysForValidation(t *testing.T) {
+	form := staffForm()
+	submitted := map[string]any{"city": "Kyiv", "note": "forged", "unknown": "must be validated"}
+	want := map[string]any{"city": "Kyiv", "unknown": "must be validated"}
+	if got := form.WithoutStaffAnswers(submitted); !reflect.DeepEqual(got, want) {
+		t.Fatalf("write answers = %v, want %v", got, want)
+	}
+	want["note"] = "Recorded"
+	if got := form.KeepStaffAnswers(map[string]any{"note": "Recorded"}, submitted); !reflect.DeepEqual(got, want) {
+		t.Fatalf("merged write answers = %v, want %v", got, want)
+	}
+}
+
 func TestValidateStaffAnswersOnlyAcceptsStaffQuestions(t *testing.T) {
 	form := staffForm()
 	if err := form.ValidateStaffAnswers(map[string]any{"note": "ok", "came": true}); err != nil {

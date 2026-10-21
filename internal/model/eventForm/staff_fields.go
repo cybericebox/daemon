@@ -61,7 +61,24 @@ func (f Form) ForParticipant() Form {
 	return out
 }
 
-// WithoutStaffAnswers copies answers without the staff-only keys.
+// AnswersForParticipant copies only answers to current participant-visible
+// questions. Unknown keys may hold staff-only values from a removed question.
+func (f Form) AnswersForParticipant(answers map[string]any) map[string]any {
+	out := make(map[string]any)
+	for _, block := range f.Document.Blocks {
+		if block.Type != eventContentModel.BlockField || block.StaffOnly {
+			continue
+		}
+		if value, ok := answers[block.Key]; ok {
+			out[block.Key] = value
+		}
+	}
+	return out
+}
+
+// WithoutStaffAnswers drops current staff-only keys from submitted answers.
+// Unknown keys remain for write validation; participant reads must instead use
+// AnswersForParticipant so removed staff questions cannot expose stored values.
 func (f Form) WithoutStaffAnswers(answers map[string]any) map[string]any {
 	staff := f.StaffKeys()
 	out := make(map[string]any, len(answers))

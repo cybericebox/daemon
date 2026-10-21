@@ -86,16 +86,16 @@ ORDER BY prerequisite.challenge_id, board.order_index, prerequisite.prerequisite
 -- name: CountEventChallengeSolves :many
 -- Accepted solves per board challenge by admitted, non-hidden teams, plus the
 -- caller's own team even when it is hidden or not admitted. A cutoff (freeze)
--- keeps only other teams' solves before it.
+-- keeps every team's solves before it, including the caller's team.
 SELECT tc.event_challenge_id, count(*)::bigint AS solves
 FROM team_challenge_solves solved
 JOIN team_challenges tc ON tc.id = solved.team_challenge_id
 JOIN event_teams team ON team.id = tc.event_team_id
 WHERE tc.event_id = sqlc.arg(event_id)
   AND (team.id = sqlc.arg(own_team_id)::uuid
-    OR (event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually,
-                            team.admission_locked, team.member_count)
-        AND (sqlc.narg(cutoff)::timestamptz IS NULL OR solved.solved_at < sqlc.narg(cutoff)::timestamptz)))
+    OR event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually,
+                            team.admission_locked, team.member_count))
+  AND (sqlc.narg(cutoff)::timestamptz IS NULL OR solved.solved_at < sqlc.narg(cutoff)::timestamptz)
 GROUP BY tc.event_challenge_id;
 
 -- name: ListEventChallengeSolves :many
@@ -130,8 +130,8 @@ CROSS JOIN LATERAL (SELECT event_team_visible(team.hidden, team.moderators, team
 WHERE tc.event_id = sqlc.arg(event_id)
   AND tc.event_challenge_id = sqlc.arg(event_challenge_id)
   AND (team.id = sqlc.arg(own_team_id)::uuid
-    OR (visible.is_visible
-        AND (sqlc.narg(cutoff)::timestamptz IS NULL OR solved.solved_at < sqlc.narg(cutoff)::timestamptz)))
+    OR visible.is_visible)
+  AND (sqlc.narg(cutoff)::timestamptz IS NULL OR solved.solved_at < sqlc.narg(cutoff)::timestamptz)
   AND (sqlc.narg(after_id)::uuid IS NULL
     OR (solved.solved_at, tc.id) > (SELECT after_solve.solved_at, after_solve.team_challenge_id
                                     FROM team_challenge_solves after_solve

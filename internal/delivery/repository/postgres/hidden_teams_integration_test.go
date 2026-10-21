@@ -202,14 +202,23 @@ func TestChallengeSolversKeysetIsStableAndCutByFreeze(t *testing.T) {
 		}
 	}
 
-	// Freeze: others' solves after the cut-off are gone, the own team's stay.
+	// Freeze: every solve after the cutoff is gone, including the caller's own.
 	cutoff := itNow.Add(time.Minute)
 	if rows := f.page(t, uuid.Must(uuid.NewV7()), &cutoff, uuid.Nil, 10); len(rows) != 5 {
 		t.Fatalf("freeze must cut the late solve: %d rows", len(rows))
 	}
 	rows := f.page(t, late, &cutoff, uuid.Nil, 10)
+	if len(rows) != 5 {
+		t.Fatalf("freeze must also cut the own late solve: %+v", rows)
+	}
+	for i, row := range rows {
+		if row.TeamChallengeID != want[i] {
+			t.Fatalf("frozen own-team list order differs at %d: got %v want %v", i, row.TeamChallengeID, want[i])
+		}
+	}
+	rows = f.page(t, late, nil, uuid.Nil, 10)
 	if len(rows) != 6 || rows[5].EventTeamID != late || rows[5].FirstBlood {
-		t.Fatalf("the own late solve stays and is not first blood: %+v", rows)
+		t.Fatalf("the live own late solve stays and is not first blood: %+v", rows)
 	}
 }
 

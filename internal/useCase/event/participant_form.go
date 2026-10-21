@@ -126,7 +126,7 @@ func (u *EventUseCase) SubmitParticipantForm(ctx context.Context, eventID, userI
 		return ParticipantFormAnswerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to update participant fields").Err()
 	}
 	participantForm := form.Form.ForParticipant()
-	return ParticipantFormAnswerView{UserID: answer.UserID, FormVersion: form.Form.Version, Answers: form.Form.WithoutStaffAnswers(answer.Values), Document: participantForm.Document, SubmittedAt: answer.SubmittedAt}, nil
+	return ParticipantFormAnswerView{UserID: answer.UserID, FormVersion: form.Form.Version, Answers: form.Form.AnswersForParticipant(answer.Values), Document: participantForm.Document, SubmittedAt: answer.SubmittedAt}, nil
 }
 
 func (u *EventUseCase) ListParticipantFormAnswers(ctx context.Context, eventID uuid.UUID) ([]ParticipantFormAnswerView, error) {

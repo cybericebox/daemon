@@ -20,9 +20,9 @@ JOIN team_challenges tc ON tc.id = solved.team_challenge_id
 JOIN event_teams team ON team.id = tc.event_team_id
 WHERE tc.event_id = $1
   AND (team.id = $2::uuid
-    OR (event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually,
-                            team.admission_locked, team.member_count)
-        AND ($3::timestamptz IS NULL OR solved.solved_at < $3::timestamptz)))
+    OR event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually,
+                            team.admission_locked, team.member_count))
+  AND ($3::timestamptz IS NULL OR solved.solved_at < $3::timestamptz)
 GROUP BY tc.event_challenge_id
 `
 
@@ -39,7 +39,7 @@ type CountEventChallengeSolvesRow struct {
 
 // Accepted solves per board challenge by admitted, non-hidden teams, plus the
 // caller's own team even when it is hidden or not admitted. A cutoff (freeze)
-// keeps only other teams' solves before it.
+// keeps every team's solves before it, including the caller's team.
 func (q *Queries) CountEventChallengeSolves(ctx context.Context, arg CountEventChallengeSolvesParams) ([]CountEventChallengeSolvesRow, error) {
 	rows, err := q.db.Query(ctx, countEventChallengeSolves, arg.EventID, arg.OwnTeamID, arg.Cutoff)
 	if err != nil {
@@ -424,8 +424,8 @@ CROSS JOIN LATERAL (SELECT event_team_visible(team.hidden, team.moderators, team
 WHERE tc.event_id = $1
   AND tc.event_challenge_id = $2
   AND (team.id = $3::uuid
-    OR (visible.is_visible
-        AND ($4::timestamptz IS NULL OR solved.solved_at < $4::timestamptz)))
+    OR visible.is_visible)
+  AND ($4::timestamptz IS NULL OR solved.solved_at < $4::timestamptz)
   AND ($5::uuid IS NULL
     OR (solved.solved_at, tc.id) > (SELECT after_solve.solved_at, after_solve.team_challenge_id
                                     FROM team_challenge_solves after_solve
