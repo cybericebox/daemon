@@ -487,9 +487,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Telegram: deps.Telegram,
 		Mailer:   mailUC,
 		Agents:   errorJournalUseCase.CertificatesOf(infrastructureAgentRepo.New(deps.Repo)),
-		// The live stream reaches the browsers connected to the other replicas through the database.
-		Relay:  errorJournalRepo.NewRelay(deps.Repo.Pool()),
-		Config: deps.ErrorJournal,
+		Config:   deps.ErrorJournal,
 	})
 
 	return &UseCase{

@@ -246,8 +246,6 @@ func Run(cfg *config.Config) {
 		defer close(journalDone)
 		ucs.Journal.Run(runtimeCtx)
 	}()
-	// The live stream of the admin error page also shows what the other replicas record.
-	go ucs.Journal.Listen(runtimeCtx)
 
 	// ── delivery ──
 	ctrl := controller.NewController(
