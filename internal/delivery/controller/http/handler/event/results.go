@@ -17,6 +17,7 @@ import (
 	"github.com/cybericebox/daemon/internal/limits"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	siteBannerModel "github.com/cybericebox/daemon/internal/model/siteBanner"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/cybericebox/daemon/pkg/pagination"
 	"github.com/cybericebox/daemon/pkg/tools"
@@ -81,6 +82,10 @@ type resultsSettingsRequest struct {
 	ScoreboardVisibility eventConfigModel.Visibility `json:"ScoreboardVisibility"`
 	FreezeEnabled        bool                        `json:"FreezeEnabled"`
 	FreezeMinutes        int32                       `json:"FreezeMinutes"`
+	// New fields are optional so a legacy client cannot reset saved freeze behavior or authored content.
+	FreezeEndMode     *eventConfigModel.FreezeEndMode `json:"FreezeEndMode" binding:"omitempty,oneof=at_finish manual" swaggertype:"string" enums:"at_finish,manual" default:"at_finish"`
+	FreezeBannerText  *string                         `json:"FreezeBannerText" maxLength:"280"`
+	FreezeBannerLevel *siteBannerModel.Level          `json:"FreezeBannerLevel" binding:"omitempty,oneof=info warning critical" swaggertype:"string" enums:"info,warning,critical" default:"warning"`
 	// LiveFreeze is optional: omitted keeps the current value (W9 owns its UI).
 	LiveFreeze   *bool  `json:"LiveFreeze"`
 	ChartEnabled bool   `json:"ChartEnabled"`
@@ -89,19 +94,23 @@ type resultsSettingsRequest struct {
 }
 
 type resultsSettingsResponse struct {
-	ScoreboardVisibility eventConfigModel.Visibility `json:"ScoreboardVisibility"`
-	FreezeEnabled        bool                        `json:"FreezeEnabled"`
-	FreezeMinutes        int32                       `json:"FreezeMinutes"`
-	LiveFreeze           bool                        `json:"LiveFreeze"`
-	ChartEnabled         bool                        `json:"ChartEnabled"`
-	ChartTeams           int32                       `json:"ChartTeams"`
-	RowsLimit            *int32                      `json:"RowsLimit"`
-	OpenedAt             *time.Time                  `json:"OpenedAt"`
-	Freeze               resultsFreezeStateResponse  `json:"Freeze"`
+	ScoreboardVisibility eventConfigModel.Visibility    `json:"ScoreboardVisibility"`
+	FreezeEnabled        bool                           `json:"FreezeEnabled"`
+	FreezeMinutes        int32                          `json:"FreezeMinutes"`
+	FreezeEndMode        eventConfigModel.FreezeEndMode `json:"FreezeEndMode" swaggertype:"string" enums:"at_finish,manual" default:"at_finish"`
+	FreezeBannerText     string                         `json:"FreezeBannerText" maxLength:"280"`
+	FreezeBannerLevel    siteBannerModel.Level          `json:"FreezeBannerLevel" swaggertype:"string" enums:"info,warning,critical" default:"warning"`
+	LiveFreeze           bool                           `json:"LiveFreeze"`
+	ChartEnabled         bool                           `json:"ChartEnabled"`
+	ChartTeams           int32                          `json:"ChartTeams"`
+	RowsLimit            *int32                         `json:"RowsLimit"`
+	OpenedAt             *time.Time                     `json:"OpenedAt"`
+	Freeze               resultsFreezeStateResponse     `json:"Freeze"`
 }
 
 func toResultsSettingsResponse(v eventUseCase.ResultsSettingsView) resultsSettingsResponse {
-	return resultsSettingsResponse{ScoreboardVisibility: v.ScoreboardVisibility, FreezeEnabled: v.FreezeEnabled, FreezeMinutes: v.FreezeMinutes, LiveFreeze: v.LiveFreeze,
+	return resultsSettingsResponse{ScoreboardVisibility: v.ScoreboardVisibility, FreezeEnabled: v.FreezeEnabled, FreezeMinutes: v.FreezeMinutes, FreezeEndMode: v.FreezeEndMode.OrDefault(), LiveFreeze: v.LiveFreeze,
+		FreezeBannerText: v.FreezeBannerText, FreezeBannerLevel: eventConfigModel.FreezeBannerLevelOrDefault(v.FreezeBannerLevel),
 		ChartEnabled: v.ChartEnabled, ChartTeams: v.ChartTeams, RowsLimit: v.RowsLimit, OpenedAt: v.OpenedAt, Freeze: toResultsFreezeStateResponse(v.Freeze)}
 }
 
@@ -236,14 +245,31 @@ func (h *Handler) updateResultsSettings(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	liveFreeze := true
-	if req.LiveFreeze != nil {
-		liveFreeze = *req.LiveFreeze
-	} else if current, err := h.useCase.GetResultsSettings(ctx, eventID); err == nil {
-		liveFreeze = current.LiveFreeze
-	}
-	in := eventConfigModel.ResultsSettings{FreezeEnabled: req.FreezeEnabled, FreezeMinutes: req.FreezeMinutes, LiveFreeze: liveFreeze,
+	in := eventConfigModel.ResultsSettings{FreezeEnabled: req.FreezeEnabled, FreezeMinutes: req.FreezeMinutes,
 		ChartEnabled: req.ChartEnabled, ChartTeams: req.ChartTeams, RowsLimit: req.RowsLimit}
+	if req.LiveFreeze == nil || req.FreezeEndMode == nil || req.FreezeBannerText == nil || req.FreezeBannerLevel == nil {
+		current, err := h.useCase.GetResultsSettings(ctx, eventID)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		in.LiveFreeze = current.LiveFreeze
+		in.FreezeEndMode = current.FreezeEndMode
+		in.FreezeBannerText = current.FreezeBannerText
+		in.FreezeBannerLevel = current.FreezeBannerLevel
+	}
+	if req.LiveFreeze != nil {
+		in.LiveFreeze = *req.LiveFreeze
+	}
+	if req.FreezeEndMode != nil {
+		in.FreezeEndMode = *req.FreezeEndMode
+	}
+	if req.FreezeBannerText != nil {
+		in.FreezeBannerText = *req.FreezeBannerText
+	}
+	if req.FreezeBannerLevel != nil {
+		in.FreezeBannerLevel = *req.FreezeBannerLevel
+	}
 	v, err := h.useCase.UpdateResultsSettings(ctx, eventID, req.ScoreboardVisibility, in, claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -253,7 +279,7 @@ func (h *Handler) updateResultsSettings(ctx *gin.Context) {
 }
 
 // setResultsOpened godoc
-// @Summary Open the results before the finish («Відкрити підсумки») or restore the freeze
+// @Summary Open the results («Відкрити підсумки») or restore the freeze
 // @Tags events
 // @Accept json
 // @Produce json

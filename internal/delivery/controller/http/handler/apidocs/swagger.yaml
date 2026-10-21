@@ -564,6 +564,10 @@ definitions:
     type: object
   event.ChallengeSolvesPage:
     properties:
+      frozen:
+        description: Frozen applies to the whole list and count, including the caller's
+          team.
+        type: boolean
       hasMore:
         type: boolean
       items:
@@ -2035,8 +2039,6 @@ definitions:
         type: integer
       BoardPublished:
         type: boolean
-      ContentUpdatedAt:
-        type: string
       EventChallengeID:
         type: string
       Files:
@@ -2125,6 +2127,21 @@ definitions:
         type: string
       TeamName:
         type: string
+    type: object
+  event.moderatorsSolvesPageResponse:
+    properties:
+      Frozen:
+        type: boolean
+      Items:
+        items:
+          $ref: '#/definitions/event.moderatorsSolveResponse'
+        type: array
+      NextCursor:
+        type: string
+      PrevCursor:
+        type: string
+      Total:
+        type: integer
     type: object
   event.moderatorsSubmitRequest:
     properties:
@@ -2342,8 +2359,6 @@ definitions:
         type: boolean
       Closed:
         type: boolean
-      ContentUpdatedAt:
-        type: string
       EventChallengeID:
         type: string
       EventExerciseID:
@@ -2611,8 +2626,26 @@ definitions:
         type: boolean
       ChartTeams:
         type: integer
+      FreezeBannerLevel:
+        default: warning
+        enum:
+        - info
+        - warning
+        - critical
+        type: string
+      FreezeBannerText:
+        maxLength: 280
+        type: string
       FreezeEnabled:
         type: boolean
+      FreezeEndMode:
+        default: at_finish
+        description: New fields are optional so a legacy client cannot reset saved
+          freeze behavior or authored content.
+        enum:
+        - at_finish
+        - manual
+        type: string
       FreezeMinutes:
         type: integer
       LiveFreeze:
@@ -2632,8 +2665,24 @@ definitions:
         type: integer
       Freeze:
         $ref: '#/definitions/event.resultsFreezeStateResponse'
+      FreezeBannerLevel:
+        default: warning
+        enum:
+        - info
+        - warning
+        - critical
+        type: string
+      FreezeBannerText:
+        maxLength: 280
+        type: string
       FreezeEnabled:
         type: boolean
+      FreezeEndMode:
+        default: at_finish
+        enum:
+        - at_finish
+        - manual
+        type: string
       FreezeMinutes:
         type: integer
       LiveFreeze:
@@ -5000,6 +5049,21 @@ definitions:
       TeamName:
         type: string
     type: object
+  eventself.challengeSolvesPageResponse:
+    properties:
+      Frozen:
+        type: boolean
+      Items:
+        items:
+          $ref: '#/definitions/eventself.challengeSolveResponse'
+        type: array
+      NextCursor:
+        type: string
+      PrevCursor:
+        type: string
+      Total:
+        type: integer
+    type: object
   eventself.createTeamRequest:
     properties:
       Fields:
@@ -5209,11 +5273,6 @@ definitions:
         $ref: '#/definitions/labview.ParticipantLabResponse'
       Phase:
         type: string
-      Queue:
-        allOf:
-        - $ref: '#/definitions/labview.QueueResponse'
-        description: Queue is set while the Lab waits in the launch queue (Phase Queued);
-          otherwise null.
       Ready:
         type: boolean
       VPNCIDR:
@@ -5288,8 +5347,6 @@ definitions:
         type: integer
       Closed:
         type: boolean
-      ContentUpdatedAt:
-        type: string
       EventChallengeID:
         type: string
       EventExerciseID:
@@ -5657,9 +5714,18 @@ definitions:
       Theme:
         $ref: '#/definitions/eventConfigModel.Theme'
     type: object
+  eventself.publicEventPageContentResponse:
+    properties:
+      Document: {}
+      Slug:
+        type: string
+      Title:
+        type: string
+    type: object
   eventself.publicEventPageResponse:
     properties:
-      Page: {}
+      Page:
+        $ref: '#/definitions/eventself.publicEventPageContentResponse'
       Variables:
         additionalProperties: {}
         type: object
@@ -5708,6 +5774,15 @@ definitions:
         type: boolean
       Applied:
         type: boolean
+      BannerLevel:
+        default: warning
+        enum:
+        - info
+        - warning
+        - critical
+        type: string
+      BannerText:
+        type: string
       Enabled:
         type: boolean
       FinishAt:
@@ -5723,8 +5798,6 @@ definitions:
         $ref: '#/definitions/eventself.resultsDisplayResponse'
       Freeze:
         $ref: '#/definitions/eventself.resultsFreezeResponse'
-      GeneratedAt:
-        type: string
       Revision:
         type: integer
       Scoreboard:
@@ -5743,8 +5816,6 @@ definitions:
     type: object
   eventself.scoreboardEntryResponse:
     properties:
-      LastSolveAt:
-        type: string
       NameHidden:
         description: 'NameHidden: the participant''s real name is withheld by the
           event''s participants visibility (TeamName is empty).'
@@ -9212,19 +9283,6 @@ definitions:
       Total:
         type: integer
     type: object
-  pagination.CursorPage-event_moderatorsSolveResponse:
-    properties:
-      Items:
-        items:
-          $ref: '#/definitions/event.moderatorsSolveResponse'
-        type: array
-      NextCursor:
-        type: string
-      PrevCursor:
-        type: string
-      Total:
-        type: integer
-    type: object
   pagination.CursorPage-event_participantResponse:
     properties:
       Items:
@@ -9256,19 +9314,6 @@ definitions:
       Items:
         items:
           $ref: '#/definitions/event.teamResponse'
-        type: array
-      NextCursor:
-        type: string
-      PrevCursor:
-        type: string
-      Total:
-        type: integer
-    type: object
-  pagination.CursorPage-eventself_challengeSolveResponse:
-    properties:
-      Items:
-        items:
-          $ref: '#/definitions/eventself.challengeSolveResponse'
         type: array
       NextCursor:
         type: string
@@ -16234,7 +16279,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  $ref: '#/definitions/pagination.CursorPage-event_moderatorsSolveResponse'
+                  $ref: '#/definitions/event.moderatorsSolvesPageResponse'
               type: object
       summary: List one page of who solved a moderators board challenge
       tags:
@@ -18716,8 +18761,7 @@ paths:
                 data:
                   $ref: '#/definitions/event.resultsSettingsResponse'
               type: object
-      summary: Open the results before the finish («Відкрити підсумки») or restore
-        the freeze
+      summary: Open the results («Відкрити підсумки») or restore the freeze
       tags:
       - events
   /events/{id}/manage/scoring:
@@ -19796,6 +19840,40 @@ paths:
       summary: Poll result changes after a snapshot revision
       tags:
       - events-self
+  /events/{id}/results/freeze:
+    get:
+      description: Uses the same viewer, event visibility and withdrawal gates as
+        the results page. Authored banner content is returned only while the freeze
+        applies to this viewer.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.resultsFreezeResponse'
+              type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Read visible event freeze state without downloading scores
+      tags:
+      - events-self
   /events/{id}/results/live:
     get:
       description: Load GET /events/{id}/results first. Send its Revision in Last-Event-ID
@@ -20368,7 +20446,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  $ref: '#/definitions/pagination.CursorPage-eventself_challengeSolveResponse'
+                  $ref: '#/definitions/eventself.challengeSolvesPageResponse'
               type: object
       summary: List the teams that solved a challenge of the caller's board (one page)
       tags:

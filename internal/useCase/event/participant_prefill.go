@@ -10,7 +10,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
-	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
 )
 
@@ -67,8 +66,8 @@ func validatePrefill(version *eventFormRepo.Version, values map[string]any) bool
 
 // GetOwnParticipantFormAnswers returns the caller's stored registration
 // answers (prefilled by organizers or submitted earlier), for the invite and
-// join forms to show. Staff-only fields are never returned; an empty map when
-// there is nothing.
+// join forms to show. Only current participant-visible fields are returned;
+// an empty map when there is nothing.
 func (u *EventUseCase) GetOwnParticipantFormAnswers(ctx context.Context, eventID, userID uuid.UUID) (map[string]any, error) {
 	latest, err := u.forms.LatestRegistrationAnswers(ctx, eventID, []uuid.UUID{userID})
 	if err != nil {
@@ -78,20 +77,11 @@ func (u *EventUseCase) GetOwnParticipantFormAnswers(ctx context.Context, eventID
 	if len(latest[userID]) == 0 {
 		return out, nil
 	}
-	hidden := map[string]struct{}{}
-	if form, formErr := u.forms.Latest(ctx, eventID); formErr == nil {
-		for _, block := range form.Form.Document.Blocks {
-			if block.Type == eventContentModel.BlockField && block.StaffOnly {
-				hidden[block.Key] = struct{}{}
-			}
-		}
+	form, err := u.forms.Latest(ctx, eventID)
+	if err != nil {
+		return out, nil
 	}
-	for key, value := range latest[userID] {
-		if _, staff := hidden[key]; !staff {
-			out[key] = value
-		}
-	}
-	return out, nil
+	return form.Form.AnswersForParticipant(latest[userID]), nil
 }
 
 // participantFormComplete says whether the stored answer satisfies the form.

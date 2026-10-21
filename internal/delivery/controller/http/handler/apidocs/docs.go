@@ -7737,7 +7737,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/pagination.CursorPage-event_moderatorsSolveResponse"
+                                            "$ref": "#/definitions/event.moderatorsSolvesPageResponse"
                                         }
                                     }
                                 }
@@ -11908,7 +11908,7 @@ const docTemplate = `{
                 "tags": [
                     "events"
                 ],
-                "summary": "Open the results before the finish («Відкрити підсумки») or restore the freeze",
+                "summary": "Open the results («Відкрити підсумки») or restore the freeze",
                 "parameters": [
                     {
                         "type": "string",
@@ -13641,6 +13641,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/results/freeze": {
+            "get": {
+                "description": "Uses the same viewer, event visibility and withdrawal gates as the results page. Authored banner content is returned only while the freeze applies to this viewer.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Read visible event freeze state without downloading scores",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.resultsFreezeResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/results/live": {
             "get": {
                 "description": "Load GET /events/{id}/results first. Send its Revision in Last-Event-ID (or the lastEventId query parameter, for EventSource) when opening this stream. After any interruption, load a fresh snapshot before reconnecting. A frozen viewer does not receive other teams' solves after the freeze; a change of the viewer's freeze state ends the stream with snapshot-required.",
@@ -14297,7 +14350,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/pagination.CursorPage-eventself_challengeSolveResponse"
+                                            "$ref": "#/definitions/eventself.challengeSolvesPageResponse"
                                         }
                                     }
                                 }
@@ -25591,6 +25644,10 @@ const docTemplate = `{
         "event.ChallengeSolvesPage": {
             "type": "object",
             "properties": {
+                "frozen": {
+                    "description": "Frozen applies to the whole list and count, including the caller's team.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -27756,9 +27813,6 @@ const docTemplate = `{
                 "BoardPublished": {
                     "type": "boolean"
                 },
-                "ContentUpdatedAt": {
-                    "type": "string"
-                },
                 "EventChallengeID": {
                     "type": "string"
                 },
@@ -27892,6 +27946,29 @@ const docTemplate = `{
                 },
                 "TeamName": {
                     "type": "string"
+                }
+            }
+        },
+        "event.moderatorsSolvesPageResponse": {
+            "type": "object",
+            "properties": {
+                "Frozen": {
+                    "type": "boolean"
+                },
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.moderatorsSolveResponse"
+                    }
+                },
+                "NextCursor": {
+                    "type": "string"
+                },
+                "PrevCursor": {
+                    "type": "string"
+                },
+                "Total": {
+                    "type": "integer"
                 }
             }
         },
@@ -28210,9 +28287,6 @@ const docTemplate = `{
                 },
                 "Closed": {
                     "type": "boolean"
-                },
-                "ContentUpdatedAt": {
-                    "type": "string"
                 },
                 "EventChallengeID": {
                     "type": "string"
@@ -28608,8 +28682,30 @@ const docTemplate = `{
                 "ChartTeams": {
                     "type": "integer"
                 },
+                "FreezeBannerLevel": {
+                    "type": "string",
+                    "default": "warning",
+                    "enum": [
+                        "info",
+                        "warning",
+                        "critical"
+                    ]
+                },
+                "FreezeBannerText": {
+                    "type": "string",
+                    "maxLength": 280
+                },
                 "FreezeEnabled": {
                     "type": "boolean"
+                },
+                "FreezeEndMode": {
+                    "description": "New fields are optional so a legacy client cannot reset saved freeze behavior or authored content.",
+                    "type": "string",
+                    "default": "at_finish",
+                    "enum": [
+                        "at_finish",
+                        "manual"
+                    ]
                 },
                 "FreezeMinutes": {
                     "type": "integer"
@@ -28638,8 +28734,29 @@ const docTemplate = `{
                 "Freeze": {
                     "$ref": "#/definitions/event.resultsFreezeStateResponse"
                 },
+                "FreezeBannerLevel": {
+                    "type": "string",
+                    "default": "warning",
+                    "enum": [
+                        "info",
+                        "warning",
+                        "critical"
+                    ]
+                },
+                "FreezeBannerText": {
+                    "type": "string",
+                    "maxLength": 280
+                },
                 "FreezeEnabled": {
                     "type": "boolean"
+                },
+                "FreezeEndMode": {
+                    "type": "string",
+                    "default": "at_finish",
+                    "enum": [
+                        "at_finish",
+                        "manual"
+                    ]
                 },
                 "FreezeMinutes": {
                     "type": "integer"
@@ -32144,6 +32261,29 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.challengeSolvesPageResponse": {
+            "type": "object",
+            "properties": {
+                "Frozen": {
+                    "type": "boolean"
+                },
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventself.challengeSolveResponse"
+                    }
+                },
+                "NextCursor": {
+                    "type": "string"
+                },
+                "PrevCursor": {
+                    "type": "string"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
         "eventself.createTeamRequest": {
             "type": "object",
             "properties": {
@@ -32457,14 +32597,6 @@ const docTemplate = `{
                 "Phase": {
                     "type": "string"
                 },
-                "Queue": {
-                    "description": "Queue is set while the Lab waits in the launch queue (Phase Queued); otherwise null.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/labview.QueueResponse"
-                        }
-                    ]
-                },
                 "Ready": {
                     "type": "boolean"
                 },
@@ -32569,9 +32701,6 @@ const docTemplate = `{
                 },
                 "Closed": {
                     "type": "boolean"
-                },
-                "ContentUpdatedAt": {
-                    "type": "string"
                 },
                 "EventChallengeID": {
                     "type": "string"
@@ -33095,10 +33224,24 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.publicEventPageContentResponse": {
+            "type": "object",
+            "properties": {
+                "Document": {},
+                "Slug": {
+                    "type": "string"
+                },
+                "Title": {
+                    "type": "string"
+                }
+            }
+        },
         "eventself.publicEventPageResponse": {
             "type": "object",
             "properties": {
-                "Page": {},
+                "Page": {
+                    "$ref": "#/definitions/eventself.publicEventPageContentResponse"
+                },
                 "Variables": {
                     "type": "object",
                     "additionalProperties": {}
@@ -33160,6 +33303,18 @@ const docTemplate = `{
                 "Applied": {
                     "type": "boolean"
                 },
+                "BannerLevel": {
+                    "type": "string",
+                    "default": "warning",
+                    "enum": [
+                        "info",
+                        "warning",
+                        "critical"
+                    ]
+                },
+                "BannerText": {
+                    "type": "string"
+                },
                 "Enabled": {
                     "type": "boolean"
                 },
@@ -33182,9 +33337,6 @@ const docTemplate = `{
                 },
                 "Freeze": {
                     "$ref": "#/definitions/eventself.resultsFreezeResponse"
-                },
-                "GeneratedAt": {
-                    "type": "string"
                 },
                 "Revision": {
                     "type": "integer"
@@ -33213,9 +33365,6 @@ const docTemplate = `{
         "eventself.scoreboardEntryResponse": {
             "type": "object",
             "properties": {
-                "LastSolveAt": {
-                    "type": "string"
-                },
                 "NameHidden": {
                     "description": "NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).",
                     "type": "boolean"
@@ -38190,26 +38339,6 @@ const docTemplate = `{
                 }
             }
         },
-        "pagination.CursorPage-event_moderatorsSolveResponse": {
-            "type": "object",
-            "properties": {
-                "Items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/event.moderatorsSolveResponse"
-                    }
-                },
-                "NextCursor": {
-                    "type": "string"
-                },
-                "PrevCursor": {
-                    "type": "string"
-                },
-                "Total": {
-                    "type": "integer"
-                }
-            }
-        },
         "pagination.CursorPage-event_participantResponse": {
             "type": "object",
             "properties": {
@@ -38257,26 +38386,6 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/event.teamResponse"
-                    }
-                },
-                "NextCursor": {
-                    "type": "string"
-                },
-                "PrevCursor": {
-                    "type": "string"
-                },
-                "Total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "pagination.CursorPage-eventself_challengeSolveResponse": {
-            "type": "object",
-            "properties": {
-                "Items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/eventself.challengeSolveResponse"
                     }
                 },
                 "NextCursor": {

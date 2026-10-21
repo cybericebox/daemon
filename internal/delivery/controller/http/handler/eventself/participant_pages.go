@@ -21,7 +21,7 @@ import (
 // @Param challengeID path string true "event challenge ID"
 // @Param cursor query string false "NextCursor of the previous page"
 // @Param pageSize query int false "page size"
-// @Success 200 {object} response.Response{data=pagination.CursorPage[challengeSolveResponse]}
+// @Success 200 {object} response.Response{data=challengeSolvesPageResponse}
 // @Router /events/{id}/teams/challenges/{challengeID}/solves [get]
 func (h *Handler) challengeSolves(ctx *gin.Context) {
 	eventID, ok := eventIDFromPath(ctx)
@@ -145,10 +145,10 @@ func (h *Handler) updateParticipantAnswers(ctx *gin.Context) {
 	response.AbortWithData(ctx, toParticipantAnswersResponse(v))
 }
 
-func solvesPageResponse(page eventUseCase.ChallengeSolvesPage) pagination.CursorPage[challengeSolveResponse] {
+func solvesPageResponse(page eventUseCase.ChallengeSolvesPage) challengeSolvesPageResponse {
 	items := make([]challengeSolveResponse, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, challengeSolveResponse{TeamName: item.TeamName, NameHidden: item.NameHidden, SolvedAt: item.SolvedAt, Own: item.Own, FirstBlood: item.FirstBlood})
 	}
-	return pagination.NewCursorPage(items, page.HasMore, page.Next, page.Total)
+	return challengeSolvesPageResponse{CursorPage: pagination.NewCursorPage(items, page.HasMore, page.Next, page.Total), Frozen: page.Frozen}
 }

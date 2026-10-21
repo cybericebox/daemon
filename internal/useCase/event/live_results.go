@@ -26,8 +26,8 @@ type LiveResultChangeView struct {
 type LiveResultsReplay struct {
 	SnapshotRequired bool                   `json:"SnapshotRequired"`
 	Changes          []LiveResultChangeView `json:"Changes"`
-	// LastRevision is the newest revision read, including changes skipped
-	// for a frozen viewer; the stream continues after it.
+	// LastRevision is a global live cursor or an opaque frozen projection
+	// version; hidden frozen activity never advances it.
 	LastRevision int64 `json:"-"`
 	// FreezeKey identifies the viewer's freeze state; when it changes during
 	// a stream the client must reload its snapshot.
@@ -72,7 +72,7 @@ func (u *EventUseCase) ReplayLiveResults(ctx context.Context, eventID uuid.UUID,
 // loaded snapshot. It is intentionally not a recovery protocol for a previous
 // broken connection: clients fetch a new snapshot before reopening SSE, while
 // the first Replay covers the short race between snapshot and subscribe. A
-// frozen viewer does not receive other teams' solves made after the freeze.
+// frozen viewer receives no incremental changes, including its own solves.
 func (s *LiveResultsStream) Replay(ctx context.Context, afterRevision int64) (LiveResultsReplay, error) {
 	now := time.Now()
 	shared, err := s.u.sharedResults(ctx, s.eventID)
@@ -89,6 +89,18 @@ func (s *LiveResultsStream) Replay(ctx context.Context, afterRevision int64) (Li
 	freeze := policy.freeze(now, s.liveScreen)
 	if afterRevision < 0 {
 		return LiveResultsReplay{SnapshotRequired: true}, nil
+	}
+	if freeze.Applied {
+		view, snapshotErr := s.u.resultsSnapshot(ctx, s.eventID, shared, policy, now, s.liveScreen)
+		if snapshotErr != nil {
+			return LiveResultsReplay{}, snapshotErr
+		}
+		return LiveResultsReplay{
+			SnapshotRequired: afterRevision != view.Revision,
+			Changes:          make([]LiveResultChangeView, 0),
+			LastRevision:     view.Revision,
+			FreezeKey:        freeze.freezeKey(),
+		}, nil
 	}
 	changes, held := shared.changesAfter(afterRevision)
 	if !held || afterRevision > shared.revision.Revision {
@@ -110,9 +122,6 @@ func (s *LiveResultsStream) Replay(ctx context.Context, afterRevision int64) (Li
 	reload := false
 	for _, change := range changes {
 		replay.LastRevision = change.Revision
-		if hiddenByFreeze(change, freeze.cutoff(), policy.ownTeam()) {
-			continue
-		}
 		switch shown.verdict(change) {
 		case changeDropped:
 			continue
@@ -216,30 +225,6 @@ func (u *EventUseCase) changesAfterFromDB(ctx context.Context, eventID uuid.UUID
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list result changes").Err()
 	}
 	return append(make([]eventResultRepo.Change, 0, len(changes)), changes...), nil
-}
-
-// hiddenByFreeze reports another team's result change at or after the cutoff:
-// a solve, or the withdrawal of one (an annulled solve is as much news about
-// another team as the solve was).
-func hiddenByFreeze(change eventResultRepo.Change, cutoff *time.Time, own *uuid.UUID) bool {
-	if cutoff == nil {
-		return false
-	}
-	var payload teamChallengeResultChange
-	switch change.Kind {
-	case eventResultRepo.ChangeTeamChallengeSolved:
-		if err := json.Unmarshal(change.Payload, &payload); err != nil || payload.SolvedAt == nil {
-			return false
-		}
-		return payload.SolvedAt.Compare(*cutoff) >= 0 && (own == nil || payload.TeamID != *own)
-	case eventResultRepo.ChangeTeamChallengeUnsolved:
-		// An unsolved change carries no solve time: it happened when it was recorded.
-		if err := json.Unmarshal(change.Payload, &payload); err != nil {
-			return true // unreadable: fail closed during a freeze
-		}
-		return change.CreatedAt.Compare(*cutoff) >= 0 && (own == nil || payload.TeamID != *own)
-	}
-	return false
 }
 
 func liveResultChangeView(change eventResultRepo.Change) LiveResultChangeView {

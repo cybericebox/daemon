@@ -216,7 +216,7 @@ func (r *Repository) SolveAwards(ctx context.Context, teamID uuid.UUID) (map[uui
 
 // SolveCounts counts accepted solves per event challenge by admitted,
 // non-hidden teams plus ownTeamID.
-// A non-nil cutoff (freeze) keeps only other teams' solves before it.
+// A non-nil cutoff (freeze) keeps every team's solves before it.
 func (r *Repository) SolveCounts(ctx context.Context, eventID, ownTeamID uuid.UUID, cutoff *time.Time) (map[uuid.UUID]int64, error) {
 	rows, err := r.q.CountEventChallengeSolves(ctx, postgres.CountEventChallengeSolvesParams{EventID: eventID, OwnTeamID: ownTeamID, Cutoff: cutoffParam(cutoff)})
 	if err != nil {
