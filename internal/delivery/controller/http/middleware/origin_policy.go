@@ -210,7 +210,6 @@ var PublicReadRoutes = map[string]bool{
 	"/api/auth/google/setup":                    true,
 	"/api/auth/password/policy":                 true,
 	"/api/auth/setup":                           true,
-	"/api/banners":                              true,
 	"/api/events/:id/content-images/:fileID":    true,
 	"/api/events/:id/content/pages":             true,
 	"/api/events/:id/content/pages/:slug":       true,
@@ -219,12 +218,13 @@ var PublicReadRoutes = map[string]bool{
 	"/api/events/:id/preview-picture/:fileID":   true,
 	"/api/events/:id/results":                   true,
 	"/api/events/:id/results/changes":           true,
-	"/api/events/:id/results/freeze":            true,
 	"/api/events/:id/results/live":              true,
 	"/api/events/self/live-screen":              true,
 	"/api/events/self/live-screen/results":      true,
 	"/api/events/self/live-screen/results/live": true,
 	"/api/events/self/public-info":              true,
+	"/api/notifications/banners":                true,
+	"/api/notifications/pulse":                  true,
 }
 
 func originHost(origin string) string {

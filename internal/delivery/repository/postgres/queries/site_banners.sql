@@ -66,3 +66,13 @@ WHERE b.is_active
         OR EXISTS (SELECT 1 FROM event_managers m
                    WHERE m.event_id = b.scope_event_id AND m.user_id = sqlc.narg(user_id)::uuid))))
 ORDER BY (b.level = 'critical') DESC, (b.level = 'warning') DESC, (b.scope_event_id IS NULL) DESC, b.created_at DESC, b.id DESC;
+
+-- name: ListActiveSiteBanners :many
+-- The in-memory banner snapshot: every enabled banner that has not ended yet
+-- (not yet started ones too, so they appear on time without a reload). The
+-- window, scope, targeting and audience are applied in memory per viewer.
+SELECT *
+FROM site_banners
+WHERE is_active
+  AND (active_to IS NULL OR active_to > now())
+ORDER BY created_at DESC, id DESC;

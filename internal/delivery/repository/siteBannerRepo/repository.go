@@ -20,6 +20,7 @@ type Queries interface {
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]postgres.SiteBanner, error)
 	ListVisibleSiteBanners(ctx context.Context, arg postgres.ListVisibleSiteBannersParams) ([]postgres.SiteBanner, error)
+	ListActiveSiteBanners(ctx context.Context) ([]postgres.SiteBanner, error)
 }
 
 type Repository struct{ q Queries }
@@ -94,6 +95,16 @@ func (r *Repository) Visible(ctx context.Context, eventID string, userID *uuid.U
 	rows, err := r.q.ListVisibleSiteBanners(ctx, postgres.ListVisibleSiteBannersParams{
 		EventFilter: eventID, SiteFilter: site, UserID: nullUUID(userID),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return toBanners(rows), nil
+}
+
+// Active returns every enabled banner that has not ended yet, of every scope: the source of the
+// in-memory banner snapshot.
+func (r *Repository) Active(ctx context.Context) ([]siteBannerModel.Banner, error) {
+	rows, err := r.q.ListActiveSiteBanners(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -208,6 +208,62 @@ func (q *Queries) GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUs
 	return i, err
 }
 
+const getInboxPulse = `-- name: GetInboxPulse :one
+SELECT COALESCE((SELECT n.id
+            FROM in_app_notifications n
+            WHERE n.user_id = $1 AND n.surface = 'inbox'
+              AND ($2::text = '' OR n.scope_event_id IS NULL OR n.scope_event_id = NULLIF($2::text, '')::uuid)
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_id,
+       COALESCE((SELECT n.created_at
+            FROM in_app_notifications n
+            WHERE n.user_id = $1 AND n.surface = 'inbox'
+              AND ($2::text = '' OR n.scope_event_id IS NULL OR n.scope_event_id = NULLIF($2::text, '')::uuid)
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT 1), 'epoch'::timestamptz)::timestamptz AS latest_created_at,
+       (SELECT count(*)
+        FROM in_app_notifications u
+        WHERE u.user_id = $1 AND u.surface = 'inbox' AND u.read_at IS NULL
+          AND ($2::text = '' OR u.scope_event_id IS NULL OR u.scope_event_id = NULLIF($2::text, '')::uuid))::bigint AS unread_count,
+       (SELECT count(*)
+        FROM in_app_notifications b
+        WHERE b.user_id = $1 AND b.surface = 'banner' AND b.dismissed_at IS NULL
+          AND ($2::text = '' OR b.scope_event_id IS NULL OR b.scope_event_id = NULLIF($2::text, '')::uuid))::bigint AS banner_count,
+       COALESCE((SELECT max(b.created_at)
+        FROM in_app_notifications b
+        WHERE b.user_id = $1 AND b.surface = 'banner' AND b.dismissed_at IS NULL
+          AND ($2::text = '' OR b.scope_event_id IS NULL OR b.scope_event_id = NULLIF($2::text, '')::uuid)), 'epoch'::timestamptz)::timestamptz AS banner_latest_at
+`
+
+type GetInboxPulseParams struct {
+	UserID      uuid.UUID `json:"user_id"`
+	EventFilter string    `json:"event_filter"`
+}
+
+type GetInboxPulseRow struct {
+	LatestID        uuid.UUID `json:"latest_id"`
+	LatestCreatedAt time.Time `json:"latest_created_at"`
+	UnreadCount     int64     `json:"unread_count"`
+	BannerCount     int64     `json:"banner_count"`
+	BannerLatestAt  time.Time `json:"banner_latest_at"`
+}
+
+// One indexed read for the pulse of a scope: the newest inbox item (the nil
+// uuid and the epoch when there is none), the unread count and the stamp of
+// the user's open personal banners (count and newest, epoch when none).
+func (q *Queries) GetInboxPulse(ctx context.Context, arg GetInboxPulseParams) (GetInboxPulseRow, error) {
+	row := q.db.QueryRow(ctx, getInboxPulse, arg.UserID, arg.EventFilter)
+	var i GetInboxPulseRow
+	err := row.Scan(
+		&i.LatestID,
+		&i.LatestCreatedAt,
+		&i.UnreadCount,
+		&i.BannerCount,
+		&i.BannerLatestAt,
+	)
+	return i, err
+}
+
 const getLatestInboxCursor = `-- name: GetLatestInboxCursor :one
 SELECT n.id, n.created_at
 FROM in_app_notifications n

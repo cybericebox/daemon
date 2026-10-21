@@ -2,7 +2,6 @@ package event_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -78,10 +77,11 @@ func TestResultsFreezeReadUsesCommonGatesWithoutScoreQueries(t *testing.T) {
 			}
 			// Two calls share event/config state. No score projection query has an expectation.
 			for repeat := 0; repeat < 2; repeat++ {
-				view, err := uc.GetResultsFreeze(context.Background(), eventID, access)
+				view, err := uc.ResultsFreezeBanner(context.Background(), eventID, access)
 				if tc.wantErr != nil {
-					if !errors.Is(err, tc.wantErr) {
-						t.Fatalf("gate=%v want=%v", err, tc.wantErr)
+					// A viewer who may not read the results has no freeze banner, and no error.
+					if err != nil || view.Applied || view.BannerText != "" {
+						t.Fatalf("gate %v must give an empty view, got %+v err=%v", tc.wantErr, view, err)
 					}
 					continue
 				}

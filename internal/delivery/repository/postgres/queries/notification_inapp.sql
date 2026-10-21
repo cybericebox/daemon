@@ -188,3 +188,32 @@ WHERE id = sqlc.arg(id)
 -- name: InboxSubjectExists :one
 -- Whether any notification (open or closed) was ever delivered for the subject: an alert raised once per subject.
 SELECT EXISTS (SELECT 1 FROM in_app_notifications WHERE subject_ref = sqlc.arg(subject_ref)::text) AS found;
+
+-- name: GetInboxPulse :one
+-- One indexed read for the pulse of a scope: the newest inbox item (the nil
+-- uuid and the epoch when there is none), the unread count and the stamp of
+-- the user's open personal banners (count and newest, epoch when none).
+SELECT COALESCE((SELECT n.id
+            FROM in_app_notifications n
+            WHERE n.user_id = sqlc.arg(user_id) AND n.surface = 'inbox'
+              AND (sqlc.arg(event_filter)::text = '' OR n.scope_event_id IS NULL OR n.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS latest_id,
+       COALESCE((SELECT n.created_at
+            FROM in_app_notifications n
+            WHERE n.user_id = sqlc.arg(user_id) AND n.surface = 'inbox'
+              AND (sqlc.arg(event_filter)::text = '' OR n.scope_event_id IS NULL OR n.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT 1), 'epoch'::timestamptz)::timestamptz AS latest_created_at,
+       (SELECT count(*)
+        FROM in_app_notifications u
+        WHERE u.user_id = sqlc.arg(user_id) AND u.surface = 'inbox' AND u.read_at IS NULL
+          AND (sqlc.arg(event_filter)::text = '' OR u.scope_event_id IS NULL OR u.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid))::bigint AS unread_count,
+       (SELECT count(*)
+        FROM in_app_notifications b
+        WHERE b.user_id = sqlc.arg(user_id) AND b.surface = 'banner' AND b.dismissed_at IS NULL
+          AND (sqlc.arg(event_filter)::text = '' OR b.scope_event_id IS NULL OR b.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid))::bigint AS banner_count,
+       COALESCE((SELECT max(b.created_at)
+        FROM in_app_notifications b
+        WHERE b.user_id = sqlc.arg(user_id) AND b.surface = 'banner' AND b.dismissed_at IS NULL
+          AND (sqlc.arg(event_filter)::text = '' OR b.scope_event_id IS NULL OR b.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)), 'epoch'::timestamptz)::timestamptz AS banner_latest_at;

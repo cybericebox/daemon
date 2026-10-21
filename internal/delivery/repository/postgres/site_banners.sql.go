@@ -125,6 +125,55 @@ func (q *Queries) GetSiteBanner(ctx context.Context, id uuid.UUID) (SiteBanner, 
 	return i, err
 }
 
+const listActiveSiteBanners = `-- name: ListActiveSiteBanners :many
+SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
+FROM site_banners
+WHERE is_active
+  AND (active_to IS NULL OR active_to > now())
+ORDER BY created_at DESC, id DESC
+`
+
+// The in-memory banner snapshot: every enabled banner that has not ended yet
+// (not yet started ones too, so they appear on time without a reload). The
+// window, scope, targeting and audience are applied in memory per viewer.
+func (q *Queries) ListActiveSiteBanners(ctx context.Context) ([]SiteBanner, error) {
+	rows, err := q.db.Query(ctx, listActiveSiteBanners)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SiteBanner{}
+	for rows.Next() {
+		var i SiteBanner
+		if err := rows.Scan(
+			&i.ID,
+			&i.ScopeEventID,
+			&i.Text,
+			&i.LinkUrl,
+			&i.LinkLabel,
+			&i.Level,
+			&i.ActiveFrom,
+			&i.ActiveTo,
+			&i.Dismissible,
+			&i.Audience,
+			&i.IsActive,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TargetMode,
+			&i.TargetSites,
+			&i.TargetEventIds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSiteBanners = `-- name: ListSiteBanners :many
 SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
 FROM site_banners

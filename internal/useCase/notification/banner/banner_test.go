@@ -112,13 +112,3 @@ func TestScopedBannerCannotBeBroadenedOrEditedThroughAnotherScope(t *testing.T) 
 		t.Fatal("missing banner accepted")
 	}
 }
-
-func TestVisiblePassesSiteEventAndSessionTogether(t *testing.T) {
-	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-	u := NewSiteBannerUseCase(Dependencies{Repo: q})
-	event, user := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	q.EXPECT().ListVisibleSiteBanners(gomock.Any(), postgres.ListVisibleSiteBannersParams{EventFilter: event.String(), SiteFilter: "event", UserID: uuid.NullUUID{UUID: user, Valid: true}}).Return([]postgres.SiteBanner{}, nil)
-	if _, err := u.ListVisibleSiteBanners(context.Background(), "event", &event, &user); err != nil {
-		t.Fatal(err)
-	}
-}
