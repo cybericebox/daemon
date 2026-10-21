@@ -280,6 +280,23 @@ func TestEventTagCache_CachesAndRefusesWhenTheLookupFails(t *testing.T) {
 	}
 }
 
+func TestEventTagCache_HyphenatedTagsAreLookedUp(t *testing.T) {
+	looked := map[string]bool{}
+	c := middleware.NewEventTagCache(func(_ context.Context, tag string) (bool, error) {
+		looked[tag] = true
+		return true, nil
+	})
+	ctx := context.Background()
+	if !c.EventTagExists(ctx, "prep-khctf") {
+		t.Fatal("a hyphenated tag can be an event tag")
+	}
+	for _, tag := range []string{"-ctf", "ctf-", "ctf--x", "ctf_x", "ab", strings.Repeat("a", 64)} {
+		if c.EventTagExists(ctx, tag) || looked[tag] {
+			t.Fatalf("%q can never be an event tag and must not be looked up", tag)
+		}
+	}
+}
+
 // M7: a flood of unique subdomains does not become a flood of lookups.
 func TestEventTagCache_BoundsTheLookups(t *testing.T) {
 	calls := 0
@@ -288,7 +305,7 @@ func TestEventTagCache_BoundsTheLookups(t *testing.T) {
 		return tag == "ctf", nil
 	})
 	ctx := context.Background()
-	for _, tag := range []string{"", "ab", "UPPER", "with-dash", "a.b", strings.Repeat("a", 65)} {
+	for _, tag := range []string{"", "ab", "UPPER", "-dash", "a.b", strings.Repeat("a", 64)} {
 		if c.EventTagExists(ctx, tag) {
 			t.Fatalf("%q cannot be an event tag", tag)
 		}
