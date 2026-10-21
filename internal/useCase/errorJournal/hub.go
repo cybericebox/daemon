@@ -50,3 +50,10 @@ func (h *Hub) Publish(e StreamEvent) {
 		}
 	}
 }
+
+// Len is the number of open streams.
+func (h *Hub) Len() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
+}
