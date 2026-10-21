@@ -71,6 +71,15 @@ func (r *fakeRepo) Record(_ context.Context, in RecordInput) (RecordResult, erro
 				}
 			}
 			last, had := r.enqueued[g.ID]
+			// The kind throttle is a database decision, shared by every journal on the repository.
+			if plan.ThrottleKind != "" {
+				for _, other := range r.groups {
+					sentLately := r.enqueued[other.ID].After(plan.ThrottleCutoff)
+					if other.Kind == plan.ThrottleKind && sentLately {
+						pending = true
+					}
+				}
+			}
 			if !pending && (!had || !last.After(plan.Cutoff)) {
 				id := uuid.Must(uuid.NewV7())
 				r.deliveries[id] = Delivery{ID: id, GroupID: g.ID, Channel: "prepare", Body: plan.Body, EmailBody: plan.EmailBody, CreatedAt: plan.Now, NextAttemptAt: plan.Now}

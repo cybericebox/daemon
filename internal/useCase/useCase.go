@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/advisory"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
@@ -343,6 +344,15 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}); ok {
 		calendarUC.SetClusterReservations(port, port.ReservationNotice)
 	}
+	// Several replicas may push to one agent: the push also holds a database lock of that agent.
+	calendarUC.SetAgentLocker(func(ctx context.Context, agent uuid.UUID) (func(), error) {
+		key := advisory.Key("cluster-sync", agent.String())
+		held, err := advisory.Lock(ctx, deps.Repo.Pool(), key)
+		if err != nil {
+			return nil, err
+		}
+		return held.Release, nil
+	})
 	// Placement follows the parts: a new group goes to the agent of its reservation's unit and every group and lab
 	// carries its part id.
 	if fleet, ok := deps.LabAgent.(interface{ SetPartResolver(infraModel.PartResolver) }); ok {
@@ -477,7 +487,9 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Telegram: deps.Telegram,
 		Mailer:   mailUC,
 		Agents:   errorJournalUseCase.CertificatesOf(infrastructureAgentRepo.New(deps.Repo)),
-		Config:   deps.ErrorJournal,
+		// The live stream reaches the browsers connected to the other replicas through the database.
+		Relay:  errorJournalRepo.NewRelay(deps.Repo.Pool()),
+		Config: deps.ErrorJournal,
 	})
 
 	return &UseCase{

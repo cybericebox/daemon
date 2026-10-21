@@ -75,25 +75,21 @@ func (j *Journal) notificationPlan(e errorJournal.Event, rec RecordResult, sampl
 	if !send {
 		return nil
 	}
-	if e.Kind == errorJournal.KindHTTP403 && !j.kindMessageDue(e.Kind, now) {
-		return nil
-	}
 	cutoff := now.Add(-j.cfg.NotifyCooldown)
 	if bypass {
 		cutoff = now.Add(time.Second)
 	}
-	return &NotificationPlan{Now: now, Cutoff: cutoff, Body: j.message(rec.Group, sample, rec.Group.SuppressedSince), EmailBody: j.emailMessage(rec.Group, sample, rec.Group.SuppressedSince)}
-}
-
-// kindMessageDue claims the one message per cooldown of a noisy kind.
-func (j *Journal) kindMessageDue(kind errorJournal.Kind, now time.Time) bool {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if last, ok := j.kindMessaged[kind]; ok && now.Sub(last) < j.cfg.NotifyCooldown {
-		return false
+	since := rec.Group.SuppressedSince
+	plan := &NotificationPlan{
+		Now: now, Cutoff: cutoff,
+		Body:      j.message(rec.Group, sample, since),
+		EmailBody: j.emailMessage(rec.Group, sample, since),
 	}
-	j.kindMessaged[kind] = now
-	return true
+	// A noisy kind (403) gets one message per cooldown for all its groups; the repository decides it in the database.
+	if e.Kind == errorJournal.KindHTTP403 {
+		plan.ThrottleKind, plan.ThrottleCutoff = e.Kind, now.Add(-j.cfg.NotifyCooldown)
+	}
+	return plan
 }
 
 // message is the notification text: short, plain, no secrets (the sample is already scrubbed).

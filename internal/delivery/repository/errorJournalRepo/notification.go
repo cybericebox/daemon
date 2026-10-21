@@ -18,6 +18,24 @@ func (r *Repository) enqueueNotification(ctx context.Context, tx pgx.Tx, groupID
 	if err != nil {
 		return err
 	}
+	if p.ThrottleKind != "" {
+		// One message per cooldown for the whole kind, across replicas: the lock serializes the decisions of
+		// concurrent captures (it is released with the transaction, after the claim below is visible).
+		const lockSQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
+		kind := string(p.ThrottleKind)
+		if _, lockErr := tx.Exec(ctx, lockSQL, "error-journal-kind:"+kind); lockErr != nil {
+			return lockErr
+		}
+		var recent bool
+		const recentSQL = `SELECT EXISTS(SELECT 1 FROM error_groups WHERE kind = $1 AND notification_enqueued_at > $2)`
+		row := tx.QueryRow(ctx, recentSQL, kind, p.ThrottleCutoff)
+		if scanErr := row.Scan(&recent); scanErr != nil {
+			return scanErr
+		}
+		if recent {
+			return nil
+		}
+	}
 	n, err := postgres.New(tx).EnqueueErrorNotification(ctx, postgres.EnqueueErrorNotificationParams{
 		ID: id, GroupID: groupID, Body: p.Body, EmailBody: p.EmailBody, Now: p.Now, Cutoff: p.Cutoff,
 	})

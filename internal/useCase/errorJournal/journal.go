@@ -165,8 +165,11 @@ type Journal struct {
 	tg     Telegram
 	mail   Mailer
 	agents AgentCertificates
-	cfg    Config
-	now    func() time.Time
+	relay  Relay
+	// instance names this process on the relay.
+	instance string
+	cfg      Config
+	now      func() time.Time
 
 	queue   chan errorJournal.Event
 	dropped atomic.Int64
@@ -179,10 +182,8 @@ type Journal struct {
 	// refusals folds the 403 flood of one fingerprint: the first event of a window is recorded at once, the rest
 	// are counted here and written as one record per flush.
 	refusals map[string]*refusalFold
-	// kindMessaged is when the last message of a noisy kind (403) was sent, for every group of it.
-	kindMessaged map[errorJournal.Kind]time.Time
-	offline      map[string]*offlineState
-	certLast     map[string]time.Time
+	offline  map[string]*offlineState
+	certLast map[string]time.Time
 }
 
 // refusalFold counts the repeats of one 403 fingerprint inside its window.
@@ -211,7 +212,9 @@ type Dependencies struct {
 	Telegram Telegram
 	Mailer   Mailer
 	Agents   AgentCertificates
-	Config   Config
+	// Relay carries the live stream to the other replicas; nil keeps it inside this process.
+	Relay  Relay
+	Config Config
 }
 
 func New(deps Dependencies) *Journal {
@@ -224,10 +227,11 @@ func New(deps Dependencies) *Journal {
 	}
 	return &Journal{
 		repo: deps.Repo, tg: deps.Telegram, mail: deps.Mailer, agents: deps.Agents, cfg: cfg, now: time.Now,
+		relay: deps.Relay, instance: uuid.Must(uuid.NewV4()).String(),
 		queue: make(chan errorJournal.Event, cfg.BufferSize), hub: NewHub(),
 		spikes: spikeCounter{hits: map[string][]time.Time{}}, notFound: map[notFoundKey]int64{},
 		offline: map[string]*offlineState{}, certLast: map[string]time.Time{},
-		refusals: map[string]*refusalFold{}, kindMessaged: map[errorJournal.Kind]time.Time{},
+		refusals: map[string]*refusalFold{},
 	}
 }
 
@@ -412,7 +416,8 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 		return rec, nil
 	}
 	sample.GroupID = rec.Group.ID
-	j.hub.Publish(StreamEvent{Group: rec.Group, Sample: &sample, New: rec.Inserted || rec.Reopened})
+	isNew := rec.Inserted || rec.Reopened
+	j.publish(ctx, StreamEvent{Group: rec.Group, Sample: &sample, New: isNew})
 	return rec, nil
 }
 
@@ -473,7 +478,7 @@ func (j *Journal) SetErrorGroupStatus(ctx context.Context, id uuid.UUID, status 
 	if err != nil {
 		return errorJournal.Group{}, err
 	}
-	j.hub.Publish(StreamEvent{Group: g})
+	j.publish(ctx, StreamEvent{Group: g})
 	return g, nil
 }
 
