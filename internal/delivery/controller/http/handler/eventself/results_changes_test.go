@@ -50,9 +50,9 @@ func TestResultsChanges_PollsTheReplayAfterTheCursor(t *testing.T) {
 	if again, _ := pollChanges(t, h, eventID, "since=5", w.Header().Get("ETag")); again.Code != http.StatusNotModified {
 		t.Fatalf("unchanged poll = %d", again.Code)
 	}
-	// Frozen solves of other teams advance the cursor without changes.
-	replay = eventUseCase.LiveResultsReplay{LastRevision: 9}
-	if _, got = pollChanges(t, h, eventID, "since=7", ""); got.Revision != 9 || len(got.Changes) != 0 || got.SnapshotRequired {
+	// An unchanged frozen projection keeps its opaque cursor.
+	replay = eventUseCase.LiveResultsReplay{LastRevision: 7000000001}
+	if _, got = pollChanges(t, h, eventID, "since=7000000001", ""); got.Revision != 7000000001 || len(got.Changes) != 0 || got.SnapshotRequired {
 		t.Fatalf("skipped changes: %+v", got)
 	}
 }

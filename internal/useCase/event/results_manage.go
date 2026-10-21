@@ -49,7 +49,7 @@ func (u *EventUseCase) UpdateResultsSettings(ctx context.Context, eventID uuid.U
 	return u.resultsSettingsView(ctx, cfg)
 }
 
-// SetResultsOpened ends the freeze early («Відкрити підсумки») or restores it.
+// SetResultsOpened ends the freeze («Відкрити підсумки») or restores it.
 // Opening announces participant.event.results_published (participants and
 // managers, Activity), but only while the participants can see the results.
 func (u *EventUseCase) SetResultsOpened(ctx context.Context, eventID uuid.UUID, opened bool, by uuid.UUID) (ResultsSettingsView, error) {
@@ -117,7 +117,8 @@ func (u *EventUseCase) resultsSettingsView(ctx context.Context, cfg eventConfigM
 		return ResultsSettingsView{}, err
 	}
 	s := cfg.Results
-	return ResultsSettingsView{ScoreboardVisibility: cfg.ScoreboardVisibility, FreezeEnabled: s.FreezeEnabled, FreezeMinutes: s.FreezeMinutes, LiveFreeze: s.LiveFreeze,
+	return ResultsSettingsView{ScoreboardVisibility: cfg.ScoreboardVisibility, FreezeEnabled: s.FreezeEnabled, FreezeMinutes: s.FreezeMinutes, FreezeEndMode: s.FreezeEndMode.OrDefault(), LiveFreeze: s.LiveFreeze,
+		FreezeBannerText: s.FreezeBannerText, FreezeBannerLevel: eventConfigModel.FreezeBannerLevelOrDefault(s.FreezeBannerLevel),
 		ChartEnabled: s.ChartEnabled, ChartTeams: s.ChartTeams, RowsLimit: s.RowsLimit, OpenedAt: s.OpenedAt, Freeze: freezeView(s, finish, time.Now())}, nil
 }
 

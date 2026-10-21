@@ -85,11 +85,11 @@ func TestScoresAtCutoffFreezeDynamicPoints(t *testing.T) {
 		t.Fatalf("frozen timeline: rows=%+v err=%v", frozenTimeline, err)
 	}
 	counts, err := db.Queries.CountEventChallengeSolves(ctx, postgres.CountEventChallengeSolvesParams{EventID: event.ID, OwnTeamID: own, Cutoff: cutoff})
-	if err != nil || len(counts) != 1 || counts[0].Solves != 2 {
-		t.Fatalf("frozen solve count = other teams before the cutoff + own: %+v err=%v", counts, err)
+	if err != nil || len(counts) != 1 || counts[0].Solves != 1 {
+		t.Fatalf("frozen task solve count excludes every post-cutoff solve, including own: %+v err=%v", counts, err)
 	}
 	solves, err := db.Queries.ListEventChallengeSolves(ctx, postgres.ListEventChallengeSolvesParams{EventID: event.ID, EventChallengeID: challenge.ID, OwnTeamID: own, Cutoff: cutoff, RowLimit: 10})
-	if err != nil || len(solves) != 2 || solves[0].EventTeamID != a || solves[1].EventTeamID != own {
+	if err != nil || len(solves) != 1 || solves[0].EventTeamID != a {
 		t.Fatalf("frozen solves list: %+v err=%v", solves, err)
 	}
 

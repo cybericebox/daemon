@@ -16,6 +16,7 @@ import (
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
+	siteBannerModel "github.com/cybericebox/daemon/internal/model/siteBanner"
 )
 
 // Queries is the narrow slice of the sqlc Querier this repository needs.
@@ -128,6 +129,9 @@ func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig)
 		HintChargeMode:            int16(c.HintChargeMode),
 		ResultsFreezeEnabled:      c.Results.FreezeEnabled,
 		ResultsFreezeMinutes:      c.Results.FreezeMinutes,
+		ResultsFreezeEndMode:      string(c.Results.FreezeEndMode.OrDefault()),
+		ResultsFreezeBannerText:   c.Results.FreezeBannerText,
+		ResultsFreezeBannerLevel:  string(eventConfigModel.FreezeBannerLevelOrDefault(c.Results.FreezeBannerLevel)),
 		ResultsOpenedAt:           nullableTime(c.Results.OpenedAt),
 		ResultsLiveFreeze:         c.Results.LiveFreeze,
 		ResultsChartEnabled:       c.Results.ChartEnabled,
@@ -186,6 +190,9 @@ func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig,
 		HintChargeMode:            int16(c.HintChargeMode),
 		ResultsFreezeEnabled:      c.Results.FreezeEnabled,
 		ResultsFreezeMinutes:      c.Results.FreezeMinutes,
+		ResultsFreezeEndMode:      string(c.Results.FreezeEndMode.OrDefault()),
+		ResultsFreezeBannerText:   c.Results.FreezeBannerText,
+		ResultsFreezeBannerLevel:  string(eventConfigModel.FreezeBannerLevelOrDefault(c.Results.FreezeBannerLevel)),
 		ResultsOpenedAt:           nullableTime(c.Results.OpenedAt),
 		ResultsLiveFreeze:         c.Results.LiveFreeze,
 		ResultsChartEnabled:       c.Results.ChartEnabled,
@@ -298,6 +305,8 @@ func resultsFromDB(row postgres.EventConfig) eventConfigModel.ResultsSettings {
 	}
 	out := eventConfigModel.ResultsSettings{
 		FreezeEnabled: row.ResultsFreezeEnabled, FreezeMinutes: row.ResultsFreezeMinutes, LiveFreeze: row.ResultsLiveFreeze,
+		FreezeEndMode:    eventConfigModel.FreezeEndMode(row.ResultsFreezeEndMode).OrDefault(),
+		FreezeBannerText: row.ResultsFreezeBannerText, FreezeBannerLevel: eventConfigModel.FreezeBannerLevelOrDefault(siteBannerModel.Level(row.ResultsFreezeBannerLevel)),
 		ChartEnabled: row.ResultsChartEnabled, ChartTeams: row.ResultsChartTeams, RowsLimit: int32FromDB(row.ResultsRowsLimit),
 	}
 	if row.ResultsOpenedAt.Valid {

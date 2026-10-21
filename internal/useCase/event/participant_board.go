@@ -27,7 +27,7 @@ import (
 // ListOwnChallenges returns the caller team's board: published assignments
 // with prerequisites (a locked challenge shows only its name and difficulty),
 // file sizes, and solve counts when event results are available to the caller
-// (other teams' solves only before an applied freeze).
+// (every team's solves only before an applied freeze).
 func (u *EventUseCase) ListOwnChallenges(ctx context.Context, eventID, userID uuid.UUID) ([]OwnChallengeView, error) {
 	teamID, views, err := u.ownBoard(ctx, eventID, userID, true)
 	if err != nil {
@@ -197,7 +197,7 @@ func (u *EventUseCase) challengeSolvesPage(ctx context.Context, eventID, ownTeam
 	if err != nil {
 		return ChallengeSolvesPage{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list challenge solves").Err()
 	}
-	page := ChallengeSolvesPage{}
+	page := ChallengeSolvesPage{Frozen: cutoff != nil}
 	if len(rows) > pageSize {
 		rows = rows[:pageSize]
 		page.HasMore = true

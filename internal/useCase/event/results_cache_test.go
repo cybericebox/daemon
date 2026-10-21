@@ -127,36 +127,49 @@ func TestLiveResultsStreamReadsViewerOnce(t *testing.T) {
 	}
 }
 
-// The shared window keeps the freeze exact: a frozen viewer still skips other
-// teams' solves after the freeze and gets its own team's.
-func TestLiveResultsSharedWindowKeepsFreeze(t *testing.T) {
+// Opening results replaces the frozen projection token with a live cursor.
+func TestLiveResultsUnfreezeRequiresFreshSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
 	clock := newFakeClock(uc)
-	eventID := uuid.Must(uuid.NewV7())
+	eventID, team := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	now := time.Now().UTC()
 	started := startedEvent(eventID, now)
-	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
-	team := uuid.Must(uuid.NewV7())
-	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
-	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil).Times(2)
+	cfg := frozenConfig(eventID, now, 10)
+	opened := cfg
+	opened.ResultsOpenedAt = pgtype.Timestamptz{Time: now, Valid: true}
+	gomock.InOrder(
+		q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(cfg, nil),
+		q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(opened, nil),
+	)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(started, nil).Times(2)
 	gomock.InOrder(
 		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 4, UpdatedAt: now}, nil),
-		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil),
+		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil).Times(2),
 	)
 	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), postgres.ListEventResultChangesAfterParams{EventID: eventID, AfterRevision: 4, LimitVal: 500}).
-		Return([]postgres.EventResultChange{solveChange(eventID, 5, team, frozenAt.Add(-time.Minute)), solveChange(eventID, 6, team, frozenAt.Add(time.Minute))}, nil)
-
+		Return([]postgres.EventResultChange{solveChange(eventID, 5, team, now), solveChange(eventID, 6, team, now)}, nil)
+	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).Times(2)
+	q.EXPECT().ListEventScoreTimeline(gomock.Any(), gomock.Any()).Return(nil, nil).Times(2)
+	ctx := context.Background()
+	frozen, err := uc.GetResultsSnapshot(ctx, eventID, event.ResultsAccess{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stream := uc.OpenLiveResults(eventID, event.ResultsAccess{}, false)
-	if _, err := stream.Replay(context.Background(), 4); err != nil {
-		t.Fatalf("first replay: %v", err)
+	replay, err := stream.Replay(ctx, frozen.Revision)
+	if err != nil || replay.SnapshotRequired || len(replay.Changes) != 0 {
+		t.Fatalf("frozen replay: %+v, %v", replay, err)
 	}
 	clock.advance(2 * time.Second)
-	replay, err := stream.Replay(context.Background(), 4)
-	if err != nil || len(replay.Changes) != 1 || replay.Changes[0].Revision != 5 || replay.LastRevision != 6 || replay.FreezeKey == "" {
-		t.Fatalf("replay = %+v, %v", replay, err)
+	replay, err = stream.Replay(ctx, frozen.Revision)
+	if err != nil || !replay.SnapshotRequired || len(replay.Changes) != 0 {
+		t.Fatalf("unfreeze: %+v, %v", replay, err)
+	}
+	live, err := uc.GetResultsSnapshot(ctx, eventID, event.ResultsAccess{}, false)
+	if err != nil || live.Freeze.Applied || live.Revision != 6 {
+		t.Fatalf("live snapshot: %+v, %v", live, err)
 	}
 }
 

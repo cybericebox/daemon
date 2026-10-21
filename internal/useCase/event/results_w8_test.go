@@ -2,7 +2,6 @@ package event_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func frozenConfig(eventID uuid.UUID, now time.Time, rows int32) postgres.EventCo
 		ResultsRowsLimit: pgtype.Int4{Int32: rows, Valid: true}}
 }
 
-func TestGetResultsSnapshotFreezesOtherTeamsButNotOwnProgress(t *testing.T) {
+func TestGetResultsSnapshotFreezesAllTeamsIncludingOwn(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
@@ -49,14 +48,8 @@ func TestGetResultsSnapshotFreezesOtherTeamsButNotOwnProgress(t *testing.T) {
 	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID, Cutoff: cutoff}).Return([]postgres.ListEventScoreboardRow{
 		{TeamID: leader, TeamName: "Leader", Points: 300, Solved: 2}, {TeamID: second, TeamName: "Second", Points: 200, Solved: 1}, {TeamID: own, TeamName: "Own", Points: 100, Solved: 1},
 	}, nil)
-	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID, Cutoff: cutoff, IncludeTeam: ownParam}).Return([]postgres.ListEventScoreboardRow{
-		{TeamID: leader, TeamName: "Leader", Points: 300, Solved: 2}, {TeamID: own, TeamName: "Own", Points: 400, Solved: 3}, {TeamID: second, TeamName: "Second", Points: 200, Solved: 1},
-	}, nil)
 	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID, Cutoff: cutoff}).Return([]postgres.ListEventScoreTimelineRow{
 		{EventTeamID: leader, Points: 300, SolvedAt: frozenAt.Add(-time.Hour)}, {EventTeamID: second, Points: 200, SolvedAt: frozenAt.Add(-50 * time.Minute)}, {EventTeamID: own, Points: 100, SolvedAt: frozenAt.Add(-40 * time.Minute)},
-	}, nil)
-	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID, Cutoff: cutoff, IncludeTeam: ownParam}).Return([]postgres.ListEventScoreTimelineRow{
-		{EventTeamID: own, Points: 100, SolvedAt: frozenAt.Add(-40 * time.Minute)}, {EventTeamID: own, Points: 300, SolvedAt: frozenAt.Add(10 * time.Minute)},
 	}, nil)
 
 	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{UserID: &userID, Role: rbac.RoleUser}, false)
@@ -70,11 +63,11 @@ func TestGetResultsSnapshotFreezesOtherTeamsButNotOwnProgress(t *testing.T) {
 	if got.TotalTeams != 3 || len(got.Scoreboard) != 2 || got.Scoreboard[0].TeamID != leader || got.Scoreboard[1].TeamID != own {
 		t.Fatalf("rows = %+v", got.Scoreboard)
 	}
-	if ownRow := got.Scoreboard[1]; ownRow.Rank != 3 || ownRow.Points != 400 || ownRow.Solved != 3 {
-		t.Fatalf("own row must keep its frozen rank with live progress: %+v", ownRow)
+	if ownRow := got.Scoreboard[1]; ownRow.Rank != 3 || ownRow.Points != 100 || ownRow.Solved != 1 {
+		t.Fatalf("own row must keep its frozen rank and points: %+v", ownRow)
 	}
-	// Chart teams 1: the leader and the own team (with its later solve).
-	if len(got.Timeline) != 3 || got.Timeline[2].EventTeamID != own || got.Timeline[2].Points != 300 {
+	// Chart teams 1: the leader and the own team, both frozen.
+	if len(got.Timeline) != 2 || got.Timeline[1].EventTeamID != own || got.Timeline[1].Points != 100 {
 		t.Fatalf("timeline = %+v", got.Timeline)
 	}
 	for _, item := range got.Timeline {
@@ -168,56 +161,23 @@ func TestGetResultsSnapshotLiveScreenIsForManagersOnly(t *testing.T) {
 	}
 }
 
-func TestReplayLiveResultsSkipsOtherTeamsSolvesAfterFreeze(t *testing.T) {
+// An old live cursor cannot replay individual changes into a frozen snapshot.
+func TestReplayLiveResultsRequiresFrozenSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
 	eventID := uuid.Must(uuid.NewV7())
 	now := time.Now().UTC()
 	started := startedEvent(eventID, now)
-	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
-	team := uuid.Must(uuid.NewV7())
-	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
-	change := func(revision int64, at time.Time) postgres.EventResultChange {
-		payload, _ := json.Marshal(map[string]any{"TeamID": team, "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": at})
-		return postgres.EventResultChange{EventID: eventID, Revision: revision, Kind: "team_challenge_solved", Payload: payload, CreatedAt: at}
-	}
+	cutoff := pgtype.Timestamptz{Time: started.FinishAt.Time.Add(-90 * time.Minute), Valid: true}
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(started, nil)
 	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil)
-	q.EXPECT().GetEarliestEventResultChangeRevision(gomock.Any(), eventID).Return(int64(5), nil)
-	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), gomock.Any()).Return([]postgres.EventResultChange{change(5, frozenAt.Add(-time.Minute)), change(6, frozenAt.Add(time.Minute))}, nil)
-
+	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID, Cutoff: cutoff}).Return(nil, nil)
+	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID, Cutoff: cutoff}).Return(nil, nil)
 	replay, err := uc.ReplayLiveResults(context.Background(), eventID, event.ResultsAccess{}, 4, false)
-	if err != nil || len(replay.Changes) != 1 || replay.Changes[0].Revision != 5 || replay.LastRevision != 6 || replay.FreezeKey == "" {
+	if err != nil || !replay.SnapshotRequired || len(replay.Changes) != 0 || replay.FreezeKey == "" {
 		t.Fatalf("replay = %+v, %v", replay, err)
-	}
-}
-
-// L19: the withdrawal of another team's solve during the freeze is news about that team, like the solve was.
-func TestReplayLiveResultsSkipsOtherTeamsAnnulmentsAfterFreeze(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := newFormGateMock(ctrl)
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
-	eventID := uuid.Must(uuid.NewV7())
-	now := time.Now().UTC()
-	started := startedEvent(eventID, now)
-	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
-	team := uuid.Must(uuid.NewV7())
-	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
-	unsolved := func(revision int64, at time.Time) postgres.EventResultChange {
-		payload, _ := json.Marshal(map[string]any{"TeamID": team, "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": nil})
-		return postgres.EventResultChange{EventID: eventID, Revision: revision, Kind: "team_challenge_unsolved", Payload: payload, CreatedAt: at}
-	}
-	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(started, nil)
-	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil)
-	q.EXPECT().GetEarliestEventResultChangeRevision(gomock.Any(), eventID).Return(int64(5), nil)
-	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), gomock.Any()).Return([]postgres.EventResultChange{unsolved(5, frozenAt.Add(-time.Minute)), unsolved(6, frozenAt.Add(time.Minute))}, nil)
-
-	replay, err := uc.ReplayLiveResults(context.Background(), eventID, event.ResultsAccess{}, 4, false)
-	if err != nil || len(replay.Changes) != 1 || replay.Changes[0].Revision != 5 {
-		t.Fatalf("only the annulment before the freeze may be replayed, got %+v, %v", replay, err)
 	}
 }
 

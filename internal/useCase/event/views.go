@@ -16,6 +16,7 @@ import (
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
+	siteBannerModel "github.com/cybericebox/daemon/internal/model/siteBanner"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
 
@@ -753,6 +754,8 @@ type ChallengeSolvesPage struct {
 	HasMore bool
 	Next    uuid.UUID
 	Total   int64
+	// Frozen applies to the whole list and count, including the caller's team.
+	Frozen bool
 }
 
 // TeamRosterMemberView is one member of the caller's team; DisplayName is the
@@ -823,12 +826,14 @@ type ResultsSnapshotView struct {
 // ResultsFreezeView is the scoreboard freeze state. Applied tells whether the
 // data returned to this viewer is the frozen table.
 type ResultsFreezeView struct {
-	Enabled  bool
-	FrozenAt *time.Time
-	FinishAt *time.Time
-	OpenedAt *time.Time
-	Active   bool
-	Applied  bool
+	Enabled     bool
+	FrozenAt    *time.Time
+	FinishAt    *time.Time
+	OpenedAt    *time.Time
+	Active      bool
+	Applied     bool
+	BannerText  string
+	BannerLevel siteBannerModel.Level
 }
 
 // ResultsDisplayView is the public page presentation (chart and rows).
@@ -843,6 +848,9 @@ type ResultsSettingsView struct {
 	ScoreboardVisibility eventConfigModel.Visibility
 	FreezeEnabled        bool
 	FreezeMinutes        int32
+	FreezeEndMode        eventConfigModel.FreezeEndMode
+	FreezeBannerText     string
+	FreezeBannerLevel    siteBannerModel.Level
 	LiveFreeze           bool
 	ChartEnabled         bool
 	ChartTeams           int32

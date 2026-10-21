@@ -32,7 +32,6 @@ type moderatorsBoardItemResponse struct {
 	GroupID          *uuid.UUID                  `json:"GroupID"`
 	GroupName        string                      `json:"GroupName"`
 	GroupOrder       int32                       `json:"GroupOrder"`
-	ContentUpdatedAt *time.Time                  `json:"ContentUpdatedAt"`
 	Infrastructure   bool                        `json:"Infrastructure"`
 	HintsEnabled     bool                        `json:"HintsEnabled"`
 	Locked           bool                        `json:"Locked"`
@@ -91,9 +90,14 @@ type moderatorsSolveResponse struct {
 	FirstBlood bool      `json:"FirstBlood"`
 }
 
+type moderatorsSolvesPageResponse struct {
+	pagination.CursorPage[moderatorsSolveResponse]
+	Frozen bool `json:"Frozen"`
+}
+
 func toModeratorsBoardItemResponse(v eventUseCase.OwnChallengeView) moderatorsBoardItemResponse {
 	out := moderatorsBoardItemResponse{ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt,
-		Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder, ContentUpdatedAt: v.ContentUpdatedAt,
+		Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
 		Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, Locked: v.Locked, SolveCount: v.SolveCount, BoardPublished: v.BoardPublished,
 		Prerequisites: make([]boardPrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]boardFileResponse, 0, len(v.Files)),
 		Hints: make([]boardHintResponse, 0, len(v.Hints)), AwardedPoints: v.AwardedPoints, HintPenalty: v.HintPenalty}
@@ -191,7 +195,7 @@ func (h *Handler) moderatorsSubmit(ctx *gin.Context) {
 // @Param challengeID path string true "event challenge ID"
 // @Param cursor query string false "NextCursor of the previous page"
 // @Param pageSize query int false "page size"
-// @Success 200 {object} response.Response{data=pagination.CursorPage[moderatorsSolveResponse]}
+// @Success 200 {object} response.Response{data=moderatorsSolvesPageResponse}
 // @Router /events/{id}/manage/labs/moderators/challenges/{challengeID}/solves [get]
 func (h *Handler) moderatorsSolves(ctx *gin.Context) {
 	eventID, ok := parseEventID(ctx)
@@ -217,7 +221,7 @@ func (h *Handler) moderatorsSolves(ctx *gin.Context) {
 	for _, item := range page.Items {
 		items = append(items, moderatorsSolveResponse{TeamName: item.TeamName, SolvedAt: item.SolvedAt, Own: item.Own, FirstBlood: item.FirstBlood})
 	}
-	response.AbortWithData(ctx, pagination.NewCursorPage(items, page.HasMore, page.Next, page.Total))
+	response.AbortWithData(ctx, moderatorsSolvesPageResponse{CursorPage: pagination.NewCursorPage(items, page.HasMore, page.Next, page.Total), Frozen: page.Frozen})
 }
 
 // moderatorsChallengeFile godoc

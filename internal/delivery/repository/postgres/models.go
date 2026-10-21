@@ -291,6 +291,9 @@ type EventConfig struct {
 	FinishCountdownMode          int16              `json:"finish_countdown_mode"`
 	LabPolicy                    []byte             `json:"lab_policy"`
 	FooterSignature              []byte             `json:"footer_signature"`
+	ResultsFreezeEndMode         string             `json:"results_freeze_end_mode"`
+	ResultsFreezeBannerText      string             `json:"results_freeze_banner_text"`
+	ResultsFreezeBannerLevel     string             `json:"results_freeze_banner_level"`
 }
 
 type EventExercise struct {

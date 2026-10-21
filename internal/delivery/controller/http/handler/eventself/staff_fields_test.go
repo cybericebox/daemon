@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	staffQuestion = "Internal attendance note"
-	staffAnswer   = "VIP: seat 14, call before the start"
+	staffQuestion      = "Internal attendance note"
+	staffAnswer        = "VIP: seat 14, call before the start"
+	removedStaffAnswer = "Historical internal attendance note"
 )
 
 func staffDocument() eventContentModel.Document {
@@ -39,13 +40,13 @@ func (leakyUseCase) GetTeamFields(context.Context, uuid.UUID) (eventUseCase.Part
 }
 
 func (leakyUseCase) GetOwnParticipantFormAnswers(context.Context, uuid.UUID, uuid.UUID) (map[string]any, error) {
-	return map[string]any{"city": "Kyiv", "note": staffAnswer}, nil
+	return map[string]any{"city": "Kyiv", "note": staffAnswer, "removed_note": removedStaffAnswer}, nil
 }
 
 func (leakyUseCase) GetOwnParticipantAnswers(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.OwnParticipantAnswersView, error) {
 	return eventUseCase.OwnParticipantAnswersView{
 		Form:    eventUseCase.ParticipantFormView{Version: 3, Enabled: true, Document: staffDocument()},
-		Answers: map[string]any{"city": "Kyiv", "note": staffAnswer}, Editable: true,
+		Answers: map[string]any{"city": "Kyiv", "note": staffAnswer, "removed_note": removedStaffAnswer}, Editable: true,
 	}, nil
 }
 
@@ -62,18 +63,20 @@ func TestParticipantsNeverReceiveStaffOnlyFields(t *testing.T) {
 		{http.MethodGet, "/api/events/self/participant-answers", ""},
 		{http.MethodPut, "/api/events/self/participant-answers", `{"Answers":{"city":"Kyiv"}}`},
 	} {
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
-		body := w.Body.String()
-		if w.Code != http.StatusOK {
-			t.Fatalf("%s %s: %d %s", tc.method, tc.path, w.Code, body)
-		}
-		if strings.Contains(body, staffQuestion) || strings.Contains(body, staffAnswer) || strings.Contains(body, `"note"`) || strings.Contains(body, "staffOnly") {
-			t.Fatalf("%s %s leaked a staff-only field to a participant: %s", tc.method, tc.path, body)
-		}
-		if !strings.Contains(body, "city") {
-			t.Fatalf("%s %s lost the participant's own field: %s", tc.method, tc.path, body)
-		}
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
+			body := w.Body.String()
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s %s: %d %s", tc.method, tc.path, w.Code, body)
+			}
+			if strings.Contains(body, staffQuestion) || strings.Contains(body, staffAnswer) || strings.Contains(body, `"note"`) || strings.Contains(body, "staffOnly") || strings.Contains(body, removedStaffAnswer) || strings.Contains(body, `"removed_note"`) {
+				t.Fatalf("%s %s leaked a staff-only field to a participant: %s", tc.method, tc.path, body)
+			}
+			if !strings.Contains(body, "city") {
+				t.Fatalf("%s %s lost the participant's own field: %s", tc.method, tc.path, body)
+			}
+		})
 	}
 }
 

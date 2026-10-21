@@ -569,10 +569,12 @@ func (u *EventUseCase) GetOwnTeam(ctx context.Context, eventID, userID uuid.UUID
 	missing := []string{}
 	teamForm, formErr := u.teams.GetFieldConfig(ctx, eventID)
 	if formErr == nil {
-		fields = teamForm.WithoutStaffAnswers(fields)
+		fields = teamForm.AnswersForParticipant(fields)
 		missing = missingRequired(teamForm, fields)
 	} else if !repositoryTools.IsObjectNotFoundError(formErr) && formErr != pgx.ErrNoRows {
 		return OwnTeamView{}, model.ErrPlatform.WithError(formErr).WithMessage("Failed to get team fields").Err()
+	} else {
+		fields = map[string]any{}
 	}
 	admitted, err := u.teams.Admitted(ctx, eventID, team.ID)
 	if err != nil {

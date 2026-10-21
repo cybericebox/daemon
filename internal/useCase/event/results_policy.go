@@ -114,10 +114,12 @@ func (p resultsPolicy) readErr(now time.Time, liveScreen bool) error {
 	if liveScreen && !p.manager {
 		return eventConfigModel.ErrResultsLiveScreenManagersOnly.Err()
 	}
-	// The route is public: an event that is not published yet does not exist for anyone but its
-	// staff (its teams and scores are not for the public to read, whatever the page settings say).
-	if !p.manager && p.event.Lifecycle.Status(now) == eventModel.LifecycleNotPublished {
-		return eventModel.ErrEventNotFound.Err()
+	// Hidden events do not exist for anyone but their staff, whatever the results settings say.
+	if !p.manager {
+		switch p.event.Lifecycle.Status(now) {
+		case eventModel.LifecycleNotPublished, eventModel.LifecycleWithdrawn:
+			return eventModel.ErrEventNotFound.Err()
+		}
 	}
 	// Before the start the table is readable too: its audience sees the
 	// admitted teams with no points yet instead of a closed page.
@@ -136,12 +138,16 @@ func (p resultsPolicy) freeze(now time.Time, liveScreen bool) ResultsFreezeView 
 	} else {
 		view.Applied = view.Active && !p.manager
 	}
+	if view.Applied {
+		view.BannerText = p.cfg.Results.FreezeBannerText
+		view.BannerLevel = eventConfigModel.FreezeBannerLevelOrDefault(p.cfg.Results.FreezeBannerLevel)
+	}
 	return view
 }
 
 func freezeView(settings eventConfigModel.ResultsSettings, finish *time.Time, now time.Time) ResultsFreezeView {
 	return ResultsFreezeView{Enabled: settings.FreezeEnabled, FrozenAt: settings.FrozenAt(finish), FinishAt: finish, OpenedAt: settings.OpenedAt,
-		Active: settings.FreezeActive(finish, now)}
+		Active: settings.FreezeActive(finish, now), BannerLevel: eventConfigModel.FreezeBannerLevelOrDefault("")}
 }
 
 // cutoff is the moment the returned data is frozen at, nil for live data.

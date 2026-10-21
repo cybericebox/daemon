@@ -380,6 +380,10 @@ func (fakeUseCase) SubmitChallenge(context.Context, uuid.UUID, uuid.UUID, uuid.U
 func (fakeUseCase) ListOwnBoard(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.OwnBoardView, error) {
 	return eventUseCase.OwnBoardView{}, nil
 }
+func (fakeUseCase) GetResultsFreeze(context.Context, uuid.UUID, eventUseCase.ResultsAccess) (eventUseCase.ResultsFreezeView, error) {
+	return eventUseCase.ResultsFreezeView{}, nil
+}
+
 func (f fakeUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID, access eventUseCase.ResultsAccess, liveScreen bool) (eventUseCase.ResultsSnapshotView, error) {
 	if f.results != nil {
 		return f.results(ctx, eventID, access)

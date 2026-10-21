@@ -99,7 +99,7 @@ type ownAnswersState struct {
 }
 
 func (s ownAnswersState) view() OwnParticipantAnswersView {
-	answers := s.form.Form.WithoutStaffAnswers(s.answers)
+	answers := s.form.Form.AnswersForParticipant(s.answers)
 	missing := missingRequired(s.form.Form, answers)
 	return OwnParticipantAnswersView{
 		Form: toParticipantFormView(s.form).ForParticipant(), Answers: answers, Editable: s.editable,

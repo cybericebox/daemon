@@ -310,6 +310,7 @@ POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers
 GET    /api/events/:id/preview-picture/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/results | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/changes | gate: events.results.read(public) | layers: -
+GET    /api/events/:id/results/freeze | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/live | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/participation | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/results/team | gate: self | layers: eventself.touchPresence

@@ -42,6 +42,12 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	if err = policy.readErr(now, liveScreen); err != nil {
 		return ResultsSnapshotView{}, err
 	}
+	return u.resultsSnapshot(ctx, eventID, shared, policy, now, liveScreen)
+}
+
+// resultsSnapshot uses the already-authorized policy for both snapshots and
+// frozen subscriptions, without repeating the subscription's viewer lookup.
+func (u *EventUseCase) resultsSnapshot(ctx context.Context, eventID uuid.UUID, shared *sharedResults, policy resultsPolicy, now time.Time, liveScreen bool) (ResultsSnapshotView, error) {
 	// The cursor was read before the projections below. A result transaction
 	// cannot expose a changed projection without committing its matching
 	// revision/change record. If a new commit races the following reads, SSE
@@ -56,11 +62,13 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	own := policy.ownTeam()
 	showRealNames := policy.mayShowRealNamesOn(liveScreen)
 	scores := revisionScores{u: u, revision: revision.Revision}
-	entries, err := u.rankedScoreboard(ctx, scores, eventID, cutoff, own)
+	// Aggregate results freeze for every team. The own-team exception belongs
+	// only to the separate personal progress read, not the public ranking.
+	entries, err := u.rankedScoreboard(ctx, scores, eventID, cutoff, nil)
 	if err != nil {
 		return ResultsSnapshotView{}, err
 	}
-	timeline, err := u.scoreTimeline(ctx, scores, eventID, cutoff, own)
+	timeline, err := u.scoreTimeline(ctx, scores, eventID, cutoff, nil)
 	if err != nil {
 		return ResultsSnapshotView{}, err
 	}
@@ -86,6 +94,9 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	}
 	if !showRealNames {
 		maskRealNames(view.Scoreboard, own)
+	}
+	if freeze.Applied {
+		view.Revision = frozenResultsVersion(view)
 	}
 	return view, nil
 }
@@ -199,7 +210,9 @@ func (u *EventUseCase) rankedScoreboard(ctx context.Context, scores scoreReader,
 	if cutoff == nil || own == nil {
 		return out, nil
 	}
-	withOwn, err := scores.List(ctx, eventID, scoreboardRepo.Cut{At: cutoff, IncludeTeam: own})
+	// Personal totals use the current scoring population as well as the own
+	// team's current solves. Cutting peers would inflate dynamic awards.
+	withOwn, err := scores.List(ctx, eventID, scoreboardRepo.Cut{IncludeTeam: own})
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list own team scores").Err()
 	}
