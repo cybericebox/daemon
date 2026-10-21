@@ -2094,61 +2094,6 @@
                 }
             }
         },
-        "/banners": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "site-banners"
-                ],
-                "summary": "Banners the current viewer sees (public, optional session)",
-                "parameters": [
-                    {
-                        "enum": [
-                            "main",
-                            "id",
-                            "admin",
-                            "exercises",
-                            "event"
-                        ],
-                        "type": "string",
-                        "description": "Site context (event requires event id)",
-                        "name": "site",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Event id of an Event site",
-                        "name": "event",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/messaging.visibleBannerResponse"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/events": {
             "get": {
                 "produces": [
@@ -13634,59 +13579,6 @@
                 }
             }
         },
-        "/events/{id}/results/freeze": {
-            "get": {
-                "description": "Uses the same viewer, event visibility and withdrawal gates as the results page. Authored banner content is returned only while the freeze applies to this viewer.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events-self"
-                ],
-                "summary": "Read visible event freeze state without downloading scores",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "event ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/eventself.resultsFreezeResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/response.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/response.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/events/{id}/results/live": {
             "get": {
                 "description": "Load GET /events/{id}/results first. Send its Revision in Last-Event-ID (or the lastEventId query parameter, for EventSource) when opening this stream. After any interruption, load a fresh snapshot before reconnecting. A frozen viewer does not receive other teams' solves after the freeze; a change of the viewer's freeze state ends the stream with snapshot-required.",
@@ -17389,6 +17281,12 @@
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
+                    },
+                    "503": {
+                        "description": "the chunk broke off on the way; send it again",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
                     }
                 }
             }
@@ -18043,7 +17941,7 @@
         },
         "/exercises/{id}/images": {
             "post": {
-                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag \u003cname\u003e-\u003cthe whole digest hex\u003e and returns the platform reference for the device.",
+                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag sha256-\u003cthe whole digest hex\u003e (the digest alone: the same content is the same tag whatever its name) and returns the platform reference for the device.",
                 "consumes": [
                     "application/json"
                 ],
@@ -21174,6 +21072,114 @@
                 }
             }
         },
+        "/notifications/banners": {
+            "get": {
+                "description": "The site banners of the platform and of the event site, filtered by window, targeting and audience; on an event site the results-freeze banner (Kind system, ID system-results-freeze:\u003cevent id\u003e, text and level from the event's freeze settings) only while the freeze applies to this viewer, never an error; and, for a signed-in user, the user's own banner notifications (Kind personal). The ETag is the Banners version of the pulse, so the client can tell whether it holds the version the pulse reported. Sorted by severity, then platform before event, then newest.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-pulse"
+                ],
+                "summary": "The banners the viewer sees on the site",
+                "parameters": [
+                    {
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ],
+                        "type": "string",
+                        "description": "Site; the request Origin when missing",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event id of an event site",
+                        "name": "event",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/pulse.bannerResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "304": {
+                        "description": "Not Modified"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/banners/{id}/dismiss": {
+            "patch": {
+                "tags": [
+                    "notification-pulse"
+                ],
+                "summary": "Dismiss a personal banner of the current user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "banner ID (Kind personal)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/notifications/broadcasts": {
             "get": {
                 "produces": [
@@ -21543,17 +21549,31 @@
         },
         "/notifications/inbox": {
             "get": {
+                "description": "The site is the site query parameter (with event for an event site), or the request Origin when it is missing. Without since: one page of the site's inbox, newest first (category filters the tab, before pages to older items). With since=\u003ccursor\u003e (the Cursor of the pulse or of the previous answer; empty = baseline): only the items newer than the cursor, oldest first, with Unread and the tab Counts. Counts has the tab badges (Requests = open requests, Personal/Activity = unread, All = sum). Fetch it when the pulse cursor or unread changed.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "notification-inbox"
                 ],
-                "summary": "List in-app notifications for the current user",
+                "summary": "List the inbox of the current user, or only what is new after a cursor",
                 "parameters": [
                     {
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ],
                         "type": "string",
-                        "description": "Event id: that Event's items plus items without an Event; none: only items without an Event",
+                        "description": "Site; the request Origin when missing",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event id of an event site",
                         "name": "event",
                         "in": "query"
                     },
@@ -21564,26 +21584,26 @@
                             "activity"
                         ],
                         "type": "string",
-                        "description": "Inbox tab; absent = all",
+                        "description": "Inbox tab; absent = all (list only)",
                         "name": "category",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "page cursor id (with before_at)",
-                        "name": "before_id",
+                        "description": "page cursor of the older page (list only)",
+                        "name": "before",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "page cursor time, RFC3339Nano (with before_id)",
-                        "name": "before_at",
+                        "description": "cursor to read the news after; empty = baseline",
+                        "name": "since",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "with since",
                         "schema": {
                             "allOf": [
                                 {
@@ -21593,65 +21613,7 @@
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/inbox.listResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/response.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/notifications/inbox/poll": {
-            "get": {
-                "description": "Returns a baseline cursor on the first call and only new inbox entries on subsequent calls. Read state is reflected in UnreadCount. Counts has the tab badges in the scope (Requests = open requests, Personal/Activity = unread, All = sum); OtherEventsCount counts unread items and open requests of other Events when event is an Event id.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "notification-inbox"
-                ],
-                "summary": "Poll the inbox for new entries, the unread count and tab counts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "cursor id (with since_at)",
-                        "name": "since_id",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "cursor time, RFC3339Nano (with since_id)",
-                        "name": "since_at",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Event id: that Event's items plus items without an Event; none: only items without an Event",
-                        "name": "event",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/inbox.pollResponse"
+                                            "$ref": "#/definitions/inbox.sinceResponse"
                                         }
                                     }
                                 }
@@ -21679,8 +21641,21 @@
                 "summary": "Mark all notifications as read for the current user",
                 "parameters": [
                     {
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ],
                         "type": "string",
-                        "description": "Event id: that Event's items plus items without an Event; none: only items without an Event",
+                        "description": "Site; the request Origin when missing",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event id of an event site",
                         "name": "event",
                         "in": "query"
                     },
@@ -21792,6 +21767,74 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/pulse": {
+            "get": {
+                "description": "Call it about every 30 seconds per tab. The site is the site query parameter (with event for an event site), or the request Origin when it is missing; neither is a 400. Banners is the version of the banner list (site banners, the results-freeze banner of the event and the user's personal banners): when it differs from the one the client holds, fetch GET /notifications/banners. Inbox (null for a guest) has the cursor of the newest inbox item and the unread count: when the cursor or Unread changed, fetch GET /notifications/inbox?since=\u003ccursor\u003e. A guest's answer is the same for everyone of the site (Cache-Control public, max-age 15, Vary Origin and Cookie, ETag); a signed-in answer is private, no-cache, with an ETag and 304.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-pulse"
+                ],
+                "summary": "The cheap per-tab pulse: the banner version and the inbox state",
+                "parameters": [
+                    {
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ],
+                        "type": "string",
+                        "description": "Site; the request Origin when missing",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event id of an event site",
+                        "name": "event",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/pulse.pulseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "304": {
+                        "description": "Not Modified"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -36226,7 +36269,8 @@
                     }
                 },
                 "NextCursor": {
-                    "$ref": "#/definitions/inboxModel.Cursor"
+                    "description": "NextCursor is the before value of the next older page, empty on the last page.",
+                    "type": "string"
                 }
             }
         },
@@ -36327,30 +36371,6 @@
                 }
             }
         },
-        "inbox.pollResponse": {
-            "type": "object",
-            "properties": {
-                "Counts": {
-                    "$ref": "#/definitions/inbox.countsResponse"
-                },
-                "Cursor": {
-                    "$ref": "#/definitions/inboxModel.Cursor"
-                },
-                "NewInbox": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/inbox.notificationResponse"
-                    }
-                },
-                "OtherEventsCount": {
-                    "description": "OtherEventsCount: unread items and open requests of other Events;\nnon-zero only for ?event=\u003cid\u003e.",
-                    "type": "integer"
-                },
-                "UnreadCount": {
-                    "type": "integer"
-                }
-            }
-        },
         "inbox.resolvedByResponse": {
             "type": "object",
             "properties": {
@@ -36362,14 +36382,29 @@
                 }
             }
         },
-        "inboxModel.Cursor": {
+        "inbox.sinceResponse": {
             "type": "object",
             "properties": {
-                "CreatedAt": {
+                "Counts": {
+                    "$ref": "#/definitions/inbox.countsResponse"
+                },
+                "Cursor": {
+                    "description": "Cursor is the newest item the response covers; the client sends it as since next time. It stays\nbehind the pulse cursor while more than a page of news is waiting, so keep asking until they match.",
                     "type": "string"
                 },
-                "ID": {
-                    "type": "string"
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/inbox.notificationResponse"
+                    }
+                },
+                "OtherEventsCount": {
+                    "description": "OtherEventsCount: unread items and open requests of other Events; non-zero on an event site only.",
+                    "type": "integer"
+                },
+                "Unread": {
+                    "description": "Unread is the number of unread items in the site's scope (the same number the pulse reports).",
+                    "type": "integer"
                 }
             }
         },
@@ -38285,33 +38320,6 @@
                 }
             }
         },
-        "messaging.visibleBannerResponse": {
-            "type": "object",
-            "properties": {
-                "Dismissible": {
-                    "type": "boolean"
-                },
-                "ID": {
-                    "type": "string"
-                },
-                "Level": {
-                    "type": "string"
-                },
-                "LinkLabel": {
-                    "type": "string"
-                },
-                "LinkURL": {
-                    "type": "string"
-                },
-                "Text": {
-                    "type": "string"
-                },
-                "Version": {
-                    "description": "Version changes on every edit, so a dismissal of the old text does not\nhide the edited banner.",
-                    "type": "integer"
-                }
-            }
-        },
         "pagination.CursorPage-event_eventResponse": {
             "type": "object",
             "properties": {
@@ -39744,6 +39752,81 @@
                 },
                 "Value": {
                     "type": "object"
+                }
+            }
+        },
+        "pulse.bannerResponse": {
+            "type": "object",
+            "properties": {
+                "Dismissible": {
+                    "type": "boolean"
+                },
+                "ID": {
+                    "description": "ID is a UUID, or system-results-freeze:\u003cevent id\u003e for the results-freeze banner.",
+                    "type": "string"
+                },
+                "Kind": {
+                    "description": "Kind is site (authored), system (raised by the platform, the freeze) or personal (a banner\nnotification of the signed-in user; only these can be dismissed on the server).",
+                    "type": "string",
+                    "enum": [
+                        "site",
+                        "system",
+                        "personal"
+                    ]
+                },
+                "Level": {
+                    "type": "string",
+                    "enum": [
+                        "info",
+                        "warning",
+                        "critical"
+                    ]
+                },
+                "LinkLabel": {
+                    "type": "string"
+                },
+                "LinkURL": {
+                    "type": "string"
+                },
+                "Text": {
+                    "type": "string"
+                },
+                "Title": {
+                    "type": "string"
+                },
+                "Version": {
+                    "description": "Version changes on every edit, so a dismissal of the old text does not hide the edited banner.",
+                    "type": "integer"
+                }
+            }
+        },
+        "pulse.inboxPulseResponse": {
+            "type": "object",
+            "properties": {
+                "Cursor": {
+                    "description": "Cursor is the newest inbox item of the site's scope, empty when there is none. A change means\nnew items: fetch the inbox with since.",
+                    "type": "string"
+                },
+                "Unread": {
+                    "description": "Unread is the unread count of the site's scope.",
+                    "type": "integer"
+                }
+            }
+        },
+        "pulse.pulseResponse": {
+            "type": "object",
+            "properties": {
+                "Banners": {
+                    "description": "Banners is the version of the banner list; a change means: fetch the banners.",
+                    "type": "string"
+                },
+                "Inbox": {
+                    "description": "Inbox is null for a guest.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/pulse.inboxPulseResponse"
+                        }
+                    ]
                 }
             }
         },
