@@ -83,6 +83,8 @@ type (
 		ExtendTestDeploy(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, error)
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
+		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
+		ListImportTargets(context.Context, exerciseUseCase.Actor, string, uuid.UUID, int) (pagination.CursorPage[exerciseUseCase.ImportTargetExercise], error)
 		// archive portability
 		// ArchiveLimits are the archive limits in force: read once per import or export and passed down.
 		ArchiveLimits(ctx context.Context) exerciseModel.ArchiveLimits
@@ -194,6 +196,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("uploads/:uploadID/complete", long, self, h.completeUpload)
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks; the target (catalog or event) is authorized in the handler
+		ex.POST("import/preview", long, self, h.previewArchive)
+		ex.GET("import/targets", self, h.importTargets)
 		ex.POST("import/uploaded", long, self, h.importUploadedArchive)
 		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
 		ex.POST("import/upload", long, self, h.importArchiveUpload)

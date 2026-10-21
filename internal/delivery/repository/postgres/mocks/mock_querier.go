@@ -519,6 +519,21 @@ func (mr *MockQuerierMockRecorder) CountDispatchesByTypeSince(ctx, createdAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDispatchesByTypeSince", reflect.TypeOf((*MockQuerier)(nil).CountDispatchesByTypeSince), ctx, createdAt)
 }
 
+// CountEditableImportTargets mocks base method.
+func (m *MockQuerier) CountEditableImportTargets(ctx context.Context, arg postgres.CountEditableImportTargetsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEditableImportTargets", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEditableImportTargets indicates an expected call of CountEditableImportTargets.
+func (mr *MockQuerierMockRecorder) CountEditableImportTargets(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEditableImportTargets", reflect.TypeOf((*MockQuerier)(nil).CountEditableImportTargets), ctx, arg)
+}
+
 // CountEmailDeliveredSince mocks base method.
 func (m *MockQuerier) CountEmailDeliveredSince(ctx context.Context, arg postgres.CountEmailDeliveredSinceParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4683,6 +4698,21 @@ func (mr *MockQuerierMockRecorder) GetImageRegistrySettings(ctx any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageRegistrySettings", reflect.TypeOf((*MockQuerier)(nil).GetImageRegistrySettings), ctx)
 }
 
+// GetImportTargetContext mocks base method.
+func (m *MockQuerier) GetImportTargetContext(ctx context.Context, id uuid.UUID) (postgres.GetImportTargetContextRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImportTargetContext", ctx, id)
+	ret0, _ := ret[0].(postgres.GetImportTargetContextRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImportTargetContext indicates an expected call of GetImportTargetContext.
+func (mr *MockQuerierMockRecorder) GetImportTargetContext(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImportTargetContext", reflect.TypeOf((*MockQuerier)(nil).GetImportTargetContext), ctx, id)
+}
+
 // GetInAppTemplate mocks base method.
 func (m *MockQuerier) GetInAppTemplate(ctx context.Context, id uuid.UUID) (postgres.NotificationInAppTemplate, error) {
 	m.ctrl.T.Helper()
@@ -6385,6 +6415,21 @@ func (m *MockQuerier) ListDueTimedEventFormAssignmentsForUpdate(ctx context.Cont
 func (mr *MockQuerierMockRecorder) ListDueTimedEventFormAssignmentsForUpdate(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueTimedEventFormAssignmentsForUpdate", reflect.TypeOf((*MockQuerier)(nil).ListDueTimedEventFormAssignmentsForUpdate), ctx, arg)
+}
+
+// ListEditableImportTargets mocks base method.
+func (m *MockQuerier) ListEditableImportTargets(ctx context.Context, arg postgres.ListEditableImportTargetsParams) ([]postgres.ListEditableImportTargetsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEditableImportTargets", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEditableImportTargetsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEditableImportTargets indicates an expected call of ListEditableImportTargets.
+func (mr *MockQuerierMockRecorder) ListEditableImportTargets(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEditableImportTargets", reflect.TypeOf((*MockQuerier)(nil).ListEditableImportTargets), ctx, arg)
 }
 
 // ListEffectiveCorrectAttemptIDs mocks base method.

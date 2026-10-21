@@ -28,6 +28,9 @@ import (
 // than the base table directly) — their field sets are identical to
 // ExerciseVersion, so the repository converts with a plain struct conversion.
 type Queries interface {
+	GetImportTargetContext(context.Context, uuid.UUID) (postgres.GetImportTargetContextRow, error)
+	ListEditableImportTargets(context.Context, postgres.ListEditableImportTargetsParams) ([]postgres.ListEditableImportTargetsRow, error)
+	CountEditableImportTargets(context.Context, postgres.CountEditableImportTargetsParams) (int64, error)
 	CreateExercise(ctx context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)
 	UpdateExercise(ctx context.Context, arg postgres.UpdateExerciseParams) (int64, error)

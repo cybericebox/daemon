@@ -199,6 +199,18 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
 // statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
 func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
+	if err := u.validateImportContent(parsed, protected); err != nil {
+		return err
+	}
+	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
+		return err
+	}
+	return u.encryptImportedSecrets(parsed.Versions)
+}
+
+// validateImportContent is the write-free parse/content preparation shared by
+// preview and commit. Destination policy and random secret encryption follow it.
+func (u *ExerciseUseCase) validateImportContent(parsed *ParsedExerciseArchive, protected bool) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
@@ -221,6 +233,9 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 	if secretPath := firstSecretValue(parsed.Versions); !protected && secretPath != "" {
 		return archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
 	}
+	if firstSecretValue(parsed.Versions) != "" && u.cipher == nil {
+		return exerciseModel.ErrSecretsNotConfigured.Err()
+	}
 	// A secret is bound to its variant id: the ids are final before anything is sealed.
 	for i := range parsed.Versions {
 		normalizeContentIDs(parsed.Versions[i].Variants)
@@ -229,11 +244,7 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
 	}
-	// A version imported as published passes the same gate as PublishDraft, before anything is uploaded or written.
-	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
-		return err
-	}
-	return u.encryptImportedSecrets(parsed.Versions)
+	return nil
 }
 
 // storeImport uploads the attachments of a prepared task and creates it.

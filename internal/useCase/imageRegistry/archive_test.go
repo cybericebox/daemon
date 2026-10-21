@@ -197,3 +197,32 @@ func TestPushImageArchiveRegistryFailure(t *testing.T) {
 	require.ErrorIs(t, err, imageRegistryModel.ErrRegistryUnavailable.Err())
 	require.Equal(t, "unauthorized", publicReason(t, err)[imageRegistryModel.ContextReason])
 }
+
+// Inspect uses the canonical manifest tag without any image row/blob/manifest mutation.
+func TestInspectImageArchiveIsReadOnlyAndUsesCanonicalManifest(t *testing.T) {
+	f := newUploadFixture(t, true)
+	src := &archiveSource{b: archivetest.Legacy(archiveImage())}
+	indexed := f.index(t, src)
+	inspected, err := f.uc.InspectImageArchive(context.Background(), indexed, "web")
+	require.NoError(t, err)
+	require.False(t, inspected.Reused)
+	require.NotEmpty(t, inspected.Digest)
+	require.Zero(t, f.reg.putCount())
+	require.Empty(t, f.pushes)
+	require.Empty(t, f.queued)
+	for _, blob := range append([]ociregistry.ArchiveBlob{indexed.Config}, indexed.Layers...) {
+		require.False(t, f.has(t, blob.Digest), "inspection must not push a blob")
+	}
+
+	manifest, err := imageRegistryModel.BuildManifest(descriptorOf(indexed.Config), []Descriptor{descriptorOf(indexed.Layers[0]), descriptorOf(indexed.Layers[1])})
+	require.NoError(t, err)
+	ref, err := imageRegistryModel.NewPlatformRef("web", manifest.Digest)
+	require.NoError(t, err)
+	_, err = f.registry().PutManifest(context.Background(), ref.Tag(), manifest.MediaType, manifest.Body)
+	require.NoError(t, err)
+	inspected, err = f.uc.InspectImageArchive(context.Background(), indexed, "other-name")
+	require.NoError(t, err)
+	require.True(t, inspected.Reused)
+	require.Equal(t, manifest.Digest, inspected.Digest)
+	require.Equal(t, 1, src.opens, "inspection never streams/pushes the tar a second time")
+}

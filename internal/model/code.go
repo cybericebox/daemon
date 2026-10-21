@@ -33,4 +33,5 @@ const (
 	EventLabObjectCode
 	ParticipantPreviewObjectCode
 	ImageRegistryObjectCode
+	ExerciseImportObjectCode
 )

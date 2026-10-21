@@ -32,6 +32,7 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	reimport previewCalls
 	// deployLength is the run length the last deploy asked for.
 	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
@@ -1889,6 +1890,7 @@ func (f *fakeUC) AuthorizeFileUpload(_ context.Context, actor exerciseUseCase.Ac
 	}
 	return nil
 }
+
 // RequireAuthor, AuthorizeImport and AuthorizeExport mirror the use case policy: RBAC, else the managed event.
 func (f *fakeUC) RequireAuthor(_ context.Context, actor exerciseUseCase.Actor) error {
 	if actor.Role.HasPermission(rbac.PermExercisesWrite) || f.managedEvent != uuid.Nil {

@@ -71,6 +71,7 @@ type Querier interface {
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
+	CountEditableImportTargets(ctx context.Context, arg CountEditableImportTargetsParams) (int64, error)
 	// Messages delivered through one SMTP transport since a moment (the rolling
 	// daily quota). event_id narrows the count to one Event's own transport; the
 	// platform and env transports count every dispatch that went through them,
@@ -526,6 +527,8 @@ type Querier interface {
 	GetFirstEventLiveScreen(ctx context.Context, eventID uuid.UUID) (EventLiveScreen, error)
 	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
+	// Caller has already checked ActionWrite and the archive freeze for this ID.
+	GetImportTargetContext(ctx context.Context, id uuid.UUID) (GetImportTargetContextRow, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
 	GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUserParams) (GetInboxItemForUserRow, error)
 	// One indexed read for the pulse of a scope: the newest inbox item (the nil
@@ -744,6 +747,8 @@ type Querier interface {
 	ListDispatches(ctx context.Context, arg ListDispatchesParams) ([]ListDispatchesRow, error)
 	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error)
 	ListDueTimedEventFormAssignmentsForUpdate(ctx context.Context, arg ListDueTimedEventFormAssignmentsForUpdateParams) ([]EventFormAssignment, error)
+	// Apply the exact write policy and archive freeze BEFORE keyset pagination.
+	ListEditableImportTargets(ctx context.Context, arg ListEditableImportTargetsParams) ([]ListEditableImportTargetsRow, error)
 	ListEffectiveCorrectAttemptIDs(ctx context.Context, teamChallengeID uuid.UUID) ([]uuid.UUID, error)
 	// Event rows are overrides of platform_signal_notification_defaults: the
 	// effective subscription for (event, signal, channel) is the Event row when it
