@@ -47,7 +47,6 @@ POST   /api/auth/setup | gate: - | layers: -
 POST   /api/auth/sign-in | gate: - | layers: recaptcha
 POST   /api/auth/sign-out | gate: self | layers: -
 POST   /api/auth/sign-up | gate: - | layers: recaptcha
-GET    /api/banners | gate: banners.view(public) | layers: -
 GET    /api/events | gate: events.read | layers: -
 POST   /api/events | gate: events.write | layers: -
 DELETE /api/events/:id | gate: events.write | layers: -
@@ -310,7 +309,6 @@ POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers
 GET    /api/events/:id/preview-picture/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/results | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/changes | gate: events.results.read(public) | layers: -
-GET    /api/events/:id/results/freeze | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/live | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/participation | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/results/team | gate: self | layers: eventself.touchPresence
@@ -489,7 +487,7 @@ PATCH  /api/mail/settings/providers/:providerId/enabled | gate: platform.setting
 POST   /api/mail/settings/providers/:providerId/test | gate: platform.settings.write | layers: -
 PUT    /api/mail/settings/providers/order | gate: platform.settings.write | layers: -
 POST   /api/mail/settings/providers/test | gate: platform.settings.write | layers: -
-GET    /api/notifications/banners | gate: notifications.self | layers: -
+GET    /api/notifications/banners | gate: banners.view(public) | layers: middleware.(*SiteResolver).ResolveSite.func
 PATCH  /api/notifications/banners/:id/dismiss | gate: notifications.self | layers: -
 GET    /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 POST   /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
@@ -498,11 +496,11 @@ GET    /api/notifications/broadcasts/:broadcastID/deliveries | gate: notificatio
 POST   /api/notifications/broadcasts/audience-count | gate: notifications.broadcast | layers: -
 GET    /api/notifications/dispatches | gate: notifications.templates.read | layers: -
 GET    /api/notifications/dispatches/:id | gate: notifications.templates.read | layers: -
-GET    /api/notifications/inbox | gate: notifications.self | layers: -
+GET    /api/notifications/inbox | gate: notifications.self | layers: middleware.(*SiteResolver).ResolveSite.func
 PATCH  /api/notifications/inbox/:id/read | gate: notifications.self | layers: -
 POST   /api/notifications/inbox/:id/resolve | gate: notifications.self | layers: -
-GET    /api/notifications/inbox/poll | gate: notifications.self | layers: -
-PATCH  /api/notifications/inbox/read-all | gate: notifications.self | layers: -
+PATCH  /api/notifications/inbox/read-all | gate: notifications.self | layers: middleware.(*SiteResolver).ResolveSite.func
+GET    /api/notifications/pulse | gate: banners.view(public) | layers: middleware.(*SiteResolver).ResolveSite.func
 GET    /api/notifications/settings/global | gate: notifications.settings.read | layers: -
 PUT    /api/notifications/settings/global | gate: notifications.settings.write | layers: -
 GET    /api/notifications/settings/user | gate: notifications.self | layers: -

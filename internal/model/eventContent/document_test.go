@@ -362,6 +362,22 @@ func TestPartnersBlockRequiresNamedLogosInGroups(t *testing.T) {
 	}
 }
 
+func TestCountdownLayoutVariants(t *testing.T) {
+	block := Block{
+		ID: "clock", Type: BlockCountdown, TargetDate: "2026-10-01T14:25:00Z", DateSource: "custom",
+	}
+	for _, variant := range []string{"", "split", "center", "inline"} {
+		block.Variant = variant
+		if err := (Document{Blocks: []Block{block}}).Validate(); err != nil {
+			t.Fatalf("variant %q rejected: %v", variant, err)
+		}
+	}
+	block.Variant = "wide"
+	if err := (Document{Blocks: []Block{block}}).Validate(); err == nil {
+		t.Fatal("unknown countdown variant accepted")
+	}
+}
+
 func TestCountdownAndHeroAcceptOneFixedDate(t *testing.T) {
 	date := "2026-10-01T14:25:00Z"
 	for _, block := range []Block{

@@ -4623,6 +4623,21 @@ func (mr *MockQuerierMockRecorder) GetInboxItemForUser(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInboxItemForUser", reflect.TypeOf((*MockQuerier)(nil).GetInboxItemForUser), ctx, arg)
 }
 
+// GetInboxPulse mocks base method.
+func (m *MockQuerier) GetInboxPulse(ctx context.Context, arg postgres.GetInboxPulseParams) (postgres.GetInboxPulseRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInboxPulse", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetInboxPulseRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInboxPulse indicates an expected call of GetInboxPulse.
+func (mr *MockQuerierMockRecorder) GetInboxPulse(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInboxPulse", reflect.TypeOf((*MockQuerier)(nil).GetInboxPulse), ctx, arg)
+}
+
 // GetInfrastructureAgent mocks base method.
 func (m *MockQuerier) GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (postgres.InfrastructureAgent, error) {
 	m.ctrl.T.Helper()
@@ -5995,6 +6010,21 @@ func (m *MockQuerier) ListActiveSessionRevocations(ctx context.Context) ([]postg
 func (mr *MockQuerierMockRecorder) ListActiveSessionRevocations(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveSessionRevocations", reflect.TypeOf((*MockQuerier)(nil).ListActiveSessionRevocations), ctx)
+}
+
+// ListActiveSiteBanners mocks base method.
+func (m *MockQuerier) ListActiveSiteBanners(ctx context.Context) ([]postgres.SiteBanner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveSiteBanners", ctx)
+	ret0, _ := ret[0].([]postgres.SiteBanner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveSiteBanners indicates an expected call of ListActiveSiteBanners.
+func (mr *MockQuerierMockRecorder) ListActiveSiteBanners(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveSiteBanners", reflect.TypeOf((*MockQuerier)(nil).ListActiveSiteBanners), ctx)
 }
 
 // ListAdminAuditLog mocks base method.

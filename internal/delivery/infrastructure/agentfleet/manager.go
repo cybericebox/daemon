@@ -70,14 +70,17 @@ type running struct {
 	done      chan struct{}
 }
 
-// Manager reloads the fleet and runs one monitoring goroutine per agent.
+// Manager reloads the fleet on every replica (the connections serve requests and jobs) and runs one monitoring
+// goroutine per agent, but only while this replica leads (see Lead): monitoring polls the agents and writes shared
+// state, so exactly one replica does it.
 type Manager struct {
 	cfg     Config
 	trigger chan struct{}
 
 	mu      sync.Mutex
 	current map[uuid.UUID]*running
-	base    context.Context
+	// lead is the context of this replica's leadership; nil while it does not lead and no monitor runs.
+	lead context.Context
 }
 
 func New(cfg Config) *Manager {
@@ -128,11 +131,28 @@ func (m *Manager) Refresh() {
 	}
 }
 
-// Run loads the fleet and keeps it current until ctx ends, then stops every monitor.
-func (m *Manager) Run(ctx context.Context) {
+// Lead runs the monitors of every agent while ctx lives (this replica is the leader) and stops them when it ends.
+// Agents that join the fleet meanwhile get their monitor from Reload.
+func (m *Manager) Lead(ctx context.Context) {
 	m.mu.Lock()
-	m.base = ctx
+	m.lead = ctx
+	for id, run := range m.current {
+		if run.cancel == nil {
+			m.startMonitor(id, run)
+		}
+	}
 	m.mu.Unlock()
+	<-ctx.Done()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lead = nil
+	for _, run := range m.current {
+		m.stop(run)
+	}
+}
+
+// Run loads the fleet and keeps it current until ctx ends, then stops every monitor and closes the connections.
+func (m *Manager) Run(ctx context.Context) {
 	if err := m.Reload(ctx); err != nil {
 		log.Error().Err(err).Msg("Agent fleet: initial load failed")
 	}
@@ -234,10 +254,10 @@ func (m *Manager) member(r infraModel.AgentRecord) *running {
 }
 
 func (m *Manager) startMonitor(id uuid.UUID, run *running) {
-	if m.cfg.Monitor == nil || m.base == nil {
+	if m.cfg.Monitor == nil || m.lead == nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(m.base)
+	ctx, cancel := context.WithCancel(m.lead)
 	run.cancel = cancel
 	done := make(chan struct{})
 	run.done = done
@@ -255,6 +275,7 @@ func (m *Manager) stop(run *running) {
 	if run.cancel != nil {
 		run.cancel()
 		<-run.done
+		run.cancel, run.done = nil, nil
 	}
 }
 

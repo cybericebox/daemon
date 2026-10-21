@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/advisory"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
@@ -23,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/jobQueueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -30,10 +32,12 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
@@ -54,6 +58,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/notification/channels/inapp"
 	"github.com/cybericebox/daemon/internal/useCase/notification/dispatcher"
 	"github.com/cybericebox/daemon/internal/useCase/notification/inbox"
+	pulseUseCase "github.com/cybericebox/daemon/internal/useCase/notification/pulse"
 	"github.com/cybericebox/daemon/internal/useCase/notification/settings"
 	statsUseCase "github.com/cybericebox/daemon/internal/useCase/notification/stats"
 	platformAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/platformAnalytics"
@@ -95,6 +100,7 @@ type (
 		*platformAnalyticsUseCase.PlatformAnalyticsUseCase
 		*broadcastUseCase.NotificationBroadcastUseCase
 		*bannerUseCase.SiteBannerUseCase
+		*pulseUseCase.PulseUseCase
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
 		*imageRegistryUseCase.ImageRegistryUseCase
@@ -343,6 +349,15 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}); ok {
 		calendarUC.SetClusterReservations(port, port.ReservationNotice)
 	}
+	// Several replicas may push to one agent: the push also holds a database lock of that agent.
+	calendarUC.SetAgentLocker(func(ctx context.Context, agent uuid.UUID) (func(), error) {
+		key := advisory.Key("cluster-sync", agent.String())
+		held, err := advisory.Lock(ctx, deps.Repo.Pool(), key)
+		if err != nil {
+			return nil, err
+		}
+		return held.Release, nil
+	})
 	// Placement follows the parts: a new group goes to the agent of its reservation's unit and every group and lab
 	// carries its part id.
 	if fleet, ok := deps.LabAgent.(interface{ SetPartResolver(infraModel.PartResolver) }); ok {
@@ -480,14 +495,34 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Config:   deps.ErrorJournal,
 	})
 
+	inboxUC := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: deps.Repo})
+	eventManagers, eventParticipants := eventManagerRepo.New(deps.Repo), participantRepo.New(deps.Repo)
+	bannerUC := bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{
+		Repo: deps.Repo,
+		// The audience of participants banners: an approved participant or a manager of the event.
+		IsEventMember: func(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+			if _, err := eventManagers.Get(ctx, eventID, userID); err == nil {
+				return true, nil
+			} else if !repositoryTools.IsObjectNotFoundError(err) {
+				return false, err
+			}
+			p, err := eventParticipants.Get(ctx, eventID, userID)
+			if err != nil {
+				if repositoryTools.IsObjectNotFoundError(err) {
+					return false, nil
+				}
+				return false, err
+			}
+			return p.Status == participantModel.StatusApproved, nil
+		},
+	})
+
 	return &UseCase{
 		authUC,
 		adminAuditUseCase.New(deps.Repo),
 		platformSettingsUC,
 		notificationDispatcher,
-		inboxUseCase.NewNotificationInboxUseCase(
-			inboxUseCase.Dependencies{Repo: deps.Repo},
-		),
+		inboxUC,
 		settingsUseCase.NewNotificationSettingsUseCase(
 			settingsUseCase.Dependencies{Repo: deps.Repo},
 		),
@@ -518,7 +553,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 			EventDomain: deps.AuthConfig.Hosts.EventDomain,
 			Images:      emailUseCase.NewBroadcastImages(mediaUC, emailTemplateRepo.New(deps.Repo), emailTemplateRepo.New(deps.Repo)),
 		}),
-		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
+		bannerUC,
+		pulseUseCase.New(pulseUseCase.Dependencies{Banners: bannerUC, Freeze: eventUC, Inbox: inboxUC}),
 		journalUC,
 		calendarUC,
 		imageRegistryUC,

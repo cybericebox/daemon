@@ -47,9 +47,6 @@ type fakeUseCase struct {
 	createdInputs []siteBannerModel.Input
 	updatedInputs []siteBannerModel.Input
 	counted       []*uuid.UUID
-	visible       []*uuid.UUID
-	visibleE      []*uuid.UUID
-	visibleSites  []string
 	role          string
 	deliveries    []broadcastModel.Delivery
 }
@@ -90,12 +87,6 @@ func (f *fakeUseCase) UpdateSiteBanner(_ context.Context, scope *uuid.UUID, _ uu
 	f.updatedInputs = append(f.updatedInputs, in)
 	return siteBannerModel.New(scope, nil, in, time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)), nil
 }
-func (f *fakeUseCase) ListVisibleSiteBanners(_ context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
-	f.visibleSites = append(f.visibleSites, site)
-	f.visibleE, f.visible = append(f.visibleE, eventID), append(f.visible, userID)
-	return []siteBannerModel.Banner{{ID: uuid.FromStringOrNil("0190a0b2-0000-7000-8000-000000000001"), Text: "Maintenance", Level: siteBannerModel.LevelWarning, Dismissible: true}}, nil
-}
-
 func do(t *testing.T, uc *fakeUseCase, method, path, perms, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -172,27 +163,6 @@ func TestBannerRoutesSplitReadAndWritePermissions(t *testing.T) {
 	}
 	if len(uc.created) != 1 || uc.created[0] != nil {
 		t.Fatalf("a platform banner must have no event scope: %+v", uc.created)
-	}
-}
-
-func TestPublicBannerReadIsOpenAndScopedByTheEventQuery(t *testing.T) {
-	uc := &fakeUseCase{}
-	w := do(t, uc, http.MethodGet, "/api/banners", "", "")
-	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Maintenance")) {
-		t.Fatalf("public read = %d %s", w.Code, w.Body.String())
-	}
-	if uc.visibleE[0] != nil {
-		t.Fatal("no event query must mean platform banners only")
-	}
-	event := uuid.Must(uuid.NewV7())
-	if w = do(t, uc, http.MethodGet, "/api/banners?event="+event.String(), "", ""); w.Code != http.StatusOK {
-		t.Fatalf("event read = %d", w.Code)
-	}
-	if uc.visibleE[1] == nil || *uc.visibleE[1] != event {
-		t.Fatalf("event filter = %v", uc.visibleE[1])
-	}
-	if w = do(t, uc, http.MethodGet, "/api/banners?event=nope", "", ""); w.Code != http.StatusBadRequest {
-		t.Fatalf("bad event id = %d", w.Code)
 	}
 }
 

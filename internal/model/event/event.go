@@ -14,11 +14,12 @@ import (
 
 const (
 	tagMinLen  = 3
-	tagMaxLen  = 64
+	tagMaxLen  = 63
 	nameMaxLen = 255
 )
 
-var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
+// tagPattern is a DNS label (the tag is the event site's subdomain): [a-z0-9] words joined by single hyphens.
+var tagPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // reservedTags are the labels of the platform's own subdomains (the app hosts and www): an event can never take
 // one of them as its tag, so <tag>.DOMAIN never collides with them. extraReservedTags are the labels other

@@ -2,6 +2,7 @@ package eventModel
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,9 +51,17 @@ func TestNewEvent_DefaultsAvailableFromToNow(t *testing.T) {
 }
 
 func TestNewEvent_RejectsBadTag(t *testing.T) {
-	for _, tag := range []string{"", "ab", "UPPER", "has space", "sym!bol"} {
+	for _, tag := range []string{"", "ab", "UPPER", "has space", "sym!bol", "-ctf", "ctf-", "ctf--x", "ctf_x", "a/b", strings.Repeat("a", 64)} {
 		if _, err := NewEvent(tag, "Winter", from, until, someUser, fixedNow); err == nil {
 			t.Fatalf("expected ErrEventTagInvalid for tag %q", tag)
+		}
+	}
+}
+
+func TestNewEvent_AcceptsHyphenatedTag(t *testing.T) {
+	for _, tag := range []string{"prep-khctf", "a-b-c", strings.Repeat("a", 63)} {
+		if _, err := NewEvent(tag, "Winter", from, until, someUser, fixedNow); err != nil {
+			t.Fatalf("tag %q: unexpected error: %v", tag, err)
 		}
 	}
 }

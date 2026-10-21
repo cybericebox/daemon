@@ -97,7 +97,7 @@ func newLimiter(cfg config.RateLimitConfig, clock *time.Time) *middleware.RateLi
 }
 
 // limiterRouter mounts the global middleware on real route templates and, in each handler, a stand-in for
-// the permission gate (the user comes from X-User): /api/banners is a public read, /api/x needs a session,
+// the permission gate (the user comes from X-User): /api/notifications/banners is a public read, /api/x needs a session,
 // /api/events/upcoming has no gate.
 func limiterRouter(l *middleware.RateLimiter) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -108,13 +108,13 @@ func limiterRouter(l *middleware.RateLimiter) *gin.Engine {
 			if !l.CheckUser(c, user) {
 				return
 			}
-		} else if !l.CheckAnonymous(c, c.FullPath() == "/api/banners") {
+		} else if !l.CheckAnonymous(c, c.FullPath() == "/api/notifications/banners") {
 			return
 		}
 		c.Status(http.StatusOK)
 	}
 	r.GET("/api/x", h)
-	r.GET("/api/banners", h)
+	r.GET("/api/notifications/banners", h)
 	r.GET("/api/health", h)
 	r.GET("/api/events/:id/results/live", h)
 	r.GET("/api/render/key", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -156,16 +156,16 @@ func TestRateLimiterAnonymousIsOneGlobalBucket(t *testing.T) {
 	r := limiterRouter(l)
 	for i := range 3 {
 		remote := "203.0.113." + string(rune('1'+i)) + ":1"
-		if w := limGet(r, "/api/banners", remote, "", false); w.Code != http.StatusOK {
+		if w := limGet(r, "/api/notifications/banners", remote, "", false); w.Code != http.StatusOK {
 			t.Fatalf("request %d from its own address: %d", i, w.Code)
 		}
 	}
-	w := limGet(r, "/api/banners", "198.51.100.9:1", "", false)
+	w := limGet(r, "/api/notifications/banners", "198.51.100.9:1", "", false)
 	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "1" {
 		t.Fatalf("burst spent: code %d, Retry-After %q", w.Code, w.Header().Get("Retry-After"))
 	}
 	now = now.Add(2 * time.Second)
-	if w = limGet(r, "/api/banners", "198.51.100.9:1", "", false); w.Code != http.StatusOK {
+	if w = limGet(r, "/api/notifications/banners", "198.51.100.9:1", "", false); w.Code != http.StatusOK {
 		t.Fatalf("the bucket must refill with time, got %d", w.Code)
 	}
 }
@@ -248,8 +248,8 @@ func TestLimitersShareOne429Format(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	l := newLimiter(rateLimits(60, 1, 1, 1), &now)
 	lr := limiterRouter(l)
-	limGet(lr, "/api/banners", "203.0.113.1:1", "", false)
-	check("bucket", limGet(lr, "/api/banners", "203.0.113.1:1", "", false))
+	limGet(lr, "/api/notifications/banners", "203.0.113.1:1", "", false)
+	check("bucket", limGet(lr, "/api/notifications/banners", "203.0.113.1:1", "", false))
 }
 
 // Cookie-less requests to routes that need a session, and to paths no route matches, spend closed; the
@@ -277,11 +277,11 @@ func TestRateLimiterClosedAndPublicAreSeparateBuckets(t *testing.T) {
 		t.Fatalf("an unmatched path is counted in closed: %d", w.Code)
 	}
 	for i := range 2 {
-		if w := limGet(r, "/api/banners", "203.0.113.5:1", "", false); w.Code != http.StatusOK {
+		if w := limGet(r, "/api/notifications/banners", "203.0.113.5:1", "", false); w.Code != http.StatusOK {
 			t.Fatalf("a public read after the closed flood, request %d: %d", i, w.Code)
 		}
 	}
-	if w := limGet(r, "/api/banners", "203.0.113.5:1", "", false); w.Code != 429 {
+	if w := limGet(r, "/api/notifications/banners", "203.0.113.5:1", "", false); w.Code != 429 {
 		t.Fatalf("public burst spent: %d", w.Code)
 	}
 }
@@ -320,7 +320,7 @@ func TestRateLimiterCountsEachRequestOnce(t *testing.T) {
 		want   []middleware.Bucket
 	}{
 		{"/api/render/key", false, "", []middleware.Bucket{middleware.BucketPublic}},
-		{"/api/banners", false, "", []middleware.Bucket{middleware.BucketPublic}},
+		{"/api/notifications/banners", false, "", []middleware.Bucket{middleware.BucketPublic}},
 		{"/api/x", false, "", []middleware.Bucket{middleware.BucketClosed}},
 		{"/api/twice", false, "", []middleware.Bucket{middleware.BucketClosed}},
 		{"/api/no-such-route", false, "", []middleware.Bucket{middleware.BucketClosed}},
@@ -346,13 +346,13 @@ func TestRateLimiterUserThenAnonymousCountedOnce(t *testing.T) {
 	seen := observed(l)
 	r := gin.New()
 	r.Use(l.Anonymous)
-	r.GET("/api/banners", func(c *gin.Context) {
+	r.GET("/api/notifications/banners", func(c *gin.Context) {
 		if l.CheckUser(c, uuid.FromStringOrNil("00000000-0000-7000-8000-00000000000a")) &&
 			l.CheckAnonymous(c, true) {
 			c.Status(http.StatusOK)
 		}
 	})
-	limGet(r, "/api/banners", "203.0.113.5:1", "", true)
+	limGet(r, "/api/notifications/banners", "203.0.113.5:1", "", true)
 	if got := seen(); fmt.Sprint(got) != fmt.Sprint([]middleware.Bucket{middleware.BucketUser}) {
 		t.Fatalf("counted in %v, want only the user bucket", got)
 	}
@@ -366,7 +366,7 @@ func TestRateLimiterSkipsAnonymousOnTheInternalListener(t *testing.T) {
 	seen := observed(l)
 	r := limiterRouter(l)
 	internal := middleware.WithInternalListener(context.Background())
-	paths := []string{"/api/banners", "/api/x", "/api/no-such-route", "/api/render/key"}
+	paths := []string{"/api/notifications/banners", "/api/x", "/api/no-such-route", "/api/render/key"}
 	for range 5 {
 		for _, path := range paths {
 			w := limServe(internal, r, path, "10.0.0.5:1", "", false)

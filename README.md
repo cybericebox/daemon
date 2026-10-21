@@ -130,7 +130,7 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_MAX_CONN_LIFETIME` / `POSTGRES_MAX_CONN_IDLE_TIME` | `30m` / `5m` | A connection of either pool is replaced after this age / closed after this long unused. |
 | `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so request queries cannot starve them and they cannot starve requests. Not fully isolated: a job enqueued by a request outside a transaction (a broadcast, a notification, an import) is inserted on this pool too, with no acquire bound; those inserts are short and the in-flight cap bounds how many run at once. An enqueue inside a unit of work uses its transaction on the main pool. At least 4, like `POSTGRES_MAX_CONNS`. |
 
-Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` (40 by default), so N replicas need N × 40 + 20 (reserved for administration) ≤ the server's `max_connections`. The daemon logs this arithmetic at startup and warns when a single replica already does not fit.
+Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` (40 by default), so N replicas need N × 40 + 20 (reserved for administration; the leader also holds one connection of its own outside the pools for the leadership lock, and a push to an agent holds one more while it runs) ≤ the server's `max_connections`. The daemon logs this arithmetic at startup and warns when a single replica already does not fit.
 
 ### Authentication and secrets
 
@@ -466,6 +466,15 @@ GitHub Actions publish multi-arch (`linux/amd64`, `linux/arm64`) images to Docke
 | `promote.yml` | manual (the rc tag) | `vX.Y.Z` and `latest` on the same image, GitHub release, cleanup of rc and `sha-*` tags |
 
 Registry credentials (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, with delete rights) are organisation secrets.
+
+## Several replicas
+
+The daemon runs behind an HPA with any number of replicas that share only Postgres.
+
+- **Leader.** One replica, the holder of a session advisory lock (`pg_try_advisory_lock` on a connection of its own, `internal/leader`), runs the loops that poll the laboratory agents or write shared state on a timer: the monitoring stream of every agent (with its maintenance polling, capacity, link and error reports) and the error journal's periodic checks (queue, certificates, SMTP providers). The others retry every 5 s. The leader checks its lock connection every 5 s; when it is lost the loops stop and the replica goes back to waiting. On SIGTERM the loops stop first and the lock is released at once, so another replica takes over within one retry. Every replica still holds the agent connections (requests and jobs use them) and runs the job workers (River has its own leader election for periodic jobs).
+- **Pushes to one agent.** Cluster reservation pushes (`SyncAgent`) can start on any replica (a request or the reconcile job); each push also holds a per-agent advisory lock, so two replicas never list and write one agent at the same time.
+- **Error journal.** Capture, grouping and the notification decision are in the database: one message per group per cooldown (claimed in the capture transaction) and one per cooldown for the whole noisy kind (403), whichever replica captured. The live stream of the admin page crosses replicas through a change log table (`error_journal_changes`): every recorded occurrence or status change adds a row last in its transaction, under one advisory lock, so `seq` order is commit order. While a replica has at least one open stream, one poller of that replica reads the rows after its cursor every 3 s (one indexed query on a pool connection, no held connection) and shows them to the local streams; with no stream nothing is polled. A replica skips the rows it wrote itself (it showed them at once). Rows older than a day are purged.
+- **Still per replica** (in memory): the HTTP rate limiters and in-flight limiters (the limits above are per replica, so the effective limit grows with the replica count), the spike counter of the journal (a spike needs `ERROR_JOURNAL_SPIKE_THRESHOLD` occurrences on one replica), the 403 fold and the 404 counters (each replica writes its own totals; the writes add up), the session `last_seen` batching, and the open live streams (each browser is attached to one replica).
 
 ## Deployment
 

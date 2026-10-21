@@ -263,3 +263,24 @@ func TestReservationViewHasParts(t *testing.T) {
 	require.Len(t, tl.Reservations, 1)
 	assert.Len(t, tl.Reservations[0].Parts, 2)
 }
+
+func TestSyncHoldsTheCrossReplicaLockOfTheAgentAndStopsWithoutIt(t *testing.T) {
+	h, port := syncHarness(t)
+	setEvent(t, h, EventReservationInput{})
+	var taken, released []uuid.UUID
+	h.uc.SetAgentLocker(func(_ context.Context, agent uuid.UUID) (func(), error) {
+		taken = append(taken, agent)
+		return func() { released = append(released, agent) }, nil
+	})
+	require.NoError(t, h.uc.SyncAgent(context.Background(), agentOne))
+	assert.Equal(t, []uuid.UUID{agentOne}, taken)
+	assert.Equal(t, taken, released, "the lock is released after the push")
+
+	// Another replica holds the lock past the caller's patience: nothing is sent.
+	calls := len(port.calls)
+	h.uc.SetAgentLocker(
+		func(context.Context, uuid.UUID) (func(), error) { return nil, errors.New("lock busy") },
+	)
+	require.Error(t, h.uc.SyncAgent(context.Background(), agentOne))
+	assert.Len(t, port.calls, calls)
+}

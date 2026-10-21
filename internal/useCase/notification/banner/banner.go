@@ -17,15 +17,20 @@ import (
 
 type Dependencies struct {
 	Repo siteBannerRepo.Queries
+	// IsEventMember says whether the user is an approved participant or a manager of the event: the
+	// audience of participants banners. Nil: nobody is.
+	IsEventMember func(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 }
 
 type SiteBannerUseCase struct {
-	banners *siteBannerRepo.Repository
-	now     func() time.Time
+	banners  *siteBannerRepo.Repository
+	now      func() time.Time
+	isMember func(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
+	snapshot bannerSnapshot
 }
 
 func NewSiteBannerUseCase(deps Dependencies) *SiteBannerUseCase {
-	return &SiteBannerUseCase{banners: siteBannerRepo.New(deps.Repo), now: time.Now}
+	return &SiteBannerUseCase{banners: siteBannerRepo.New(deps.Repo), now: time.Now, isMember: deps.IsEventMember}
 }
 
 // CreateSiteBanner adds a banner to a scope (nil = platform).
@@ -37,6 +42,7 @@ func (u *SiteBannerUseCase) CreateSiteBanner(ctx context.Context, scope *uuid.UU
 	if err != nil {
 		return siteBannerModel.Banner{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create the banner").Err()
 	}
+	u.snapshot.invalidate()
 	return b, nil
 }
 
@@ -52,6 +58,7 @@ func (u *SiteBannerUseCase) UpdateSiteBanner(ctx context.Context, scope *uuid.UU
 	if err != nil {
 		return siteBannerModel.Banner{}, model.ErrPlatform.WithError(err).WithMessage("Failed to update the banner").Err()
 	}
+	u.snapshot.invalidate()
 	return b, nil
 }
 
@@ -79,6 +86,7 @@ func (u *SiteBannerUseCase) DeleteSiteBanner(ctx context.Context, scope *uuid.UU
 	if _, err := u.banners.Delete(ctx, id); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete the banner").Err()
 	}
+	u.snapshot.invalidate()
 	return nil
 }
 
@@ -91,21 +99,6 @@ func (u *SiteBannerUseCase) ListSiteBanners(ctx context.Context, scope *uuid.UUI
 	items, err := u.banners.List(ctx, key)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list banners").Err()
-	}
-	return items, nil
-}
-
-// ListVisibleSiteBanners returns the banners a viewer sees now: the platform
-// ones plus those of eventID, filtered by their window and audience. userID is
-// nil for an anonymous viewer.
-func (u *SiteBannerUseCase) ListVisibleSiteBanners(ctx context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
-	event := ""
-	if eventID != nil {
-		event = eventID.String()
-	}
-	items, err := u.banners.Visible(ctx, event, userID, site)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list visible banners").Err()
 	}
 	return items, nil
 }

@@ -110,9 +110,9 @@ const (
 	tagLookupBurst      = 30
 	tagLookupsPerSecond = 10
 
-	// An event tag is 3 to 64 characters of [a-z0-9] (the event model's rule).
+	// An event tag is 3 to 63 characters of [a-z0-9] words joined by single hyphens (the event model's rule).
 	tagMinLen = 3
-	tagMaxLen = 64
+	tagMaxLen = 63
 )
 
 func NewEventTagCache(lookup func(ctx context.Context, tag string) (bool, error)) *EventTagCache {
@@ -131,8 +131,11 @@ func possibleEventTag(tag string) bool {
 	if len(tag) < tagMinLen || len(tag) > tagMaxLen {
 		return false
 	}
+	if tag[0] == '-' || tag[len(tag)-1] == '-' || strings.Contains(tag, "--") {
+		return false
+	}
 	for i := range len(tag) {
-		if ch := tag[i]; (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+		if ch := tag[i]; (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return false
 		}
 	}
@@ -207,7 +210,6 @@ var PublicReadRoutes = map[string]bool{
 	"/api/auth/google/setup":                    true,
 	"/api/auth/password/policy":                 true,
 	"/api/auth/setup":                           true,
-	"/api/banners":                              true,
 	"/api/events/:id/content-images/:fileID":    true,
 	"/api/events/:id/content/pages":             true,
 	"/api/events/:id/content/pages/:slug":       true,
@@ -216,12 +218,13 @@ var PublicReadRoutes = map[string]bool{
 	"/api/events/:id/preview-picture/:fileID":   true,
 	"/api/events/:id/results":                   true,
 	"/api/events/:id/results/changes":           true,
-	"/api/events/:id/results/freeze":            true,
 	"/api/events/:id/results/live":              true,
 	"/api/events/self/live-screen":              true,
 	"/api/events/self/live-screen/results":      true,
 	"/api/events/self/live-screen/results/live": true,
 	"/api/events/self/public-info":              true,
+	"/api/notifications/banners":                true,
+	"/api/notifications/pulse":                  true,
 }
 
 func originHost(origin string) string {

@@ -5,6 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/notification/startupdefaults"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	jobsRegistry "github.com/cybericebox/daemon/internal/jobs"
 	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
+	"github.com/cybericebox/daemon/internal/leader"
 	"github.com/cybericebox/daemon/internal/limits"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
@@ -244,7 +246,6 @@ func Run(cfg *config.Config) {
 		defer close(journalDone)
 		ucs.Journal.Run(runtimeCtx)
 	}()
-	go ucs.Journal.Watch(runtimeCtx)
 
 	// ── delivery ──
 	ctrl := controller.NewController(
@@ -260,11 +261,32 @@ func Run(cfg *config.Config) {
 	ctrl.Start()
 	log.Info().Msg("Server started")
 
-	// The agent manager loads the fleet, follows the registry and runs one monitoring stream per agent.
+	// The agent manager loads the fleet and follows the registry on every replica (requests and jobs use the
+	// connections).
 	monitoringDone := make(chan struct{})
 	go func() {
 		defer close(monitoringDone)
 		agentManager.Run(runtimeCtx)
+	}()
+	// The loops that poll the agents or write shared state on a timer run on one replica only, the one that holds
+	// the leadership lock in the database: the monitoring stream of every agent (with its maintenance polling, link
+	// reports and capacity writes) and the journal's periodic checks. A replica that loses the lock stops them; the
+	// others keep trying to take it over.
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		lock := leader.PostgresLock{Pool: repo.Pool(), Key: leader.BackgroundKey()}
+		elector := leader.New(lock, leader.Config{Name: "background"})
+		elector.Run(runtimeCtx, func(ctx context.Context) {
+			var loops sync.WaitGroup
+			loops.Add(1)
+			go func() {
+				defer loops.Done()
+				ucs.Journal.Watch(ctx)
+			}()
+			agentManager.Lead(ctx)
+			loops.Wait()
+		})
 	}()
 
 	// ── graceful shutdown ──
@@ -286,6 +308,11 @@ func Run(cfg *config.Config) {
 	case <-journalDone:
 	case <-shutdownCtx.Done():
 		log.Warn().Msg("Timed out flushing the error journal")
+	}
+	select {
+	case <-leaderDone:
+	case <-shutdownCtx.Done():
+		log.Warn().Msg("Timed out stopping the leader loops")
 	}
 	select {
 	case <-monitoringDone:

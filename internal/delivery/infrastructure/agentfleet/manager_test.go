@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -63,7 +64,7 @@ func newManager(reg *memRegistry, log *monitorLog, cipher Cipher) (*Manager, *in
 			return &labagent.Client{Client: closedClient{}}, nil
 		},
 	})
-	m.base = context.Background()
+	m.lead = context.Background()
 	return m, &dials
 }
 
@@ -192,4 +193,69 @@ func TestMembersCarryTheStoredFeaturesAndShareThemAcrossReloads(t *testing.T) {
 		t.Fatal("the fleet must see the agent's newest report")
 	}
 	m.stopAll()
+}
+
+func TestMonitorsRunOnlyWhileTheReplicaLeads(t *testing.T) {
+	reg := &memRegistry{records: []infraModel.AgentRecord{admin("a", 1, true)}}
+	log := &monitorLog{}
+	m, _ := newManager(reg, log, plainCipher{})
+	m.lead = nil // a replica that does not lead
+	count := func() (int, int) {
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		return len(log.started), len(log.stopped)
+	}
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(m.Fleet()); len(got) != 1 {
+		t.Fatalf("a follower still holds the connections, got %v", got)
+	}
+	if started, _ := count(); started != 0 {
+		t.Fatalf("a follower must not monitor, started %d", started)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Lead(ctx) }()
+	waitStarted := func(n int, what string) {
+		t.Helper()
+		deadline := time.After(2 * time.Second)
+		for {
+			if started, _ := count(); started == n {
+				return
+			}
+			select {
+			case <-deadline:
+				t.Fatal(what)
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	waitStarted(1, "the leader must start the monitor of the agent that is already loaded")
+	// A new agent joins while leading.
+	reg.records = append(reg.records, admin("b", 2, true))
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(2, "the leader must start the monitor of a new agent")
+	cancel() // leadership lost
+	<-done
+	if started, stopped := count(); stopped != started {
+		t.Fatalf(
+			"every monitor must stop with the leadership: started %d stopped %d",
+			started,
+			stopped,
+		)
+	}
+	if got := names(m.Fleet()); len(got) != 2 {
+		t.Fatalf("the connections stay after the leadership ends, got %v", got)
+	}
+	// A new leadership starts them again.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done2 := make(chan struct{})
+	go func() { defer close(done2); m.Lead(ctx2) }()
+	waitStarted(4, "a new leadership must restart the monitors")
+	cancel2()
+	<-done2
 }

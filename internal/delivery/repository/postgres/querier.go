@@ -79,7 +79,7 @@ type Querier interface {
 	CountErrorGroups(ctx context.Context, arg CountErrorGroupsParams) (int64, error)
 	// Accepted solves per board challenge by admitted, non-hidden teams, plus the
 	// caller's own team even when it is hidden or not admitted. A cutoff (freeze)
-	// keeps only other teams' solves before it.
+	// keeps every team's solves before it, including the caller's team.
 	CountEventChallengeSolves(ctx context.Context, arg CountEventChallengeSolvesParams) ([]CountEventChallengeSolvesRow, error)
 	// Teams per variant of one event exercise (every revision: a source switch
 	// keeps the event exercise and its challenges). The moderators team takes no
@@ -514,6 +514,10 @@ type Querier interface {
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
 	GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUserParams) (GetInboxItemForUserRow, error)
+	// One indexed read for the pulse of a scope: the newest inbox item (the nil
+	// uuid and the epoch when there is none), the unread count and the stamp of
+	// the user's open personal banners (count and newest, epoch when none).
+	GetInboxPulse(ctx context.Context, arg GetInboxPulseParams) (GetInboxPulseRow, error)
 	GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (InfrastructureAgent, error)
 	// The catalog task behind a team task of the event.
 	GetIntegrityTaskOfTeamChallenge(ctx context.Context, arg GetIntegrityTaskOfTeamChallengeParams) (GetIntegrityTaskOfTeamChallengeRow, error)
@@ -686,6 +690,10 @@ type Querier interface {
 	ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error)
 	// What a replica loads before it serves: the revocations whose cookies could still be alive.
 	ListActiveSessionRevocations(ctx context.Context) ([]SessionRevocation, error)
+	// The in-memory banner snapshot: every enabled banner that has not ended yet
+	// (not yet started ones too, so they appear on time without a reload). The
+	// window, scope, targeting and audience are applied in memory per viewer.
+	ListActiveSiteBanners(ctx context.Context) ([]SiteBanner, error)
 	// One page of the journal, newest first, keyset-paged by (created_at, id).
 	// Every filter is optional. route and target_id are "contains" matches
 	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the

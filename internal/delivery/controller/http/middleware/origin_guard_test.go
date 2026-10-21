@@ -34,7 +34,7 @@ func guardRouter(after ...gin.HandlerFunc) *gin.Engine {
 	// a public read: PublicReadRoutes has the avatar route
 	r.GET("/api/auth/avatar/:id", ok)
 	r.GET("/api/events/:id/results", ok)
-	r.GET("/api/events/:id/results/freeze", ok)
+	r.GET("/api/events/:id/results/live", ok)
 	return r
 }
 
@@ -183,7 +183,7 @@ func TestOriginGuard_WriteBodyMustBeJSONOrMultipart(t *testing.T) {
 // are not checked: embeds and referrers must never break.
 func TestOriginGuard_PublicReadsAreNotChecked(t *testing.T) {
 	r := guardRouter()
-	for _, path := range []string{"/api/auth/avatar/x", "/api/events/e1/results", "/api/events/e1/results/freeze"} {
+	for _, path := range []string{"/api/auth/avatar/x", "/api/events/e1/results", "/api/events/e1/results/live"} {
 		for name, h := range map[string]map[string]string{
 			"foreign referer": {"Referer": "https://mail.google.com/mail/u/0/"},
 			"lab referer":     {"Referer": "https://web-x.labs.example.test/"},
@@ -280,6 +280,23 @@ func TestEventTagCache_CachesAndRefusesWhenTheLookupFails(t *testing.T) {
 	}
 }
 
+func TestEventTagCache_HyphenatedTagsAreLookedUp(t *testing.T) {
+	looked := map[string]bool{}
+	c := middleware.NewEventTagCache(func(_ context.Context, tag string) (bool, error) {
+		looked[tag] = true
+		return true, nil
+	})
+	ctx := context.Background()
+	if !c.EventTagExists(ctx, "prep-khctf") {
+		t.Fatal("a hyphenated tag can be an event tag")
+	}
+	for _, tag := range []string{"-ctf", "ctf-", "ctf--x", "ctf_x", "ab", strings.Repeat("a", 64)} {
+		if c.EventTagExists(ctx, tag) || looked[tag] {
+			t.Fatalf("%q can never be an event tag and must not be looked up", tag)
+		}
+	}
+}
+
 // M7: a flood of unique subdomains does not become a flood of lookups.
 func TestEventTagCache_BoundsTheLookups(t *testing.T) {
 	calls := 0
@@ -288,7 +305,7 @@ func TestEventTagCache_BoundsTheLookups(t *testing.T) {
 		return tag == "ctf", nil
 	})
 	ctx := context.Background()
-	for _, tag := range []string{"", "ab", "UPPER", "with-dash", "a.b", strings.Repeat("a", 65)} {
+	for _, tag := range []string{"", "ab", "UPPER", "-dash", "a.b", strings.Repeat("a", 64)} {
 		if c.EventTagExists(ctx, tag) {
 			t.Fatalf("%q cannot be an event tag", tag)
 		}

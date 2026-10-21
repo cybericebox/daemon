@@ -466,7 +466,8 @@ func (d Document) Validate() error {
 			if block.VerticalAlignment != "" && block.VerticalAlignment != "start" && block.VerticalAlignment != "center" && block.VerticalAlignment != "end" {
 				return errors.New("countdown text position is unsupported")
 			}
-			if block.Variant != "" && block.Variant != "split" && block.Variant != "center" {
+			if block.Variant != "" && block.Variant != "split" && block.Variant != "center" &&
+				block.Variant != "inline" {
 				return errors.New("countdown layout is unsupported")
 			}
 			if block.TimerSize != "" && block.TimerSize != "large" && block.TimerSize != "xl" {

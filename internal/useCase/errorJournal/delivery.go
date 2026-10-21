@@ -19,6 +19,11 @@ var ErrDeliveryGone = errors.New("journal delivery no longer exists")
 type NotificationPlan struct {
 	Now, Cutoff     time.Time
 	Body, EmailBody string
+	// ThrottleKind, when set, limits the messages of the whole kind (not one group) to one per cooldown: the
+	// repository drops the plan inside the capture transaction when a group of that kind was enqueued after
+	// ThrottleCutoff. It is a database decision, so replicas share it.
+	ThrottleKind   errorJournal.Kind
+	ThrottleCutoff time.Time
 }
 type DeliveryTarget struct{ Channel, Target, Label string }
 

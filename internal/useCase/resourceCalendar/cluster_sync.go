@@ -57,9 +57,19 @@ type clusterSync struct {
 	newID  func() uuid.UUID
 	// locks serializes the pushes to one agent inside this process.
 	locks sync.Map
+	// lockAgent serializes them between replicas (a database lock); nil: only in this process.
+	lockAgent AgentLocker
 	// listener acts on the ending and the end of parts.
 	listener PartListener
 }
+
+// AgentLocker takes the cross-replica lock of one agent's reservation push and returns its release. Every replica
+// pushes (a request on any of them can ask for it), so two replicas could list the same agent, both find a part
+// missing and create it twice, or take each other's fresh part for an orphan.
+type AgentLocker func(ctx context.Context, agent uuid.UUID) (release func(), err error)
+
+// SetAgentLocker wires the cross-replica lock of the pushes to one agent.
+func (u *ResourceCalendarUseCase) SetAgentLocker(l AgentLocker) { u.cluster.lockAgent = l }
 
 // SetClusterReservations wires the agents' reservation API; notice says how long before its end an agent gives
 // the ending notice (nil: the laboratory default). Without it the calendar keeps its parts and sends nothing.
@@ -338,6 +348,13 @@ func (u *ResourceCalendarUseCase) SyncAgent(ctx context.Context, agentID uuid.UU
 	mu := u.agentLock(agentID)
 	mu.Lock()
 	defer mu.Unlock()
+	if u.cluster.lockAgent != nil {
+		release, err := u.cluster.lockAgent(ctx, agentID)
+		if err != nil {
+			return fmt.Errorf("lock the agent reservations: %w", err)
+		}
+		defer release()
+	}
 	now := u.now().UTC()
 	// The agent is listed first and the parts read after: a part another replica created in between is known here,
 	// so it is never taken for an orphan.

@@ -7838,7 +7838,9 @@ definitions:
           $ref: '#/definitions/inbox.notificationResponse'
         type: array
       NextCursor:
-        $ref: '#/definitions/inboxModel.Cursor'
+        description: NextCursor is the before value of the next older page, empty
+          on the last page.
+        type: string
     type: object
   inbox.notificationResponse:
     properties:
@@ -7910,24 +7912,6 @@ definitions:
         description: Type is the notification type (e.g. event.lab.failed).
         type: string
     type: object
-  inbox.pollResponse:
-    properties:
-      Counts:
-        $ref: '#/definitions/inbox.countsResponse'
-      Cursor:
-        $ref: '#/definitions/inboxModel.Cursor'
-      NewInbox:
-        items:
-          $ref: '#/definitions/inbox.notificationResponse'
-        type: array
-      OtherEventsCount:
-        description: |-
-          OtherEventsCount: unread items and open requests of other Events;
-          non-zero only for ?event=<id>.
-        type: integer
-      UnreadCount:
-        type: integer
-    type: object
   inbox.resolvedByResponse:
     properties:
       ID:
@@ -7935,12 +7919,27 @@ definitions:
       Name:
         type: string
     type: object
-  inboxModel.Cursor:
+  inbox.sinceResponse:
     properties:
-      CreatedAt:
+      Counts:
+        $ref: '#/definitions/inbox.countsResponse'
+      Cursor:
+        description: |-
+          Cursor is the newest item the response covers; the client sends it as since next time. It stays
+          behind the pulse cursor while more than a page of news is waiting, so keep asking until they match.
         type: string
-      ID:
-        type: string
+      Items:
+        items:
+          $ref: '#/definitions/inbox.notificationResponse'
+        type: array
+      OtherEventsCount:
+        description: 'OtherEventsCount: unread items and open requests of other Events;
+          non-zero on an event site only.'
+        type: integer
+      Unread:
+        description: Unread is the number of unread items in the site's scope (the
+          same number the pulse reports).
+        type: integer
     type: object
   infrastructure.agentAdminResponse:
     properties:
@@ -9250,26 +9249,6 @@ definitions:
       Subject:
         type: string
     type: object
-  messaging.visibleBannerResponse:
-    properties:
-      Dismissible:
-        type: boolean
-      ID:
-        type: string
-      Level:
-        type: string
-      LinkLabel:
-        type: string
-      LinkURL:
-        type: string
-      Text:
-        type: string
-      Version:
-        description: |-
-          Version changes on every edit, so a dismissal of the old text does not
-          hide the edited banner.
-        type: integer
-    type: object
   pagination.CursorPage-event_eventResponse:
     properties:
       Items:
@@ -10217,6 +10196,64 @@ definitions:
         type: string
       Value:
         type: object
+    type: object
+  pulse.bannerResponse:
+    properties:
+      Dismissible:
+        type: boolean
+      ID:
+        description: ID is a UUID, or system-results-freeze:<event id> for the results-freeze
+          banner.
+        type: string
+      Kind:
+        description: |-
+          Kind is site (authored), system (raised by the platform, the freeze) or personal (a banner
+          notification of the signed-in user; only these can be dismissed on the server).
+        enum:
+        - site
+        - system
+        - personal
+        type: string
+      Level:
+        enum:
+        - info
+        - warning
+        - critical
+        type: string
+      LinkLabel:
+        type: string
+      LinkURL:
+        type: string
+      Text:
+        type: string
+      Title:
+        type: string
+      Version:
+        description: Version changes on every edit, so a dismissal of the old text
+          does not hide the edited banner.
+        type: integer
+    type: object
+  pulse.inboxPulseResponse:
+    properties:
+      Cursor:
+        description: |-
+          Cursor is the newest inbox item of the site's scope, empty when there is none. A change means
+          new items: fetch the inbox with since.
+        type: string
+      Unread:
+        description: Unread is the unread count of the site's scope.
+        type: integer
+    type: object
+  pulse.pulseResponse:
+    properties:
+      Banners:
+        description: 'Banners is the version of the banner list; a change means: fetch
+          the banners.'
+        type: string
+      Inbox:
+        allOf:
+        - $ref: '#/definitions/pulse.inboxPulseResponse'
+        description: Inbox is null for a guest.
     type: object
   rbac.Role:
     enum:
@@ -12869,40 +12906,6 @@ paths:
       summary: Begin email registration
       tags:
       - auth
-  /banners:
-    get:
-      parameters:
-      - description: Site context (event requires event id)
-        enum:
-        - main
-        - id
-        - admin
-        - exercises
-        - event
-        in: query
-        name: site
-        type: string
-      - description: Event id of an Event site
-        in: query
-        name: event
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/messaging.visibleBannerResponse'
-                  type: array
-              type: object
-      summary: Banners the current viewer sees (public, optional session)
-      tags:
-      - site-banners
   /events:
     get:
       parameters:
@@ -19840,40 +19843,6 @@ paths:
       summary: Poll result changes after a snapshot revision
       tags:
       - events-self
-  /events/{id}/results/freeze:
-    get:
-      description: Uses the same viewer, event visibility and withdrawal gates as
-        the results page. Authored banner content is returned only while the freeze
-        applies to this viewer.
-      parameters:
-      - description: event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/eventself.resultsFreezeResponse'
-              type: object
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/response.Response'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/response.Response'
-      summary: Read visible event freeze state without downloading scores
-      tags:
-      - events-self
   /events/{id}/results/live:
     get:
       description: Load GET /events/{id}/results first. Send its Revision in Last-Event-ID
@@ -21601,9 +21570,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Same access as saving the draft. Builds the manifest (Docker schema
-        2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<the
-        whole digest hex> and returns the platform reference for the device.
+      description: 'Same access as saving the draft. Builds the manifest (Docker schema
+        2 when every type is Docker''s, otherwise OCI), pushes it under the tag sha256-<the
+        whole digest hex> (the digest alone: the same content is the same tag whatever
+        its name) and returns the platform reference for the device.'
       parameters:
       - description: exercise ID
         in: path
@@ -23432,6 +23402,10 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/response.Response'
+        "503":
+          description: the chunk broke off on the way; send it again
+          schema:
+            $ref: '#/definitions/response.Response'
       summary: Send chunk N (0-based) of a chunked upload; the body is the raw chunk
       tags:
       - exercises
@@ -24922,6 +24896,82 @@ paths:
         in use
       tags:
       - mail
+  /notifications/banners:
+    get:
+      description: The site banners of the platform and of the event site, filtered
+        by window, targeting and audience; on an event site the results-freeze banner
+        (Kind system, ID system-results-freeze:<event id>, text and level from the
+        event's freeze settings) only while the freeze applies to this viewer, never
+        an error; and, for a signed-in user, the user's own banner notifications (Kind
+        personal). The ETag is the Banners version of the pulse, so the client can
+        tell whether it holds the version the pulse reported. Sorted by severity,
+        then platform before event, then newest.
+      parameters:
+      - description: Site; the request Origin when missing
+        enum:
+        - main
+        - id
+        - admin
+        - exercises
+        - event
+        in: query
+        name: site
+        type: string
+      - description: Event id of an event site
+        in: query
+        name: event
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/pulse.bannerResponse'
+                  type: array
+              type: object
+        "304":
+          description: Not Modified
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: The banners the viewer sees on the site
+      tags:
+      - notification-pulse
+  /notifications/banners/{id}/dismiss:
+    patch:
+      parameters:
+      - description: banner ID (Kind personal)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Dismiss a personal banner of the current user
+      tags:
+      - notification-pulse
   /notifications/broadcasts:
     get:
       parameters:
@@ -25142,13 +25192,30 @@ paths:
       - notification-stats
   /notifications/inbox:
     get:
+      description: 'The site is the site query parameter (with event for an event
+        site), or the request Origin when it is missing. Without since: one page of
+        the site''s inbox, newest first (category filters the tab, before pages to
+        older items). With since=<cursor> (the Cursor of the pulse or of the previous
+        answer; empty = baseline): only the items newer than the cursor, oldest first,
+        with Unread and the tab Counts. Counts has the tab badges (Requests = open
+        requests, Personal/Activity = unread, All = sum). Fetch it when the pulse
+        cursor or unread changed.'
       parameters:
-      - description: 'Event id: that Event''s items plus items without an Event; none:
-          only items without an Event'
+      - description: Site; the request Origin when missing
+        enum:
+        - main
+        - id
+        - admin
+        - exercises
+        - event
+        in: query
+        name: site
+        type: string
+      - description: Event id of an event site
         in: query
         name: event
         type: string
-      - description: Inbox tab; absent = all
+      - description: Inbox tab; absent = all (list only)
         enum:
         - requests
         - personal
@@ -25156,31 +25223,31 @@ paths:
         in: query
         name: category
         type: string
-      - description: page cursor id (with before_at)
+      - description: page cursor of the older page (list only)
         in: query
-        name: before_id
+        name: before
         type: string
-      - description: page cursor time, RFC3339Nano (with before_id)
+      - description: cursor to read the news after; empty = baseline
         in: query
-        name: before_at
+        name: since
         type: string
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: with since
           schema:
             allOf:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  $ref: '#/definitions/inbox.listResponse'
+                  $ref: '#/definitions/inbox.sinceResponse'
               type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: List in-app notifications for the current user
+      summary: List the inbox of the current user, or only what is new after a cursor
       tags:
       - notification-inbox
   /notifications/inbox/{id}/read:
@@ -25243,52 +25310,21 @@ paths:
       summary: Resolve an inbox request by hand
       tags:
       - notification-inbox
-  /notifications/inbox/poll:
-    get:
-      description: Returns a baseline cursor on the first call and only new inbox
-        entries on subsequent calls. Read state is reflected in UnreadCount. Counts
-        has the tab badges in the scope (Requests = open requests, Personal/Activity
-        = unread, All = sum); OtherEventsCount counts unread items and open requests
-        of other Events when event is an Event id.
-      parameters:
-      - description: cursor id (with since_at)
-        in: query
-        name: since_id
-        type: string
-      - description: cursor time, RFC3339Nano (with since_id)
-        in: query
-        name: since_at
-        type: string
-      - description: 'Event id: that Event''s items plus items without an Event; none:
-          only items without an Event'
-        in: query
-        name: event
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/inbox.pollResponse'
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/response.Response'
-      summary: Poll the inbox for new entries, the unread count and tab counts
-      tags:
-      - notification-inbox
   /notifications/inbox/read-all:
     patch:
       description: Open requests become read but stay open until resolved.
       parameters:
-      - description: 'Event id: that Event''s items plus items without an Event; none:
-          only items without an Event'
+      - description: Site; the request Origin when missing
+        enum:
+        - main
+        - id
+        - admin
+        - exercises
+        - event
+        in: query
+        name: site
+        type: string
+      - description: Event id of an event site
         in: query
         name: event
         type: string
@@ -25314,6 +25350,58 @@ paths:
       summary: Mark all notifications as read for the current user
       tags:
       - notification-inbox
+  /notifications/pulse:
+    get:
+      description: 'Call it about every 30 seconds per tab. The site is the site query
+        parameter (with event for an event site), or the request Origin when it is
+        missing; neither is a 400. Banners is the version of the banner list (site
+        banners, the results-freeze banner of the event and the user''s personal banners):
+        when it differs from the one the client holds, fetch GET /notifications/banners.
+        Inbox (null for a guest) has the cursor of the newest inbox item and the unread
+        count: when the cursor or Unread changed, fetch GET /notifications/inbox?since=<cursor>.
+        A guest''s answer is the same for everyone of the site (Cache-Control public,
+        max-age 15, Vary Origin and Cookie, ETag); a signed-in answer is private,
+        no-cache, with an ETag and 304.'
+      parameters:
+      - description: Site; the request Origin when missing
+        enum:
+        - main
+        - id
+        - admin
+        - exercises
+        - event
+        in: query
+        name: site
+        type: string
+      - description: Event id of an event site
+        in: query
+        name: event
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pulse.pulseResponse'
+              type: object
+        "304":
+          description: Not Modified
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'The cheap per-tab pulse: the banner version and the inbox state'
+      tags:
+      - notification-pulse
   /notifications/settings/global:
     get:
       produces:

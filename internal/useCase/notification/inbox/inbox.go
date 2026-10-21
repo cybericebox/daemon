@@ -50,8 +50,11 @@ func (u *NotificationInboxUseCase) ListInbox(ctx context.Context, userID uuid.UU
 	return page, nil
 }
 
-func (u *NotificationInboxUseCase) PollInbox(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, since *inboxModel.Cursor) (inboxModel.PollResult, error) {
-	result := inboxModel.PollResult{NewInbox: []inboxModel.InAppNotification{}}
+// InboxSince returns the news of a scope after the cursor: the new items, the unread count and the tab
+// counts. Without a cursor it only returns the baseline cursor (no items, so old unread items are not
+// replayed). Clients call it when the pulse cursor changed.
+func (u *NotificationInboxUseCase) InboxSince(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, since *inboxModel.Cursor) (inboxModel.SinceResult, error) {
+	result := inboxModel.SinceResult{NewInbox: []inboxModel.InAppNotification{}}
 	if since == nil {
 		cursor, err := u.inbox.LatestCursor(ctx, userID, scope)
 		if err != nil {
@@ -151,4 +154,10 @@ func (u *NotificationInboxUseCase) ResolveRequest(ctx context.Context, userID, i
 		return notificationModel.ErrInboxRequestResolved.Err()
 	}
 	return nil
+}
+
+// InboxPulse is the cheap inbox part of the pulse: the newest item's cursor (nil when the scope has none),
+// the unread count and the stamp of the user's open personal banners, from one indexed query.
+func (u *NotificationInboxUseCase) InboxPulse(ctx context.Context, userID uuid.UUID, scope *uuid.UUID) (inboxModel.Pulse, error) {
+	return u.inbox.Pulse(ctx, userID, scope)
 }
