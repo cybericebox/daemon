@@ -56,7 +56,7 @@ func TestListInbox_PaginatesAndMapsReadState(t *testing.T) {
 	assert.Nil(t, older.NextCursor)
 }
 
-func TestPollInbox_BaselineDoesNotReplayOldUnread(t *testing.T) {
+func TestInboxSince_BaselineDoesNotReplayOldUnread(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
@@ -66,7 +66,7 @@ func TestPollInbox_BaselineDoesNotReplayOldUnread(t *testing.T) {
 	repo.EXPECT().CountUnreadInbox(gomock.Any(), postgres.CountUnreadInboxParams{UserID: uid}).Return(int64(3), nil)
 	repo.EXPECT().CountInboxByCategory(gomock.Any(), postgres.CountInboxByCategoryParams{UserID: uid}).Return(postgres.CountInboxByCategoryRow{}, nil)
 
-	result, err := uc.PollInbox(context.Background(), uid, nil, nil)
+	result, err := uc.InboxSince(context.Background(), uid, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, result.NewInbox)
 	require.NotNil(t, result.Cursor)
@@ -74,7 +74,7 @@ func TestPollInbox_BaselineDoesNotReplayOldUnread(t *testing.T) {
 	assert.Equal(t, int64(3), result.UnreadCount)
 }
 
-func TestPollInbox_EmptyBaselineHasNoCursor(t *testing.T) {
+func TestInboxSince_EmptyBaselineHasNoCursor(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
@@ -83,13 +83,13 @@ func TestPollInbox_EmptyBaselineHasNoCursor(t *testing.T) {
 	repo.EXPECT().CountUnreadInbox(gomock.Any(), postgres.CountUnreadInboxParams{UserID: uid}).Return(int64(0), nil)
 	repo.EXPECT().CountInboxByCategory(gomock.Any(), postgres.CountInboxByCategoryParams{UserID: uid}).Return(postgres.CountInboxByCategoryRow{}, nil)
 
-	result, err := uc.PollInbox(context.Background(), uid, nil, nil)
+	result, err := uc.InboxSince(context.Background(), uid, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, result.Cursor)
 	assert.Empty(t, result.NewInbox)
 }
 
-func TestPollInbox_DeltaAdvancesCursorAndIncludesReadState(t *testing.T) {
+func TestInboxSince_DeltaAdvancesCursorAndIncludesReadState(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
@@ -101,7 +101,7 @@ func TestPollInbox_DeltaAdvancesCursorAndIncludesReadState(t *testing.T) {
 	repo.EXPECT().CountUnreadInbox(gomock.Any(), postgres.CountUnreadInboxParams{UserID: uid}).Return(int64(4), nil)
 	repo.EXPECT().CountInboxByCategory(gomock.Any(), postgres.CountInboxByCategoryParams{UserID: uid}).Return(postgres.CountInboxByCategoryRow{}, nil)
 
-	result, err := uc.PollInbox(context.Background(), uid, nil, since)
+	result, err := uc.InboxSince(context.Background(), uid, nil, since)
 	require.NoError(t, err)
 	require.Len(t, result.NewInbox, 1)
 	assert.Equal(t, newID, result.Cursor.ID)
@@ -171,9 +171,9 @@ func TestListInbox_EventScopeFiltersAndLabels(t *testing.T) {
 	assert.Nil(t, got.Items[1].EventID)
 }
 
-// TestPollInbox_PlatformScopeReachesSQL: the platform-only scope reaches every
+// TestInboxSince_PlatformScopeReachesSQL: the platform-only scope reaches every
 // poll query as the nil-uuid filter, which matches only items without an Event.
-func TestPollInbox_PlatformScopeReachesSQL(t *testing.T) {
+func TestInboxSince_PlatformScopeReachesSQL(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
@@ -186,16 +186,16 @@ func TestPollInbox_PlatformScopeReachesSQL(t *testing.T) {
 	repo.EXPECT().MarkAllInAppReadByUser(gomock.Any(), postgres.MarkAllInAppReadByUserParams{UserID: uid, EventFilter: filter}).Return(nil)
 
 	scope := inboxModel.PlatformScope
-	got, err := uc.PollInbox(context.Background(), uid, &scope, nil)
+	got, err := uc.InboxSince(context.Background(), uid, &scope, nil)
 	require.NoError(t, err)
 	assert.Nil(t, got.Cursor)
 	assert.Equal(t, int64(3), got.UnreadCount)
 	require.NoError(t, uc.MarkAllRead(context.Background(), uid, &scope, ""))
 }
 
-// TestPollInbox_ReturnsTabCounts: the tab badges and the other-Events count
+// TestInboxSince_ReturnsTabCounts: the tab badges and the other-Events count
 // come from one query scoped like the poll.
-func TestPollInbox_ReturnsTabCounts(t *testing.T) {
+func TestInboxSince_ReturnsTabCounts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
@@ -207,7 +207,7 @@ func TestPollInbox_ReturnsTabCounts(t *testing.T) {
 	repo.EXPECT().CountInboxByCategory(gomock.Any(), postgres.CountInboxByCategoryParams{UserID: uid, EventFilter: filter}).
 		Return(postgres.CountInboxByCategoryRow{AllCount: 6, RequestsCount: 3, PersonalCount: 2, ActivityCount: 1, OtherEventsCount: 4}, nil)
 
-	got, err := uc.PollInbox(context.Background(), uid, &eventID, nil)
+	got, err := uc.InboxSince(context.Background(), uid, &eventID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, inboxModel.Counts{All: 6, Requests: 3, Personal: 2, Activity: 1}, got.Counts)
 	assert.Equal(t, int64(4), got.OtherEventsCount)
@@ -294,4 +294,33 @@ func TestResolveRequest_Rejections(t *testing.T) {
 			assert.ErrorIs(t, uc.ResolveRequest(context.Background(), uid, id), c.want)
 		})
 	}
+}
+
+// TestInboxPulse_OneQuery: the pulse is one query for the cursor, the unread count and the personal
+// banner stamp; an empty scope has no cursor.
+func TestInboxPulse_OneQuery(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo})
+	uid, id, eventID := tools.NewUUIDv7(), tools.NewUUIDv7(), tools.NewUUIDv7()
+	created := time.Now().UTC()
+
+	repo.EXPECT().GetInboxPulse(gomock.Any(), postgres.GetInboxPulseParams{UserID: uid, EventFilter: eventID.String()}).
+		Return(postgres.GetInboxPulseRow{LatestID: id, LatestCreatedAt: created, UnreadCount: 4, BannerCount: 2, BannerLatestAt: created}, nil)
+	got, err := uc.InboxPulse(context.Background(), uid, &eventID)
+	require.NoError(t, err)
+	require.NotNil(t, got.Cursor)
+	assert.Equal(t, id, got.Cursor.ID)
+	assert.Equal(t, int64(4), got.Unread)
+	assert.Equal(t, int64(2), got.PersonalBanners)
+	assert.True(t, got.PersonalBannersLatest.Equal(created))
+
+	repo.EXPECT().GetInboxPulse(gomock.Any(), postgres.GetInboxPulseParams{UserID: uid, EventFilter: uuid.Nil.String()}).
+		Return(postgres.GetInboxPulseRow{LatestCreatedAt: time.Unix(0, 0)}, nil)
+	platform := inboxModel.PlatformScope
+	empty, err := uc.InboxPulse(context.Background(), uid, &platform)
+	require.NoError(t, err)
+	assert.Nil(t, empty.Cursor)
+	assert.Zero(t, empty.Unread)
+	assert.Zero(t, empty.PersonalBanners)
 }

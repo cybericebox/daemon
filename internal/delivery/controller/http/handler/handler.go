@@ -6,6 +6,7 @@ import (
 
 	adminAuditHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/adminAudit"
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/config"
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
@@ -94,7 +95,12 @@ func (h *Handler) Init(router *gin.Engine) {
 
 		user.NewUserAPIHandler(h.useCase, h.prot).Init(baseAPI)
 
-		notification.NewNotificationsAPIHandler(h.useCase, h.prot).Init(baseAPI)
+		// The site of a request (pulse, banners, inbox): the site query parameter, else the Origin.
+		site := middleware.NewSiteResolver(h.cfg.Hosts, func(ctx context.Context, tag string) (uuid.UUID, error) {
+			tenant, err := h.useCase.ResolveEventByTag(ctx, tag, time.Now())
+			return tenant.EventID, err
+		}).ResolveSite()
+		notification.NewNotificationsAPIHandler(h.useCase, h.prot, site).Init(baseAPI)
 		messagingHandler.NewMessagingAPIHandler(h.useCase, h.prot).Init(baseAPI)
 
 		exerciseHandler.NewExerciseAPIHandler(h.useCase, h.prot).Init(baseAPI)

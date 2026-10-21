@@ -3,12 +3,14 @@ package inbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -18,16 +20,16 @@ type (
 	Handler struct {
 		useCase IUseCase
 		prot    IProtection
+		// site resolves the requesting site into the request context.
+		site gin.HandlerFunc
 	}
 
 	IUseCase interface {
 		ListInbox(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, category inboxModel.Category, before *inboxModel.Cursor) (inboxModel.Page, error)
-		PollInbox(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, since *inboxModel.Cursor) (inboxModel.PollResult, error)
+		InboxSince(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, since *inboxModel.Cursor) (inboxModel.SinceResult, error)
 		MarkRead(ctx context.Context, userID, id uuid.UUID) error
 		MarkAllRead(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, category inboxModel.Category) error
 		ResolveRequest(ctx context.Context, userID, id uuid.UUID) error
-		ListBanners(ctx context.Context, userID uuid.UUID, scope *uuid.UUID) ([]inboxModel.InAppNotification, error)
-		DismissBanner(ctx context.Context, userID, id uuid.UUID) error
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -83,19 +85,23 @@ type countsResponse struct {
 	Activity int64 `json:"Activity"`
 }
 
-type pollResponse struct {
-	Cursor      *inboxModel.Cursor     `json:"Cursor"`
-	NewInbox    []notificationResponse `json:"NewInbox"`
-	UnreadCount int64                  `json:"UnreadCount"`
-	Counts      countsResponse         `json:"Counts"`
-	// OtherEventsCount: unread items and open requests of other Events;
-	// non-zero only for ?event=<id>.
+// sinceResponse is the news of the inbox after the cursor the client holds.
+type sinceResponse struct {
+	// Cursor is the newest item the response covers; the client sends it as since next time. It stays
+	// behind the pulse cursor while more than a page of news is waiting, so keep asking until they match.
+	Cursor string                 `json:"Cursor"`
+	Items  []notificationResponse `json:"Items"`
+	// Unread is the number of unread items in the site's scope (the same number the pulse reports).
+	Unread int64          `json:"Unread"`
+	Counts countsResponse `json:"Counts"`
+	// OtherEventsCount: unread items and open requests of other Events; non-zero on an event site only.
 	OtherEventsCount int64 `json:"OtherEventsCount"`
 }
 
 type listResponse struct {
-	Items      []notificationResponse `json:"Items"`
-	NextCursor *inboxModel.Cursor     `json:"NextCursor"`
+	Items []notificationResponse `json:"Items"`
+	// NextCursor is the before value of the next older page, empty on the last page.
+	NextCursor string `json:"NextCursor"`
 }
 
 func toResponse(n inboxModel.InAppNotification) notificationResponse {
@@ -124,26 +130,15 @@ func toResponse(n inboxModel.InAppNotification) notificationResponse {
 	return out
 }
 
-// eventScopeNone is the ?event= value for platform-only inboxes.
-const eventScopeNone = "none"
-
-// eventScope reads the optional ?event= inbox scope: absent lists every item,
-// an Event id lists that Event's items plus items without an Event (M5), and
-// "none" lists only items without an Event (every non-Event site).
-func eventScope(ctx *gin.Context) (*uuid.UUID, bool) {
-	raw := ctx.Query("event")
-	if raw == "" {
-		return nil, true
-	}
-	if raw == eventScopeNone {
-		return new(inboxModel.PlatformScope), true
-	}
-	id, err := uuid.FromString(raw)
-	if err != nil {
-		response.AbortWithBadRequest(ctx, fmt.Errorf("invalid event id"))
+// siteScope is the inbox scope of the request's site (set by the site middleware): an event site
+// lists that event's items plus the platform ones, every other site only the platform ones.
+func siteScope(ctx *gin.Context) (*uuid.UUID, bool) {
+	site, ok := middleware.SiteFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithBadRequest(ctx, errors.New("unknown site"))
 		return nil, false
 	}
-	return &id, true
+	return site.InboxScope(), true
 }
 
 // inboxCategory reads the optional ?category= tab filter; absent = every tab.
@@ -160,131 +155,37 @@ func inboxCategory(ctx *gin.Context) (inboxModel.Category, bool) {
 	return category, true
 }
 
-func NewInboxAPIHandler(useCase IUseCase, prot IProtection) *Handler {
-	return &Handler{useCase: useCase, prot: prot}
+func NewInboxAPIHandler(useCase IUseCase, prot IProtection, site gin.HandlerFunc) *Handler {
+	return &Handler{useCase: useCase, prot: prot, site: site}
 }
 
 func (h *Handler) Init(router *gin.RouterGroup) {
-	router.GET("banners", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.listBanners)
-	router.PATCH("banners/:id/dismiss", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.dismissBanner)
 	inboxAPI := router.Group("inbox")
 	{
-		inboxAPI.GET("", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.listInbox)
-		inboxAPI.GET("poll", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.pollInbox)
+		inboxAPI.GET("", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.site, h.listInbox)
 		inboxAPI.PATCH(":id/read", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.markRead)
 		inboxAPI.POST(":id/resolve", h.prot.RequirePermission(rbac.PermNotificationsSelf), h.resolveRequest)
 		inboxAPI.PATCH(
 			"read-all",
 			h.prot.RequirePermission(rbac.PermNotificationsSelf),
+			h.site,
 			h.markAllRead,
 		)
 	}
 }
 
-// pollInbox godoc
-// @Summary  Poll the inbox for new entries, the unread count and tab counts
-// @Description  Returns a baseline cursor on the first call and only new inbox entries on subsequent calls. Read state is reflected in UnreadCount. Counts has the tab badges in the scope (Requests = open requests, Personal/Activity = unread, All = sum); OtherEventsCount counts unread items and open requests of other Events when event is an Event id.
-// @Tags     notification-inbox
-// @Produce  json
-// @Param    since_id  query  string  false  "cursor id (with since_at)"
-// @Param    since_at  query  string  false  "cursor time, RFC3339Nano (with since_id)"
-// @Param    event  query  string  false  "Event id: that Event's items plus items without an Event; none: only items without an Event"
-// @Success  200  {object}  response.Response{data=pollResponse}
-// @Failure  400  {object}  response.Response
-// @Router   /notifications/inbox/poll [get]
-func (h *Handler) pollInbox(ctx *gin.Context) {
-	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	if !ok {
-		response.AbortWithUnauthenticated(ctx)
-		return
-	}
-	var since *inboxModel.Cursor
-	idText, atText := ctx.Query("since_id"), ctx.Query("since_at")
-	if idText != "" || atText != "" {
-		if idText == "" || atText == "" {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("since_id and since_at must be provided together"))
-			return
-		}
-		id, idErr := uuid.FromString(idText)
-		at, atErr := time.Parse(time.RFC3339Nano, atText)
-		if idErr != nil || atErr != nil {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid inbox cursor"))
-			return
-		}
-		since = &inboxModel.Cursor{ID: id, CreatedAt: at}
-	}
-	scope, ok := eventScope(ctx)
-	if !ok {
-		return
-	}
-	result, err := h.useCase.PollInbox(ctx, claims.UserID, scope, since)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	items := make([]notificationResponse, 0, len(result.NewInbox))
-	for _, item := range result.NewInbox {
-		items = append(items, toResponse(item))
-	}
-	response.AbortWithData(ctx, pollResponse{
-		Cursor: result.Cursor, NewInbox: items, UnreadCount: result.UnreadCount,
-		Counts: countsResponse{
-			All: result.Counts.All, Requests: result.Counts.Requests,
-			Personal: result.Counts.Personal, Activity: result.Counts.Activity,
-		},
-		OtherEventsCount: result.OtherEventsCount,
-	})
-}
-
-func (h *Handler) listBanners(ctx *gin.Context) {
-	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	if !ok {
-		response.AbortWithUnauthenticated(ctx)
-		return
-	}
-	scope, ok := eventScope(ctx)
-	if !ok {
-		return
-	}
-	items, err := h.useCase.ListBanners(ctx, claims.UserID, scope)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	out := make([]notificationResponse, 0, len(items))
-	for _, it := range items {
-		out = append(out, toResponse(it))
-	}
-	response.AbortWithData(ctx, out)
-}
-
-func (h *Handler) dismissBanner(ctx *gin.Context) {
-	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	if !ok {
-		response.AbortWithUnauthenticated(ctx)
-		return
-	}
-	id, err := uuid.FromString(ctx.Param("id"))
-	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	if err = h.useCase.DismissBanner(ctx, claims.UserID, id); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithSuccess(ctx)
-}
-
 // listInbox godoc
-// @Summary  List in-app notifications for the current user
+// @Summary  List the inbox of the current user, or only what is new after a cursor
+// @Description  The site is the site query parameter (with event for an event site), or the request Origin when it is missing. Without since: one page of the site's inbox, newest first (category filters the tab, before pages to older items). With since=<cursor> (the Cursor of the pulse or of the previous answer; empty = baseline): only the items newer than the cursor, oldest first, with Unread and the tab Counts. Counts has the tab badges (Requests = open requests, Personal/Activity = unread, All = sum). Fetch it when the pulse cursor or unread changed.
 // @Tags     notification-inbox
 // @Produce  json
-// @Param    event  query  string  false  "Event id: that Event's items plus items without an Event; none: only items without an Event"
-// @Param    category  query  string  false  "Inbox tab; absent = all"  Enums(requests, personal, activity)
-// @Param    before_id  query  string  false  "page cursor id (with before_at)"
-// @Param    before_at  query  string  false  "page cursor time, RFC3339Nano (with before_id)"
-// @Success  200  {object}  response.Response{data=listResponse}
+// @Param    site  query  string  false  "Site; the request Origin when missing"  Enums(main,id,admin,exercises,event)
+// @Param    event  query  string  false  "Event id of an event site"
+// @Param    category  query  string  false  "Inbox tab; absent = all (list only)"  Enums(requests, personal, activity)
+// @Param    before  query  string  false  "page cursor of the older page (list only)"
+// @Param    since  query  string  false  "cursor to read the news after; empty = baseline"
+// @Success  200  {object}  response.Response{data=listResponse}  "without since"
+// @Success  200  {object}  response.Response{data=sinceResponse}  "with since"
 // @Failure  400  {object}  response.Response
 // @Router   /notifications/inbox [get]
 func (h *Handler) listInbox(ctx *gin.Context) {
@@ -293,23 +194,22 @@ func (h *Handler) listInbox(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	var before *inboxModel.Cursor
-	idText, atText := ctx.Query("before_id"), ctx.Query("before_at")
-	if idText != "" || atText != "" {
-		if idText == "" || atText == "" {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("before_id and before_at must be provided together"))
-			return
-		}
-		id, idErr := uuid.FromString(idText)
-		at, atErr := time.Parse(time.RFC3339Nano, atText)
-		if idErr != nil || atErr != nil {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid inbox page cursor"))
-			return
-		}
-		before = &inboxModel.Cursor{ID: id, CreatedAt: at}
-	}
-	scope, ok := eventScope(ctx)
+	scope, ok := siteScope(ctx)
 	if !ok {
+		return
+	}
+	query := ctx.Request.URL.Query()
+	if _, hasSince := query["since"]; hasSince {
+		if _, hasBefore := query["before"]; hasBefore || query.Get("category") != "" {
+			response.AbortWithBadRequest(ctx, errors.New("since cannot be combined with before or category"))
+			return
+		}
+		h.inboxSince(ctx, claims.UserID, scope, query.Get("since"))
+		return
+	}
+	before, err := inboxModel.ParseCursor(query.Get("before"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 	category, ok := inboxCategory(ctx)
@@ -325,7 +225,40 @@ func (h *Handler) listInbox(ctx *gin.Context) {
 	for _, it := range page.Items {
 		out = append(out, toResponse(it))
 	}
-	response.AbortWithData(ctx, listResponse{Items: out, NextCursor: page.NextCursor})
+	next := ""
+	if page.NextCursor != nil {
+		next = page.NextCursor.String()
+	}
+	response.AbortWithData(ctx, listResponse{Items: out, NextCursor: next})
+}
+
+func (h *Handler) inboxSince(ctx *gin.Context, userID uuid.UUID, scope *uuid.UUID, raw string) {
+	since, err := inboxModel.ParseCursor(raw)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	result, err := h.useCase.InboxSince(ctx, userID, scope, since)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	items := make([]notificationResponse, 0, len(result.NewInbox))
+	for _, item := range result.NewInbox {
+		items = append(items, toResponse(item))
+	}
+	cursor := ""
+	if result.Cursor != nil {
+		cursor = result.Cursor.String()
+	}
+	response.AbortWithData(ctx, sinceResponse{
+		Cursor: cursor, Items: items, Unread: result.UnreadCount,
+		Counts: countsResponse{
+			All: result.Counts.All, Requests: result.Counts.Requests,
+			Personal: result.Counts.Personal, Activity: result.Counts.Activity,
+		},
+		OtherEventsCount: result.OtherEventsCount,
+	})
 }
 
 // markRead godoc
@@ -361,7 +294,8 @@ func (h *Handler) markRead(ctx *gin.Context) {
 // @Description  Open requests become read but stay open until resolved.
 // @Tags     notification-inbox
 // @Produce  json
-// @Param    event  query  string  false  "Event id: that Event's items plus items without an Event; none: only items without an Event"
+// @Param    site  query  string  false  "Site; the request Origin when missing"  Enums(main,id,admin,exercises,event)
+// @Param    event  query  string  false  "Event id of an event site"
 // @Param    category  query  string  false  "Only this inbox tab; absent = all"  Enums(requests, personal, activity)
 // @Success  200  {object}  response.Response
 // @Failure  400  {object}  response.Response
@@ -373,7 +307,7 @@ func (h *Handler) markAllRead(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	scope, ok := eventScope(ctx)
+	scope, ok := siteScope(ctx)
 	if !ok {
 		return
 	}

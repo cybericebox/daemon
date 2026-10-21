@@ -1,9 +1,6 @@
 package messaging
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
@@ -140,80 +137,4 @@ func (h *Handler) deleteBanner(scope scopeFn) gin.HandlerFunc {
 		}
 		response.AbortWithData(ctx, struct{}{})
 	}
-}
-
-// visibleBannerResponse is what apps render: no scope internals.
-type visibleBannerResponse struct {
-	ID          uuid.UUID `json:"ID"`
-	Text        string    `json:"Text"`
-	LinkURL     string    `json:"LinkURL"`
-	LinkLabel   string    `json:"LinkLabel"`
-	Level       string    `json:"Level"`
-	Dismissible bool      `json:"Dismissible"`
-	// Version changes on every edit, so a dismissal of the old text does not
-	// hide the edited banner.
-	Version int64 `json:"Version"`
-}
-
-// listVisibleBanners godoc
-// @Summary  Banners the current viewer sees (public, optional session)
-// @Tags     site-banners
-// @Produce  json
-// @Param    site   query  string  false  "Site context (event requires event id)" Enums(main,id,admin,exercises,event)
-// @Param    event  query  string  false  "Event id of an Event site"
-// @Success  200  {object}  response.Response{data=[]visibleBannerResponse}
-// @Router   /banners [get]
-func (h *Handler) listVisibleBanners(ctx *gin.Context) {
-	site, sitePresent := ctx.GetQuery("site")
-	params := ctx.Request.URL.Query()
-	if values, present := params["site"]; present && (len(values) != 1 || !sitePresent || !siteBannerModel.ValidSite(site)) {
-		response.AbortWithBadRequest(ctx, fmt.Errorf("invalid site context"))
-		return
-	}
-	var eventID *uuid.UUID
-	if values, present := params["event"]; present && (len(values) != 1 || values[0] == "") {
-		response.AbortWithBadRequest(ctx, fmt.Errorf("invalid Event id"))
-		return
-	}
-	if raw := ctx.Query("event"); raw != "" {
-		id, err := uuid.FromString(raw)
-		if err != nil {
-			response.AbortWithBadRequest(ctx, err)
-			return
-		}
-		if id == uuid.Nil {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid Event id"))
-			return
-		}
-		eventID = &id
-		if !sitePresent {
-			site = "event"
-		}
-	}
-	if (eventID != nil && site != "event") || (site == "event" && eventID == nil) {
-		response.AbortWithBadRequest(ctx, fmt.Errorf("site and Event context do not match"))
-		return
-	}
-	var userID *uuid.UUID
-	if claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); ok {
-		userID = &claims.UserID
-	}
-	items, err := h.useCase.ListVisibleSiteBanners(ctx.Request.Context(), site, eventID, userID)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	out := make([]visibleBannerResponse, 0, len(items))
-	for _, b := range items {
-		out = append(out, visibleBannerResponse{
-			ID: b.ID, Text: b.Text, LinkURL: b.LinkURL, LinkLabel: b.LinkLabel, Level: string(b.Level),
-			Dismissible: b.Dismissible, Version: b.UpdatedAt.UnixMilli(),
-		})
-	}
-	// Anonymous answers are the same for everyone: the browser may reuse them for a short while.
-	var freshFor time.Duration
-	if userID == nil {
-		freshFor = 30 * time.Second
-	}
-	response.AbortWithETagData(ctx, out, freshFor)
 }

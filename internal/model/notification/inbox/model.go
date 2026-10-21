@@ -2,6 +2,8 @@ package inboxModel
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -61,12 +63,44 @@ type Cursor struct {
 	CreatedAt time.Time `json:"CreatedAt"`
 }
 
+var errInvalidCursor = errors.New("invalid inbox cursor") //nolint:gochecknoglobals // sentinel
+
+// String is the wire form of the cursor: the creation time (RFC 3339, UTC, nanoseconds) and the id
+// joined by an underscore. The zero cursor is the empty string.
+func (c Cursor) String() string {
+	if c.ID == uuid.Nil && c.CreatedAt.IsZero() {
+		return ""
+	}
+	return c.CreatedAt.UTC().Format(time.RFC3339Nano) + "_" + c.ID.String()
+}
+
+// ParseCursor reads the wire form back. The empty string is no cursor.
+func ParseCursor(raw string) (*Cursor, error) {
+	if raw == "" {
+		return nil, nil //nolint:nilnil // no cursor is a valid answer
+	}
+	at, id, found := strings.Cut(raw, "_")
+	if !found {
+		return nil, errInvalidCursor
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return nil, errInvalidCursor
+	}
+	itemID, err := uuid.FromString(id)
+	if err != nil {
+		return nil, errInvalidCursor
+	}
+	return &Cursor{ID: itemID, CreatedAt: createdAt}, nil
+}
+
 type Page struct {
 	Items      []InAppNotification
 	NextCursor *Cursor
 }
 
-type PollResult struct {
+// SinceResult is what happened in an inbox scope after a cursor.
+type SinceResult struct {
 	Cursor      *Cursor
 	NewInbox    []InAppNotification
 	UnreadCount int64
@@ -74,4 +108,14 @@ type PollResult struct {
 	// OtherEventsCount is, for an Event-site scope, the unread items and open
 	// requests of other Events (0 for every other scope).
 	OtherEventsCount int64
+}
+
+// Pulse is the cheap summary of a user's inbox scope.
+type Pulse struct {
+	// Cursor is the newest inbox item, nil when the scope has none.
+	Cursor *Cursor
+	Unread int64
+	// PersonalBanners and PersonalBannersLatest stamp the user's open personal banners.
+	PersonalBanners       int64
+	PersonalBannersLatest time.Time
 }

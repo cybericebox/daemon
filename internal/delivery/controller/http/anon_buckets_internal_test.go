@@ -12,25 +12,20 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid" //nolint:depguard // the platform's id type; the stubbed port takes *uuid.UUID
 	"github.com/rs/zerolog"
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
-	siteBannerModel "github.com/cybericebox/daemon/internal/model/siteBanner"
+	siteModel "github.com/cybericebox/daemon/internal/model/site"
+	pulseUseCase "github.com/cybericebox/daemon/internal/useCase/notification/pulse"
 )
 
-// bucketUseCase is chainUseCase plus the visible banners, so GET /api/banners answers 200.
+// bucketUseCase is chainUseCase plus the banner list, so GET /api/notifications/banners answers 200.
 type bucketUseCase struct{ chainUseCase }
 
-func (bucketUseCase) ListVisibleSiteBanners(
-	context.Context,
-	string,
-	*uuid.UUID,
-	*uuid.UUID,
-) ([]siteBannerModel.Banner, error) {
-	return nil, nil
+func (bucketUseCase) Banners(context.Context, siteModel.Site, pulseUseCase.Viewer) (pulseUseCase.BannerList, error) {
+	return pulseUseCase.BannerList{}, nil
 }
 
 const bucketOrigin = "https://admin.example.test"
@@ -205,9 +200,9 @@ func TestClosedFloodDoesNotStarvePublic(t *testing.T) {
 			t.Fatalf("%s after the closed burst: %d", path, w.Code)
 		}
 	}
-	w := getAnonymous(router, "/api/banners")
+	w := getAnonymous(router, "/api/notifications/banners?site=main")
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /api/banners after the closed flood: %d %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/notifications/banners after the closed flood: %d %s", w.Code, w.Body.String())
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != bucketOrigin {
 		t.Fatalf("CORS must run before the limiter: Access-Control-Allow-Origin %q", got)

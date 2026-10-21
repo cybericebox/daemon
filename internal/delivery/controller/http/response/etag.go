@@ -55,3 +55,46 @@ func ETagMatches(header, tag string) bool {
 	}
 	return false
 }
+
+// AbortWithPublicETagData answers like AbortWithETagData for a body that is the same for every
+// anonymous caller of the same URL and Origin: shared caches may keep it for freshFor
+// («public, max-age»); it varies by Origin and Cookie, so a signed-in caller or another site never gets
+// it. freshFor 0 only makes caches revalidate.
+func AbortWithPublicETagData(ctx *gin.Context, data any, freshFor time.Duration) {
+	body, err := json.Marshal(data)
+	if err != nil {
+		AbortWithData(ctx, data)
+		return
+	}
+	sum := sha256.Sum256(body)
+	ctx.Header("Vary", "Origin, Cookie")
+	abortWithTag(ctx, data, `"`+hex.EncodeToString(sum[:16])+`"`, publicCacheControl(freshFor))
+}
+
+// AbortWithTaggedData answers with data under a caller-chosen ETag (a version string), 304 when the
+// request's If-None-Match has it. public tells the answer is the same for every anonymous caller.
+func AbortWithTaggedData(ctx *gin.Context, data any, version string, public bool) {
+	cacheControl := "private, no-cache"
+	if public {
+		cacheControl = "public, no-cache"
+		ctx.Header("Vary", "Origin, Cookie")
+	}
+	abortWithTag(ctx, data, `"`+version+`"`, cacheControl)
+}
+
+func publicCacheControl(freshFor time.Duration) string {
+	if freshFor <= 0 {
+		return "public, no-cache"
+	}
+	return fmt.Sprintf("public, max-age=%d", int(freshFor.Seconds()))
+}
+
+func abortWithTag(ctx *gin.Context, data any, tag, cacheControl string) {
+	ctx.Header("ETag", tag)
+	ctx.Header("Cache-Control", cacheControl)
+	if ETagMatches(ctx.GetHeader("If-None-Match"), tag) {
+		AbortNotModified(ctx)
+		return
+	}
+	AbortWithData(ctx, data)
+}

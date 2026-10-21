@@ -46,7 +46,6 @@ type (
 		GetSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID) (siteBannerModel.Banner, error)
 		DeleteSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID) error
 		ListSiteBanners(ctx context.Context, scope *uuid.UUID) ([]siteBannerModel.Banner, error)
-		ListVisibleSiteBanners(ctx context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error)
 	}
 
 	// scopeFn resolves the scope of a request: nil is the platform.
@@ -159,7 +158,7 @@ func NewMessagingAPIHandler(useCase IUseCase, prot IProtection) *Handler {
 }
 
 // Init mounts the platform routes under notifications/, the Event routes under
-// events/:id/manage/ and the public banner read under banners.
+// events/:id/manage/. The banners viewers see are served with the pulse (handler/notification/pulse).
 func (h *Handler) Init(api *gin.RouterGroup) {
 	platform := func(ctx *gin.Context) (*uuid.UUID, bool) { return nil, true }
 
@@ -187,8 +186,6 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	manage.POST("banners", h.requireManage, h.createBanner(eventScope))
 	manage.PUT("banners/:bannerID", h.requireManage, h.updateBanner(eventScope))
 	manage.DELETE("banners/:bannerID", h.requireManage, h.deleteBanner(eventScope))
-
-	api.GET("banners", h.prot.RequirePermission(rbac.PermBannersView), h.listVisibleBanners)
 }
 
 func eventScope(ctx *gin.Context) (*uuid.UUID, bool) {

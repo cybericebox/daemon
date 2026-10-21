@@ -91,7 +91,6 @@ type (
 		ResolveLiveScreenToken(ctx context.Context, eventID uuid.UUID, token string) error
 		IsActiveLiveScreenToken(ctx context.Context, token string, now time.Time) bool
 		GetResultsSnapshot(ctx context.Context, eventID uuid.UUID, access eventUseCase.ResultsAccess, liveScreen bool) (eventUseCase.ResultsSnapshotView, error)
-		GetResultsFreeze(ctx context.Context, eventID uuid.UUID, access eventUseCase.ResultsAccess) (eventUseCase.ResultsFreezeView, error)
 		OpenLiveResults(eventID uuid.UUID, access eventUseCase.ResultsAccess, liveScreen bool) eventUseCase.LiveResultsSubscription
 		GetOwnTeamResults(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.OwnTeamResultsView, error)
 		GetParticipationStats(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.ParticipationStatsView, error)
@@ -173,7 +172,6 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 	results := router.Group("events/:id/results", h.prot.RequirePermission(rbac.PermEventResultsRead))
 	{
 		results.GET("", h.resultsSnapshot)
-		results.GET("freeze", h.resultsFreeze)
 		results.GET("live", h.liveResults)
 		results.GET("changes", h.resultsChanges)
 	}

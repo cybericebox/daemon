@@ -34,7 +34,7 @@ func guardRouter(after ...gin.HandlerFunc) *gin.Engine {
 	// a public read: PublicReadRoutes has the avatar route
 	r.GET("/api/auth/avatar/:id", ok)
 	r.GET("/api/events/:id/results", ok)
-	r.GET("/api/events/:id/results/freeze", ok)
+	r.GET("/api/events/:id/results/live", ok)
 	return r
 }
 
@@ -183,7 +183,7 @@ func TestOriginGuard_WriteBodyMustBeJSONOrMultipart(t *testing.T) {
 // are not checked: embeds and referrers must never break.
 func TestOriginGuard_PublicReadsAreNotChecked(t *testing.T) {
 	r := guardRouter()
-	for _, path := range []string{"/api/auth/avatar/x", "/api/events/e1/results", "/api/events/e1/results/freeze"} {
+	for _, path := range []string{"/api/auth/avatar/x", "/api/events/e1/results", "/api/events/e1/results/live"} {
 		for name, h := range map[string]map[string]string{
 			"foreign referer": {"Referer": "https://mail.google.com/mail/u/0/"},
 			"lab referer":     {"Referer": "https://web-x.labs.example.test/"},

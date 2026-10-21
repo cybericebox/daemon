@@ -24,6 +24,7 @@ type Queries interface {
 	ListInAppByUser(ctx context.Context, arg postgres.ListInAppByUserParams) ([]postgres.ListInAppByUserRow, error)
 	GetLatestInboxCursor(ctx context.Context, arg postgres.GetLatestInboxCursorParams) (postgres.GetLatestInboxCursorRow, error)
 	ListNewInboxSince(ctx context.Context, arg postgres.ListNewInboxSinceParams) ([]postgres.ListNewInboxSinceRow, error)
+	GetInboxPulse(ctx context.Context, arg postgres.GetInboxPulseParams) (postgres.GetInboxPulseRow, error)
 	CountUnreadInbox(ctx context.Context, arg postgres.CountUnreadInboxParams) (int64, error)
 	ListActiveBannersByUser(ctx context.Context, arg postgres.ListActiveBannersByUserParams) ([]postgres.ListActiveBannersByUserRow, error)
 	MarkInAppRead(ctx context.Context, arg postgres.MarkInAppReadParams) (int64, error)
@@ -86,6 +87,22 @@ func (r *Repository) LatestCursor(ctx context.Context, userID uuid.UUID, scope *
 		return nil, err
 	}
 	return &inboxModel.Cursor{ID: row.ID, CreatedAt: row.CreatedAt}, nil
+}
+
+// Pulse reads the pulse numbers of the scope in one query.
+func (r *Repository) Pulse(ctx context.Context, userID uuid.UUID, scope *uuid.UUID) (inboxModel.Pulse, error) {
+	row, err := r.q.GetInboxPulse(ctx, postgres.GetInboxPulseParams{UserID: userID, EventFilter: eventFilter(scope)})
+	if err != nil {
+		return inboxModel.Pulse{}, err
+	}
+	out := inboxModel.Pulse{Unread: row.UnreadCount, PersonalBanners: row.BannerCount}
+	if row.LatestID != uuid.Nil {
+		out.Cursor = &inboxModel.Cursor{ID: row.LatestID, CreatedAt: row.LatestCreatedAt}
+	}
+	if row.BannerCount > 0 {
+		out.PersonalBannersLatest = row.BannerLatestAt
+	}
+	return out, nil
 }
 
 func (r *Repository) ListNewSince(ctx context.Context, userID uuid.UUID, scope *uuid.UUID, since inboxModel.Cursor) ([]inboxModel.InAppNotification, error) {
