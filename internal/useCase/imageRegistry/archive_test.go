@@ -113,6 +113,33 @@ func TestPushImageArchiveSkipsPresentBlobs(t *testing.T) {
 	require.Equal(t, 1, src.opens)
 }
 
+// Re-importing the exact portable bytes reuses the immutable manifest as well
+// as its blobs; a genuinely different digest creates its own immutable tag.
+func TestRepeatedArchiveImportReusesImmutableManifestAndBlobs(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.reg.immutable = true
+	f.expectImageRow(t)
+	first := &archiveSource{b: archivetest.Legacy(archiveImage())}
+	a := f.index(t, first)
+	one, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: a})
+	require.NoError(t, err)
+	puts := f.reg.putCount()
+	require.Equal(t, 1, puts)
+	repeated := &archiveSource{b: first.b}
+	b := f.index(t, repeated)
+	two, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: b})
+	require.NoError(t, err)
+	require.Equal(t, one.Reference, two.Reference)
+	require.Equal(t, puts, f.reg.putCount(), "no second manifest PUT under the immutable digest tag")
+	require.Equal(t, 1, repeated.opens, "only indexing reads the repeated archive; no missing blob stream is opened")
+	changed := &archiveSource{b: archivetest.Legacy(archivetest.Amd64([]byte("changed content")))}
+	c := f.index(t, changed)
+	three, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: c})
+	require.NoError(t, err)
+	require.NotEqual(t, one.Reference, three.Reference)
+	require.Equal(t, puts+1, f.reg.putCount())
+}
+
 func unreadableReason(t *testing.T, err error) any {
 	t.Helper()
 	require.ErrorIs(t, err, imageRegistryModel.ErrImageArchiveUnreadable.Err())

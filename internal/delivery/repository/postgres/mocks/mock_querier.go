@@ -5043,6 +5043,21 @@ func (mr *MockQuerierMockRecorder) GetOpenResourceAlarm(ctx, arg any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpenResourceAlarm", reflect.TypeOf((*MockQuerier)(nil).GetOpenResourceAlarm), ctx, arg)
 }
 
+// GetOwnedExerciseImportJobBySource mocks base method.
+func (m *MockQuerier) GetOwnedExerciseImportJobBySource(ctx context.Context, arg postgres.GetOwnedExerciseImportJobBySourceParams) (postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOwnedExerciseImportJobBySource", ctx, arg)
+	ret0, _ := ret[0].(postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOwnedExerciseImportJobBySource indicates an expected call of GetOwnedExerciseImportJobBySource.
+func (mr *MockQuerierMockRecorder) GetOwnedExerciseImportJobBySource(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOwnedExerciseImportJobBySource", reflect.TypeOf((*MockQuerier)(nil).GetOwnedExerciseImportJobBySource), ctx, arg)
+}
+
 // GetOwnedExerciseTestDeploy mocks base method.
 func (m *MockQuerier) GetOwnedExerciseTestDeploy(ctx context.Context, arg postgres.GetOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
 	m.ctrl.T.Helper()
@@ -10405,6 +10420,66 @@ func (mr *MockQuerierMockRecorder) LockEventTeamsForLabSourceChange(ctx, eventID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventTeamsForLabSourceChange", reflect.TypeOf((*MockQuerier)(nil).LockEventTeamsForLabSourceChange), ctx, eventID)
 }
 
+// LockExerciseForImport mocks base method.
+func (m *MockQuerier) LockExerciseForImport(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockExerciseForImport", ctx, id)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockExerciseForImport indicates an expected call of LockExerciseForImport.
+func (mr *MockQuerierMockRecorder) LockExerciseForImport(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockExerciseForImport", reflect.TypeOf((*MockQuerier)(nil).LockExerciseForImport), ctx, id)
+}
+
+// LockExerciseImportFile mocks base method.
+func (m *MockQuerier) LockExerciseImportFile(ctx context.Context, id uuid.UUID) (postgres.File, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockExerciseImportFile", ctx, id)
+	ret0, _ := ret[0].(postgres.File)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockExerciseImportFile indicates an expected call of LockExerciseImportFile.
+func (mr *MockQuerierMockRecorder) LockExerciseImportFile(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockExerciseImportFile", reflect.TypeOf((*MockQuerier)(nil).LockExerciseImportFile), ctx, id)
+}
+
+// LockExerciseImportJob mocks base method.
+func (m *MockQuerier) LockExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockExerciseImportJob", ctx, id)
+	ret0, _ := ret[0].(postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockExerciseImportJob indicates an expected call of LockExerciseImportJob.
+func (mr *MockQuerierMockRecorder) LockExerciseImportJob(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).LockExerciseImportJob), ctx, id)
+}
+
+// LockExerciseImportUpload mocks base method.
+func (m *MockQuerier) LockExerciseImportUpload(ctx context.Context, id uuid.UUID) (postgres.MediaUpload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockExerciseImportUpload", ctx, id)
+	ret0, _ := ret[0].(postgres.MediaUpload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockExerciseImportUpload indicates an expected call of LockExerciseImportUpload.
+func (mr *MockQuerierMockRecorder) LockExerciseImportUpload(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockExerciseImportUpload", reflect.TypeOf((*MockQuerier)(nil).LockExerciseImportUpload), ctx, id)
+}
+
 // LockExerciseTestDeploysOf mocks base method.
 func (m *MockQuerier) LockExerciseTestDeploysOf(ctx context.Context, owner string) error {
 	m.ctrl.T.Helper()
@@ -10947,6 +11022,21 @@ func (m *MockQuerier) PublishInAppTemplate(ctx context.Context, arg postgres.Pub
 func (mr *MockQuerierMockRecorder) PublishInAppTemplate(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishInAppTemplate", reflect.TypeOf((*MockQuerier)(nil).PublishInAppTemplate), ctx, arg)
+}
+
+// PublishValidatedExerciseDraft mocks base method.
+func (m *MockQuerier) PublishValidatedExerciseDraft(ctx context.Context, arg postgres.PublishValidatedExerciseDraftParams) (postgres.PublishValidatedExerciseDraftRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishValidatedExerciseDraft", ctx, arg)
+	ret0, _ := ret[0].(postgres.PublishValidatedExerciseDraftRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PublishValidatedExerciseDraft indicates an expected call of PublishValidatedExerciseDraft.
+func (mr *MockQuerierMockRecorder) PublishValidatedExerciseDraft(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishValidatedExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).PublishValidatedExerciseDraft), ctx, arg)
 }
 
 // PurgeDeletedAccountsPersonalData mocks base method.
@@ -11740,6 +11830,21 @@ func (m *MockQuerier) ResolveInboxItem(ctx context.Context, arg postgres.Resolve
 func (mr *MockQuerierMockRecorder) ResolveInboxItem(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveInboxItem", reflect.TypeOf((*MockQuerier)(nil).ResolveInboxItem), ctx, arg)
+}
+
+// RestartExerciseImportJob mocks base method.
+func (m *MockQuerier) RestartExerciseImportJob(ctx context.Context, arg postgres.RestartExerciseImportJobParams) (postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestartExerciseImportJob", ctx, arg)
+	ret0, _ := ret[0].(postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RestartExerciseImportJob indicates an expected call of RestartExerciseImportJob.
+func (mr *MockQuerierMockRecorder) RestartExerciseImportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).RestartExerciseImportJob), ctx, arg)
 }
 
 // RestoreVersionPreservingDraft mocks base method.
@@ -12608,6 +12713,21 @@ func (m *MockQuerier) TryAddEventTeamMember(ctx context.Context, arg postgres.Tr
 func (mr *MockQuerierMockRecorder) TryAddEventTeamMember(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryAddEventTeamMember", reflect.TypeOf((*MockQuerier)(nil).TryAddEventTeamMember), ctx, arg)
+}
+
+// TryCreateImportedExercise mocks base method.
+func (m *MockQuerier) TryCreateImportedExercise(ctx context.Context, arg postgres.TryCreateImportedExerciseParams) (postgres.Exercise, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TryCreateImportedExercise", ctx, arg)
+	ret0, _ := ret[0].(postgres.Exercise)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TryCreateImportedExercise indicates an expected call of TryCreateImportedExercise.
+func (mr *MockQuerierMockRecorder) TryCreateImportedExercise(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryCreateImportedExercise", reflect.TypeOf((*MockQuerier)(nil).TryCreateImportedExercise), ctx, arg)
 }
 
 // TryLockExerciseTestDeploysOf mocks base method.

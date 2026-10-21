@@ -742,6 +742,10 @@ type ExerciseImportJob struct {
 	BytesPushed  int64         `json:"bytes_pushed"`
 	BytesTotal   int64         `json:"bytes_total"`
 	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
+	Generation   int64         `json:"generation"`
+	Options      []byte        `json:"options"`
+	PlanHash     string        `json:"plan_hash"`
+	Results      []byte        `json:"results"`
 }
 
 type ExerciseProposal struct {

@@ -53,10 +53,8 @@ func (u *ExerciseUseCase) LookupExerciseFile(ctx context.Context, exerciseID uui
 // version references it, so a file an older version still links stays. A stored file the GC may already delete
 // is replaced by the new copy rather than kept as canonical.
 //
-// The claims are committed one by one before the caller saves the draft, and are not rolled back if that save
-// fails: harmless, as the caller had a valid claim on each file, and a claimed file nothing references is
-// dropped by the GC (its row goes by cascade). The draft save and its references are not one transaction
-// either, so a shared transaction here would buy nothing.
+// The caller's bound catalog session commits claims with the draft and references;
+// staged upload bytes remain outside that transaction and follow normal media GC.
 func (u *ExerciseUseCase) adoptFiles(ctx context.Context, exerciseID uuid.UUID, variants []exerciseModel.Variant) error {
 	ids := exerciseModel.CollectFileIDs(variants)
 	if len(ids) == 0 {

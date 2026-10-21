@@ -67,7 +67,7 @@ func newLinkedSave(t *testing.T, stored []exerciseModel.Variant) *linkedSave {
 	cipher, err := secret.New(testKey)
 	require.NoError(t, err)
 	s := &linkedSave{q: q, cipher: cipher, written: &postgres.UpsertExerciseDraftParams{}}
-	s.uc = exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	s.uc = newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	q.EXPECT().GetExerciseByID(gomock.Any(), saveExerciseID).Return(postgres.Exercise{ID: saveExerciseID}, nil).AnyTimes()
 	if stored == nil {
 		q.EXPECT().GetDraftVersion(gomock.Any(), saveExerciseID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
@@ -275,7 +275,7 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 	require.NoError(t, err)
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive, Password: "pw"})
 	require.NoError(t, err)

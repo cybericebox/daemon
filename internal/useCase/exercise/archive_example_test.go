@@ -140,7 +140,7 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		}).AnyTimes()
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
 		Archive: archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})
@@ -200,7 +200,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
 		Archive: imports[0].Archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})

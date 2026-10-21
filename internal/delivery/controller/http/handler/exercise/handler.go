@@ -84,15 +84,15 @@ type (
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
 		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
+		CommitArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
+		ImportRawArchive(context.Context, exerciseUseCase.Actor, exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ArchiveImportStart, error)
 		ListImportTargets(context.Context, exerciseUseCase.Actor, string, uuid.UUID, int) (pagination.CursorPage[exerciseUseCase.ImportTargetExercise], error)
 		// archive portability
 		// ArchiveLimits are the archive limits in force: read once per import or export and passed down.
 		ArchiveLimits(ctx context.Context) exerciseModel.ArchiveLimits
 		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions, lim exerciseModel.ArchiveLimits) ([]byte, error)
-		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
 		// background import of archives naming device image files
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
-		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
 		RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error)
 		// background export of tasks «з образами»

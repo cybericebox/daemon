@@ -85,7 +85,7 @@ func TestPublishMetadataNameCollisionStaysWithTheNameField(t *testing.T) {
 	q.EXPECT().GetDraftVersion(gomock.Any(), id).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: id, Status: "draft", Name: "Occupied name", Variants: mustMarshal(t, variants),
 	}, nil)
-	q.EXPECT().PublishExerciseDraft(gomock.Any(), gomock.Any()).Return(postgres.PublishExerciseDraftRow{}, &pgconnUniqueViolation)
+	q.EXPECT().PublishValidatedExerciseDraft(gomock.Any(), gomock.Any()).Return(postgres.PublishValidatedExerciseDraftRow{}, &pgconnUniqueViolation)
 	_, err := newUC(q, newFakeMedia()).PublishDraft(context.Background(), id)
 	require.ErrorIs(t, err, exerciseModel.ErrExerciseExists.Err())
 	require.Equal(t, "Name", publicContext(t, err)["field"])

@@ -574,6 +574,9 @@ type Querier interface {
 	GetNotificationBroadcast(ctx context.Context, id uuid.UUID) (GetNotificationBroadcastRow, error)
 	GetNotificationSetting(ctx context.Context, arg GetNotificationSettingParams) (NotificationSetting, error)
 	GetOpenResourceAlarm(ctx context.Context, arg GetOpenResourceAlarmParams) (ResourceAlarm, error)
+	// Read-only recovery before source re-open. A foreign job is indistinguishable
+	// from an absent job; no source INSERT/UPDATE is used to probe for it.
+	GetOwnedExerciseImportJobBySource(ctx context.Context, arg GetOwnedExerciseImportJobBySourceParams) (ExerciseImportJob, error)
 	GetOwnedExerciseTestDeploy(ctx context.Context, arg GetOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// Team-wide counters, including members who have left since.
 	GetParticipationTeamTotals(ctx context.Context, arg GetParticipationTeamTotalsParams) (GetParticipationTeamTotalsRow, error)
@@ -1496,6 +1499,14 @@ type Querier interface {
 	// Team admission locks precede all Lab/question/binding locks. Include teams
 	// without assignments so preparation cannot insert a new canonical Lab midway.
 	LockEventTeamsForLabSourceChange(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
+	// A separate statement before fresh reads: waiters see the latest acknowledged
+	// family/policy snapshot, rather than the snapshot from before the lock wait.
+	LockExerciseForImport(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockExerciseImportFile(ctx context.Context, id uuid.UUID) (File, error)
+	LockExerciseImportJob(ctx context.Context, id uuid.UUID) (ExerciseImportJob, error)
+	// Stabilize source eligibility through the task/outcome transaction; bytes were
+	// already staged outside it. Expiry is checked against wall time after waiting.
+	LockExerciseImportUpload(ctx context.Context, id uuid.UUID) (MediaUpload, error)
 	// Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
 	// Resource calendar: reservations, change requests, readiness alarms, settings and test lab holds. See
@@ -1565,6 +1576,10 @@ type Querier interface {
 	// caller re-reads to discriminate.
 	PublishExerciseDraft(ctx context.Context, arg PublishExerciseDraftParams) (PublishExerciseDraftRow, error)
 	PublishInAppTemplate(ctx context.Context, arg PublishInAppTemplateParams) (NotificationInAppTemplate, error)
+	// Atomic family transition: demote the current published row, promote the
+	// draft, move both pointers. Zero rows -> no draft (or no exercise); the
+	// caller re-reads to discriminate.
+	PublishValidatedExerciseDraft(ctx context.Context, arg PublishValidatedExerciseDraftParams) (PublishValidatedExerciseDraftRow, error)
 	// Residual personal data of deleted accounts. Deletion already scrubbed the
 	// user row (name, email, password, picture) and cut sessions and providers;
 	// this removes everything else that belongs to the person and anonymizes
@@ -1695,6 +1710,9 @@ type Querier interface {
 	ResolveInboxBySubjectRef(ctx context.Context, arg ResolveInboxBySubjectRefParams) (int64, error)
 	// Closes a single request without a subject (one recipient's copy).
 	ResolveInboxItem(ctx context.Context, arg ResolveInboxItemParams) (int64, error)
+	// Only the observed failed/stale attempt may be replaced. Old queued arguments
+	// normalize generation zero to the migrated generation one in the worker.
+	RestartExerciseImportJob(ctx context.Context, arg RestartExerciseImportJobParams) (ExerciseImportJob, error)
 	// Save the current draft as a checkpoint in the same statement before
 	// replacing its contents with the selected historical version. The source
 	// must belong to this exercise; a foreign id produces zero rows.
@@ -1802,6 +1820,8 @@ type Querier interface {
 	TrimErrorSamples(ctx context.Context, arg TrimErrorSamplesParams) error
 	// max_team_size is supplied by the event config inside the same transaction.
 	TryAddEventTeamMember(ctx context.Context, arg TryAddEventTeamMemberParams) (int64, error)
+	// Timestamps come from the domain factory, not DB defaults.
+	TryCreateImportedExercise(ctx context.Context, arg TryCreateImportedExerciseParams) (Exercise, error)
 	// The same lock for background jobs: false instead of waiting while a request or another job holds it.
 	TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
@@ -1861,10 +1881,10 @@ type Querier interface {
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
-	// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
+	// The outcome belongs to one running attempt; a stale worker cannot overwrite a newer attempt or done state.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
-	// has ended (zero rows) keeps its outcome.
+	// has ended or restarted (zero rows) keeps its outcome.
 	UpdateExerciseImportJobProgress(ctx context.Context, arg UpdateExerciseImportJobProgressParams) (int64, error)
 	// The periodic check result, written apart from the settings (the narrow-query exception, like the batched
 	// last_seen): only while the settings are still the ones that were checked (updated_at), so a result for a

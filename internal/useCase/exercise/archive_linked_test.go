@@ -207,7 +207,7 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
 	expectFilesAdoptedAsIs(q)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
 		{"linked_to":1,"tasks":[{"flag":["ICE{same}"]}]}]`
 	t.Run("published", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "published", variants, nil)})
 		require.ErrorIs(t, err, exerciseModel.ErrLinkedFlagsNotDistinct.Err())
 	})
@@ -259,7 +259,7 @@ func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
 		expectImport(q, func(written []exerciseModel.Variant) {
 			require.Equal(t, uuid.NullUUID{UUID: written[0].ID, Valid: true}, written[1].LinkedTo)
 		})
-		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "draft", variants, nil)})
 		require.NoError(t, err)
 	})
@@ -279,7 +279,7 @@ func exportLinked(t *testing.T) []byte {
 	t.Helper()
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectExport(t, q, exportExerciseID, "Експорт", linkedExportVersions())
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
 	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	return data
@@ -349,7 +349,7 @@ func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 		  "hints":[{"text":"підказка"}]}]}]`
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "draft", variants, nil)})
 	require.NoError(t, err)
 	linked, base := written[0], written[1]

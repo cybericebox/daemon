@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,6 +25,8 @@ import (
 
 // archiveImportCalls records what the background import routes passed to the use case.
 type archiveImportCalls struct {
+	commit   func(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
+	commits  []exerciseUseCase.CommitArchiveInput
 	queued   []exerciseUseCase.QueueImportInput
 	jobID    uuid.UUID
 	uploaded []exerciseUseCase.ImportUploadInput
@@ -37,6 +40,30 @@ type archiveImportCalls struct {
 	required   int
 	// uploadErr is what ImportUploadedArchive fails with.
 	uploadErr error
+}
+
+func (f *fakeUC) CommitArchiveImport(ctx context.Context, actor exerciseUseCase.Actor, in exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error) {
+	f.archiveImport.commits = append(f.archiveImport.commits, in)
+	if f.archiveImport.commit != nil {
+		return f.archiveImport.commit(ctx, actor, in)
+	}
+	if in.Targets == nil && in.FixedExerciseID == uuid.Nil {
+		if err := f.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
+			return exerciseUseCase.ArchiveImportStart{}, err
+		}
+	}
+	if in.UploadID != uuid.Nil {
+		f.archiveImport.uploaded = append(f.archiveImport.uploaded, exerciseUseCase.ImportUploadInput{UploadID: in.UploadID, Password: in.Password, CreatedBy: actor.UserID, OwnerEventID: in.OwnerEventID})
+	}
+	return f.archiveImport.start, f.archiveImport.uploadErr
+}
+
+func (f *fakeUC) ImportRawArchive(_ context.Context, _ exerciseUseCase.Actor, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ArchiveImportStart, error) {
+	f.imports = append(f.imports, in)
+	if _, err := exerciseUseCase.ExpandExerciseArchiveBundle(in.Archive, in.Password, in.Limits); err != nil {
+		return exerciseUseCase.ArchiveImportStart{}, err
+	}
+	return exerciseUseCase.ArchiveImportStart{Exercises: []exerciseUseCase.ExerciseView{f.exerciseView}, Created: 1}, f.err
 }
 
 func (f *fakeUC) QueueArchiveImport(_ context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error) {
@@ -123,16 +150,16 @@ func TestImportUploadedFile_WithImagesIsQueued(t *testing.T) {
 	uc := &fakeUC{
 		streamedFile:    mediaModel.File{ID: fileID, CreatedBy: uuid.NullUUID{UUID: jobCaller, Valid: true}},
 		streamedContent: string(imageArchive(t)),
-		archiveImport:   archiveImportCalls{jobID: jobID},
+		archiveImport:   archiveImportCalls{jobID: jobID, start: exerciseUseCase.ArchiveImportStart{JobID: jobID}},
 	}
 	w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/import/uploaded", `{"FileID":"`+fileID.String()+`"}`)
 	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), jobID.String()) {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
-	want := exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: fileID, CreatedBy: jobCaller}
-	if got := uc.archiveImport.queued; len(got) != 1 || got[0] != want {
-		t.Fatalf("queued %+v", got)
+	if got := uc.archiveImport.commits; len(got) != 1 || got[0].FileID != fileID || got[0].Password != "" {
+		t.Fatalf("source commit: %+v", got)
 	}
+
 }
 
 // The multipart import of an archive naming image files stores it as a file of the caller and queues it.
@@ -156,7 +183,7 @@ func TestImportMultipart_WithImagesIsStoredAndQueued(t *testing.T) {
 		t.Fatalf("stored by %s, %d bytes", uc.uploadCreatedBy, len(uc.uploadContent))
 	}
 	want := exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: stored, Password: "pw", CreatedBy: jobCaller}
-	if got := uc.archiveImport.queued; len(got) != 1 || got[0] != want {
+	if got := uc.archiveImport.queued; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("queued %+v", got)
 	}
 }

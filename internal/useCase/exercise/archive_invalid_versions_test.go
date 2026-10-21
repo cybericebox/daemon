@@ -17,7 +17,7 @@ import (
 func importArchive(t *testing.T, archive []byte, password string) error {
 	t.Helper()
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive, Password: password})
 	return err
 }

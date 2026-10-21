@@ -6090,6 +6090,15 @@ definitions:
       Variants:
         $ref: '#/definitions/exercise.ImportCountChange'
     type: object
+  exercise.ConfirmedImportUpdate:
+    properties:
+      ItemKey:
+        type: string
+      ReplaceDraft:
+        type: boolean
+      Revision:
+        type: string
+    type: object
   exercise.ExerciseAuthorSuggestion:
     properties:
       Count:
@@ -7121,6 +7130,21 @@ definitions:
       Status:
         type: string
     type: object
+  exercise.importCommitResponse:
+    properties:
+      Created:
+        type: integer
+      Exercises:
+        items:
+          $ref: '#/definitions/exercise.exerciseResponse'
+        type: array
+      Results:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportResult'
+        type: array
+      Updated:
+        type: integer
+    type: object
   exercise.importJobError:
     properties:
       Code:
@@ -7139,6 +7163,8 @@ definitions:
         type: integer
       BytesTotal:
         type: integer
+      Created:
+        type: integer
       Error:
         allOf:
         - $ref: '#/definitions/exercise.importJobError'
@@ -7154,6 +7180,10 @@ definitions:
         type: integer
       ImagesTotal:
         type: integer
+      Results:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportResult'
+        type: array
       Stage:
         description: Stage is unpacking, images or tasks while running, then done
           or failed.
@@ -7165,6 +7195,8 @@ definitions:
         type: integer
       TasksTotal:
         type: integer
+      Updated:
+        type: integer
     type: object
   exercise.importJobStarted:
     properties:
@@ -7173,6 +7205,12 @@ definitions:
     type: object
   exercise.importUploadRequest:
     properties:
+      ConfirmedUpdates:
+        items:
+          $ref: '#/definitions/exercise.ConfirmedImportUpdate'
+        type: array
+      FixedExerciseID:
+        type: string
       OwnerEventID:
         description: |-
           OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
@@ -7180,6 +7218,10 @@ definitions:
         type: string
       Password:
         type: string
+      Targets:
+        items:
+          $ref: '#/definitions/exercise.ImportTarget'
+        type: array
       UploadID:
         description: UploadID is a chunked upload with Purpose "exercise-archive",
           every chunk sent (no complete call).
@@ -7189,8 +7231,14 @@ definitions:
     type: object
   exercise.importUploadedRequest:
     properties:
+      ConfirmedUpdates:
+        items:
+          $ref: '#/definitions/exercise.ConfirmedImportUpdate'
+        type: array
       FileID:
         description: FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+        type: string
+      FixedExerciseID:
         type: string
       OwnerEventID:
         description: |-
@@ -7199,6 +7247,10 @@ definitions:
         type: string
       Password:
         type: string
+      Targets:
+        items:
+          $ref: '#/definitions/exercise.ImportTarget'
+        type: array
     required:
     - FileID
     type: object
@@ -7769,6 +7821,15 @@ definitions:
       warning:
         description: Warning is set when the quota is exceeded or snapshots fail;
           the last good one is kept.
+        type: string
+    type: object
+  exerciseModel.ImportResult:
+    properties:
+      ExerciseID:
+        type: string
+      ItemKey:
+        type: string
+      Mode:
         type: string
     type: object
   exerciseModel.LabAccess:
@@ -23560,6 +23621,7 @@ paths:
       description: |-
         200 with the created tasks; an archive naming device image files is stored as a file and imported
         in the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).
+        This raw multipart route is legacy all-NEW. Target selections/UPDATE use the immutable UploadID/FileID routes so confirmation binds the same source.
       parameters:
       - description: exercise ZIP
         in: formData
@@ -23785,6 +23847,7 @@ paths:
         per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
         platform image registry is not configured or failing; 409 70993 when the upload is not a complete
         task archive upload; 404 when the upload is absent, expired or another user's.
+        Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, Results and Created/Updated counts. Every UPDATE requires the exact preview Revision and existing-draft replacement confirmation.
       parameters:
       - description: the upload and the archive password
         in: body
@@ -23802,9 +23865,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/exercise.exerciseResponse'
-                  type: array
+                  $ref: '#/definitions/exercise.importCommitResponse'
               type: object
         "202":
           description: Accepted
@@ -23837,6 +23898,7 @@ paths:
       description: |-
         200 with the created tasks; an archive naming device image files is imported in the background:
         202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
+        Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, per-item Results and Created/Updated counts. Every UPDATE requires its exact preview Revision; ReplaceDraft confirms replacement of an existing draft.
       parameters:
       - description: the uploaded file and the archive password
         in: body
@@ -23854,9 +23916,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/exercise.exerciseResponse'
-                  type: array
+                  $ref: '#/definitions/exercise.importCommitResponse'
               type: object
         "202":
           description: Accepted

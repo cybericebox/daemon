@@ -337,45 +337,6 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 	return tasks, nil
 }
 
-// importArchiveRead imports every task of an archive read with its image files, all or nothing: every task is
-// parsed and checked, every image file indexed and then pushed, and only then are the tasks created. A failure
-// while creating removes the tasks this import already created.
-func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID, ownerEventID *uuid.UUID, progress *importProgress) ([]ExerciseView, error) {
-	tasks, err := parseArchiveRead(read)
-	if err != nil {
-		return nil, err
-	}
-	progress.tasksTotal(ctx, len(tasks))
-	for i := range tasks {
-		if err = u.prepareImport(ctx, &tasks[i], read.protected, ownerEventID); err != nil {
-			return nil, err
-		}
-	}
-	refs, err := u.pushArchiveImages(ctx, tasks, createdBy, progress)
-	if err != nil {
-		return nil, err
-	}
-	progress.stage(ctx, exerciseModel.ImportStageTasks)
-	for i := range tasks {
-		if err = replaceImageMarkers(tasks[i].Versions, refs); err != nil {
-			return nil, err
-		}
-	}
-	created := make([]ExerciseView, 0, len(tasks))
-	for i := range tasks {
-		view, storeErr := u.storeImport(ctx, &tasks[i], createdBy, ownerEventID)
-		if storeErr != nil {
-			for _, done := range created {
-				_, _ = u.exercises.Delete(context.WithoutCancel(ctx), done.ID)
-			}
-			return nil, storeErr
-		}
-		created = append(created, view)
-		progress.taskCreated(ctx)
-	}
-	return created, nil
-}
-
 // pushArchiveImages indexes every image file the tasks name (each once), then pushes each; it returns the platform
 // reference per marker. An image is named after the first device naming it.
 func (u *ExerciseUseCase) pushArchiveImages(ctx context.Context, tasks []ParsedExerciseArchive, createdBy uuid.UUID, progress *importProgress) (map[string]string, error) {

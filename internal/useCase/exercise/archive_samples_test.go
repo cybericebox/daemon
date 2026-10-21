@@ -35,7 +35,7 @@ func TestSampleArchive_StaticImports(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 
 	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
 		Archive:   archive,

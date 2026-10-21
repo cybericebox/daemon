@@ -14,6 +14,23 @@ type ImportTarget struct {
 	ExerciseID uuid.UUID `json:"ExerciseID,omitzero"`
 }
 
+type ConfirmedImportUpdate struct {
+	ItemKey      string `json:"ItemKey"`
+	Revision     string `json:"Revision"`
+	ReplaceDraft bool   `json:"ReplaceDraft"`
+}
+
+type ImportOptions struct {
+	Targets          []ImportTarget          `json:"Targets"`
+	FixedExerciseID  uuid.UUID               `json:"FixedExerciseID"`
+	ConfirmedUpdates []ConfirmedImportUpdate `json:"ConfirmedUpdates"`
+}
+
+type CommitArchiveInput struct {
+	PreviewArchiveInput
+	ConfirmedUpdates []ConfirmedImportUpdate `json:"ConfirmedUpdates"`
+}
+
 type PreviewArchiveInput struct {
 	UploadID        uuid.UUID      `json:"UploadID"`
 	FileID          uuid.UUID      `json:"FileID"`

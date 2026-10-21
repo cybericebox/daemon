@@ -252,48 +252,20 @@ func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExercis
 	if err := u.copyImportedAttachments(ctx, parsed, createdBy); err != nil {
 		return ExerciseView{}, err
 	}
-	// A new copy's public/bootstrap identity comes from its published snapshot,
-	// otherwise its working snapshot. Root metadata is the legacy fallback.
-	source := parsed.Exercise
-	selected := workingImportVersion(parsed.Versions)
-	for i := range parsed.Versions {
-		if parsed.Versions[i].Status.IsPublished() {
-			selected = i
-			break
-		}
-	}
-	if selected >= 0 {
-		source = source.WithVersionMetadata(parsed.Versions[selected])
-	}
-	created, err := u.createImportedIdentity(ctx, source, createdBy, ownerEventID)
+	ctx, session, q, unit, err := u.beginCatalog(ctx)
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	// The existing new-copy rule may allocate "import N". Keep that name in
-	// the current slots so finalizing the pointers cannot undo the allocation;
-	// distinct pending renames and historical snapshot names remain untouched.
-	if created.Name != source.Name {
-		for i := range parsed.Versions {
-			v := &parsed.Versions[i]
-			if (v.Status.IsDraft() || v.Status.IsPublished()) && v.Name == source.Name {
-				v.Name = created.Name
-			}
-		}
-	}
-	// Database writes happen only after archive validation, secret encryption
-	// and all media uploads succeeded. On a later database/ref failure, remove
-	// the newly-created aggregate; unreferenced media is intentionally left to
-	// the media garbage collector rather than risking deletion of deduplicated
-	// blobs.
-	if err = u.adoptImportedFiles(ctx, created.ID, parsed.Versions); err != nil {
-		_, _ = u.exercises.Delete(ctx, created.ID)
+	defer unit.Restore()
+	view, err := session.storeStagedNewImport(ctx, q, parsed, createdBy, ownerEventID, false)
+	if err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.persistImportedVersions(ctx, created.ID, parsed.Versions, createdBy); err != nil {
-		_, _ = u.exercises.Delete(ctx, created.ID)
+	if err = unit.Save(); err != nil {
 		return ExerciseView{}, err
 	}
-	return created, nil
+	return view, nil
+
 }
 
 // adoptImportedFiles stores the uploaded attachments as the new task's files (each content once), in every
@@ -479,21 +451,6 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 		}
 	}
 	return nil
-}
-
-func (u *ExerciseUseCase) createImportedIdentity(ctx context.Context, source exerciseModel.Exercise, createdBy uuid.UUID, ownerEventID *uuid.UUID) (ExerciseView, error) {
-	baseName := source.Name
-	for attempt := 0; attempt < 100; attempt++ {
-		name := importedName(baseName, attempt)
-		created, err := u.CreateExercise(ctx, CreateExerciseInput{Name: name, Description: source.Description, Tags: source.Tags, CreatedBy: createdBy, OwnerEventID: ownerEventID})
-		if err == nil {
-			return created, nil
-		}
-		if !errors.Is(err, exerciseModel.ErrExerciseExists.Err()) {
-			return ExerciseView{}, err
-		}
-	}
-	return ExerciseView{}, fmt.Errorf("could not allocate a unique imported exercise name")
 }
 
 func importedName(base string, attempt int) string {

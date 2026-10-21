@@ -1,7 +1,9 @@
 package exercise
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -76,12 +79,16 @@ type (
 		CreatedBy uuid.UUID
 		// OwnerEventID: nil imports into the platform catalog, else into that event (AuthorizeImport first).
 		OwnerEventID *uuid.UUID
+		Options      ImportOptions
 	}
 
 	// ArchiveImportStart is either the tasks created at once (no image files) or the background import's job.
 	ArchiveImportStart struct {
 		Exercises []ExerciseView
 		JobID     uuid.UUID
+		Results   []exerciseModel.ImportResult
+		Created   int
+		Updated   int
 	}
 
 	// ImportJobView is an import job as its user sees it.
@@ -92,6 +99,9 @@ type (
 		Stage       exerciseModel.ImportStage
 		Progress    exerciseModel.ImportProgress
 		ExerciseIDs []uuid.UUID
+		Results     []exerciseModel.ImportResult
+		Created     int
+		Updated     int
 		Error       *exerciseModel.ImportJobError
 	}
 )
@@ -167,19 +177,51 @@ func (u *ExerciseUseCase) ImportArchiveBundle(ctx context.Context, contents []by
 }
 
 func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID, ownerEventID *uuid.UUID, lim exerciseModel.ArchiveLimits) ([]ExerciseView, error) {
-	imports, err := ExpandExerciseArchiveBundle(contents, password, lim)
+	entries, protected, err := openZipAt(bytes.NewReader(contents), int64(len(contents)), password, lim)
 	if err != nil {
 		return nil, err
 	}
-	created := make([]ExerciseView, 0, len(imports))
-	for _, item := range imports {
-		view, importErr := u.ImportExerciseArchive(ctx, ImportExerciseInput{Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, OwnerEventID: ownerEventID, Limits: lim})
-		if importErr != nil {
-			return nil, importErr
-		}
-		created = append(created, view)
+	read, err := readArchiveEntries(entries, protected, lim)
+	if err != nil {
+		return nil, err
 	}
-	return created, nil
+	if len(read.images) > 0 {
+		return nil, exerciseModel.ErrArchiveImageFileUnsupported.Err()
+	}
+	tasks, err := parseArchiveRead(read)
+	if err != nil {
+		return nil, err
+	}
+	// Trusted legacy Go entry point: retain its caller-owned authorization contract,
+	// but validate every NEW item before staging and commit the whole bundle once.
+	for i := range tasks {
+		if err = u.prepareImport(ctx, &tasks[i], protected, ownerEventID); err != nil {
+			return nil, err
+		}
+	}
+	for i := range tasks {
+		if err = u.copyImportedAttachments(ctx, &tasks[i], createdBy); err != nil {
+			return nil, err
+		}
+	}
+	ctx, session, q, unit, err := u.beginCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer unit.Restore()
+	views := make([]ExerciseView, 0, len(tasks))
+	for i := range tasks {
+		view, saveErr := session.storeStagedNewImport(ctx, q, &tasks[i], createdBy, ownerEventID, false)
+		if saveErr != nil {
+			return nil, saveErr
+		}
+		views = append(views, view)
+	}
+	if err = unit.Save(); err != nil {
+		return nil, err
+	}
+	return views, nil
+
 }
 
 // QueueArchiveImport records the background import of an archive source and queues it; it returns the job id.
@@ -202,7 +244,13 @@ func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImport
 	if in.OwnerEventID != nil {
 		owner = uuid.NullUUID{UUID: *in.OwnerEventID, Valid: true}
 	}
-	job, err := u.exercises.StartImportJob(ctx, exerciseModel.NewImportJob(newID, in.CreatedBy, in.SourceID, in.Source, owner, now))
+	newJob := exerciseModel.NewImportJob(newID, in.CreatedBy, in.SourceID, in.Source, owner, now)
+	var err error
+	newJob.Options, newJob.PlanHash, err = canonicalImportPlan(in.Options, in.OwnerEventID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	job, err := u.exercises.StartImportJob(ctx, newJob)
 	if err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to record the import").Err()
 	}
@@ -210,14 +258,27 @@ func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImport
 		return uuid.Nil, exerciseModel.ErrImportJobNotFound.Err()
 	}
 	if job.ID != newID { // the source already has an import
+		existingPlan := job.PlanHash
+		if existingPlan == "" {
+			_, existingPlan, err = canonicalImportPlan(ImportOptions{}, uuidPtr(job.OwnerEventID))
+			if err != nil {
+				return uuid.Nil, err
+			}
+		}
+		if state, _ := job.Current(now); state != exerciseModel.ImportJobFailed && existingPlan != newJob.PlanHash {
+			return uuid.Nil, exerciseModel.ErrImportPlanConflict.Err()
+		}
+		expectedGeneration := attemptGeneration(job.Generation)
+		job.Generation = expectedGeneration
 		if !job.Restart(owner, now) {
 			return job.ID, nil // running or done: the same import
 		}
-		if _, err = u.exercises.SaveImportJob(ctx, job); err != nil {
+		job.Options, job.PlanHash = newJob.Options, newJob.PlanHash
+		if job, err = u.exercises.RestartImportJob(ctx, job, expectedGeneration, now); err != nil {
 			return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to record the import").Err()
 		}
 	}
-	args := jobsModel.ExerciseImportArgs{JobID: job.ID}
+	args := jobsModel.ExerciseImportArgs{JobID: job.ID, Generation: attemptGeneration(job.Generation)}
 	// The sealed password stays in river_job.args (sealed, never plain) until River prunes the finished job.
 	if in.Password != "" {
 		if args.SealedPassword, err = u.importSealer.EncryptWithContext([]byte(in.Password), passwordContext(job.ID)); err != nil {
@@ -255,6 +316,17 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 	view := ImportJobView{ID: job.ID, State: state, Stage: job.Stage(u.timeNow()), Progress: job.Progress, Error: failure}
 	if state == exerciseModel.ImportJobDone {
 		view.ExerciseIDs = job.ExerciseIDs
+		view.Results = job.Results
+		for _, item := range job.Results {
+			if item.Mode == "update" {
+				view.Updated++
+			} else {
+				view.Created++
+			}
+		}
+		if len(job.Results) == 0 {
+			view.Created = len(job.ExerciseIDs)
+		}
 	}
 	return view, nil
 }
@@ -285,13 +357,22 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		}
 		return err
 	}
-	if job.State != exerciseModel.ImportJobRunning {
+	job.Generation = attemptGeneration(job.Generation)
+	if job.State != exerciseModel.ImportJobRunning || job.Generation != attemptGeneration(args.Generation) {
 		return nil
 	}
 	progress := u.newImportProgress(job)
-	created, runErr := u.runArchiveImport(ctx, job, args.SealedPassword, progress)
+	result, runErr := u.runArchiveImport(ctx, job, args.SealedPassword, progress)
 	job = progress.job // the outcome is written with how far the import came
 	if runErr != nil {
+		if errors.Is(runErr, errStaleImportAttempt) {
+			return nil
+		}
+		// A commit acknowledgement may be lost after PostgreSQL durably commits
+		// both tasks and done. Never turn that outcome into failure or reapply.
+		if current, readErr := u.exercises.GetImportJob(ctx, job.ID); readErr == nil && attemptGeneration(current.Generation) == job.Generation && current.State == exerciseModel.ImportJobDone {
+			return nil
+		}
 		log.Warn().Err(runErr).Str("job", job.ID.String()).Msg("archive import failed")
 		failure := importJobFailure(runErr)
 		if ctx.Err() != nil {
@@ -301,25 +382,19 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		job.Fail(failure, u.timeNow())
 		// Nothing was created: if the failure cannot be recorded, River may run the import again.
 		if err = u.writeImportJobRetrying(ctx, job); err != nil {
+			if errors.Is(err, errStaleImportAttempt) {
+				return nil
+			}
 			return err
 		}
 		u.announceImport(ctx, job, false, 0)
 		return nil
 	}
-	ids := make([]uuid.UUID, len(created))
-	for i, view := range created {
-		ids[i] = view.ID
-	}
-	job.Finish(ids, u.timeNow())
 	if job.Source == exerciseModel.ImportSourceUpload {
 		u.dropArchiveUpload(context.WithoutCancel(ctx), job.SourceID)
 	}
-	// The tasks exist: the job must never run again, so the outcome is retried here and never returned to River.
-	// Not written at all, the job reads failed (interrupted) once stale, with the tasks already in the catalog.
-	if err = u.writeImportJobRetrying(ctx, job); err != nil {
-		log.Error().Err(err).Str("job", job.ID.String()).Msg("archive import: the finished import could not be recorded")
-	}
-	u.announceImport(ctx, job, true, len(ids))
+	job.Results = result.Results
+	u.announceImport(ctx, job, true, result.Created)
 	return nil
 }
 
@@ -331,6 +406,11 @@ func (u *ExerciseUseCase) announceImport(ctx context.Context, job exerciseModel.
 	}
 	c := context.WithoutCancel(ctx)
 	end := inboxUseCase.ImportEnd{User: job.CreatedBy, Created: created, At: u.timeNow()}
+	for _, item := range job.Results {
+		if item.Mode == "update" {
+			end.Updated++
+		}
+	}
 	var err error
 	if done {
 		err = u.importInbox.ExerciseImportDone(c, end)
@@ -359,63 +439,72 @@ func (u *ExerciseUseCase) writeImportJobRetrying(ctx context.Context, job exerci
 				return err
 			}
 		}
-		if err = u.writeImportJob(ctx, job); err == nil {
-			return nil
+		if err = u.writeImportJob(ctx, job); err == nil || errors.Is(err, errStaleImportAttempt) {
+			return err
 		}
 	}
 	return err
 }
 
 // runArchiveImport opens the source and the password and imports the archive.
-func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseModel.ImportJob, sealedPassword string, progress *importProgress) ([]ExerciseView, error) {
+func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseModel.ImportJob, sealedPassword string, progress *importProgress) (ArchiveImportStart, error) {
 	if u.archiveSources == nil {
-		return nil, model.ErrPlatform.WithMessage("Archive import is not wired").Err()
+		return ArchiveImportStart{}, model.ErrPlatform.WithMessage("Archive import is not wired").Err()
 	}
 	password := ""
 	if sealedPassword != "" {
 		if u.importSealer == nil {
-			return nil, model.ErrPlatform.WithMessage("The archive password cannot be opened: secret storage is not configured").Err()
+			return ArchiveImportStart{}, model.ErrPlatform.WithMessage("The archive password cannot be opened: secret storage is not configured").Err()
 		}
 		plain, err := u.importSealer.DecryptWithContext(sealedPassword, passwordContext(job.ID))
 		if err != nil {
-			return nil, model.ErrPlatform.WithError(err).WithMessage("The archive password cannot be opened").Err()
+			return ArchiveImportStart{}, model.ErrPlatform.WithError(err).WithMessage("The archive password cannot be opened").Err()
 		}
 		password = string(plain)
 	}
-	var (
-		reader io.ReaderAt
-		size   int64
-		err    error
-	)
+	q, ok := u.repo.(interface {
+		GetUserByID(context.Context, uuid.UUID) (postgres.User, error)
+	})
+	if !ok {
+		return ArchiveImportStart{}, model.ErrPlatform.WithMessage("Import actor source is not wired").Err()
+	}
+	actor, err := u.currentImportActor(ctx, q, job.CreatedBy)
+	if err != nil {
+		return ArchiveImportStart{}, err
+	}
+	var options ImportOptions
+	if len(job.Options) > 0 {
+		if err = json.Unmarshal(job.Options, &options); err != nil {
+			return ArchiveImportStart{}, err
+		}
+	}
+	in := CommitArchiveInput{PreviewArchiveInput: PreviewArchiveInput{Password: password, OwnerEventID: uuidPtr(job.OwnerEventID), Targets: options.Targets, FixedExerciseID: options.FixedExerciseID}, ConfirmedUpdates: options.ConfirmedUpdates}
 	switch job.Source {
 	case exerciseModel.ImportSourceUpload:
-		var upload mediaModel.Upload
-		reader, upload, err = u.archiveSources.OpenUploadAt(ctx, job.SourceID)
-		size = upload.SizeBytes
+		in.UploadID = job.SourceID
 	case exerciseModel.ImportSourceFile:
-		var file mediaModel.File
-		reader, file, err = u.archiveSources.OpenFileAt(ctx, job.SourceID)
-		size = file.SizeBytes
+		in.FileID = job.SourceID
 	default:
-		err = model.ErrPlatform.WithMessage("Unknown archive source").Err()
+		return ArchiveImportStart{}, model.ErrPlatform.WithMessage("Unknown archive source").Err()
 	}
+	reader, size, err := u.previewArchiveSource(ctx, actor, in.PreviewArchiveInput)
 	if err != nil {
-		return nil, err
+		return ArchiveImportStart{}, err
 	}
 	// One set of limits for the whole import.
 	lim := u.ArchiveLimits(ctx)
 	if err = checkArchiveSize(size, lim.WithImagesBytes()); err != nil {
-		return nil, err
+		return ArchiveImportStart{}, err
 	}
 	entries, protected, err := openZipAt(reader, size, password, lim)
 	if err != nil {
-		return nil, err
+		return ArchiveImportStart{}, err
 	}
 	read, err := readArchiveEntries(entries, protected, lim)
 	if err != nil {
-		return nil, err
+		return ArchiveImportStart{}, err
 	}
-	return u.importArchiveRead(ctx, read, job.CreatedBy, uuidPtr(job.OwnerEventID), progress)
+	return u.commitArchiveRead(ctx, actor, in, read, &job, progress)
 }
 
 // importStateTimeout bounds one write of an import's outcome.
@@ -425,8 +514,10 @@ const importStateTimeout = 10 * time.Second
 func (u *ExerciseUseCase) writeImportJob(ctx context.Context, job exerciseModel.ImportJob) error {
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), importStateTimeout)
 	defer cancel()
-	if _, err := u.exercises.SaveImportJob(c, job); err != nil {
+	if n, err := u.exercises.SaveImportJob(c, job); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the import").Err()
+	} else if n != 1 {
+		return errStaleImportAttempt
 	}
 	return nil
 }

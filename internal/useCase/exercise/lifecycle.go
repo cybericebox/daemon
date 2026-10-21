@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"time"
 
@@ -56,11 +57,6 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	// Each content is stored once per task: a second copy of bytes the task holds is pointed at its file.
-	if err = u.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
-		return VersionView{}, err
-	}
-
 	// Snapshot which secret fields the caller actually submitted BEFORE the
 	// merge fills blanks from the stored draft — merged values are ciphertext
 	// and must never be re-encrypted.
@@ -81,19 +77,63 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err := u.encryptSecrets(version.Variants, submitted); err != nil {
 		return VersionView{}, err
 	}
+	// Slow content/secret preparation is outside the transaction. Lock first,
+	// then read in a new statement so a waiter sees acknowledged concurrent saves.
+	ctx, session, q, unit, err := u.beginCatalog(ctx)
+	if err != nil {
+		return VersionView{}, err
+	}
+	defer unit.Restore()
+	if _, err = q.LockExerciseForImport(ctx, exerciseID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return VersionView{}, exerciseModel.ErrExerciseNotFound.Err()
+		}
+		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to lock draft").Err()
+	}
+	latest, err := session.loadEditable(ctx, exerciseID)
+	if err != nil {
+		return VersionView{}, err
+	}
+	currentSource, err := session.secretMergeSource(ctx, latest)
+	if err != nil {
+		return VersionView{}, err
+	}
+	if !sameSecretMergeSnapshot(mergeSource, currentSource) {
+		return VersionView{}, exerciseModel.ErrExerciseModified.Err()
+	}
+	if err = session.requireInfrastructureAllowed(ctx, latest, version.Variants); err != nil {
+		return VersionView{}, err
+	}
+	if err = session.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
+		return VersionView{}, err
+	}
+	if err = session.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
+		return VersionView{}, err
+	}
 
 	by := uuid.NullUUID{UUID: in.SavedBy, Valid: in.SavedBy != uuid.Nil}
-	saved, err := u.exercises.UpsertDraft(ctx, exerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), by)
+	saved, err := session.exercises.UpsertDraft(ctx, exerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), by)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return VersionView{}, exerciseModel.ErrExerciseNotFound.Err()
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save draft").Err()
 	}
-	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, saved.ID, exerciseModel.CollectFileIDs(saved.Variants)); err != nil {
+	if err = session.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, saved.ID, exerciseModel.CollectFileIDs(saved.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return u.versionView(ctx, saved), nil
+	view := session.versionView(ctx, saved)
+	if err = unit.Save(); err != nil {
+		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save draft transaction").Err()
+	}
+	return view, nil
+}
+
+func sameSecretMergeSnapshot(a, b *exerciseModel.ExerciseVersion) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.ID == b.ID && reflect.DeepEqual(a.Variants, b.Variants)
 }
 
 // newCopiesOnly drops the copy source of every variant the stored version already holds: CopyOf fills the
@@ -154,11 +194,13 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 	if err = u.requirePublishable(ctx, e, &draft); err != nil {
 		return VersionView{}, err
 	}
-	published, err := u.exercises.Publish(ctx, exerciseID, time.Now())
+	published, err := u.exercises.PublishValidated(ctx, draft, time.Now())
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			// Draft vanished between read and promote — concurrent discard.
-			return VersionView{}, exerciseModel.ErrNoDraft.WithMessage("Draft was removed concurrently").Err()
+			if _, readErr := u.exercises.GetDraft(ctx, exerciseID); repositoryTools.IsObjectNotFoundError(readErr) {
+				return VersionView{}, exerciseModel.ErrNoDraft.WithMessage("Draft was removed concurrently").Err()
+			}
+			return VersionView{}, exerciseModel.ErrExerciseModified.Err()
 		}
 		return VersionView{}, classifyExerciseWriteError(err, "publish")
 	}
@@ -220,6 +262,10 @@ func (u *ExerciseUseCase) withdrawMootAfterDiscard(ctx context.Context, e exerci
 // RollbackToVersion clones a historical version into a fresh draft via the
 // CreateDraftFrom CTE (Task 6). Route gate: exercises.publish.
 func (u *ExerciseUseCase) RollbackToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (VersionView, error) {
+	return u.restoreVersionAtomically(ctx, exerciseID, versionID, by, true)
+}
+
+func (u *ExerciseUseCase) rollbackToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (VersionView, error) {
 	if _, err := u.loadEditable(ctx, exerciseID); err != nil {
 		return VersionView{}, err
 	}
@@ -272,6 +318,39 @@ func (u *ExerciseUseCase) CreateCheckpoint(ctx context.Context, exerciseID, by u
 // Stored JSON is copied server-side, so encrypted secret values are not
 // accidentally encrypted again or exposed to the browser.
 func (u *ExerciseUseCase) RestoreToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (VersionView, error) {
+	return u.restoreVersionAtomically(ctx, exerciseID, versionID, by, false)
+}
+
+// Content and all safety-checkpoint/draft references share the family lock. A
+// later autosave/import cannot be followed by an older detached reference write.
+func (u *ExerciseUseCase) restoreVersionAtomically(ctx context.Context, exerciseID, versionID, by uuid.UUID, rollback bool) (VersionView, error) {
+	ctx, session, q, unit, err := u.beginCatalog(ctx)
+	if err != nil {
+		return VersionView{}, err
+	}
+	defer unit.Restore()
+	if _, err = q.LockExerciseForImport(ctx, exerciseID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return VersionView{}, exerciseModel.ErrExerciseNotFound.Err()
+		}
+		return VersionView{}, err
+	}
+	var view VersionView
+	if rollback {
+		view, err = session.rollbackToVersion(ctx, exerciseID, versionID, by)
+	} else {
+		view, err = session.restoreToVersion(ctx, exerciseID, versionID, by)
+	}
+	if err != nil {
+		return VersionView{}, err
+	}
+	if err = unit.Save(); err != nil {
+		return VersionView{}, err
+	}
+	return view, nil
+}
+
+func (u *ExerciseUseCase) restoreToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (VersionView, error) {
 	if _, err := u.loadEditable(ctx, exerciseID); err != nil {
 		return VersionView{}, err
 	}

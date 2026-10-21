@@ -71,13 +71,13 @@ func (f *fakeMedia) RemoveReferencesBatch(_ context.Context, _ string, refIDs []
 }
 
 func newUC(q exercise.IRepository, m exercise.IMedia) *exercise.ExerciseUseCase {
-	return exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: nil, Media: m})
+	return newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: nil, Media: m})
 }
 
 // expectEditableExercise stubs the loadEditable pre-read (exists, active,
 // nothing published) every catalog-content mutation performs first.
 func expectEditableExercise(q *postgresMocks.MockQuerier, exID uuid.UUID) {
-	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
+	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
 }
 
 // expectUserNames lets a test that does not care about author names pass the name lookup through.
@@ -318,4 +318,49 @@ func TestGetExercise_HasChangesAndArchivedAt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Explicit unit-test transaction port. Production always opens a real UoW;
+// these narrow tests still inspect their existing aggregate/media doubles.
+type testCatalogUnit struct{}
+
+func (testCatalogUnit) Save() error    { return nil }
+func (testCatalogUnit) Restore() error { return nil }
+
+type testCatalogWorker struct {
+	q     exercise.IRepository
+	media exercise.IMedia
+}
+type testCatalogQueries struct {
+	postgres.Querier
+	media exercise.IMedia
+}
+
+func (w testCatalogWorker) UnitOfWork(ctx context.Context) (context.Context, exercise.CatalogRepository, postgres.UoW, error) {
+	return ctx, testCatalogQueries{Querier: w.q.(postgres.Querier), media: w.media}, testCatalogUnit{}, nil
+}
+func (q testCatalogQueries) LockExerciseForImport(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
+	return id, nil
+}
+func (q testCatalogQueries) ReplaceFileReferences(ctx context.Context, in postgres.ReplaceFileReferencesParams) error {
+	return q.media.ReplaceReferences(ctx, in.RefType, in.RefID, in.FileIds)
+}
+func (q testCatalogQueries) DeleteFileReferences(ctx context.Context, in postgres.DeleteFileReferencesParams) (int64, error) {
+	return 0, q.media.RemoveReferences(ctx, in.RefType, in.RefID)
+}
+func (q testCatalogQueries) DeleteFileReferencesBatch(ctx context.Context, in postgres.DeleteFileReferencesBatchParams) (int64, error) {
+	return 0, q.media.RemoveReferencesBatch(ctx, in.RefType, in.RefIds)
+}
+func newTestExerciseUseCase(deps exercise.Dependencies) *exercise.ExerciseUseCase {
+	deps.CatalogUoW = testCatalogWorker{deps.Repo, deps.Media}
+	return exercise.NewExerciseUseCase(deps)
+}
+
+func (q testCatalogQueries) TryCreateImportedExercise(ctx context.Context, p postgres.TryCreateImportedExerciseParams) (postgres.Exercise, error) {
+	row, err := q.Querier.CreateExercise(ctx, postgres.CreateExerciseParams(p))
+	var duplicate *pgconn.PgError
+	if errors.As(err, &duplicate) && duplicate.Code == "23505" {
+		return postgres.Exercise{}, pgx.ErrNoRows
+	}
+	return row, err
 }

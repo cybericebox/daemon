@@ -1,15 +1,68 @@
 package exercise_test
 
 import (
+	"bytes"
 	"context"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/pkg/pagination"
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestArchiveCommitHTTPBindsChoicesAndReturnsCountsWithoutChangingLegacyArray(t *testing.T) {
+	source, target := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, route := range []string{"upload", "uploaded"} {
+		field := "UploadID"
+		if route == "uploaded" {
+			field = "FileID"
+		}
+		uc := &fakeUC{archiveImport: archiveImportCalls{start: exerciseUseCase.ArchiveImportStart{Created: 0, Updated: 1, Results: []exerciseModel.ImportResult{{ItemKey: ".", Mode: "update", ExerciseID: target}}}}}
+		w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/import/"+route, `{"`+field+`":"`+source.String()+`","FixedExerciseID":"`+target.String()+`","Targets":[{"ItemKey":".","Mode":"update","ExerciseID":"`+target.String()+`"}],"ConfirmedUpdates":[{"ItemKey":".","Revision":"exact-preview","ReplaceDraft":true}]}`)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.Len(t, uc.archiveImport.commits, 1)
+		in := uc.archiveImport.commits[0]
+		require.Equal(t, target, in.FixedExerciseID)
+		require.Equal(t, "exact-preview", in.ConfirmedUpdates[0].Revision)
+		require.True(t, in.ConfirmedUpdates[0].ReplaceDraft)
+		require.Contains(t, w.Body.String(), `"Updated":1`)
+		require.Contains(t, w.Body.String(), `"Created":0`)
+		require.Contains(t, w.Body.String(), `"Results":[`)
+		w = jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/import/"+route, `{"`+field+`":"`+source.String()+`"}`)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), `"Data":[]`)
+	}
+}
+
+func TestRawMultipartUpdateIsRefusedBeforeAnyImportOrStorage(t *testing.T) {
+	for _, fixed := range []bool{false, true} {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		file, err := writer.CreateFormFile("archive", "source.zip")
+		require.NoError(t, err)
+		_, err = file.Write([]byte("archive bytes are not interpreted for an explicit update"))
+		require.NoError(t, err)
+		if fixed {
+			require.NoError(t, writer.WriteField("FixedExerciseID", uuid.Must(uuid.NewV7()).String()))
+		} else {
+			require.NoError(t, writer.WriteField("Targets", `[{"ItemKey":"folder","Mode":"update","ExerciseID":"`+uuid.Must(uuid.NewV7()).String()+`"}]`))
+		}
+		require.NoError(t, writer.Close())
+		uc := &fakeUC{}
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/import", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		w := httptest.NewRecorder()
+		newEngine(uc, jobCaller).ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), `"field":"target"`)
+		require.Empty(t, uc.imports)
+		require.Empty(t, uc.archiveImport.queued)
+	}
+}
 
 type previewCalls struct {
 	input   exerciseUseCase.PreviewArchiveInput

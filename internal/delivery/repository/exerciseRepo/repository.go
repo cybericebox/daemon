@@ -28,6 +28,8 @@ import (
 // than the base table directly) — their field sets are identical to
 // ExerciseVersion, so the repository converts with a plain struct conversion.
 type Queries interface {
+	PublishValidatedExerciseDraft(context.Context, postgres.PublishValidatedExerciseDraftParams) (postgres.PublishValidatedExerciseDraftRow, error)
+	RestartExerciseImportJob(context.Context, postgres.RestartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
 	GetImportTargetContext(context.Context, uuid.UUID) (postgres.GetImportTargetContextRow, error)
 	ListEditableImportTargets(context.Context, postgres.ListEditableImportTargetsParams) ([]postgres.ListEditableImportTargetsRow, error)
 	CountEditableImportTargets(context.Context, postgres.CountEditableImportTargetsParams) (int64, error)
@@ -57,6 +59,7 @@ type Queries interface {
 	SetImportedExercisePointers(ctx context.Context, arg postgres.SetImportedExercisePointersParams) error
 	StartExerciseImportJob(ctx context.Context, arg postgres.StartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
 	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error)
+	GetOwnedExerciseImportJobBySource(context.Context, postgres.GetOwnedExerciseImportJobBySourceParams) (postgres.ExerciseImportJob, error)
 	UpdateExerciseImportJob(ctx context.Context, arg postgres.UpdateExerciseImportJobParams) (int64, error)
 	ListRunningExerciseImportJobs(ctx context.Context, arg postgres.ListRunningExerciseImportJobsParams) ([]postgres.ExerciseImportJob, error)
 	UpdateExerciseImportJobProgress(ctx context.Context, arg postgres.UpdateExerciseImportJobProgressParams) (int64, error)
@@ -504,6 +507,20 @@ func (r *Repository) Publish(ctx context.Context, exerciseID uuid.UUID, publishe
 		ExerciseID:  exerciseID,
 		PublishedAt: timestamptzFromTime(publishedAt),
 	})
+	if err != nil {
+		return exerciseModel.ExerciseVersion{}, err
+	}
+	return VersionToDomain(postgres.ExerciseVersion(row))
+}
+
+// PublishValidated promotes only the exact authored snapshot that passed the
+// business/resource checks. The SQL locks and rechecks a concurrent row update.
+func (r *Repository) PublishValidated(ctx context.Context, v exerciseModel.ExerciseVersion, at time.Time) (exerciseModel.ExerciseVersion, error) {
+	variants, err := json.Marshal(v.Variants)
+	if err != nil {
+		return exerciseModel.ExerciseVersion{}, err
+	}
+	row, err := r.q.PublishValidatedExerciseDraft(ctx, postgres.PublishValidatedExerciseDraftParams{ExerciseID: v.ExerciseID, PublishedAt: timestamptzFromTime(at), ExpectedID: v.ID, ExpectedName: v.Name, ExpectedDescription: v.Description, ExpectedTags: v.Tags, ExpectedAdminNote: v.AdminNote, ExpectedVariants: variants})
 	if err != nil {
 		return exerciseModel.ExerciseVersion{}, err
 	}

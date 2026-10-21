@@ -29,8 +29,8 @@ func TestSaveDraft_AcceptsIncompleteWorkingCopy(t *testing.T) {
 			q := postgresMocks.NewMockQuerier(ctrl)
 			uc := newUC(q, newFakeMedia())
 			exID := uuid.Must(uuid.NewV7())
-			q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
-			q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
+			q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
+			q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
 			var captured postgres.UpsertExerciseDraftParams
 			expectUpsertCapture(t, q, &captured)
 
@@ -52,8 +52,8 @@ func TestGetWorkingCopy(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(ctrl)
 		uc := newUC(q, newFakeMedia())
 		exID, draftID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, DraftVersionID: uuid.NullUUID{UUID: draftID, Valid: true}}, nil)
-		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{ID: draftID, ExerciseID: exID, Status: "draft", Variants: []byte(`[]`)}, nil)
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, DraftVersionID: uuid.NullUUID{UUID: draftID, Valid: true}}, nil).AnyTimes()
+		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{ID: draftID, ExerciseID: exID, Status: "draft", Variants: []byte(`[]`)}, nil).AnyTimes()
 		view, err := uc.GetWorkingCopy(ctx, exID)
 		if err != nil || view.ID != draftID || view.Status != "draft" {
 			t.Fatalf("view=%+v err=%v", view, err)
@@ -64,11 +64,11 @@ func TestGetWorkingCopy(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(ctrl)
 		uc := newUC(q, newFakeMedia())
 		exID, publishedID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, PublishedVersionID: uuid.NullUUID{UUID: publishedID, Valid: true}}, nil)
-		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, PublishedVersionID: uuid.NullUUID{UUID: publishedID, Valid: true}}, nil).AnyTimes()
+		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
 		q.EXPECT().GetExerciseVersionByID(gomock.Any(), publishedID).Return(postgres.ExerciseVersion{
 			ID: publishedID, ExerciseID: exID, Status: "published", AdminNote: "live", Variants: mustMarshal(t, draftVariants("cipher", true)),
-		}, nil)
+		}, nil).AnyTimes()
 		view, err := uc.GetWorkingCopy(ctx, exID)
 		if err != nil || view.ID != publishedID || view.Status != "published" || view.AdminNote != "live" || len(view.Variants) != 1 {
 			t.Fatalf("view=%+v err=%v", view, err)
@@ -82,8 +82,8 @@ func TestGetWorkingCopy(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(ctrl)
 		uc := newUC(q, newFakeMedia())
 		exID := uuid.Must(uuid.NewV7())
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
-		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
+		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
 		view, err := uc.GetWorkingCopy(ctx, exID)
 		if err != nil || view.ID != uuid.Nil || view.ExerciseID != exID || view.Status != "draft" || view.Variants == nil || len(view.Variants) != 0 {
 			t.Fatalf("view=%+v err=%v", view, err)
@@ -94,7 +94,7 @@ func TestGetWorkingCopy(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(ctrl)
 		uc := newUC(q, newFakeMedia())
 		exID := uuid.Must(uuid.NewV7())
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{}, errNoRows())
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{}, errNoRows()).AnyTimes()
 		if _, err := uc.GetWorkingCopy(ctx, exID); !errors.Is(err, exerciseModel.ErrExerciseNotFound.Err()) {
 			t.Fatalf("want ErrExerciseNotFound, got %v", err)
 		}

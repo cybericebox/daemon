@@ -13,9 +13,39 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/apidocs"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
+
+func TestCommitImportRequestAndResponseSchemasMatchActualPascalCaseKeys(t *testing.T) {
+	raw, err := os.ReadFile("../apidocs/swagger.json")
+	require.NoError(t, err)
+	var doc, embedded, yamlDoc importContractDocument
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	require.NoError(t, json.Unmarshal([]byte(apidocs.SwaggerInfo.ReadDoc()), &embedded))
+	raw, err = os.ReadFile("../apidocs/swagger.yaml")
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(raw, &yamlDoc))
+	source, target := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	body := `{"UploadID":"` + source.String() + `","Password":"private","OwnerEventID":null,"Targets":[{"ItemKey":".","Mode":"update","ExerciseID":"` + target.String() + `"}],"FixedExerciseID":"` + target.String() + `","ConfirmedUpdates":[{"ItemKey":".","Revision":"source-target-revision","ReplaceDraft":true}]}`
+	uc := &fakeUC{archiveImport: archiveImportCalls{start: exerciseUseCase.ArchiveImportStart{Exercises: []exerciseUseCase.ExerciseView{}, Results: []exerciseModel.ImportResult{{ItemKey: ".", Mode: "update", ExerciseID: target}}, Created: 0, Updated: 1}}}
+	w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/import/upload", body)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var input any
+	require.NoError(t, json.Unmarshal([]byte(body), &input))
+	var output struct{ Data any }
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &output))
+	visited := map[string]bool{}
+	assertImportContractKeys(t, doc.Definitions, importContractSchema{Ref: "#/definitions/exercise.importUploadRequest"}, input, "commit request", visited)
+	assertImportContractKeys(t, doc.Definitions, importContractSchema{Ref: "#/definitions/exercise.importCommitResponse"}, output.Data, "commit response", visited)
+	for _, name := range []string{"exercise.importUploadRequest", "exercise.ImportTarget", "exercise.ConfirmedImportUpdate", "exercise.importCommitResponse", "exerciseModel.ImportResult"} {
+		require.Contains(t, doc.Definitions, name)
+		require.Equal(t, doc.Definitions[name], embedded.Definitions[name])
+		require.Equal(t, doc.Definitions[name], yamlDoc.Definitions[name])
+	}
+	require.NotContains(t, w.Body.String(), "private")
+}
 
 type importContractSchema struct {
 	Ref         string                          `json:"$ref" yaml:"$ref"`

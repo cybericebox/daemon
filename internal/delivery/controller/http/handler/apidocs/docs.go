@@ -17060,7 +17060,7 @@ const docTemplate = `{
         },
         "/exercises/import": {
             "post": {
-                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).",
+                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).\nThis raw multipart route is legacy all-NEW. Target selections/UPDATE use the immutable UploadID/FileID routes so confirmation binds the same source.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -17409,7 +17409,7 @@ const docTemplate = `{
         },
         "/exercises/import/upload": {
             "post": {
-                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits of the platform settings apply). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
+                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits of the platform settings apply). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.\nTargets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, Results and Created/Updated counts. Every UPDATE requires the exact preview Revision and existing-draft replacement confirmation.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17443,10 +17443,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.exerciseResponse"
-                                            }
+                                            "$ref": "#/definitions/exercise.importCommitResponse"
                                         }
                                     }
                                 }
@@ -17494,7 +17491,7 @@ const docTemplate = `{
         },
         "/exercises/import/uploaded": {
             "post": {
-                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.",
+                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.\nTargets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, per-item Results and Created/Updated counts. Every UPDATE requires its exact preview Revision; ReplaceDraft confirms replacement of an existing draft.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17528,10 +17525,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.exerciseResponse"
-                                            }
+                                            "$ref": "#/definitions/exercise.importCommitResponse"
                                         }
                                     }
                                 }
@@ -34661,6 +34655,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.ConfirmedImportUpdate": {
+            "type": "object",
+            "properties": {
+                "ItemKey": {
+                    "type": "string"
+                },
+                "ReplaceDraft": {
+                    "type": "boolean"
+                },
+                "Revision": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.ExerciseAuthorSuggestion": {
             "type": "object",
             "properties": {
@@ -36131,6 +36139,29 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.importCommitResponse": {
+            "type": "object",
+            "properties": {
+                "Created": {
+                    "type": "integer"
+                },
+                "Exercises": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.exerciseResponse"
+                    }
+                },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportResult"
+                    }
+                },
+                "Updated": {
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.importJobError": {
             "type": "object",
             "properties": {
@@ -36156,6 +36187,9 @@ const docTemplate = `{
                 "BytesTotal": {
                     "type": "integer"
                 },
+                "Created": {
+                    "type": "integer"
+                },
                 "Error": {
                     "description": "Error is why it failed (failed only).",
                     "allOf": [
@@ -36178,6 +36212,12 @@ const docTemplate = `{
                 "ImagesTotal": {
                     "type": "integer"
                 },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportResult"
+                    }
+                },
                 "Stage": {
                     "description": "Stage is unpacking, images or tasks while running, then done or failed.",
                     "type": "string"
@@ -36190,6 +36230,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "TasksTotal": {
+                    "type": "integer"
+                },
+                "Updated": {
                     "type": "integer"
                 }
             }
@@ -36208,12 +36251,27 @@ const docTemplate = `{
                 "UploadID"
             ],
             "properties": {
+                "ConfirmedUpdates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ConfirmedImportUpdate"
+                    }
+                },
+                "FixedExerciseID": {
+                    "type": "string"
+                },
                 "OwnerEventID": {
                     "description": "OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the\nplatform catalog (exercises.write).",
                     "type": "string"
                 },
                 "Password": {
                     "type": "string"
+                },
+                "Targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTarget"
+                    }
                 },
                 "UploadID": {
                     "description": "UploadID is a chunked upload with Purpose \"exercise-archive\", every chunk sent (no complete call).",
@@ -36227,8 +36285,17 @@ const docTemplate = `{
                 "FileID"
             ],
             "properties": {
+                "ConfirmedUpdates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ConfirmedImportUpdate"
+                    }
+                },
                 "FileID": {
                     "description": "FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).",
+                    "type": "string"
+                },
+                "FixedExerciseID": {
                     "type": "string"
                 },
                 "OwnerEventID": {
@@ -36237,6 +36304,12 @@ const docTemplate = `{
                 },
                 "Password": {
                     "type": "string"
+                },
+                "Targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTarget"
+                    }
                 }
             }
         },
@@ -37055,6 +37128,20 @@ const docTemplate = `{
                 },
                 "warning": {
                     "description": "Warning is set when the quota is exceeded or snapshots fail; the last good one is kept.",
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.ImportResult": {
+            "type": "object",
+            "properties": {
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ItemKey": {
+                    "type": "string"
+                },
+                "Mode": {
                     "type": "string"
                 }
             }
