@@ -457,7 +457,8 @@ func (u *ExerciseUseCase) GetExerciseUsage(ctx context.Context, id uuid.UUID) (E
 }
 
 // DeleteExercise removes the entry (versions cascade in SQL) unless an event
-// uses it, then clears the versions' media references. Reference cleanup runs
+// uses it, then closes the admins' requests of its pending resource elevations
+// and clears the versions' media references. Reference cleanup runs
 // AFTER the delete: if it fails the files simply stay referenced until an
 // operator retries — never the other way around (premature GC). Route gate:
 // exercises.delete.
@@ -469,6 +470,8 @@ func (u *ExerciseUseCase) DeleteExercise(ctx context.Context, id uuid.UUID) erro
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list exercise versions").Err()
 	}
+	// The elevation rows cascade with the exercise; their admin inbox requests are closed after the delete.
+	pendingElevations := u.pendingElevations(ctx, id)
 	affected, err := u.exercises.Delete(ctx, id)
 	if err != nil {
 		if repositoryTools.IsForeignKeyViolation(err) {
@@ -483,6 +486,7 @@ func (u *ExerciseUseCase) DeleteExercise(ctx context.Context, id uuid.UUID) erro
 	if affected == 0 {
 		return exerciseModel.ErrExerciseNotFound.Err()
 	}
+	u.elevationsWithdrawn(ctx, pendingElevations)
 	return u.media.RemoveReferencesBatch(ctx, mediaModel.RefTypeExerciseVersion, versionIDs)
 }
 

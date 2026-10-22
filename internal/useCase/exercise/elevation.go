@@ -28,6 +28,9 @@ type IElevations interface {
 	LatestElevation(ctx context.Context, exerciseID uuid.UUID) (resourcesModel.Elevation, error)
 	// ApprovedFor is the approved values of every approved elevation, per exercise.
 	ApprovedFor(ctx context.Context, exerciseIDs []uuid.UUID) (map[uuid.UUID][]resourcesModel.Approval, error)
+	// WithdrawPendingElevation removes a pending request that has nothing left to ask; 0 rows: it was decided
+	// or removed meanwhile.
+	WithdrawPendingElevation(ctx context.Context, id uuid.UUID) (int64, error)
 }
 
 // IElevationInbox tells the platform admins about a request and the author about its decision (satisfied by
@@ -35,6 +38,8 @@ type IElevations interface {
 type IElevationInbox interface {
 	ElevationRequested(ctx context.Context, e inboxUseCase.Elevation) error
 	ElevationDecided(ctx context.Context, e inboxUseCase.Elevation, approved bool, by uuid.UUID) error
+	// ElevationWithdrawn closes the admins' request of an elevation that no longer waits for a decision.
+	ElevationWithdrawn(ctx context.Context, elevationID uuid.UUID) error
 }
 
 // SetElevationInbox wires the elevation notifications after the dispatcher exists.
@@ -330,6 +335,67 @@ func (u *ExerciseUseCase) notifyElevation(ctx context.Context, e resourcesModel.
 	if err := send(notice); err != nil {
 		log.Error().Err(err).Str("elevation_id", e.ID.String()).Msg("Failed to update the resource elevation inbox")
 	}
+}
+
+// pendingElevations is the ids of the exercise's undecided requests (at most one by the unique index). A failed
+// read is logged and yields none: the callers clean up after an operation that already succeeded.
+func (u *ExerciseUseCase) pendingElevations(ctx context.Context, exerciseID uuid.UUID) []uuid.UUID {
+	if u.elevations == nil || exerciseID == uuid.Nil {
+		return nil
+	}
+	pending := resourcesModel.ElevationPending
+	rows, err := u.elevations.ListElevations(ctx, &pending, uuid.NullUUID{UUID: exerciseID, Valid: true})
+	if err != nil {
+		log.Warn().Err(err).Str("exercise_id", exerciseID.String()).Msg("Failed to list the pending resource elevations")
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// elevationsWithdrawn closes the admins' inbox requests of elevations that no longer wait for a decision.
+// Best-effort, like every elevation notification.
+func (u *ExerciseUseCase) elevationsWithdrawn(ctx context.Context, ids []uuid.UUID) {
+	if u.elevationInbox == nil {
+		return
+	}
+	for _, id := range ids {
+		if err := u.elevationInbox.ElevationWithdrawn(ctx, id); err != nil {
+			log.Error().Err(err).Str("elevation_id", id.String()).Msg("Failed to close the withdrawn resource elevation request")
+		}
+	}
+}
+
+// withdrawMootElevation removes the exercise's pending request once its working copy asks for nothing above the
+// frame that the approvals do not cover (a publish passed the gate, a discarded draft fell back to the published
+// version), and closes the admins' inbox request. Best-effort: it runs after the operation succeeded.
+func (u *ExerciseUseCase) withdrawMootElevation(ctx context.Context, exerciseID uuid.UUID, pending []uuid.UUID, working []exerciseModel.Variant) {
+	if len(pending) == 0 {
+		return
+	}
+	approved, err := u.approvals(ctx, exerciseID)
+	if err != nil {
+		log.Warn().Err(err).Str("exercise_id", exerciseID.String()).Msg("Failed to read the resource elevations")
+		return
+	}
+	if len(u.Policy().NeedsElevation(working, approved)) > 0 {
+		return
+	}
+	withdrawn := make([]uuid.UUID, 0, len(pending))
+	for _, id := range pending {
+		affected, err := u.elevations.WithdrawPendingElevation(ctx, id)
+		if err != nil {
+			log.Error().Err(err).Str("elevation_id", id.String()).Msg("Failed to withdraw the moot resource elevation")
+			continue
+		}
+		if affected > 0 {
+			withdrawn = append(withdrawn, id)
+		}
+	}
+	u.elevationsWithdrawn(ctx, withdrawn)
 }
 
 // elevationView is the request an editor shows for the exercise: the open one, else the latest decided one;

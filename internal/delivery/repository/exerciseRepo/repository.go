@@ -75,6 +75,7 @@ type Queries interface {
 	ListExerciseResourceElevations(ctx context.Context, arg postgres.ListExerciseResourceElevationsParams) ([]postgres.ListExerciseResourceElevationsRow, error)
 	GetLatestExerciseResourceElevation(ctx context.Context, exerciseID uuid.UUID) (postgres.ExerciseResourceElevation, error)
 	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListApprovedExerciseResourceElevationsRow, error)
+	DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error)
 	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListPublishedVariantDevicesRow, error)
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)

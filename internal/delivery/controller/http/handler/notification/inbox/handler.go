@@ -116,7 +116,7 @@ func toResponse(n inboxModel.InAppNotification) notificationResponse {
 		CreatedAt: n.CreatedAt,
 		Type:      n.Type, Category: string(n.Category), ActionRequired: n.ActionRequired,
 		ResolvedAt: n.ResolvedAt,
-		Resolvable: n.IsOpenRequest() && inboxModel.ManuallyResolvable(n.Type),
+		Resolvable: n.Resolvable(),
 	}
 	if n.ResolvedAt != nil {
 		out.Resolution = &n.Resolution

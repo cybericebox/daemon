@@ -289,6 +289,9 @@ type Querier interface {
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
+	// Withdraws a pending request that has nothing left to ask (the working copy is inside the frame or covered by
+	// approvals); a decided request is history and stays. 0 rows: it was decided or removed meanwhile.
+	DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error)
 	// Removes the record of one tag only while its digest is still collectable (same predicate as IsDigestCollectable).
 	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
@@ -403,6 +406,9 @@ type Querier interface {
 	// attempts. A rejected or later-reversed submission therefore cannot inflate
 	// a landing-page statistic. Only published tasks and visible (admitted, not hidden) teams count, and, while the
 	// results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
+	// published_max_points sums each published task's top value: its effective static points when it scores
+	// statically, else the max points of its resolved dynamic profile (the event's when forced or not
+	// overridden), the same precedence as GetTeamChallengeScoringContext and eventModel.ResolveScoringProfile.
 	GetEventContentStatistics(ctx context.Context, arg GetEventContentStatisticsParams) (GetEventContentStatisticsRow, error)
 	GetEventExerciseByID(ctx context.Context, arg GetEventExerciseByIDParams) (EventExercise, error)
 	GetEventFlagFilter(ctx context.Context, arg GetEventFlagFilterParams) (EventFlagFilter, error)

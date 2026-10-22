@@ -137,6 +137,19 @@ func ElevationRef(elevationID uuid.UUID) string {
 	return "elevation:" + elevationID.String()
 }
 
+// ElevationIDFromRef reads the elevation id back from an ElevationRef; false for any other reference.
+func ElevationIDFromRef(ref string) (uuid.UUID, bool) {
+	raw, ok := strings.CutPrefix(ref, "elevation:")
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.FromString(raw)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
 func ProposalRef(proposalID uuid.UUID) string {
 	return "proposal:" + proposalID.String()
 }

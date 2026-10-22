@@ -9,20 +9,60 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/inboxRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
 )
 
 type (
-	Dependencies             struct{ Repo inboxRepo.Queries }
+	Dependencies struct {
+		Repo inboxRepo.Queries
+		// Elevations reads the elevation request behind an open elevation request item (nil: never moot).
+		Elevations ElevationReader
+	}
 	NotificationInboxUseCase struct {
-		inbox *inboxRepo.Repository
+		inbox      *inboxRepo.Repository
+		elevations ElevationReader
+	}
+	// ElevationReader is the read port of the resource elevation requests; *postgres.Queries satisfies it.
+	ElevationReader interface {
+		GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (postgres.ExerciseResourceElevation, error)
 	}
 )
 
+// elevationPending is the status of an undecided elevation request (resourcesModel.ElevationPending).
+const elevationPending = 0
+
 func NewNotificationInboxUseCase(deps Dependencies) *NotificationInboxUseCase {
-	return &NotificationInboxUseCase{inbox: inboxRepo.New(deps.Repo)}
+	return &NotificationInboxUseCase{inbox: inboxRepo.New(deps.Repo), elevations: deps.Elevations}
+}
+
+// moot reports whether an open request waits for an object that no longer does: an elevation request whose row
+// was removed (the task was deleted, the request withdrawn) or decided while this copy stayed open. A failed
+// read is not moot: the request keeps its normal rules.
+func (u *NotificationInboxUseCase) moot(ctx context.Context, typ, subjectRef string) bool {
+	if u.elevations == nil || typ != inboxModel.TypeElevationRequested {
+		return false
+	}
+	id, ok := inboxModel.ElevationIDFromRef(subjectRef)
+	if !ok {
+		return false
+	}
+	row, err := u.elevations.GetExerciseResourceElevation(ctx, id)
+	if err != nil {
+		return errors.Is(err, pgx.ErrNoRows)
+	}
+	return row.Status != elevationPending
+}
+
+// markMoot flags the open elevation requests of items whose elevation is gone or decided.
+func (u *NotificationInboxUseCase) markMoot(ctx context.Context, items []inboxModel.InAppNotification) {
+	for i := range items {
+		if items[i].IsOpenRequest() && u.moot(ctx, items[i].Type, items[i].SubjectRef) {
+			items[i].Moot = true
+		}
+	}
 }
 
 // ListInbox returns up to ten inbox entries and a cursor for older entries.
@@ -47,6 +87,7 @@ func (u *NotificationInboxUseCase) ListInbox(ctx context.Context, userID uuid.UU
 		last := page.Items[len(page.Items)-1]
 		page.NextCursor = &inboxModel.Cursor{ID: last.ID, CreatedAt: last.CreatedAt}
 	}
+	u.markMoot(ctx, page.Items)
 	return page, nil
 }
 
@@ -66,6 +107,7 @@ func (u *NotificationInboxUseCase) InboxSince(ctx context.Context, userID uuid.U
 		if err != nil {
 			return result, err
 		}
+		u.markMoot(ctx, items)
 		result.NewInbox = items
 		result.Cursor = since
 		if len(items) > 0 {
@@ -125,7 +167,8 @@ func (u *NotificationInboxUseCase) MarkAllRead(ctx context.Context, userID uuid.
 
 // ResolveRequest closes a request by hand for every recipient. Only a
 // recipient may do it (the item must be theirs), and only for types that
-// have no domain decision of their own (a failed laboratory).
+// have no domain decision of their own (a failed laboratory) or a request
+// whose object is gone (a moot elevation request).
 func (u *NotificationInboxUseCase) ResolveRequest(ctx context.Context, userID, id uuid.UUID) error {
 	item, err := u.inbox.GetForUser(ctx, userID, id)
 	if err != nil {
@@ -134,7 +177,7 @@ func (u *NotificationInboxUseCase) ResolveRequest(ctx context.Context, userID, i
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get inbox request").Err()
 	}
-	if !item.ActionRequired || !inboxModel.ManuallyResolvable(item.Type) {
+	if !item.ActionRequired || (!inboxModel.ManuallyResolvable(item.Type) && (item.Resolved || !u.moot(ctx, item.Type, item.SubjectRef))) {
 		return notificationModel.ErrInboxRequestNotResolvable.Err()
 	}
 	// An already resolved item skips the update and reports the conflict,

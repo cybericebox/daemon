@@ -238,3 +238,19 @@ func TestRequestRouter_UserDeletedWithdrawsApplications(t *testing.T) {
 
 	require.NoError(t, router.UserDeleted(context.Background(), userID))
 }
+
+func TestRequestRouter_ElevationWithdrawnAndCPUThrottleGoneResolveTheirSubject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	router := inboxUseCase.NewRequestRouter(repo, &fakeNotifier{})
+	elevationID := tools.NewUUIDv7()
+	repo.EXPECT().ResolveInboxBySubjectRef(gomock.Any(), postgres.ResolveInboxBySubjectRefParams{
+		SubjectRef: inboxModel.ElevationRef(elevationID), Resolution: "withdrawn",
+	}).Return(int64(1), nil)
+	require.NoError(t, router.ElevationWithdrawn(context.Background(), elevationID))
+
+	repo.EXPECT().ResolveInboxBySubjectRef(gomock.Any(), postgres.ResolveInboxBySubjectRefParams{
+		SubjectRef: inboxModel.CPUThrottleRef("uid-1", "db"), Resolution: "resolved",
+	}).Return(int64(1), nil)
+	require.NoError(t, router.CPUThrottleGone(context.Background(), "uid-1", "db"))
+}

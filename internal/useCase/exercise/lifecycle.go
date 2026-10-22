@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -161,6 +162,8 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
 	}
+	// The published version passed the gate and is now the working copy: a pending request is moot.
+	u.withdrawMootElevation(ctx, exerciseID, u.pendingElevations(ctx, exerciseID), published.Variants)
 	return u.versionView(ctx, published), nil
 }
 
@@ -181,7 +184,8 @@ func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseMode
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via
 // FK (Discard CTE, Task 6). Route gate: exercises.publish.
 func (u *ExerciseUseCase) DiscardDraft(ctx context.Context, exerciseID uuid.UUID) error {
-	if _, err := u.loadEditable(ctx, exerciseID); err != nil {
+	e, err := u.loadEditable(ctx, exerciseID)
+	if err != nil {
 		return err
 	}
 	draftID, err := u.exercises.Discard(ctx, exerciseID)
@@ -191,7 +195,26 @@ func (u *ExerciseUseCase) DiscardDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to discard draft").Err()
 	}
+	u.withdrawMootAfterDiscard(ctx, e)
 	return u.media.RemoveReferences(ctx, mediaModel.RefTypeExerciseVersion, draftID)
+}
+
+// withdrawMootAfterDiscard withdraws a pending elevation the published version (the working copy again) does not
+// need. Without a published version a pending request stays: a new draft may still need it.
+func (u *ExerciseUseCase) withdrawMootAfterDiscard(ctx context.Context, e exerciseModel.Exercise) {
+	if u.elevations == nil || !e.PublishedVersionID.Valid {
+		return
+	}
+	pending := u.pendingElevations(ctx, e.ID)
+	if len(pending) == 0 {
+		return
+	}
+	published, err := u.exercises.GetVersion(ctx, e.PublishedVersionID.UUID)
+	if err != nil {
+		log.Warn().Err(err).Str("exercise_id", e.ID.String()).Msg("Failed to read the published version for the resource elevation")
+		return
+	}
+	u.withdrawMootElevation(ctx, e.ID, pending, published.Variants)
 }
 
 // RollbackToVersion clones a historical version into a fresh draft via the

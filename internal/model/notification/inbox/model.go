@@ -44,11 +44,20 @@ type InAppNotification struct {
 	Resolution     string
 	ResolvedBy     *uuid.UUID
 	ResolvedByName string
+	// Moot is set (at read time, not stored) on an open request whose object no longer waits for a decision:
+	// its elevation request was removed or decided while the inbox copy stayed open. A recipient may close it.
+	Moot bool
 }
 
 // IsOpenRequest reports whether the item still waits for an action.
 func (n InAppNotification) IsOpenRequest() bool {
 	return n.ActionRequired && n.ResolvedAt == nil
+}
+
+// Resolvable reports whether a recipient may close this open request by hand: its type has no domain decision
+// of its own, or its object is gone (Moot).
+func (n InAppNotification) Resolvable() bool {
+	return n.IsOpenRequest() && (ManuallyResolvable(n.Type) || n.Moot)
 }
 
 // PlatformScope is the inbox scope that lists only items without an Event

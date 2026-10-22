@@ -113,3 +113,26 @@ func TestThrottleWatcherIgnoresLabsThatAreNotAnEventTeams(t *testing.T) {
 	assert.Len(t, a.got, 1, "an event team's lab is alerted")
 	assert.Equal(t, "u3", a.got[0].Run)
 }
+
+func TestThrottleWatcherClosesTheAlertsOfGoneLabRuns(t *testing.T) {
+	a := &alerts{}
+	var closed []string
+	w := NewThrottleWatcher("agent-1", a.notify).WithGone(func(_ context.Context, run, device string) error {
+		closed = append(closed, run+"/"+device)
+		return nil
+	})
+	ctx := context.Background()
+
+	w.Observe(ctx, &labpb.MonitoringUpdate{Labs: []*labpb.Lab{throttledLab("u1", map[string]int32{"db": 80}), throttledLab("u2", map[string]int32{"web": 90})}})
+	w.Observe(ctx, &labpb.MonitoringUpdate{DeletedKeys: []*labpb.MonitoringDeletedKey{{Kind: "Lab", Namespace: "ns", Name: "lab-u1"}}})
+	assert.Equal(t, []string{"u1/db"}, closed, "a deleted lab closes its device alerts")
+
+	w.Observe(ctx, &labpb.MonitoringUpdate{DeletedKeys: []*labpb.MonitoringDeletedKey{{Kind: "Lab", Namespace: "ns", Name: "lab-unknown"}}})
+	assert.Len(t, closed, 1, "an unknown lab closes nothing")
+
+	w.Observe(ctx, &labpb.MonitoringUpdate{Snapshot: true, Labs: []*labpb.Lab{throttledLab("u3", map[string]int32{"idle": 0})}})
+	assert.Equal(t, []string{"u1/db", "u2/web"}, closed, "a lab missing from a snapshot closes its alerts")
+
+	w.Observe(ctx, &labpb.MonitoringUpdate{Snapshot: true})
+	assert.Len(t, closed, 2, "a lab without alerts closes nothing")
+}

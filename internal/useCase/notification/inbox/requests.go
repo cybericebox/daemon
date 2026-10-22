@@ -210,6 +210,12 @@ func (r *RequestRouter) ElevationDecided(ctx context.Context, e Elevation, appro
 	return r.fanOut(ctx, []uuid.UUID{e.RequestedBy}, typ, vars, inboxModel.NewMeta(typ, inboxModel.RoleSubject, ""))
 }
 
+// ElevationWithdrawn closes the admins' request of an elevation that no longer waits for a decision: its task
+// was deleted, or the working copy no longer needs it. The author is not told: they caused it.
+func (r *RequestRouter) ElevationWithdrawn(ctx context.Context, elevationID uuid.UUID) error {
+	return r.resolve(ctx, inboxModel.ElevationRef(elevationID), inboxModel.ResolutionWithdrawn, uuid.Nil)
+}
+
 func (r *RequestRouter) elevationVars(ctx context.Context, e Elevation) (map[string]any, error) {
 	vars := map[string]any{
 		"elevation_id":   e.ID.String(),
@@ -219,6 +225,7 @@ func (r *RequestRouter) elevationVars(ctx context.Context, e Elevation) (map[str
 		"decision_note":  e.DecisionNote,
 		"devices":        e.Devices,
 		"requester_name": "",
+		"admin_url":      r.adminURL,
 	}
 	if e.RequestedBy != uuid.Nil {
 		requester, err := r.profile(ctx, e.RequestedBy)

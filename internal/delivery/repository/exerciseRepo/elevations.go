@@ -112,6 +112,12 @@ func (r *Repository) LatestElevation(ctx context.Context, exerciseID uuid.UUID) 
 	return elevation(row)
 }
 
+// WithdrawPendingElevation removes a pending request that has nothing left to ask; 0 rows: it was decided or
+// removed meanwhile.
+func (r *Repository) WithdrawPendingElevation(ctx context.Context, id uuid.UUID) (int64, error) {
+	return r.q.DeletePendingExerciseResourceElevation(ctx, id)
+}
+
 // ApprovedFor is the approved values of every approved elevation of the exercises, per exercise.
 func (r *Repository) ApprovedFor(ctx context.Context, exerciseIDs []uuid.UUID) (map[uuid.UUID][]resourcesModel.Approval, error) {
 	out := make(map[uuid.UUID][]resourcesModel.Approval, len(exerciseIDs))

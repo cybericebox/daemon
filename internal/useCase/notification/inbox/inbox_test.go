@@ -324,3 +324,62 @@ func TestInboxPulse_OneQuery(t *testing.T) {
 	assert.Zero(t, empty.Unread)
 	assert.Zero(t, empty.PersonalBanners)
 }
+
+func elevationRequestRow(uid uuid.UUID, elevationID uuid.UUID) postgres.ListInAppByUserRow {
+	return postgres.ListInAppByUserRow{
+		ID: tools.NewUUIDv7(), UserID: uid, NotificationType: inboxModel.TypeElevationRequested, Category: "requests", ActionRequired: true,
+		SubjectRef: pgtype.Text{String: inboxModel.ElevationRef(elevationID), Valid: true}, CreatedAt: time.Now(),
+	}
+}
+
+func TestListInbox_ElevationRequestIsResolvableOnlyOnceItsElevationIsGoneOrDecided(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo, Elevations: repo})
+	uid := tools.NewUUIDv7()
+	gone, decided, pending := tools.NewUUIDv7(), tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().ListInAppByUser(gomock.Any(), gomock.Any()).Return([]postgres.ListInAppByUserRow{
+		elevationRequestRow(uid, gone), elevationRequestRow(uid, decided), elevationRequestRow(uid, pending),
+	}, nil)
+	repo.EXPECT().GetExerciseResourceElevation(gomock.Any(), gone).Return(postgres.ExerciseResourceElevation{}, pgx.ErrNoRows)
+	repo.EXPECT().GetExerciseResourceElevation(gomock.Any(), decided).Return(postgres.ExerciseResourceElevation{ID: decided, Status: 2}, nil)
+	repo.EXPECT().GetExerciseResourceElevation(gomock.Any(), pending).Return(postgres.ExerciseResourceElevation{ID: pending, Status: 0}, nil)
+
+	got, err := uc.ListInbox(context.Background(), uid, nil, inboxModel.CategoryRequests, nil)
+	require.NoError(t, err)
+	require.Len(t, got.Items, 3)
+	assert.True(t, got.Items[0].Resolvable(), "the elevation row is gone (task deleted)")
+	assert.True(t, got.Items[1].Resolvable(), "the elevation was decided elsewhere")
+	assert.False(t, got.Items[2].Resolvable(), "a pending elevation is decided on its page")
+}
+
+func TestResolveRequest_OrphanedElevationRequestCanBeClosedByHand(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo, Elevations: repo})
+	uid, id, elevationID := tools.NewUUIDv7(), tools.NewUUIDv7(), tools.NewUUIDv7()
+	ref := inboxModel.ElevationRef(elevationID)
+	repo.EXPECT().GetInboxItemForUser(gomock.Any(), gomock.Any()).Return(postgres.GetInboxItemForUserRow{
+		ID: id, NotificationType: inboxModel.TypeElevationRequested, ActionRequired: true, SubjectRef: pgtype.Text{String: ref, Valid: true},
+	}, nil)
+	repo.EXPECT().GetExerciseResourceElevation(gomock.Any(), elevationID).Return(postgres.ExerciseResourceElevation{}, pgx.ErrNoRows)
+	repo.EXPECT().ResolveInboxBySubjectRef(gomock.Any(), postgres.ResolveInboxBySubjectRefParams{
+		SubjectRef: ref, Resolution: "resolved", ResolvedBy: uuid.NullUUID{UUID: uid, Valid: true},
+	}).Return(int64(2), nil)
+
+	require.NoError(t, uc.ResolveRequest(context.Background(), uid, id))
+}
+
+func TestResolveRequest_PendingElevationRequestIsNotClosedByHand(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	uc := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: repo, Elevations: repo})
+	uid, id, elevationID := tools.NewUUIDv7(), tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().GetInboxItemForUser(gomock.Any(), gomock.Any()).Return(postgres.GetInboxItemForUserRow{
+		ID: id, NotificationType: inboxModel.TypeElevationRequested, ActionRequired: true,
+		SubjectRef: pgtype.Text{String: inboxModel.ElevationRef(elevationID), Valid: true},
+	}, nil)
+	repo.EXPECT().GetExerciseResourceElevation(gomock.Any(), elevationID).Return(postgres.ExerciseResourceElevation{ID: elevationID, Status: 0}, nil)
+
+	assert.ErrorIs(t, uc.ResolveRequest(context.Background(), uid, id), notificationModel.ErrInboxRequestNotResolvable.Err())
+}
