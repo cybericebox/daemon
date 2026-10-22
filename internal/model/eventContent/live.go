@@ -153,22 +153,25 @@ var liveMinimums = map[string]liveSize{
 	"podium": {4, 2}, "facts": {3, 1}, "stages": {3, 2}, "clock": {2, 1},
 }
 
-// liveCommonProps are the settings every widget has: its text size (K3) and
-// its caption, shown or not and with an own text (K4).
-var liveCommonProps = map[string]string{"textSize": "text-size", "showCaption": "boolean", "caption": "short-text"}
+// liveCommonProps are the settings every widget has: its text size (K3), its
+// caption, shown or not and with an own text (K4), and its colours: the tile
+// fill (a theme fill or a hex colour), the text and the accent colour.
+var liveCommonProps = map[string]string{"textSize": "text-size", "showCaption": "boolean", "caption": "short-text",
+	"background": "live-fill", "textColor": "live-color", "accentColor": "live-color"}
 
 var livePropTypes = map[string]map[string]string{
 	"title": {"subtitle": "text", "subtitleStage": "boolean", "showLogo": "boolean", "align": "align"},
 	"timer": {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size",
 		"digits": "timer-digits", "atZero": "timer-zero", "zeroText": "short-text", "lastMinutes": "last-minutes", "align": "align"},
-	"chart":        {"lines": "lines"},
-	"table":        {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset"},
+	"chart": {"lines": "lines"},
+	"table": {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset",
+		"highlightTop": "highlight-top", "placeColors": "place-colors", "showBars": "boolean"},
 	"ad_table":     {"columns": "text-list"},
 	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean", "rows": "logo-rows"},
 	"solves":       {"rows": "rows", "mode": "solves-mode"},
 	"announcement": {"text": "text", "align": "align"},
 	"qr":           {"url": "url", "value": "qr-value", "caption": "short-text"},
-	"podium":       {"showPoints": "boolean"},
+	"podium":       {"showPoints": "boolean", "variant": "podium-variant", "showRing": "boolean", "highlightTop": "highlight-top", "placeColors": "place-colors"},
 	"facts":        {"items": "fact-list"},
 	"stages":       {"showDone": "boolean"},
 	"clock":        {"showSeconds": "boolean", "label": "short-text", "align": "align"},
@@ -336,7 +339,8 @@ func (w LiveWidget) validateProps() error {
 				}
 				seen[value] = true
 			}
-		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color", "text-size", "align", "timer-digits", "timer-zero", "solves-mode":
+		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color", "text-size", "align", "timer-digits", "timer-zero", "solves-mode",
+			"highlight-top", "podium-variant":
 			var value string
 			if json.Unmarshal(raw, &value) != nil || !liveEnumValue(kind, value) {
 				return fmt.Errorf("invalid choice property %q", key)
@@ -365,6 +369,23 @@ func (w LiveWidget) validateProps() error {
 			var value string
 			if json.Unmarshal(raw, &value) != nil || !validLiveURL(value) {
 				return fmt.Errorf("invalid URL property %q", key)
+			}
+		case "live-fill", "live-color":
+			// A fill is a theme fill or a hex colour; a colour is hex only.
+			var value string
+			if json.Unmarshal(raw, &value) != nil || !validLiveHex(value) && (kind == "live-color" || !liveEnumValue(kind, value)) {
+				return fmt.Errorf("invalid colour property %q", key)
+			}
+		case "place-colors":
+			// The colours of places 1, 2 and 3, in that order.
+			var values []string
+			if json.Unmarshal(raw, &values) != nil || len(values) != 3 {
+				return fmt.Errorf("invalid colour list %q", key)
+			}
+			for _, value := range values {
+				if !validLiveHex(value) {
+					return fmt.Errorf("invalid colour list %q", key)
+				}
 			}
 		}
 	}
@@ -495,6 +516,12 @@ func liveEnumValue(kind, value string) bool {
 		return value == "word" || value == "text" || value == "hide"
 	case "solves-mode":
 		return value == "recent" || value == "first"
+	case "live-fill":
+		return value == "tile" || value == "brand" || value == "accent"
+	case "highlight-top":
+		return value == "none" || value == "accent" || value == "medals"
+	case "podium-variant":
+		return value == "steps" || value == "cards"
 	default:
 		return false
 	}
@@ -518,4 +545,17 @@ func liveNumberChoice(kind string, value int) bool {
 	default:
 		return false
 	}
+}
+
+// validLiveHex: a colour is exactly #RRGGBB; no short form, names or alpha.
+func validLiveHex(value string) bool {
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	for _, c := range value[1:] {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
 }
