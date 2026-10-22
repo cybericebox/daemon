@@ -192,8 +192,6 @@ type Event struct {
 	LandingDocument       []byte             `json:"landing_document"`
 	InternalName          string             `json:"internal_name"`
 	LifecycleConfigured   bool               `json:"lifecycle_configured"`
-	LiveLayout            []byte             `json:"live_layout"`
-	LiveLayoutDraft       []byte             `json:"live_layout_draft"`
 	InfrastructureAllowed bool               `json:"infrastructure_allowed"`
 	LandingDraft          []byte             `json:"landing_draft"`
 	StaticPoints          pgtype.Int4        `json:"static_points"`
@@ -424,6 +422,17 @@ type EventListColumn struct {
 	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
+type EventLiveScreen struct {
+	ID          uuid.UUID `json:"id"`
+	EventID     uuid.UUID `json:"event_id"`
+	Position    int32     `json:"position"`
+	Name        string    `json:"name"`
+	Layout      []byte    `json:"layout"`
+	LayoutDraft []byte    `json:"layout_draft"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type EventLiveScreenLink struct {
 	ID        uuid.UUID          `json:"id"`
 	EventID   uuid.UUID          `json:"event_id"`
@@ -432,6 +441,7 @@ type EventLiveScreenLink struct {
 	CreatedBy uuid.NullUUID      `json:"created_by"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	ScreenID  uuid.UUID          `json:"screen_id"`
 }
 
 type EventManager struct {

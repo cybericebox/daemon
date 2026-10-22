@@ -144,7 +144,7 @@ VALUES ($1, $2, $3, $4,
         false,
         $7, $8, $9, $10,
         $5::timestamptz, $5::timestamptz,
-        NULL, NULL, $11) RETURNING id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
+        NULL, NULL, $11) RETURNING id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 `
 
 type CreateEventParams struct {
@@ -204,8 +204,6 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.LandingDocument,
 		&i.InternalName,
 		&i.LifecycleConfigured,
-		&i.LiveLayout,
-		&i.LiveLayoutDraft,
 		&i.InfrastructureAllowed,
 		&i.LandingDraft,
 		&i.StaticPoints,
@@ -241,7 +239,7 @@ func (q *Queries) EventTagExists(ctx context.Context, tag string) (bool, error) 
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
+SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events
 WHERE id = $1
 `
@@ -274,8 +272,6 @@ func (q *Queries) GetEventByID(ctx context.Context, id uuid.UUID) (Event, error)
 		&i.LandingDocument,
 		&i.InternalName,
 		&i.LifecycleConfigured,
-		&i.LiveLayout,
-		&i.LiveLayoutDraft,
 		&i.InfrastructureAllowed,
 		&i.LandingDraft,
 		&i.StaticPoints,
@@ -297,7 +293,7 @@ func (q *Queries) GetEventScoringPopulation(ctx context.Context, eventID uuid.UU
 }
 
 const getLiveEventByTag = `-- name: GetLiveEventByTag :one
-SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
+SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events
 WHERE tag = $1
   AND available_from <= $2::timestamptz
@@ -341,8 +337,6 @@ func (q *Queries) GetLiveEventByTag(ctx context.Context, arg GetLiveEventByTagPa
 		&i.LandingDocument,
 		&i.InternalName,
 		&i.LifecycleConfigured,
-		&i.LiveLayout,
-		&i.LiveLayoutDraft,
 		&i.InfrastructureAllowed,
 		&i.LandingDraft,
 		&i.StaticPoints,
@@ -374,7 +368,7 @@ func (q *Queries) InsertEventScoringPopulation(ctx context.Context, arg InsertEv
 }
 
 const listEventsCursor = `-- name: ListEventsCursor :many
-SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
+SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events
 WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
     OR internal_name ILIKE '%' || $1::text || '%')
@@ -429,8 +423,6 @@ func (q *Queries) ListEventsCursor(ctx context.Context, arg ListEventsCursorPara
 			&i.LandingDocument,
 			&i.InternalName,
 			&i.LifecycleConfigured,
-			&i.LiveLayout,
-			&i.LiveLayoutDraft,
 			&i.InfrastructureAllowed,
 			&i.LandingDraft,
 			&i.StaticPoints,
@@ -484,7 +476,7 @@ func (q *Queries) ListEventsDueForScoringPopulation(ctx context.Context, now tim
 }
 
 const listEventsPage = `-- name: ListEventsPage :many
-SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
+SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events
 WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
     OR internal_name ILIKE '%' || $1::text || '%')
@@ -582,8 +574,6 @@ func (q *Queries) ListEventsPage(ctx context.Context, arg ListEventsPageParams) 
 			&i.LandingDocument,
 			&i.InternalName,
 			&i.LifecycleConfigured,
-			&i.LiveLayout,
-			&i.LiveLayoutDraft,
 			&i.InfrastructureAllowed,
 			&i.LandingDraft,
 			&i.StaticPoints,

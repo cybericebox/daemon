@@ -88,6 +88,7 @@ type (
 		GetOwnParticipantAnswers(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.OwnParticipantAnswersView, error)
 		UpdateOwnParticipantAnswers(ctx context.Context, eventID, userID uuid.UUID, answers map[string]any) (eventUseCase.OwnParticipantAnswersView, error)
 		GetLiveScreen(ctx context.Context, eventID uuid.UUID, token string) (eventUseCase.LiveScreenView, error)
+		GetLiveScreenVersion(ctx context.Context, eventID uuid.UUID, token string) (eventUseCase.LiveScreenVersionView, error)
 		ResolveLiveScreenToken(ctx context.Context, eventID uuid.UUID, token string) error
 		IsActiveLiveScreenToken(ctx context.Context, token string, now time.Time) bool
 		GetResultsSnapshot(ctx context.Context, eventID uuid.UUID, access eventUseCase.ResultsAccess, liveScreen bool) (eventUseCase.ResultsSnapshotView, error)

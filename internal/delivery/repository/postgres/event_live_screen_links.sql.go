@@ -14,21 +14,23 @@ import (
 )
 
 const getActiveEventLiveScreenLink = `-- name: GetActiveEventLiveScreenLink :one
-SELECT id, event_id, token_hash, created_at, created_by, expires_at, revoked_at
+SELECT id, event_id, token_hash, created_at, created_by, expires_at, revoked_at, screen_id
 FROM event_live_screen_links
 WHERE event_id = $1
+  AND screen_id = $2
   AND revoked_at IS NULL
-  AND (expires_at IS NULL OR expires_at > $2)
+  AND (expires_at IS NULL OR expires_at > $3)
 `
 
 type GetActiveEventLiveScreenLinkParams struct {
-	EventID uuid.UUID          `json:"event_id"`
-	Now     pgtype.Timestamptz `json:"now"`
+	EventID  uuid.UUID          `json:"event_id"`
+	ScreenID uuid.UUID          `json:"screen_id"`
+	Now      pgtype.Timestamptz `json:"now"`
 }
 
-// The event's one working link (unrevoked and not expired).
+// The screen's one working link (unrevoked and not expired).
 func (q *Queries) GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiveEventLiveScreenLinkParams) (EventLiveScreenLink, error) {
-	row := q.db.QueryRow(ctx, getActiveEventLiveScreenLink, arg.EventID, arg.Now)
+	row := q.db.QueryRow(ctx, getActiveEventLiveScreenLink, arg.EventID, arg.ScreenID, arg.Now)
 	var i EventLiveScreenLink
 	err := row.Scan(
 		&i.ID,
@@ -38,12 +40,13 @@ func (q *Queries) GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiv
 		&i.CreatedBy,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.ScreenID,
 	)
 	return i, err
 }
 
 const getEventLiveScreenLinkByTokenHash = `-- name: GetEventLiveScreenLinkByTokenHash :one
-SELECT id, event_id, token_hash, created_at, created_by, expires_at, revoked_at
+SELECT id, event_id, token_hash, created_at, created_by, expires_at, revoked_at, screen_id
 FROM event_live_screen_links
 WHERE token_hash = $1
 `
@@ -59,6 +62,7 @@ func (q *Queries) GetEventLiveScreenLinkByTokenHash(ctx context.Context, tokenHa
 		&i.CreatedBy,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.ScreenID,
 	)
 	return i, err
 }
@@ -66,18 +70,19 @@ func (q *Queries) GetEventLiveScreenLinkByTokenHash(ctx context.Context, tokenHa
 const issueEventLiveScreenLink = `-- name: IssueEventLiveScreenLink :exec
 WITH revoked AS (
     UPDATE event_live_screen_links AS old
-    SET revoked_at = $4
-    WHERE old.event_id = $2
+    SET revoked_at = $5
+    WHERE old.screen_id = $3
       AND old.revoked_at IS NULL
     RETURNING old.id
 )
-INSERT INTO event_live_screen_links (id, event_id, token_hash, created_at, created_by, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO event_live_screen_links (id, event_id, screen_id, token_hash, created_at, created_by, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type IssueEventLiveScreenLinkParams struct {
 	ID        uuid.UUID          `json:"id"`
 	EventID   uuid.UUID          `json:"event_id"`
+	ScreenID  uuid.UUID          `json:"screen_id"`
 	TokenHash []byte             `json:"token_hash"`
 	CreatedAt time.Time          `json:"created_at"`
 	CreatedBy uuid.NullUUID      `json:"created_by"`
@@ -85,17 +90,61 @@ type IssueEventLiveScreenLinkParams struct {
 }
 
 // Creation and regeneration in one statement: any unrevoked link of the
-// event (active or expired) is revoked and the new one inserted.
+// screen (active or expired) is revoked and the new one inserted.
 func (q *Queries) IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error {
 	_, err := q.db.Exec(ctx, issueEventLiveScreenLink,
 		arg.ID,
 		arg.EventID,
+		arg.ScreenID,
 		arg.TokenHash,
 		arg.CreatedAt,
 		arg.CreatedBy,
 		arg.ExpiresAt,
 	)
 	return err
+}
+
+const listActiveEventLiveScreenLinks = `-- name: ListActiveEventLiveScreenLinks :many
+SELECT id, event_id, token_hash, created_at, created_by, expires_at, revoked_at, screen_id
+FROM event_live_screen_links
+WHERE event_id = $1
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > $2)
+`
+
+type ListActiveEventLiveScreenLinksParams struct {
+	EventID uuid.UUID          `json:"event_id"`
+	Now     pgtype.Timestamptz `json:"now"`
+}
+
+// The working links of all screens of the event (at most one per screen).
+func (q *Queries) ListActiveEventLiveScreenLinks(ctx context.Context, arg ListActiveEventLiveScreenLinksParams) ([]EventLiveScreenLink, error) {
+	rows, err := q.db.Query(ctx, listActiveEventLiveScreenLinks, arg.EventID, arg.Now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventLiveScreenLink{}
+	for rows.Next() {
+		var i EventLiveScreenLink
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.TokenHash,
+			&i.CreatedAt,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+			&i.ScreenID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listActiveLiveScreenTokenHashes = `-- name: ListActiveLiveScreenTokenHashes :many
@@ -136,17 +185,19 @@ const revokeEventLiveScreenLinks = `-- name: RevokeEventLiveScreenLinks :execrow
 UPDATE event_live_screen_links
 SET revoked_at = $1
 WHERE event_id = $2
+  AND screen_id = $3
   AND revoked_at IS NULL
 `
 
 type RevokeEventLiveScreenLinksParams struct {
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	EventID   uuid.UUID          `json:"event_id"`
+	ScreenID  uuid.UUID          `json:"screen_id"`
 }
 
-// «Вимкнути»: the event has no working link afterwards.
+// «Вимкнути»: the screen has no working link afterwards.
 func (q *Queries) RevokeEventLiveScreenLinks(ctx context.Context, arg RevokeEventLiveScreenLinksParams) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeEventLiveScreenLinks, arg.RevokedAt, arg.EventID)
+	result, err := q.db.Exec(ctx, revokeEventLiveScreenLinks, arg.RevokedAt, arg.EventID, arg.ScreenID)
 	if err != nil {
 		return 0, err
 	}

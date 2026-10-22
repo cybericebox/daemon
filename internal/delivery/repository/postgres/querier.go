@@ -88,6 +88,7 @@ type Querier interface {
 	// Active attachments whose pinned set has a lab topology: they block turning
 	// the event's infrastructure off.
 	CountEventInfrastructureExercises(ctx context.Context, eventID uuid.UUID) (int32, error)
+	CountEventLiveScreens(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// Tab counters: applications count only undecided requests.
 	CountEventParticipantKinds(ctx context.Context, eventID uuid.UUID) (CountEventParticipantKindsRow, error)
 	// Mirrors ListEventParticipantsDetailed's status, kind, search and field filters.
@@ -168,6 +169,8 @@ type Querier interface {
 	CreateEventFormVersion(ctx context.Context, arg CreateEventFormVersionParams) (EventFormVersion, error)
 	CreateEventGroupAllocation(ctx context.Context, arg CreateEventGroupAllocationParams) error
 	CreateEventLabObservation(ctx context.Context, arg CreateEventLabObservationParams) (EventLabObservation, error)
+	// A new screen goes last.
+	CreateEventLiveScreen(ctx context.Context, arg CreateEventLiveScreenParams) (EventLiveScreen, error)
 	CreateEventManager(ctx context.Context, arg CreateEventManagerParams) (EventManager, error)
 	// A new page is unpublished: its columns mirror the draft (reserving the slug).
 	CreateEventPage(ctx context.Context, arg CreateEventPageParams) (EventPage, error)
@@ -258,6 +261,8 @@ type Querier interface {
 	// Resets an Event override: every Event row (any status) of the type goes, so
 	// the Event falls back to the platform template.
 	DeleteEventInAppTemplatesOfType(ctx context.Context, arg DeleteEventInAppTemplatesOfTypeParams) (int64, error)
+	// Its links go with it (ON DELETE CASCADE), so its URL stops working.
+	DeleteEventLiveScreen(ctx context.Context, arg DeleteEventLiveScreenParams) (int64, error)
 	DeleteEventPage(ctx context.Context, arg DeleteEventPageParams) (int64, error)
 	// Revoke/decline: only a still pending invitation disappears.
 	DeleteEventParticipantInvitation(ctx context.Context, arg DeleteEventParticipantInvitationParams) (int64, error)
@@ -367,7 +372,7 @@ type Querier interface {
 	// An empty eligible roster is deferred, not an immutable prepared cohort.
 	FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error)
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
-	// The event's one working link (unrevoked and not expired).
+	// The screen's one working link (unrevoked and not expired).
 	GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiveEventLiveScreenLinkParams) (EventLiveScreenLink, error)
 	GetClusterReservation(ctx context.Context, id uuid.UUID) (ClusterReservation, error)
 	GetClusterReservationOfTestGroup(ctx context.Context, ownerID uuid.NullUUID) (ClusterReservation, error)
@@ -401,6 +406,7 @@ type Querier interface {
 	GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error)
 	GetEventChallengeForEvent(ctx context.Context, arg GetEventChallengeForEventParams) (EventChallenge, error)
 	GetEventConfig(ctx context.Context, eventID uuid.UUID) (EventConfig, error)
+	// The live layout is the event's first screen (see event_live_screens.sql).
 	GetEventContentSettings(ctx context.Context, eventID uuid.UUID) (GetEventContentSettingsRow, error)
 	// Content counters intentionally read accepted solve projections, never raw
 	// attempts. A rejected or later-reversed submission therefore cannot inflate
@@ -426,6 +432,7 @@ type Querier interface {
 	GetEventLabPendingStarts(ctx context.Context, eventTeamID uuid.UUID) (int32, error)
 	GetEventLabRevealBarrier(ctx context.Context, arg GetEventLabRevealBarrierParams) (EventLabRevealBarrier, error)
 	GetEventListColumns(ctx context.Context, arg GetEventListColumnsParams) (EventListColumn, error)
+	GetEventLiveScreen(ctx context.Context, arg GetEventLiveScreenParams) (EventLiveScreen, error)
 	GetEventLiveScreenLinkByTokenHash(ctx context.Context, tokenHash []byte) (EventLiveScreenLink, error)
 	GetEventMailIdentity(ctx context.Context, scopeEventID uuid.NullUUID) (MailIdentity, error)
 	GetEventManager(ctx context.Context, arg GetEventManagerParams) (EventManager, error)
@@ -516,6 +523,7 @@ type Querier interface {
 	// deterministic, not incidental, answer. Repositories don't validate on read:
 	// a ref_type/ref_id with no rows simply yields an empty slice, not an error.
 	GetFileReferenceIDs(ctx context.Context, arg GetFileReferenceIDsParams) ([]uuid.UUID, error)
+	GetFirstEventLiveScreen(ctx context.Context, eventID uuid.UUID) (EventLiveScreen, error)
 	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
@@ -686,9 +694,11 @@ type Querier interface {
 	IsOwnedRetainedLabReference(ctx context.Context, arg IsOwnedRetainedLabReferenceParams) (bool, error)
 	IsUserInEventTeam(ctx context.Context, arg IsUserInEventTeamParams) (bool, error)
 	// Creation and regeneration in one statement: any unrevoked link of the
-	// event (active or expired) is revoked and the new one inserted.
+	// screen (active or expired) is revoked and the new one inserted.
 	IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
+	// The working links of all screens of the event (at most one per screen).
+	ListActiveEventLiveScreenLinks(ctx context.Context, arg ListActiveEventLiveScreenLinksParams) ([]EventLiveScreenLink, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
 	// The token hashes of every working link: the screen limiter gives only
 	// these links their own request budget.
@@ -894,6 +904,9 @@ type Querier interface {
 	// The merged current state of every lab group of one event, for the organizers' stand list.
 	ListEventLabMonitoringCurrent(ctx context.Context, eventID uuid.UUID) ([]ListEventLabMonitoringCurrentRow, error)
 	ListEventLabObservations(ctx context.Context, arg ListEventLabObservationsParams) ([]EventLabObservation, error)
+	// The event's screens in the editor order; the first one is «Екран 1» of the
+	// old single-screen routes.
+	ListEventLiveScreens(ctx context.Context, eventID uuid.UUID) ([]EventLiveScreen, error)
 	// Every management membership of the Event (owner, moderator, viewer).
 	ListEventManagerUserIDs(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	ListEventManagers(ctx context.Context, eventID uuid.UUID) ([]EventManager, error)
@@ -1456,6 +1469,9 @@ type Querier interface {
 	// Serialize roster creation/change without blocking the KEY SHARE locks of
 	// concurrent answer inserts while we wait for their team admission locks.
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Serializes adding and deleting screens of one event (the limit and the
+	// last screen are checked under it).
+	LockEventForLiveScreenChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// Serializes team creation inside one event while the surrounding UoW is open.
 	LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	LockEventPreviewOwner(ctx context.Context, lockKey string) error
@@ -1532,7 +1548,9 @@ type Querier interface {
 	// Publishes the draft the use case read and validated. A draft saved in the
 	// meantime differs from it and stays as the pending draft.
 	PublishEventLandingDraft(ctx context.Context, arg PublishEventLandingDraftParams) (int64, error)
-	PublishEventLiveLayout(ctx context.Context, eventID uuid.UUID) ([]byte, error)
+	// The draft becomes the published layout with the next version, which the
+	// open screens poll for.
+	PublishEventLiveScreen(ctx context.Context, arg PublishEventLiveScreenParams) ([]byte, error)
 	// Atomic family transition: demote the current published row, promote the
 	// draft, move both pointers. Zero rows -> no draft (or no exercise); the
 	// caller re-reads to discriminate.
@@ -1635,6 +1653,7 @@ type Querier interface {
 	RemoveEventSetRuntimeSelections(ctx context.Context, arg RemoveEventSetRuntimeSelectionsParams) error
 	RemoveEventStageRuntimeSelections(ctx context.Context, stageID uuid.UUID) error
 	RemoveEventTeamStands(ctx context.Context, arg RemoveEventTeamStandsParams) error
+	RenameEventLiveScreen(ctx context.Context, arg RenameEventLiveScreenParams) (EventLiveScreen, error)
 	// Priorities become the position in the given list (0, 1, ...); providers not
 	// in the list keep their order after it.
 	ReorderPlatformSMTPProviders(ctx context.Context, ids []uuid.UUID) error
@@ -1673,7 +1692,7 @@ type Querier interface {
 	RestoreVersionPreservingDraft(ctx context.Context, arg RestoreVersionPreservingDraftParams) (RestoreVersionPreservingDraftRow, error)
 	RetrySignalHookExecution(ctx context.Context, arg RetrySignalHookExecutionParams) (int64, error)
 	RetrySignalOutbox(ctx context.Context, arg RetrySignalOutboxParams) (int64, error)
-	// «Вимкнути»: the event has no working link afterwards.
+	// «Вимкнути»: the screen has no working link afterwards.
 	RevokeEventLiveScreenLinks(ctx context.Context, arg RevokeEventLiveScreenLinksParams) (int64, error)
 	// Ending a session deletes its row and writes the revocation row in ONE statement (a session never ends
 	// without its revocation). expires_at is when the cookie would die by itself: the smaller of sign-in + absolute TTL
@@ -1690,7 +1709,7 @@ type Querier interface {
 	// (ObserveClusterReservation) are narrow writes, so neither can undo a newer desired change.
 	SaveClusterReservation(ctx context.Context, arg SaveClusterReservationParams) error
 	SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error)
-	SaveEventLiveLayoutDraft(ctx context.Context, arg SaveEventLiveLayoutDraftParams) (int64, error)
+	SaveEventLiveScreenDraft(ctx context.Context, arg SaveEventLiveScreenDraftParams) (int64, error)
 	// Saves the editor's draft. A page that was never published also mirrors the
 	// draft into its columns, so its slug stays reserved by the unique index.
 	SaveEventPageDraft(ctx context.Context, arg SaveEventPageDraftParams) (EventPage, error)
@@ -1712,6 +1731,7 @@ type Querier interface {
 	// A set is shown or hidden as a whole: its tasks share one infrastructure.
 	SetEventExerciseChallengesPublished(ctx context.Context, arg SetEventExerciseChallengesPublishedParams) error
 	SetEventExerciseStage(ctx context.Context, arg SetEventExerciseStageParams) (EventExercise, error)
+	SetEventLiveScreenPosition(ctx context.Context, arg SetEventLiveScreenPositionParams) (int64, error)
 	// Moves a still pending event invitation to a team (moderator team builder).
 	SetEventParticipantInvitedTeam(ctx context.Context, arg SetEventParticipantInvitedTeamParams) (int64, error)
 	// A pseudonym that spells another participant's real name (case and spacing

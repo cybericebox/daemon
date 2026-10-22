@@ -594,6 +594,21 @@ func (mr *MockQuerierMockRecorder) CountEventInfrastructureExercises(ctx, eventI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventInfrastructureExercises", reflect.TypeOf((*MockQuerier)(nil).CountEventInfrastructureExercises), ctx, eventID)
 }
 
+// CountEventLiveScreens mocks base method.
+func (m *MockQuerier) CountEventLiveScreens(ctx context.Context, eventID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEventLiveScreens", ctx, eventID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEventLiveScreens indicates an expected call of CountEventLiveScreens.
+func (mr *MockQuerierMockRecorder) CountEventLiveScreens(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventLiveScreens", reflect.TypeOf((*MockQuerier)(nil).CountEventLiveScreens), ctx, eventID)
+}
+
 // CountEventParticipantKinds mocks base method.
 func (m *MockQuerier) CountEventParticipantKinds(ctx context.Context, eventID uuid.UUID) (postgres.CountEventParticipantKindsRow, error) {
 	m.ctrl.T.Helper()
@@ -1384,6 +1399,21 @@ func (mr *MockQuerierMockRecorder) CreateEventLabObservation(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventLabObservation", reflect.TypeOf((*MockQuerier)(nil).CreateEventLabObservation), ctx, arg)
 }
 
+// CreateEventLiveScreen mocks base method.
+func (m *MockQuerier) CreateEventLiveScreen(ctx context.Context, arg postgres.CreateEventLiveScreenParams) (postgres.EventLiveScreen, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEventLiveScreen", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventLiveScreen)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEventLiveScreen indicates an expected call of CreateEventLiveScreen.
+func (mr *MockQuerierMockRecorder) CreateEventLiveScreen(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).CreateEventLiveScreen), ctx, arg)
+}
+
 // CreateEventManager mocks base method.
 func (m *MockQuerier) CreateEventManager(ctx context.Context, arg postgres.CreateEventManagerParams) (postgres.EventManager, error) {
 	m.ctrl.T.Helper()
@@ -2162,6 +2192,21 @@ func (m *MockQuerier) DeleteEventInAppTemplatesOfType(ctx context.Context, arg p
 func (mr *MockQuerierMockRecorder) DeleteEventInAppTemplatesOfType(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventInAppTemplatesOfType", reflect.TypeOf((*MockQuerier)(nil).DeleteEventInAppTemplatesOfType), ctx, arg)
+}
+
+// DeleteEventLiveScreen mocks base method.
+func (m *MockQuerier) DeleteEventLiveScreen(ctx context.Context, arg postgres.DeleteEventLiveScreenParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEventLiveScreen", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteEventLiveScreen indicates an expected call of DeleteEventLiveScreen.
+func (mr *MockQuerierMockRecorder) DeleteEventLiveScreen(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).DeleteEventLiveScreen), ctx, arg)
 }
 
 // DeleteEventPage mocks base method.
@@ -3813,6 +3858,21 @@ func (mr *MockQuerierMockRecorder) GetEventListColumns(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventListColumns", reflect.TypeOf((*MockQuerier)(nil).GetEventListColumns), ctx, arg)
 }
 
+// GetEventLiveScreen mocks base method.
+func (m *MockQuerier) GetEventLiveScreen(ctx context.Context, arg postgres.GetEventLiveScreenParams) (postgres.EventLiveScreen, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventLiveScreen", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventLiveScreen)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventLiveScreen indicates an expected call of GetEventLiveScreen.
+func (mr *MockQuerierMockRecorder) GetEventLiveScreen(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).GetEventLiveScreen), ctx, arg)
+}
+
 // GetEventLiveScreenLinkByTokenHash mocks base method.
 func (m *MockQuerier) GetEventLiveScreenLinkByTokenHash(ctx context.Context, tokenHash []byte) (postgres.EventLiveScreenLink, error) {
 	m.ctrl.T.Helper()
@@ -4576,6 +4636,21 @@ func (m *MockQuerier) GetFileReferenceIDs(ctx context.Context, arg postgres.GetF
 func (mr *MockQuerierMockRecorder) GetFileReferenceIDs(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFileReferenceIDs", reflect.TypeOf((*MockQuerier)(nil).GetFileReferenceIDs), ctx, arg)
+}
+
+// GetFirstEventLiveScreen mocks base method.
+func (m *MockQuerier) GetFirstEventLiveScreen(ctx context.Context, eventID uuid.UUID) (postgres.EventLiveScreen, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirstEventLiveScreen", ctx, eventID)
+	ret0, _ := ret[0].(postgres.EventLiveScreen)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFirstEventLiveScreen indicates an expected call of GetFirstEventLiveScreen.
+func (mr *MockQuerierMockRecorder) GetFirstEventLiveScreen(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirstEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).GetFirstEventLiveScreen), ctx, eventID)
 }
 
 // GetImageBlobPush mocks base method.
@@ -5967,6 +6042,21 @@ func (mr *MockQuerierMockRecorder) ListActiveBannersByUser(ctx, arg any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveBannersByUser", reflect.TypeOf((*MockQuerier)(nil).ListActiveBannersByUser), ctx, arg)
 }
 
+// ListActiveEventLiveScreenLinks mocks base method.
+func (m *MockQuerier) ListActiveEventLiveScreenLinks(ctx context.Context, arg postgres.ListActiveEventLiveScreenLinksParams) ([]postgres.EventLiveScreenLink, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveEventLiveScreenLinks", ctx, arg)
+	ret0, _ := ret[0].([]postgres.EventLiveScreenLink)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveEventLiveScreenLinks indicates an expected call of ListActiveEventLiveScreenLinks.
+func (mr *MockQuerierMockRecorder) ListActiveEventLiveScreenLinks(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveEventLiveScreenLinks", reflect.TypeOf((*MockQuerier)(nil).ListActiveEventLiveScreenLinks), ctx, arg)
+}
+
 // ListActiveFutureTimedEventFormAssignments mocks base method.
 func (m *MockQuerier) ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]postgres.EventFormAssignment, error) {
 	m.ctrl.T.Helper()
@@ -7240,6 +7330,21 @@ func (m *MockQuerier) ListEventLabObservations(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) ListEventLabObservations(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabObservations", reflect.TypeOf((*MockQuerier)(nil).ListEventLabObservations), ctx, arg)
+}
+
+// ListEventLiveScreens mocks base method.
+func (m *MockQuerier) ListEventLiveScreens(ctx context.Context, eventID uuid.UUID) ([]postgres.EventLiveScreen, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLiveScreens", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.EventLiveScreen)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLiveScreens indicates an expected call of ListEventLiveScreens.
+func (mr *MockQuerierMockRecorder) ListEventLiveScreens(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLiveScreens", reflect.TypeOf((*MockQuerier)(nil).ListEventLiveScreens), ctx, eventID)
 }
 
 // ListEventManagerUserIDs mocks base method.
@@ -10076,6 +10181,21 @@ func (mr *MockQuerierMockRecorder) LockEventForLabSourceChange(ctx, id any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventForLabSourceChange", reflect.TypeOf((*MockQuerier)(nil).LockEventForLabSourceChange), ctx, id)
 }
 
+// LockEventForLiveScreenChange mocks base method.
+func (m *MockQuerier) LockEventForLiveScreenChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventForLiveScreenChange", ctx, id)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockEventForLiveScreenChange indicates an expected call of LockEventForLiveScreenChange.
+func (mr *MockQuerierMockRecorder) LockEventForLiveScreenChange(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventForLiveScreenChange", reflect.TypeOf((*MockQuerier)(nil).LockEventForLiveScreenChange), ctx, id)
+}
+
 // LockEventForTeamChange mocks base method.
 func (m *MockQuerier) LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -10724,19 +10844,19 @@ func (mr *MockQuerierMockRecorder) PublishEventLandingDraft(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishEventLandingDraft", reflect.TypeOf((*MockQuerier)(nil).PublishEventLandingDraft), ctx, arg)
 }
 
-// PublishEventLiveLayout mocks base method.
-func (m *MockQuerier) PublishEventLiveLayout(ctx context.Context, eventID uuid.UUID) ([]byte, error) {
+// PublishEventLiveScreen mocks base method.
+func (m *MockQuerier) PublishEventLiveScreen(ctx context.Context, arg postgres.PublishEventLiveScreenParams) ([]byte, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishEventLiveLayout", ctx, eventID)
+	ret := m.ctrl.Call(m, "PublishEventLiveScreen", ctx, arg)
 	ret0, _ := ret[0].([]byte)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// PublishEventLiveLayout indicates an expected call of PublishEventLiveLayout.
-func (mr *MockQuerierMockRecorder) PublishEventLiveLayout(ctx, eventID any) *gomock.Call {
+// PublishEventLiveScreen indicates an expected call of PublishEventLiveScreen.
+func (mr *MockQuerierMockRecorder) PublishEventLiveScreen(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishEventLiveLayout", reflect.TypeOf((*MockQuerier)(nil).PublishEventLiveLayout), ctx, eventID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).PublishEventLiveScreen), ctx, arg)
 }
 
 // PublishExerciseDraft mocks base method.
@@ -11358,6 +11478,21 @@ func (mr *MockQuerierMockRecorder) RemoveEventTeamStands(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveEventTeamStands", reflect.TypeOf((*MockQuerier)(nil).RemoveEventTeamStands), ctx, arg)
 }
 
+// RenameEventLiveScreen mocks base method.
+func (m *MockQuerier) RenameEventLiveScreen(ctx context.Context, arg postgres.RenameEventLiveScreenParams) (postgres.EventLiveScreen, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenameEventLiveScreen", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventLiveScreen)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenameEventLiveScreen indicates an expected call of RenameEventLiveScreen.
+func (mr *MockQuerierMockRecorder) RenameEventLiveScreen(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenameEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).RenameEventLiveScreen), ctx, arg)
+}
+
 // ReorderPlatformSMTPProviders mocks base method.
 func (m *MockQuerier) ReorderPlatformSMTPProviders(ctx context.Context, ids []uuid.UUID) error {
 	m.ctrl.T.Helper()
@@ -11726,19 +11861,19 @@ func (mr *MockQuerierMockRecorder) SaveEventLandingDraft(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventLandingDraft", reflect.TypeOf((*MockQuerier)(nil).SaveEventLandingDraft), ctx, arg)
 }
 
-// SaveEventLiveLayoutDraft mocks base method.
-func (m *MockQuerier) SaveEventLiveLayoutDraft(ctx context.Context, arg postgres.SaveEventLiveLayoutDraftParams) (int64, error) {
+// SaveEventLiveScreenDraft mocks base method.
+func (m *MockQuerier) SaveEventLiveScreenDraft(ctx context.Context, arg postgres.SaveEventLiveScreenDraftParams) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SaveEventLiveLayoutDraft", ctx, arg)
+	ret := m.ctrl.Call(m, "SaveEventLiveScreenDraft", ctx, arg)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// SaveEventLiveLayoutDraft indicates an expected call of SaveEventLiveLayoutDraft.
-func (mr *MockQuerierMockRecorder) SaveEventLiveLayoutDraft(ctx, arg any) *gomock.Call {
+// SaveEventLiveScreenDraft indicates an expected call of SaveEventLiveScreenDraft.
+func (mr *MockQuerierMockRecorder) SaveEventLiveScreenDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventLiveLayoutDraft", reflect.TypeOf((*MockQuerier)(nil).SaveEventLiveLayoutDraft), ctx, arg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventLiveScreenDraft", reflect.TypeOf((*MockQuerier)(nil).SaveEventLiveScreenDraft), ctx, arg)
 }
 
 // SaveEventPageDraft mocks base method.
@@ -11959,6 +12094,21 @@ func (m *MockQuerier) SetEventExerciseStage(ctx context.Context, arg postgres.Se
 func (mr *MockQuerierMockRecorder) SetEventExerciseStage(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEventExerciseStage", reflect.TypeOf((*MockQuerier)(nil).SetEventExerciseStage), ctx, arg)
+}
+
+// SetEventLiveScreenPosition mocks base method.
+func (m *MockQuerier) SetEventLiveScreenPosition(ctx context.Context, arg postgres.SetEventLiveScreenPositionParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEventLiveScreenPosition", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetEventLiveScreenPosition indicates an expected call of SetEventLiveScreenPosition.
+func (mr *MockQuerierMockRecorder) SetEventLiveScreenPosition(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEventLiveScreenPosition", reflect.TypeOf((*MockQuerier)(nil).SetEventLiveScreenPosition), ctx, arg)
 }
 
 // SetEventParticipantInvitedTeam mocks base method.
