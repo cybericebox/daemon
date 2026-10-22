@@ -5798,6 +5798,11 @@ definitions:
         $ref: '#/definitions/eventself.resultsDisplayResponse'
       Freeze:
         $ref: '#/definitions/eventself.resultsFreezeResponse'
+      MaxPoints:
+        description: |-
+          MaxPoints: the points all published tasks can award at most (static
+          points or dynamic max), only on the live screen (view=live).
+        type: integer
       Revision:
         type: integer
       Scoreboard:
