@@ -420,3 +420,83 @@ func TestLiveWidgetsOfAllScenesAreBounded(t *testing.T) {
 		t.Fatal("97 widgets in all scenes accepted")
 	}
 }
+
+func TestLiveWidgetColours(t *testing.T) {
+	// Every widget takes its fill, text and accent colour.
+	for _, kind := range []string{"title", "timer", "chart", "table", "logos", "solves", "announcement", "qr", "podium", "facts", "stages", "clock"} {
+		for _, fill := range []string{`"tile"`, `"brand"`, `"accent"`, `"#1A2b3C"`} {
+			props := map[string]json.RawMessage{"background": json.RawMessage(fill), "textColor": json.RawMessage(`"#ffffff"`), "accentColor": json.RawMessage(`"#00C2FF"`)}
+			layout := widgetLayout(kind, props)
+			layout.Widgets[0].H = 3
+			if err := layout.Validate(); err != nil {
+				t.Fatalf("%s colours %s rejected: %v", kind, fill, err)
+			}
+		}
+	}
+	for _, props := range []map[string]json.RawMessage{
+		{"background": json.RawMessage(`"#fff"`)},
+		{"background": json.RawMessage(`"red"`)},
+		{"background": json.RawMessage(`"#12345g"`)},
+		{"background": json.RawMessage(`"#1234567"`)},
+		{"background": json.RawMessage(`""`)},
+		{"background": json.RawMessage(`1`)},
+		{"textColor": json.RawMessage(`"tile"`)},
+		{"textColor": json.RawMessage(`"#fff"`)},
+		{"textColor": json.RawMessage(`"123456"`)},
+		{"accentColor": json.RawMessage(`"accent"`)},
+		{"accentColor": json.RawMessage(`"#00C2FF80"`)},
+		{"accentColor": json.RawMessage(`null`)},
+	} {
+		if err := widgetLayout("chart", props).Validate(); err == nil {
+			t.Fatalf("chart %v accepted", props)
+		}
+	}
+}
+
+func TestLiveRankingHighlights(t *testing.T) {
+	type check struct {
+		kind  string
+		props map[string]json.RawMessage
+	}
+	places := json.RawMessage(`["#FFD700","#c0c0c0","#CD7F32"]`)
+	valid := []check{
+		{"table", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"none"`)}},
+		{"table", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"accent"`), "showBars": json.RawMessage(`true`)}},
+		{"table", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"medals"`), "placeColors": places, "showBars": json.RawMessage(`false`)}},
+		{"podium", map[string]json.RawMessage{"variant": json.RawMessage(`"steps"`), "showRing": json.RawMessage(`true`)}},
+		{"podium", map[string]json.RawMessage{"variant": json.RawMessage(`"cards"`), "showRing": json.RawMessage(`false`), "highlightTop": json.RawMessage(`"medals"`), "placeColors": places}},
+	}
+	for _, item := range valid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("%s %v rejected: %v", item.kind, item.props, err)
+		}
+	}
+	invalid := []check{
+		{"table", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"gold"`)}},
+		{"table", map[string]json.RawMessage{"highlightTop": json.RawMessage(`true`)}},
+		{"table", map[string]json.RawMessage{"showBars": json.RawMessage(`"yes"`)}},
+		{"table", map[string]json.RawMessage{"placeColors": json.RawMessage(`["#FFD700","#C0C0C0"]`)}},
+		{"table", map[string]json.RawMessage{"placeColors": json.RawMessage(`["#FFD700","#C0C0C0","#CD7F32","#000000"]`)}},
+		{"table", map[string]json.RawMessage{"placeColors": json.RawMessage(`["#FFD700","#C0C0C0","#fff"]`)}},
+		{"table", map[string]json.RawMessage{"placeColors": json.RawMessage(`["gold","silver","bronze"]`)}},
+		{"table", map[string]json.RawMessage{"placeColors": json.RawMessage(`"#FFD700"`)}},
+		{"podium", map[string]json.RawMessage{"variant": json.RawMessage(`"tower"`)}},
+		{"podium", map[string]json.RawMessage{"showRing": json.RawMessage(`1`)}},
+		{"podium", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"all"`)}},
+		{"podium", map[string]json.RawMessage{"placeColors": json.RawMessage(`[]`)}},
+		// The ranking settings belong to the table and the podium only.
+		{"table", map[string]json.RawMessage{"variant": json.RawMessage(`"cards"`)}},
+		{"podium", map[string]json.RawMessage{"showBars": json.RawMessage(`true`)}},
+		{"chart", map[string]json.RawMessage{"highlightTop": json.RawMessage(`"accent"`)}},
+		{"solves", map[string]json.RawMessage{"placeColors": places}},
+	}
+	for _, item := range invalid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("%s %v accepted", item.kind, item.props)
+		}
+	}
+}

@@ -83,13 +83,15 @@ func (u *EventUseCase) resultsSnapshot(ctx context.Context, eventID uuid.UUID, s
 		view.Scoreboard, view.Timeline = presentResults(entries, timeline, settings, own)
 	} else {
 		// The facts block of the screen: the same public number as the
-		// landing variable event.availableChallengeCount. A failed count only
-		// drops that fact; the board itself is read.
+		// landing variable event.availableChallengeCount, plus the points the
+		// published tasks can award at most. A failed count only drops those
+		// facts; the board itself is read.
 		statistics, statErr := u.eventChallenges.ContentStatistics(ctx, eventID, nil)
 		if statErr != nil {
 			log.Warn().Err(statErr).Stringer("event_id", eventID).Msg("live results: task count failed")
 		} else {
 			view.Tasks = &statistics.PublishedChallengeCount
+			view.MaxPoints = &statistics.PublishedMaxPoints
 		}
 	}
 	if !showRealNames {

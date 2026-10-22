@@ -142,8 +142,66 @@ func TestGetEventContentStatisticsCountsChallengesAndAcceptedSolves(t *testing.T
 	if err != nil {
 		t.Fatalf("get content statistics: %v", err)
 	}
-	if stats.ChallengeCount != 2 || stats.PublishedChallengeCount != 1 || stats.SolvedChallengeCount != 1 || stats.SolveCount != 2 {
+	if stats.ChallengeCount != 2 || stats.PublishedChallengeCount != 1 || stats.PublishedMaxPoints != 100 || stats.SolvedChallengeCount != 1 || stats.SolveCount != 2 {
 		t.Fatalf("unexpected content statistics: %+v", stats)
+	}
+}
+
+// The live screen's MaxPoints: every published task adds its top value, the
+// effective static points or the resolved dynamic max, under the same
+// precedence as the scoring context (forced event > local override > event).
+func TestGetEventContentStatisticsSumsPublishedMaxPoints(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	event := mustSeedEventForParticipants(t, db, "contentmaxpoints")
+	follows := mustCreateScoringChallenge(t, db.Queries, event.ID)
+	order := int32(0)
+	add := func(points int32, published bool, local string) {
+		t.Helper()
+		order++
+		id := uuid.Must(uuid.NewV7())
+		if _, err := db.Queries.CreateEventChallenge(ctx, postgres.CreateEventChallengeParams{
+			ID: id, EventExerciseID: follows.EventExerciseID, TaskID: uuid.Must(uuid.NewV7()),
+			OrderIndex: order, Points: points, Snapshot: []byte(`{}`), CreatedAt: itNow,
+		}); err != nil {
+			t.Fatalf("create challenge: %v", err)
+		}
+		if _, err := db.Pool.Exec(ctx, `UPDATE event_challenges SET published = $2`+local+` WHERE id = $1`, id, published); err != nil {
+			t.Fatalf("set challenge scoring: %v", err)
+		}
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE event_challenges SET published = true WHERE id = $1`, follows.ID); err != nil {
+		t.Fatal(err)
+	}
+	// follows: 100 points, no override; a local dynamic override up to 300; a
+	// local static override of 70; an unpublished task never counts.
+	add(200, true, `, scoring_mode = 1, dynamic_algorithm = 0, dynamic_min_points = 50, dynamic_max_points = 300, dynamic_floor_at_percent = 50`)
+	add(70, true, `, scoring_mode = 0`)
+	add(900, false, `, scoring_mode = 1, dynamic_algorithm = 0, dynamic_min_points = 50, dynamic_max_points = 800, dynamic_floor_at_percent = 50`)
+
+	cases := []struct {
+		name  string
+		event string
+		want  int64
+	}{
+		// A static event always has its points (events_static_points_required_check).
+		{"static event points for followers only", `scoring_mode = 0, static_points = 50, force_event_scoring = false`, 50 + 300 + 70},
+		{"dynamic event max for followers only", `scoring_mode = 1, dynamic_min_points = 10, dynamic_max_points = 500, force_event_scoring = false`, 500 + 300 + 70},
+		{"dynamic event without static points", `scoring_mode = 1, static_points = NULL, force_event_scoring = false`, 500 + 300 + 70},
+		{"forced dynamic event", `scoring_mode = 1, force_event_scoring = true`, 3 * 500},
+		{"forced static event points", `scoring_mode = 0, static_points = 40, force_event_scoring = true`, 3 * 40},
+	}
+	for _, tc := range cases {
+		if _, err := db.Pool.Exec(ctx, `UPDATE events SET `+tc.event+` WHERE id = $1`, event.ID); err != nil {
+			t.Fatalf("%s: set event scoring: %v", tc.name, err)
+		}
+		stats, err := db.Queries.GetEventContentStatistics(ctx, postgres.GetEventContentStatisticsParams{EventID: event.ID})
+		if err != nil {
+			t.Fatalf("%s: get content statistics: %v", tc.name, err)
+		}
+		if stats.PublishedMaxPoints != tc.want || stats.PublishedChallengeCount != 3 {
+			t.Fatalf("%s: want max points %d of 3 tasks, got %+v", tc.name, tc.want, stats)
+		}
 	}
 }
 

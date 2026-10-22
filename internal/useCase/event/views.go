@@ -818,9 +818,12 @@ type ResultsSnapshotView struct {
 	TotalTeams int
 	// Tasks counts the published tasks, for the live screen facts only
 	// (view=live); the results page leaves it nil.
-	Tasks   *int64
-	Freeze  ResultsFreezeView
-	Display ResultsDisplayView
+	Tasks *int64
+	// MaxPoints sums the top value of every published task, alongside Tasks
+	// (view=live only).
+	MaxPoints *int64
+	Freeze    ResultsFreezeView
+	Display   ResultsDisplayView
 }
 
 // ResultsFreezeView is the scoreboard freeze state. Applied tells whether the

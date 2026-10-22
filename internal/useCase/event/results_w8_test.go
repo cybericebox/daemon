@@ -109,15 +109,18 @@ func TestGetResultsSnapshotLiveScreenFollowsLiveFreeze(t *testing.T) {
 	teams := []postgres.ListEventScoreboardRow{{TeamID: uuid.Must(uuid.NewV7())}, {TeamID: uuid.Must(uuid.NewV7())}}
 	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID}).Return(teams, nil)
 	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID}).Return(nil, nil)
-	q.EXPECT().GetEventContentStatistics(gomock.Any(), postgres.GetEventContentStatisticsParams{EventID: eventID}).Return(postgres.GetEventContentStatisticsRow{PublishedChallengeCount: 12}, nil)
+	q.EXPECT().GetEventContentStatistics(gomock.Any(), postgres.GetEventContentStatisticsParams{EventID: eventID}).Return(postgres.GetEventContentStatisticsRow{PublishedChallengeCount: 12, PublishedMaxPoints: 1450}, nil)
 
 	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{Role: rbac.RoleSuperAdmin}, true)
 	if err != nil || got.Freeze.Applied || len(got.Scoreboard) != 2 {
 		t.Fatalf("live screen = %+v rows %d, %v", got.Freeze, len(got.Scoreboard), err)
 	}
-	// The facts block counts the published tasks.
+	// The facts block counts the published tasks and the points they award at most.
 	if got.Tasks == nil || *got.Tasks != 12 {
 		t.Fatalf("live screen tasks = %v", got.Tasks)
+	}
+	if got.MaxPoints == nil || *got.MaxPoints != 1450 {
+		t.Fatalf("live screen max points = %v", got.MaxPoints)
 	}
 }
 
@@ -360,8 +363,8 @@ func TestGetResultsSnapshotPageHasNoTaskCount(t *testing.T) {
 	q.EXPECT().GetEventContentStatistics(gomock.Any(), gomock.Any()).Times(0)
 
 	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{Role: rbac.RoleSuperAdmin}, false)
-	if err != nil || got.Tasks != nil {
-		t.Fatalf("page tasks = %v, %v", got.Tasks, err)
+	if err != nil || got.Tasks != nil || got.MaxPoints != nil {
+		t.Fatalf("page tasks = %v max points = %v, %v", got.Tasks, got.MaxPoints, err)
 	}
 }
 
@@ -382,7 +385,7 @@ func TestGetResultsSnapshotLiveScreenSurvivesTaskCountFailure(t *testing.T) {
 	q.EXPECT().GetEventContentStatistics(gomock.Any(), gomock.Any()).Return(postgres.GetEventContentStatisticsRow{}, errors.New("db down"))
 
 	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{Role: rbac.RoleSuperAdmin}, true)
-	if err != nil || got.Tasks != nil || len(got.Scoreboard) != 1 {
+	if err != nil || got.Tasks != nil || got.MaxPoints != nil || len(got.Scoreboard) != 1 {
 		t.Fatalf("live screen = tasks %v rows %d, %v", got.Tasks, len(got.Scoreboard), err)
 	}
 }

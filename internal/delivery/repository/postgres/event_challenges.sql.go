@@ -225,9 +225,17 @@ func (q *Queries) GetEventChallengeForEvent(ctx context.Context, arg GetEventCha
 const getEventContentStatistics = `-- name: GetEventContentStatistics :one
 WITH challenges AS (
     SELECT count(*)::bigint AS challenge_count,
-           count(*) FILTER (WHERE ec.published)::bigint AS published_challenge_count
+           count(*) FILTER (WHERE ec.published)::bigint AS published_challenge_count,
+           COALESCE(sum(
+               CASE WHEN (CASE WHEN e.force_event_scoring OR ec.scoring_mode IS NULL THEN e.scoring_mode ELSE ec.scoring_mode END) = 0
+                    THEN (CASE WHEN e.static_points IS NOT NULL AND e.scoring_mode = 0
+                                    AND (e.force_event_scoring OR ec.scoring_mode IS NULL)
+                               THEN e.static_points ELSE ec.points END)
+                    ELSE (CASE WHEN e.force_event_scoring OR ec.scoring_mode IS NULL THEN e.dynamic_max_points ELSE ec.dynamic_max_points END)
+               END) FILTER (WHERE ec.published), 0)::bigint AS published_max_points
     FROM event_challenges ec
     JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+    JOIN events e ON e.id = ee.event_id
     WHERE ee.event_id = $1
 ), solves AS (
     SELECT count(DISTINCT tc.event_challenge_id)::bigint AS solved_challenge_count,
@@ -242,6 +250,7 @@ WITH challenges AS (
 )
 SELECT challenges.challenge_count,
        challenges.published_challenge_count,
+       challenges.published_max_points,
        solves.solved_challenge_count,
        solves.solve_count
 FROM challenges
@@ -256,6 +265,7 @@ type GetEventContentStatisticsParams struct {
 type GetEventContentStatisticsRow struct {
 	ChallengeCount          int64 `json:"challenge_count"`
 	PublishedChallengeCount int64 `json:"published_challenge_count"`
+	PublishedMaxPoints      int64 `json:"published_max_points"`
 	SolvedChallengeCount    int64 `json:"solved_challenge_count"`
 	SolveCount              int64 `json:"solve_count"`
 }
@@ -264,12 +274,16 @@ type GetEventContentStatisticsRow struct {
 // attempts. A rejected or later-reversed submission therefore cannot inflate
 // a landing-page statistic. Only published tasks and visible (admitted, not hidden) teams count, and, while the
 // results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
+// published_max_points sums each published task's top value: its effective static points when it scores
+// statically, else the max points of its resolved dynamic profile (the event's when forced or not
+// overridden), the same precedence as GetTeamChallengeScoringContext and eventModel.ResolveScoringProfile.
 func (q *Queries) GetEventContentStatistics(ctx context.Context, arg GetEventContentStatisticsParams) (GetEventContentStatisticsRow, error) {
 	row := q.db.QueryRow(ctx, getEventContentStatistics, arg.EventID, arg.Cutoff)
 	var i GetEventContentStatisticsRow
 	err := row.Scan(
 		&i.ChallengeCount,
 		&i.PublishedChallengeCount,
+		&i.PublishedMaxPoints,
 		&i.SolvedChallengeCount,
 		&i.SolveCount,
 	)
