@@ -500,3 +500,54 @@ func TestLiveRankingHighlights(t *testing.T) {
 		}
 	}
 }
+
+func TestLivePlaceMarkersLegendAndChartLabels(t *testing.T) {
+	type check struct {
+		kind  string
+		props map[string]json.RawMessage
+	}
+	images := json.RawMessage(`["/api/events/e/content-images/1","https://cdn.example.org/2.png","/api/events/e/content-images/3"]`)
+	valid := []check{
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`"numbers"`), "showLegend": json.RawMessage(`true`)}},
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`"medals"`), "showLegend": json.RawMessage(`false`)}},
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`"medal-icons"`)}},
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`"images"`), "placeImages": images}},
+		{"podium", map[string]json.RawMessage{"marker": json.RawMessage(`"cups"`)}},
+		{"podium", map[string]json.RawMessage{"marker": json.RawMessage(`"images"`), "placeImages": images}},
+		{"chart", map[string]json.RawMessage{"labels": json.RawMessage(`"chart"`)}},
+		{"chart", map[string]json.RawMessage{"labels": json.RawMessage(`"none"`), "lines": json.RawMessage(`7`)}},
+	}
+	for _, item := range valid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("%s %v rejected: %v", item.kind, item.props, err)
+		}
+	}
+	invalid := []check{
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`"stars"`)}},
+		{"table", map[string]json.RawMessage{"marker": json.RawMessage(`1`)}},
+		{"table", map[string]json.RawMessage{"showLegend": json.RawMessage(`"yes"`)}},
+		{"table", map[string]json.RawMessage{"placeImages": json.RawMessage(`["/a.png","/b.png"]`)}},
+		{"table", map[string]json.RawMessage{"placeImages": json.RawMessage(`["/a.png","/b.png","/c.png","/d.png"]`)}},
+		// Plain HTTP, protocol-relative and script addresses are refused like for logos.
+		{"table", map[string]json.RawMessage{"placeImages": json.RawMessage(`["http://cdn.example.org/1.png","/b.png","/c.png"]`)}},
+		{"podium", map[string]json.RawMessage{"placeImages": json.RawMessage(`["//evil.example/1.png","/b.png","/c.png"]`)}},
+		{"podium", map[string]json.RawMessage{"placeImages": json.RawMessage(`["javascript:alert(1)","/b.png","/c.png"]`)}},
+		{"podium", map[string]json.RawMessage{"placeImages": json.RawMessage(`["","/b.png","/c.png"]`)}},
+		{"podium", map[string]json.RawMessage{"placeImages": json.RawMessage(`"/a.png"`)}},
+		{"chart", map[string]json.RawMessage{"labels": json.RawMessage(`"legend"`)}},
+		// Each setting belongs to its widgets only.
+		{"podium", map[string]json.RawMessage{"showLegend": json.RawMessage(`true`)}},
+		{"chart", map[string]json.RawMessage{"marker": json.RawMessage(`"numbers"`)}},
+		{"table", map[string]json.RawMessage{"labels": json.RawMessage(`"chart"`)}},
+		{"solves", map[string]json.RawMessage{"placeImages": images}},
+	}
+	for _, item := range invalid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("%s %v accepted", item.kind, item.props)
+		}
+	}
+}

@@ -163,15 +163,17 @@ var livePropTypes = map[string]map[string]string{
 	"title": {"subtitle": "text", "subtitleStage": "boolean", "showLogo": "boolean", "align": "align"},
 	"timer": {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size",
 		"digits": "timer-digits", "atZero": "timer-zero", "zeroText": "short-text", "lastMinutes": "last-minutes", "align": "align"},
-	"chart": {"lines": "lines"},
+	"chart": {"lines": "lines", "labels": "chart-labels"},
 	"table": {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset",
-		"highlightTop": "highlight-top", "placeColors": "place-colors", "showBars": "boolean"},
+		"highlightTop": "highlight-top", "placeColors": "place-colors", "showBars": "boolean", "marker": "place-marker", "placeImages": "place-images",
+		"showLegend": "boolean"},
 	"ad_table":     {"columns": "text-list"},
 	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean", "rows": "logo-rows"},
 	"solves":       {"rows": "rows", "mode": "solves-mode"},
 	"announcement": {"text": "text", "align": "align"},
 	"qr":           {"url": "url", "value": "qr-value", "caption": "short-text"},
-	"podium":       {"showPoints": "boolean", "variant": "podium-variant", "showRing": "boolean", "highlightTop": "highlight-top", "placeColors": "place-colors"},
+	"podium":       {"showPoints": "boolean", "variant": "podium-variant", "showRing": "boolean", "highlightTop": "highlight-top", "placeColors": "place-colors",
+		"marker": "place-marker", "placeImages": "place-images"},
 	"facts":        {"items": "fact-list"},
 	"stages":       {"showDone": "boolean"},
 	"clock":        {"showSeconds": "boolean", "label": "short-text", "align": "align"},
@@ -340,7 +342,7 @@ func (w LiveWidget) validateProps() error {
 				seen[value] = true
 			}
 		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color", "text-size", "align", "timer-digits", "timer-zero", "solves-mode",
-			"highlight-top", "podium-variant":
+			"highlight-top", "podium-variant", "place-marker", "chart-labels":
 			var value string
 			if json.Unmarshal(raw, &value) != nil || !liveEnumValue(kind, value) {
 				return fmt.Errorf("invalid choice property %q", key)
@@ -385,6 +387,18 @@ func (w LiveWidget) validateProps() error {
 			for _, value := range values {
 				if !validLiveHex(value) {
 					return fmt.Errorf("invalid colour list %q", key)
+				}
+			}
+		case "place-images":
+			// The images of places 1, 2 and 3, in that order: uploaded files
+			// or HTTPS images, like the logos.
+			var values []string
+			if json.Unmarshal(raw, &values) != nil || len(values) != 3 {
+				return fmt.Errorf("invalid image list %q", key)
+			}
+			for _, value := range values {
+				if !validLiveImageURL(value) {
+					return fmt.Errorf("invalid image list %q", key)
 				}
 			}
 		}
@@ -462,7 +476,7 @@ func (w LiveWidget) validateTimer() error {
 func validLogoItems(items []map[string]json.RawMessage) bool {
 	image := func(raw json.RawMessage) bool {
 		var value string
-		return json.Unmarshal(raw, &value) == nil && validLiveURL(value) && !strings.HasPrefix(value, "http://")
+		return json.Unmarshal(raw, &value) == nil && validLiveImageURL(value)
 	}
 	for _, item := range items {
 		src, ok := item["src"]
@@ -476,6 +490,12 @@ func validLogoItems(items []map[string]json.RawMessage) bool {
 		}
 	}
 	return true
+}
+
+// validLiveImageURL: an image on the screen is an uploaded file (a site
+// path) or an HTTPS address; plain HTTP is refused.
+func validLiveImageURL(value string) bool {
+	return validLiveURL(value) && !strings.HasPrefix(value, "http://")
 }
 
 // looksLikeURL: QR content that starts like a web address must be a valid one.
@@ -522,6 +542,13 @@ func liveEnumValue(kind, value string) bool {
 		return value == "none" || value == "accent" || value == "medals"
 	case "podium-variant":
 		return value == "steps" || value == "cards"
+	case "place-marker":
+		// How a place is marked: its number, coloured medal circles, medal
+		// or cup icons, or the organizer's own images (placeImages).
+		return value == "numbers" || value == "medals" || value == "medal-icons" || value == "cups" || value == "images"
+	case "chart-labels":
+		// Team names at the line ends («chart») or none.
+		return value == "chart" || value == "none"
 	default:
 		return false
 	}
