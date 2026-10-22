@@ -33381,6 +33381,10 @@ const docTemplate = `{
                 "Freeze": {
                     "$ref": "#/definitions/eventself.resultsFreezeResponse"
                 },
+                "MaxPoints": {
+                    "description": "MaxPoints: the points all published tasks can award at most (static\npoints or dynamic max), only on the live screen (view=live).",
+                    "type": "integer"
+                },
                 "Revision": {
                     "type": "integer"
                 },
