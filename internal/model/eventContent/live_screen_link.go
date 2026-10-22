@@ -10,12 +10,14 @@ import (
 )
 
 // LiveScreenLink lets a projector or LED PC that is not signed in open this
-// event's live screen: read-only, the staff view of the published layout.
-// An event has at most one working link; issuing a new one revokes the old.
+// event's live screen: read-only, the staff view of the published layout of
+// its screen (LiveDisplay). A screen has at most one working link; issuing a
+// new one revokes the old.
 // Only the SHA-256 of the token is stored; the token itself is shown once.
 type LiveScreenLink struct {
 	ID        uuid.UUID
 	EventID   uuid.UUID
+	ScreenID  uuid.UUID
 	TokenHash []byte
 	CreatedAt time.Time
 	CreatedBy uuid.UUID
@@ -68,21 +70,21 @@ func liveScreenExpiresAt(expiry LiveScreenExpiry, now time.Time, finish *time.Ti
 
 // NewLiveScreenLink issues a link for the chosen expiry (finish is the
 // event's effective finish) and returns it with its token.
-func NewLiveScreenLink(eventID, by uuid.UUID, now time.Time, expiry LiveScreenExpiry, finish *time.Time) (LiveScreenLink, string, error) {
+func NewLiveScreenLink(eventID, screenID, by uuid.UUID, now time.Time, expiry LiveScreenExpiry, finish *time.Time) (LiveScreenLink, string, error) {
 	expiresAt, ok := liveScreenExpiresAt(expiry, now, finish)
 	if !ok {
 		return LiveScreenLink{}, "", ErrLiveScreenLinkExpiryInvalid.Err()
 	}
-	return issueLiveScreenLink(eventID, by, now, expiresAt)
+	return issueLiveScreenLink(eventID, screenID, by, now, expiresAt)
 }
 
-// Regenerate issues a new token for the same event and expiry; the caller
+// Regenerate issues a new token for the same screen and expiry; the caller
 // stores it together with revoking this link.
 func (l *LiveScreenLink) Regenerate(by uuid.UUID, now time.Time) (LiveScreenLink, string, error) {
-	return issueLiveScreenLink(l.EventID, by, now, l.ExpiresAt)
+	return issueLiveScreenLink(l.EventID, l.ScreenID, by, now, l.ExpiresAt)
 }
 
-func issueLiveScreenLink(eventID, by uuid.UUID, now time.Time, expiresAt *time.Time) (LiveScreenLink, string, error) {
+func issueLiveScreenLink(eventID, screenID, by uuid.UUID, now time.Time, expiresAt *time.Time) (LiveScreenLink, string, error) {
 	raw := make([]byte, liveScreenTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return LiveScreenLink{}, "", err
@@ -92,7 +94,7 @@ func issueLiveScreenLink(eventID, by uuid.UUID, now time.Time, expiresAt *time.T
 		return LiveScreenLink{}, "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	return LiveScreenLink{ID: id, EventID: eventID, TokenHash: HashLiveScreenToken(token), CreatedAt: now, CreatedBy: by, ExpiresAt: expiresAt}, token, nil
+	return LiveScreenLink{ID: id, EventID: eventID, ScreenID: screenID, TokenHash: HashLiveScreenToken(token), CreatedAt: now, CreatedBy: by, ExpiresAt: expiresAt}, token, nil
 }
 
 // HashLiveScreenToken is the stored form of a token.

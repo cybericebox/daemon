@@ -22,8 +22,6 @@ type Queries interface {
 	SaveEventLandingDraft(context.Context, postgres.SaveEventLandingDraftParams) (int64, error)
 	PublishEventLandingDraft(context.Context, postgres.PublishEventLandingDraftParams) (int64, error)
 	DiscardEventLandingDraft(context.Context, uuid.UUID) (int64, error)
-	SaveEventLiveLayoutDraft(context.Context, postgres.SaveEventLiveLayoutDraftParams) (int64, error)
-	PublishEventLiveLayout(context.Context, uuid.UUID) ([]byte, error)
 	CreateEventPage(context.Context, postgres.CreateEventPageParams) (postgres.EventPage, error)
 	GetEventPageBySlug(context.Context, postgres.GetEventPageBySlugParams) (postgres.EventPage, error)
 	ListEventPages(context.Context, uuid.UUID) ([]postgres.EventPage, error)
@@ -52,7 +50,11 @@ func (r *Repository) GetSettings(ctx context.Context, eventID uuid.UUID) (eventC
 		}
 		settings.LandingDraft = &draft
 	}
-	if err = json.Unmarshal(row.LiveLayout, &settings.Live); err != nil {
+	// Live is the event's first screen; every event has one (a trigger
+	// adds it), the default layout covers a row written around it.
+	if len(row.LiveLayout) == 0 {
+		settings.Live = eventContentModel.DefaultLiveLayout()
+	} else if err = json.Unmarshal(row.LiveLayout, &settings.Live); err != nil {
 		return eventContentModel.Settings{}, err
 	}
 	if len(row.LiveLayoutDraft) > 0 {
@@ -85,28 +87,6 @@ func (r *Repository) PublishLanding(ctx context.Context, eventID uuid.UUID, docu
 
 func (r *Repository) DiscardLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error) {
 	return r.q.DiscardEventLandingDraft(ctx, eventID)
-}
-
-func (r *Repository) SaveLiveDraft(ctx context.Context, eventID uuid.UUID, layout eventContentModel.LiveLayout) (int64, error) {
-	encoded, err := json.Marshal(layout)
-	if err != nil {
-		return 0, err
-	}
-	return r.q.SaveEventLiveLayoutDraft(ctx, postgres.SaveEventLiveLayoutDraftParams{
-		EventID: eventID, LiveLayoutDraft: encoded,
-	})
-}
-
-func (r *Repository) PublishLive(ctx context.Context, eventID uuid.UUID) (eventContentModel.LiveLayout, error) {
-	encoded, err := r.q.PublishEventLiveLayout(ctx, eventID)
-	if err != nil {
-		return eventContentModel.LiveLayout{}, err
-	}
-	var layout eventContentModel.LiveLayout
-	if err := json.Unmarshal(encoded, &layout); err != nil {
-		return eventContentModel.LiveLayout{}, err
-	}
-	return layout, layout.ValidateStored()
 }
 
 // Create stores a new, unpublished page: its columns mirror its draft.

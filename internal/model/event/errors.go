@@ -8,7 +8,7 @@ import (
 
 // Error-code convention: see internal/model/exercise/errors.go. Enforced by
 // `make lint-errors`. Each var has exactly one non-test call site.
-// EventObjectCode: next free detail code: 55.
+// EventObjectCode: next free detail code: 60 (55-59: live screens, eventContentModel).
 //
 // EventObjectCode — detail codes 10–13 are reserved by eventContent.
 var (

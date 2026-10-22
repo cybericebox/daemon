@@ -190,7 +190,8 @@ func (h *Handler) discardLandingDraft(ctx *gin.Context) {
 }
 
 // saveLiveLayoutDraft godoc
-// @Summary Save an event live-screen layout draft
+// @Summary Save the live-screen layout draft of the event's first screen
+// @Description The single-screen route: the same as PUT content/live/screens/{screenID}/draft for the first screen.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -199,6 +200,10 @@ func (h *Handler) discardLandingDraft(ctx *gin.Context) {
 // @Success 204
 // @Router /events/{id}/manage/content/live [put]
 func (h *Handler) saveLiveLayoutDraft(ctx *gin.Context) {
+	h.saveLiveDraft(ctx, uuid.Nil)
+}
+
+func (h *Handler) saveLiveDraft(ctx *gin.Context, screenID uuid.UUID) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
@@ -208,7 +213,7 @@ func (h *Handler) saveLiveLayoutDraft(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err := h.useCase.SaveLiveLayoutDraft(ctx, eventID, request.Layout); err != nil {
+	if err := h.useCase.SaveLiveLayoutDraft(ctx, eventID, screenID, request.Layout); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
@@ -216,63 +221,76 @@ func (h *Handler) saveLiveLayoutDraft(ctx *gin.Context) {
 }
 
 // getLiveLayoutEditor godoc
-// @Summary Read published and draft live-screen layouts
+// @Summary Read published and draft live-screen layouts of a screen
+// @Description Without ?screen the event's first screen (the single-screen route). The moderator /live page reads the screen it shows with ?screen.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
-// @Success 200 {object} response.Response
+// @Param screen query string false "screen ID (default: the first screen)"
+// @Success 200 {object} response.Response{data=liveScreenEditorSwaggerResponse}
 // @Router /events/{id}/manage/content/live [get]
 func (h *Handler) getLiveLayoutEditor(ctx *gin.Context) {
-	eventID, ok := parseEventID(ctx)
+	screenID, ok := parseScreenQuery(ctx)
 	if !ok {
 		return
 	}
-	view, err := h.useCase.GetLiveLayoutEditor(ctx, eventID)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, view)
+	h.serveLiveScreenEditor(ctx, screenID)
 }
 
 type liveLayoutVersionResponse struct {
 	Version int64 `json:"Version"`
+	// ScreenID is the screen the version belongs to.
+	ScreenID uuid.UUID `json:"ScreenID"`
 }
 
 // getLiveLayoutVersion godoc
-// @Summary Read the published live-screen layout version
-// @Description A light check for open live screens: reload the layout only when the version changes.
+// @Summary Read the published live-screen layout version of a screen
+// @Description A light check for open live screens: reload the layout only when the version changes. Without ?screen the event's first screen.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
+// @Param screen query string false "screen ID (default: the first screen)"
 // @Success 200 {object} response.Response{data=liveLayoutVersionResponse}
 // @Router /events/{id}/manage/content/live/version [get]
 func (h *Handler) getLiveLayoutVersion(ctx *gin.Context) {
+	screenID, ok := parseScreenQuery(ctx)
+	if !ok {
+		return
+	}
+	h.serveLiveScreenVersion(ctx, screenID)
+}
+
+func (h *Handler) serveLiveScreenVersion(ctx *gin.Context, screenID uuid.UUID) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
 	}
-	view, err := h.useCase.GetLiveLayoutEditor(ctx, eventID)
+	view, err := h.useCase.GetLiveScreenEditor(ctx, eventID, screenID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, liveLayoutVersionResponse{Version: view.Published.Version})
+	response.AbortWithData(ctx, liveLayoutVersionResponse{Version: view.Published.Version, ScreenID: view.ID})
 }
 
 // publishLiveLayout godoc
-// @Summary Publish an event live-screen layout draft
+// @Summary Publish the live-screen layout draft of the event's first screen
+// @Description The single-screen route: the same as POST content/live/screens/{screenID}/publish for the first screen.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
 // @Success 200 {object} response.Response
 // @Router /events/{id}/manage/content/live/publish [post]
 func (h *Handler) publishLiveLayout(ctx *gin.Context) {
+	h.publishLive(ctx, uuid.Nil)
+}
+
+func (h *Handler) publishLive(ctx *gin.Context, screenID uuid.UUID) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
 	}
-	layout, err := h.useCase.PublishLiveLayout(ctx, eventID)
+	layout, err := h.useCase.PublishLiveLayout(ctx, eventID, screenID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

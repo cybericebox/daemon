@@ -22,7 +22,7 @@ type liveScreenLinkResponse struct {
 }
 
 type liveScreenLinkStateResponse struct {
-	// Link is null when the event has no working screen link.
+	// Link is null when the screen has no working link.
 	Link *liveScreenLinkResponse `json:"Link"`
 }
 
@@ -36,18 +36,36 @@ func toLiveScreenLinkResponse(v eventUseCase.LiveScreenLinkView, token string) l
 }
 
 // getLiveScreenLink godoc
-// @Summary Get the event's screen link (without its token)
+// @Summary Get the screen link of the event's first screen (without its token)
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
 // @Success 200 {object} response.Response{data=liveScreenLinkStateResponse}
 // @Router /events/{id}/manage/content/live/screen-link [get]
 func (h *Handler) getLiveScreenLink(ctx *gin.Context) {
+	h.serveLiveScreenLink(ctx, uuid.Nil)
+}
+
+// getLiveScreenLinkOf godoc
+// @Summary Get a screen's link (without its token)
+// @Tags events
+// @Produce json
+// @Param id path string true "event ID"
+// @Param screenID path string true "screen ID"
+// @Success 200 {object} response.Response{data=liveScreenLinkStateResponse}
+// @Router /events/{id}/manage/content/live/screens/{screenID}/link [get]
+func (h *Handler) getLiveScreenLinkOf(ctx *gin.Context) {
+	if screenID, ok := parseScreenID(ctx); ok {
+		h.serveLiveScreenLink(ctx, screenID)
+	}
+}
+
+func (h *Handler) serveLiveScreenLink(ctx *gin.Context, screenID uuid.UUID) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
 	}
-	link, err := h.useCase.GetLiveScreenLink(ctx, eventID)
+	link, err := h.useCase.GetLiveScreenLink(ctx, eventID, screenID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -61,7 +79,7 @@ func (h *Handler) getLiveScreenLink(ctx *gin.Context) {
 }
 
 // issueLiveScreenLink godoc
-// @Summary Create the event's screen link (replaces an existing one; the token is returned once)
+// @Summary Create the screen link of the event's first screen (replaces an existing one; the token is returned once)
 // @Tags events
 // @Accept json
 // @Produce json
@@ -70,6 +88,26 @@ func (h *Handler) getLiveScreenLink(ctx *gin.Context) {
 // @Success 200 {object} response.Response{data=liveScreenLinkResponse}
 // @Router /events/{id}/manage/content/live/screen-link [post]
 func (h *Handler) issueLiveScreenLink(ctx *gin.Context) {
+	h.serveIssueLiveScreenLink(ctx, uuid.Nil)
+}
+
+// issueLiveScreenLinkOf godoc
+// @Summary Create a screen's link (replaces its existing one; the token is returned once)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param id path string true "event ID"
+// @Param screenID path string true "screen ID"
+// @Param body body issueLiveScreenLinkRequest true "expiry"
+// @Success 200 {object} response.Response{data=liveScreenLinkResponse}
+// @Router /events/{id}/manage/content/live/screens/{screenID}/link [post]
+func (h *Handler) issueLiveScreenLinkOf(ctx *gin.Context) {
+	if screenID, ok := parseScreenID(ctx); ok {
+		h.serveIssueLiveScreenLink(ctx, screenID)
+	}
+}
+
+func (h *Handler) serveIssueLiveScreenLink(ctx *gin.Context, screenID uuid.UUID) {
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	if !ok {
 		response.AbortWithUnauthenticated(ctx)
@@ -84,7 +122,7 @@ func (h *Handler) issueLiveScreenLink(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	link, err := h.useCase.IssueLiveScreenLink(ctx, eventID, claims.UserID, req.Expiry)
+	link, err := h.useCase.IssueLiveScreenLink(ctx, eventID, screenID, claims.UserID, req.Expiry)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -93,13 +131,31 @@ func (h *Handler) issueLiveScreenLink(ctx *gin.Context) {
 }
 
 // regenerateLiveScreenLink godoc
-// @Summary Replace the screen link's token (same expiry); the old URL stops working
+// @Summary Replace the first screen's link token (same expiry); the old URL stops working
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
 // @Success 200 {object} response.Response{data=liveScreenLinkResponse}
 // @Router /events/{id}/manage/content/live/screen-link/regenerate [post]
 func (h *Handler) regenerateLiveScreenLink(ctx *gin.Context) {
+	h.serveRegenerateLiveScreenLink(ctx, uuid.Nil)
+}
+
+// regenerateLiveScreenLinkOf godoc
+// @Summary Replace a screen's link token (same expiry); the old URL stops working
+// @Tags events
+// @Produce json
+// @Param id path string true "event ID"
+// @Param screenID path string true "screen ID"
+// @Success 200 {object} response.Response{data=liveScreenLinkResponse}
+// @Router /events/{id}/manage/content/live/screens/{screenID}/link/regenerate [post]
+func (h *Handler) regenerateLiveScreenLinkOf(ctx *gin.Context) {
+	if screenID, ok := parseScreenID(ctx); ok {
+		h.serveRegenerateLiveScreenLink(ctx, screenID)
+	}
+}
+
+func (h *Handler) serveRegenerateLiveScreenLink(ctx *gin.Context, screenID uuid.UUID) {
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	if !ok {
 		response.AbortWithUnauthenticated(ctx)
@@ -109,7 +165,7 @@ func (h *Handler) regenerateLiveScreenLink(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	link, err := h.useCase.RegenerateLiveScreenLink(ctx, eventID, claims.UserID)
+	link, err := h.useCase.RegenerateLiveScreenLink(ctx, eventID, screenID, claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -118,17 +174,34 @@ func (h *Handler) regenerateLiveScreenLink(ctx *gin.Context) {
 }
 
 // revokeLiveScreenLink godoc
-// @Summary Turn the screen link off («Вимкнути»)
+// @Summary Turn the first screen's link off («Вимкнути»)
 // @Tags events
 // @Param id path string true "event ID"
 // @Success 204
 // @Router /events/{id}/manage/content/live/screen-link [delete]
 func (h *Handler) revokeLiveScreenLink(ctx *gin.Context) {
+	h.serveRevokeLiveScreenLink(ctx, uuid.Nil)
+}
+
+// revokeLiveScreenLinkOf godoc
+// @Summary Turn a screen's link off («Вимкнути»)
+// @Tags events
+// @Param id path string true "event ID"
+// @Param screenID path string true "screen ID"
+// @Success 204
+// @Router /events/{id}/manage/content/live/screens/{screenID}/link [delete]
+func (h *Handler) revokeLiveScreenLinkOf(ctx *gin.Context) {
+	if screenID, ok := parseScreenID(ctx); ok {
+		h.serveRevokeLiveScreenLink(ctx, screenID)
+	}
+}
+
+func (h *Handler) serveRevokeLiveScreenLink(ctx *gin.Context, screenID uuid.UUID) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
 	}
-	if err := h.useCase.RevokeLiveScreenLink(ctx, eventID); err != nil {
+	if err := h.useCase.RevokeLiveScreenLink(ctx, eventID, screenID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

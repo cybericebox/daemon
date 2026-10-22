@@ -12,8 +12,8 @@ import (
 var linkNow = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 
 func TestNewLiveScreenLinkStoresOnlyTheHash(t *testing.T) {
-	eventID, by := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	link, token, err := NewLiveScreenLink(eventID, by, linkNow, LiveScreenExpiryDay, nil)
+	eventID, screenID, by := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	link, token, err := NewLiveScreenLink(eventID, screenID, by, linkNow, LiveScreenExpiryDay, nil)
 	if err != nil {
 		t.Fatalf("NewLiveScreenLink: %v", err)
 	}
@@ -23,10 +23,10 @@ func TestNewLiveScreenLinkStoresOnlyTheHash(t *testing.T) {
 	if !bytes.Equal(link.TokenHash, HashLiveScreenToken(token)) || bytes.Contains(link.TokenHash, []byte(token)) {
 		t.Fatal("the link must keep the token hash only")
 	}
-	if link.EventID != eventID || link.CreatedBy != by || !link.CreatedAt.Equal(linkNow) || !link.ExpiresAt.Equal(linkNow.Add(24*time.Hour)) || !link.Active(linkNow) {
+	if link.EventID != eventID || link.ScreenID != screenID || link.CreatedBy != by || !link.CreatedAt.Equal(linkNow) || !link.ExpiresAt.Equal(linkNow.Add(24*time.Hour)) || !link.Active(linkNow) {
 		t.Fatalf("link = %+v", link)
 	}
-	_, other, _ := NewLiveScreenLink(eventID, by, linkNow, LiveScreenExpiryWeek, nil)
+	_, other, _ := NewLiveScreenLink(eventID, screenID, by, linkNow, LiveScreenExpiryWeek, nil)
 	if other == token {
 		t.Fatal("tokens must be random")
 	}
@@ -44,12 +44,12 @@ func TestLiveScreenLinkExpiryChoices(t *testing.T) {
 		{LiveScreenExpiryEventEnd, &finish, finish},
 		{LiveScreenExpiryEventEnd, &far, linkNow.Add(LiveScreenLinkMaxTTL)},
 	} {
-		link, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, linkNow, tc.expiry, tc.finish)
+		link, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, uuid.Nil, linkNow, tc.expiry, tc.finish)
 		if err != nil || link.ExpiresAt == nil || !link.ExpiresAt.Equal(tc.want) {
 			t.Fatalf("%s: expires %v, want %v (%v)", tc.expiry, link.ExpiresAt, tc.want, err)
 		}
 	}
-	unlimited, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, linkNow, LiveScreenExpiryNone, nil)
+	unlimited, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, uuid.Nil, linkNow, LiveScreenExpiryNone, nil)
 	if err != nil || unlimited.ExpiresAt != nil || !unlimited.Active(linkNow.Add(365*24*time.Hour)) {
 		t.Fatalf("no expiry = %+v, %v", unlimited, err)
 	}
@@ -58,22 +58,22 @@ func TestLiveScreenLinkExpiryChoices(t *testing.T) {
 		expiry LiveScreenExpiry
 		finish *time.Time
 	}{{LiveScreenExpiryEventEnd, nil}, {LiveScreenExpiryEventEnd, &past}, {"month", nil}} {
-		if _, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, linkNow, tc.expiry, tc.finish); !errors.Is(err, ErrLiveScreenLinkExpiryInvalid.Err()) {
+		if _, _, err := NewLiveScreenLink(uuid.Nil, uuid.Nil, uuid.Nil, linkNow, tc.expiry, tc.finish); !errors.Is(err, ErrLiveScreenLinkExpiryInvalid.Err()) {
 			t.Fatalf("%s accepted: %v", tc.expiry, err)
 		}
 	}
 }
 
 func TestLiveScreenLinkRegenerateKeepsTheExpiry(t *testing.T) {
-	link, token, _ := NewLiveScreenLink(uuid.Must(uuid.NewV7()), uuid.Nil, linkNow, LiveScreenExpiryDay, nil)
+	link, token, _ := NewLiveScreenLink(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Nil, linkNow, LiveScreenExpiryDay, nil)
 	next, nextToken, err := link.Regenerate(uuid.Nil, linkNow.Add(time.Hour))
-	if err != nil || next.ID == link.ID || nextToken == token || !next.ExpiresAt.Equal(*link.ExpiresAt) || next.EventID != link.EventID {
+	if err != nil || next.ID == link.ID || nextToken == token || !next.ExpiresAt.Equal(*link.ExpiresAt) || next.EventID != link.EventID || next.ScreenID != link.ScreenID {
 		t.Fatalf("regenerated = %+v, %v", next, err)
 	}
 }
 
 func TestLiveScreenLinkExpiresAndRevokes(t *testing.T) {
-	link, _, _ := NewLiveScreenLink(uuid.Nil, uuid.Nil, linkNow, LiveScreenExpiryDay, nil)
+	link, _, _ := NewLiveScreenLink(uuid.Nil, uuid.Nil, uuid.Nil, linkNow, LiveScreenExpiryDay, nil)
 	if link.Active(linkNow.Add(24 * time.Hour)) {
 		t.Fatal("an expired link must not open the screen")
 	}

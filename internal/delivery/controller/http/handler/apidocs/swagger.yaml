@@ -1210,6 +1210,14 @@ definitions:
       Returnable:
         type: boolean
     type: object
+  event.createLiveScreenSwaggerRequest:
+    properties:
+      CopyFrom:
+        type: string
+      Layout: {}
+      Name:
+        type: string
+    type: object
   event.createManagedTeamRequest:
     properties:
       CaptainID:
@@ -1268,6 +1276,12 @@ definitions:
       Decision:
         type: string
       Reason:
+        type: string
+    type: object
+  event.duplicateLiveScreenRequest:
+    properties:
+      Name:
+        description: Name empty = «Екран N».
         type: string
     type: object
   event.eventCatalogTagResponse:
@@ -1931,6 +1945,28 @@ definitions:
     type: object
   event.liveLayoutVersionResponse:
     properties:
+      ScreenID:
+        description: ScreenID is the screen the version belongs to.
+        type: string
+      Version:
+        type: integer
+    type: object
+  event.liveScreenEditorSwaggerResponse:
+    properties:
+      Draft: {}
+      HasDraft:
+        type: boolean
+      ID:
+        type: string
+      Link:
+        $ref: '#/definitions/event.liveScreenLinkResponse'
+      Name:
+        type: string
+      Position:
+        type: integer
+      Published: {}
+      UpdatedAt:
+        type: string
       Version:
         type: integer
     type: object
@@ -1952,7 +1988,44 @@ definitions:
       Link:
         allOf:
         - $ref: '#/definitions/event.liveScreenLinkResponse'
-        description: Link is null when the event has no working screen link.
+        description: Link is null when the screen has no working link.
+    type: object
+  event.liveScreenSummaryResponse:
+    properties:
+      HasDraft:
+        type: boolean
+      ID:
+        type: string
+      Link:
+        allOf:
+        - $ref: '#/definitions/event.liveScreenLinkResponse'
+        description: |-
+          Link is the working screen link (never its token); null when the
+          screen has none or the caller may not manage the event.
+      Name:
+        type: string
+      Position:
+        type: integer
+      UpdatedAt:
+        type: string
+      Version:
+        description: Version is the published layout version the open screens poll
+          for.
+        type: integer
+    type: object
+  event.liveScreensResponse:
+    properties:
+      LinksVisible:
+        description: 'LinksVisible: the caller manages the event, so Link is filled
+          in.'
+        type: boolean
+      Max:
+        description: Max is the screen limit of an event.
+        type: integer
+      Screens:
+        items:
+          $ref: '#/definitions/event.liveScreenSummaryResponse'
+        type: array
     type: object
   event.manageResultsCountsResponse:
     properties:
@@ -2515,6 +2588,11 @@ definitions:
       RecreateStands:
         type: boolean
     type: object
+  event.renameLiveScreenRequest:
+    properties:
+      Name:
+        type: string
+    type: object
   event.reorderChallengeGroupsRequest:
     properties:
       GroupIDs:
@@ -2537,6 +2615,16 @@ definitions:
         type: array
       GroupID:
         type: string
+    type: object
+  event.reorderLiveScreensRequest:
+    properties:
+      ScreenIDs:
+        description: ScreenIDs lists every screen of the event once, in the new order.
+        items:
+          type: string
+        type: array
+    required:
+    - ScreenIDs
     type: object
   event.replaceEventExerciseRequest:
     properties:
@@ -5283,6 +5371,13 @@ definitions:
       Config:
         type: string
     type: object
+  eventself.liveScreenIdentityResponse:
+    properties:
+      ID:
+        type: string
+      Name:
+        type: string
+    type: object
   eventself.liveScreenResponse:
     properties:
       Event:
@@ -5291,6 +5386,10 @@ definitions:
         items:
           type: integer
         type: array
+      Screen:
+        allOf:
+        - $ref: '#/definitions/eventself.liveScreenIdentityResponse'
+        description: Screen is the screen the link belongs to.
       Stages:
         description: |-
           Stages in the event order; the screen timer counts to the current
@@ -5307,6 +5406,13 @@ definitions:
         type: string
       OpensAt:
         type: string
+    type: object
+  eventself.liveScreenVersionResponse:
+    properties:
+      ScreenID:
+        type: string
+      Version:
+        type: integer
     type: object
   eventself.manualLabRequest:
     properties:
@@ -14813,11 +14919,17 @@ paths:
       - events
   /events/{id}/manage/content/live:
     get:
+      description: Without ?screen the event's first screen (the single-screen route).
+        The moderator /live page reads the screen it shows with ?screen.
       parameters:
       - description: event ID
         in: path
         name: id
         required: true
+        type: string
+      - description: 'screen ID (default: the first screen)'
+        in: query
+        name: screen
         type: string
       produces:
       - application/json
@@ -14825,13 +14937,20 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/response.Response'
-      summary: Read published and draft live-screen layouts
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenEditorSwaggerResponse'
+              type: object
+      summary: Read published and draft live-screen layouts of a screen
       tags:
       - events
     put:
       consumes:
       - application/json
+      description: 'The single-screen route: the same as PUT content/live/screens/{screenID}/draft
+        for the first screen.'
       parameters:
       - description: event ID
         in: path
@@ -14849,7 +14968,7 @@ paths:
       responses:
         "204":
           description: No Content
-      summary: Save an event live-screen layout draft
+      summary: Save the live-screen layout draft of the event's first screen
       tags:
       - events
   /events/{id}/manage/content/live/logos:
@@ -14888,6 +15007,8 @@ paths:
       - events
   /events/{id}/manage/content/live/publish:
     post:
+      description: 'The single-screen route: the same as POST content/live/screens/{screenID}/publish
+        for the first screen.'
       parameters:
       - description: event ID
         in: path
@@ -14901,7 +15022,7 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/response.Response'
-      summary: Publish an event live-screen layout draft
+      summary: Publish the live-screen layout draft of the event's first screen
       tags:
       - events
   /events/{id}/manage/content/live/screen-link:
@@ -14915,7 +15036,7 @@ paths:
       responses:
         "204":
           description: No Content
-      summary: Turn the screen link off («Вимкнути»)
+      summary: Turn the first screen's link off («Вимкнути»)
       tags:
       - events
     get:
@@ -14937,7 +15058,7 @@ paths:
                 data:
                   $ref: '#/definitions/event.liveScreenLinkStateResponse'
               type: object
-      summary: Get the event's screen link (without its token)
+      summary: Get the screen link of the event's first screen (without its token)
       tags:
       - events
     post:
@@ -14967,8 +15088,8 @@ paths:
                 data:
                   $ref: '#/definitions/event.liveScreenLinkResponse'
               type: object
-      summary: Create the event's screen link (replaces an existing one; the token
-        is returned once)
+      summary: Create the screen link of the event's first screen (replaces an existing
+        one; the token is returned once)
       tags:
       - events
   /events/{id}/manage/content/live/screen-link/regenerate:
@@ -14991,13 +15112,43 @@ paths:
                 data:
                   $ref: '#/definitions/event.liveScreenLinkResponse'
               type: object
-      summary: Replace the screen link's token (same expiry); the old URL stops working
+      summary: Replace the first screen's link token (same expiry); the old URL stops
+        working
       tags:
       - events
-  /events/{id}/manage/content/live/version:
+  /events/{id}/manage/content/live/screen-order:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: every screen ID once, in the new order
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.reorderLiveScreensRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreensResponse'
+              type: object
+      summary: Set the order of the event's live screens
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens:
     get:
-      description: 'A light check for open live screens: reload the layout only when
-        the version changes.'
       parameters:
       - description: event ID
         in: path
@@ -15014,9 +15165,377 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
+                  $ref: '#/definitions/event.liveScreensResponse'
+              type: object
+      summary: List the event's live screens (the editor's screen switcher)
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.createLiveScreenSwaggerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenSummaryResponse'
+              type: object
+      summary: 'Add a live screen (at most 10): empty, a copy of a screen or from
+        a template layout'
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}:
+    delete:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete a live screen and its link (not the event's only screen)
+      tags:
+      - events
+    get:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenEditorSwaggerResponse'
+              type: object
+      summary: Read a live screen with its published layout and draft
+      tags:
+      - events
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      - description: name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.renameLiveScreenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenSummaryResponse'
+              type: object
+      summary: Rename a live screen (1 to 40 characters)
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/draft:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      - description: live layout
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.updateLiveLayoutSwaggerRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+      summary: Save a live screen's layout draft
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/duplicate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      - description: name of the copy
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/event.duplicateLiveScreenRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenSummaryResponse'
+              type: object
+      summary: Duplicate a live screen (its published layout and draft, not its link)
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/link:
+    delete:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Turn a screen's link off («Вимкнути»)
+      tags:
+      - events
+    get:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenLinkStateResponse'
+              type: object
+      summary: Get a screen's link (without its token)
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      - description: expiry
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.issueLiveScreenLinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenLinkResponse'
+              type: object
+      summary: Create a screen's link (replaces its existing one; the token is returned
+        once)
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/link/regenerate:
+    post:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveScreenLinkResponse'
+              type: object
+      summary: Replace a screen's link token (same expiry); the old URL stops working
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/publish:
+    post:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Publish a live screen's layout draft
+      tags:
+      - events
+  /events/{id}/manage/content/live/screens/{screenID}/version:
+    get:
+      description: 'A light check for an open screen: reload the layout only when
+        the version changes.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: screen ID
+        in: path
+        name: screenID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
                   $ref: '#/definitions/event.liveLayoutVersionResponse'
               type: object
-      summary: Read the published live-screen layout version
+      summary: Read a live screen's published layout version
+      tags:
+      - events
+  /events/{id}/manage/content/live/version:
+    get:
+      description: 'A light check for open live screens: reload the layout only when
+        the version changes. Without ?screen the event''s first screen.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'screen ID (default: the first screen)'
+        in: query
+        name: screen
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.liveLayoutVersionResponse'
+              type: object
+      summary: Read the published live-screen layout version of a screen
       tags:
       - events
   /events/{id}/manage/exercise-catalog:
@@ -20947,6 +21466,34 @@ paths:
                   $ref: '#/definitions/eventself.liveScreenResponse'
               type: object
       summary: Open the live screen with a screen link
+      tags:
+      - events-self
+  /events/self/live-screen/version:
+    get:
+      description: 'A light check for an open screen: reload the layout (GET /events/self/live-screen)
+        only when the version changes.'
+      parameters:
+      - description: screen link token (or ?token=)
+        in: header
+        name: X-Live-Screen-Token
+        type: string
+      - description: screen link token, for clients that cannot send the header
+        in: query
+        name: token
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.liveScreenVersionResponse'
+              type: object
+      summary: Read the published layout version of a screen link's screen
       tags:
       - events-self
   /events/self/participant-answers:

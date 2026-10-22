@@ -79,11 +79,13 @@ func TestIssueAndRevokeRefreshTheKnownLinks(t *testing.T) {
 		t.Fatal("no links yet")
 	}
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
+	screenID := uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventLiveScreen(gomock.Any(), gomock.Any()).Return(liveScreenRow(t, eventID, screenID, "Екран 1"), nil).Times(2)
 	q.EXPECT().IssueEventLiveScreenLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.IssueEventLiveScreenLinkParams) error {
 		stored = append(stored, p.TokenHash)
 		return nil
 	})
-	issued, err := uc.IssueLiveScreenLink(ctx, eventID, by, eventContentModel.LiveScreenExpiryNone)
+	issued, err := uc.IssueLiveScreenLink(ctx, eventID, screenID, by, eventContentModel.LiveScreenExpiryNone)
 	if err != nil {
 		t.Fatalf("IssueLiveScreenLink: %v", err)
 	}
@@ -94,7 +96,7 @@ func TestIssueAndRevokeRefreshTheKnownLinks(t *testing.T) {
 		stored = nil
 		return 1, nil
 	})
-	if err = uc.RevokeLiveScreenLink(ctx, eventID); err != nil {
+	if err = uc.RevokeLiveScreenLink(ctx, eventID, screenID); err != nil {
 		t.Fatalf("RevokeLiveScreenLink: %v", err)
 	}
 	if uc.IsActiveLiveScreenToken(ctx, issued.Token, now) {

@@ -31,6 +31,9 @@ var fakeScreenEvent = uuid.Must(uuid.NewV7())
 
 const fakeScreenToken = "valid-screen-token"
 
+// fakeScreenID is the screen the valid link belongs to.
+var fakeScreenID = uuid.Must(uuid.NewV7())
+
 func (fakeUseCase) IsActiveLiveScreenToken(_ context.Context, token string, _ time.Time) bool {
 	return token == fakeScreenToken
 }
@@ -47,8 +50,15 @@ func (f fakeUseCase) GetLiveScreen(ctx context.Context, eventID uuid.UUID, token
 		return eventUseCase.LiveScreenView{}, err
 	}
 	opens := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
-	return eventUseCase.LiveScreenView{Event: eventUseCase.EventInfoView{EventID: eventID, Name: "Screen"}, Layout: eventContentModel.DefaultLiveLayout(),
+	return eventUseCase.LiveScreenView{Event: eventUseCase.EventInfoView{EventID: eventID, Name: "Screen"}, ScreenID: fakeScreenID, ScreenName: "Фойє", Layout: eventContentModel.DefaultLiveLayout(),
 		Stages: []eventUseCase.LiveScreenStageView{{Name: "Етап 1", OpensAt: opens, ClosesAt: opens.Add(2 * time.Hour)}}}, nil
+}
+
+func (f fakeUseCase) GetLiveScreenVersion(ctx context.Context, eventID uuid.UUID, token string) (eventUseCase.LiveScreenVersionView, error) {
+	if err := f.ResolveLiveScreenToken(ctx, eventID, token); err != nil {
+		return eventUseCase.LiveScreenVersionView{}, err
+	}
+	return eventUseCase.LiveScreenVersionView{ScreenID: fakeScreenID, Version: 4}, nil
 }
 
 func screenRouter(h *Handler, next gin.HandlerFunc) *gin.Engine {
@@ -67,6 +77,7 @@ func screenRouter(h *Handler, next gin.HandlerFunc) *gin.Engine {
 		ctx.Next()
 	}
 	router.GET("/live-screen", tenant, h.liveScreen)
+	router.GET("/live-screen/version", tenant, h.liveScreenVersion)
 	router.GET("/live-screen/results", tenant, h.liveScreenAccess, next)
 	return router
 }
@@ -163,13 +174,31 @@ func TestLiveScreenReturnsTheEventLayoutAndStages(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/live-screen?token="+fakeScreenToken, nil))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Screen"`) || !strings.Contains(w.Body.String(), `"widgets"`) ||
-		!strings.Contains(w.Body.String(), `"Stages":[{"Name":"Етап 1","OpensAt":"2026-10-19T10:00:00Z","ClosesAt":"2026-10-19T12:00:00Z"}]`) {
+		!strings.Contains(w.Body.String(), `"Stages":[{"Name":"Етап 1","OpensAt":"2026-10-19T10:00:00Z","ClosesAt":"2026-10-19T12:00:00Z"}]`) ||
+		!strings.Contains(w.Body.String(), `"Screen":{"ID":"`+fakeScreenID.String()+`","Name":"Фойє"}`) {
 		t.Fatalf("live screen = %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/live-screen", nil))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("no token = %d", w.Code)
+	}
+}
+
+// An open screen polls its own screen's version by its link.
+func TestLiveScreenVersionIsThatOfTheLinksScreen(t *testing.T) {
+	router := screenRouter(NewEventSelfAPIHandler(fakeUseCase{}, nil), nil)
+	w := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/live-screen/version", nil)
+	request.Header.Set(LiveScreenTokenHeader, fakeScreenToken)
+	router.ServeHTTP(w, request)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `{"Version":4,"ScreenID":"`+fakeScreenID.String()+`"}`) {
+		t.Fatalf("version = %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/live-screen/version?token=wrong", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a wrong token = %d", w.Code)
 	}
 }
 

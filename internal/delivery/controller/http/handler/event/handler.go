@@ -82,14 +82,22 @@ type (
 		SaveLandingDraft(ctx context.Context, eventID uuid.UUID, document eventContentModel.Document) error
 		PublishLanding(ctx context.Context, eventID uuid.UUID) error
 		DiscardLandingDraft(ctx context.Context, eventID uuid.UUID) error
-		GetLiveLayoutEditor(ctx context.Context, eventID uuid.UUID) (eventUseCase.LiveLayoutEditorView, error)
-		SaveLiveLayoutDraft(ctx context.Context, eventID uuid.UUID, layout eventContentModel.LiveLayout) error
-		PublishLiveLayout(ctx context.Context, eventID uuid.UUID) (eventContentModel.LiveLayout, error)
+		// Live screens: screenID uuid.Nil is the event's first screen (the
+		// single-screen routes).
+		ListLiveScreens(ctx context.Context, eventID uuid.UUID, withLinks bool) ([]eventUseCase.LiveScreenSummaryView, error)
+		GetLiveScreenEditor(ctx context.Context, eventID, screenID uuid.UUID) (eventUseCase.LiveScreenEditorView, error)
+		CreateLiveScreen(ctx context.Context, eventID uuid.UUID, in eventUseCase.CreateLiveScreenInput) (eventUseCase.LiveScreenSummaryView, error)
+		DuplicateLiveScreen(ctx context.Context, eventID, screenID uuid.UUID, name string) (eventUseCase.LiveScreenSummaryView, error)
+		RenameLiveScreen(ctx context.Context, eventID, screenID uuid.UUID, name string) (eventUseCase.LiveScreenSummaryView, error)
+		ReorderLiveScreens(ctx context.Context, eventID uuid.UUID, screenIDs []uuid.UUID) ([]eventUseCase.LiveScreenSummaryView, error)
+		DeleteLiveScreen(ctx context.Context, eventID, screenID uuid.UUID) error
+		SaveLiveLayoutDraft(ctx context.Context, eventID, screenID uuid.UUID, layout eventContentModel.LiveLayout) error
+		PublishLiveLayout(ctx context.Context, eventID, screenID uuid.UUID) (eventContentModel.LiveLayout, error)
 		UploadLiveLogo(ctx context.Context, eventID, userID uuid.UUID, reader io.Reader, size int64) (string, error)
-		GetLiveScreenLink(ctx context.Context, eventID uuid.UUID) (*eventUseCase.LiveScreenLinkView, error)
-		IssueLiveScreenLink(ctx context.Context, eventID, by uuid.UUID, expiry eventContentModel.LiveScreenExpiry) (eventUseCase.IssuedLiveScreenLinkView, error)
-		RegenerateLiveScreenLink(ctx context.Context, eventID, by uuid.UUID) (eventUseCase.IssuedLiveScreenLinkView, error)
-		RevokeLiveScreenLink(ctx context.Context, eventID uuid.UUID) error
+		GetLiveScreenLink(ctx context.Context, eventID, screenID uuid.UUID) (*eventUseCase.LiveScreenLinkView, error)
+		IssueLiveScreenLink(ctx context.Context, eventID, screenID, by uuid.UUID, expiry eventContentModel.LiveScreenExpiry) (eventUseCase.IssuedLiveScreenLinkView, error)
+		RegenerateLiveScreenLink(ctx context.Context, eventID, screenID, by uuid.UUID) (eventUseCase.IssuedLiveScreenLinkView, error)
+		RevokeLiveScreenLink(ctx context.Context, eventID, screenID uuid.UUID) error
 		CreateEventPage(ctx context.Context, eventID uuid.UUID, in eventUseCase.EventPageInput) (eventUseCase.EventPageView, error)
 		ListEventPages(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventPageView, error)
 		GetEventPage(ctx context.Context, eventID uuid.UUID, slug string) (eventUseCase.EventPageView, error)
@@ -281,6 +289,21 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("content/live/screen-link", h.requireManage, h.issueLiveScreenLink)
 		manage.POST("content/live/screen-link/regenerate", h.requireManage, h.regenerateLiveScreenLink)
 		manage.DELETE("content/live/screen-link", h.requireManage, h.revokeLiveScreenLink)
+		// Several screens per event; the routes above are its first screen.
+		manage.GET("content/live/screens", h.requireRead, h.listLiveScreens)
+		manage.POST("content/live/screens", h.requireManage, h.createLiveScreen)
+		manage.PUT("content/live/screen-order", h.requireManage, h.reorderLiveScreens)
+		manage.GET("content/live/screens/:screenID", h.requireRead, h.getLiveScreenEditor)
+		manage.PATCH("content/live/screens/:screenID", h.requireManage, h.renameLiveScreen)
+		manage.DELETE("content/live/screens/:screenID", h.requireManage, h.deleteLiveScreen)
+		manage.POST("content/live/screens/:screenID/duplicate", h.requireManage, h.duplicateLiveScreen)
+		manage.GET("content/live/screens/:screenID/version", h.requireRead, h.getLiveScreenVersion)
+		manage.PUT("content/live/screens/:screenID/draft", h.requireManage, h.saveLiveScreenDraft)
+		manage.POST("content/live/screens/:screenID/publish", h.requireManage, h.publishLiveScreen)
+		manage.GET("content/live/screens/:screenID/link", h.requireManage, h.getLiveScreenLinkOf)
+		manage.POST("content/live/screens/:screenID/link", h.requireManage, h.issueLiveScreenLinkOf)
+		manage.POST("content/live/screens/:screenID/link/regenerate", h.requireManage, h.regenerateLiveScreenLinkOf)
+		manage.DELETE("content/live/screens/:screenID/link", h.requireManage, h.revokeLiveScreenLinkOf)
 		manage.GET("pages", h.requireRead, h.listEventPages)
 		manage.POST("pages", h.requireManage, h.createEventPage)
 		manage.GET("pages/:slug", h.requireRead, h.getEventPage)
