@@ -278,7 +278,14 @@ SELECT ex.id, ex.name, ex.description, ex.tags, ex.scope, ex.published_version_i
                WHERE ee.event_id = $1
                  AND ee.status = 0
                  AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
-                   OR ex.forked_from_exercise_id = attached.id))::boolean AS attached
+                   OR ex.forked_from_exercise_id = attached.id))::boolean AS attached,
+       -- How many exercises match the filters before the LIMIT, and how many the event may attach at all.
+       (count(*) OVER ())::integer AS matched_count,
+       (SELECT count(*)
+        FROM exercises avail
+        WHERE avail.published_version_id IS NOT NULL
+          AND avail.archived_at IS NULL
+          AND exercise_available_to_event(avail.id, $1))::integer AS available_count
 FROM exercises ex
 JOIN exercise_versions published ON published.id = ex.published_version_id
 WHERE ex.published_version_id IS NOT NULL
@@ -289,6 +296,19 @@ WHERE ex.published_version_id IS NOT NULL
   AND ($3::text = ''
     OR exercise_has_infrastructure(ex.id) = ($3::text = 'yes'))
   AND (coalesce(cardinality($4::text[]), 0) = 0 OR ex.tags && $4::text[])
+  -- difficulties: the rounded average level 1..6 (as the catalog filter rounds it), 0 for a set without one; any of
+  -- them (union); empty means no difficulty filter.
+  AND (coalesce(cardinality($5::int[]), 0) = 0
+    OR COALESCE(round(published.avg_difficulty)::int, 0) = ANY ($5::int[]))
+  -- attached: yes or no keeps only the exercises the event already uses (or not); '' keeps both.
+  AND ($6::text = ''
+    OR EXISTS (SELECT 1
+               FROM event_exercises ee
+               JOIN exercises attached ON attached.id = ee.exercise_id
+               WHERE ee.event_id = $1
+                 AND ee.status = 0
+                 AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
+                   OR ex.forked_from_exercise_id = attached.id)) = ($6::text = 'yes'))
 ORDER BY ex.scope DESC, lower(ex.name), ex.id
 LIMIT 100
 `
@@ -298,6 +318,8 @@ type ListEventCatalogParams struct {
 	Search         string    `json:"search"`
 	Infrastructure string    `json:"infrastructure"`
 	Tags           []string  `json:"tags"`
+	Difficulties   []int32   `json:"difficulties"`
+	Attached       string    `json:"attached"`
 }
 
 type ListEventCatalogRow struct {
@@ -313,6 +335,8 @@ type ListEventCatalogRow struct {
 	HasTaskCount       bool      `json:"has_task_count"`
 	TaskNames          []string  `json:"task_names"`
 	Attached           bool      `json:"attached"`
+	MatchedCount       int32     `json:"matched_count"`
+	AvailableCount     int32     `json:"available_count"`
 }
 
 // Published exercises an event may attach: its own and the catalog entries
@@ -323,6 +347,8 @@ func (q *Queries) ListEventCatalog(ctx context.Context, arg ListEventCatalogPara
 		arg.Search,
 		arg.Infrastructure,
 		arg.Tags,
+		arg.Difficulties,
+		arg.Attached,
 	)
 	if err != nil {
 		return nil, err
@@ -344,6 +370,8 @@ func (q *Queries) ListEventCatalog(ctx context.Context, arg ListEventCatalogPara
 			&i.HasTaskCount,
 			&i.TaskNames,
 			&i.Attached,
+			&i.MatchedCount,
+			&i.AvailableCount,
 		); err != nil {
 			return nil, err
 		}
@@ -409,6 +437,8 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
        ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at, ee.stage_id,
        ex.name::text AS exercise_name,
        ex.scope,
+       -- The exercise's categories (catalog tags), for the event's task statistics.
+       COALESCE(ex.tags, '{}')::text[] AS exercise_tags,
        ex.published_version_id AS latest_version_id,
        ex.forked_from_exercise_id,
        ex.forked_from_version_id,
@@ -470,6 +500,7 @@ type ListEventExerciseDetailsRow struct {
 	StageID                   uuid.NullUUID      `json:"stage_id"`
 	ExerciseName              string             `json:"exercise_name"`
 	Scope                     int16              `json:"scope"`
+	ExerciseTags              []string           `json:"exercise_tags"`
 	LatestVersionID           uuid.NullUUID      `json:"latest_version_id"`
 	ForkedFromExerciseID      uuid.NullUUID      `json:"forked_from_exercise_id"`
 	ForkedFromVersionID       uuid.NullUUID      `json:"forked_from_version_id"`
@@ -518,6 +549,7 @@ func (q *Queries) ListEventExerciseDetails(ctx context.Context, eventID uuid.UUI
 			&i.StageID,
 			&i.ExerciseName,
 			&i.Scope,
+			&i.ExerciseTags,
 			&i.LatestVersionID,
 			&i.ForkedFromExerciseID,
 			&i.ForkedFromVersionID,

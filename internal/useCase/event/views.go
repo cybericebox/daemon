@@ -474,8 +474,10 @@ type EventExerciseView struct {
 	StageID *uuid.UUID
 
 	// W4: catalog versions and ownership (manage list).
-	Scope               string // catalog | event
-	VersionNumber       int32  // ordinal of the pinned version among published ones
+	Scope string // catalog | event
+	// Tags: the exercise's categories (catalog tags); empty outside the manage list.
+	Tags                []string
+	VersionNumber       int32 // ordinal of the pinned version among published ones
 	LatestVersionID     *uuid.UUID
 	LatestVersionNumber int32
 	UpdateAvailable     bool
@@ -546,6 +548,23 @@ type EventCatalogItem struct {
 	AvgDifficulty *float64
 	TaskCount     *int
 	TaskNames     []string
+	// MatchedCount: the exercises matching the filters (the list stops at 100); AvailableCount: all the event may
+	// attach, unfiltered.
+	MatchedCount   int
+	AvailableCount int
+}
+
+// EventCatalogFilter narrows the catalog an event may attach. Every field is optional and they combine by AND.
+type EventCatalogFilter struct {
+	Search string
+	// Infrastructure: yes or no (with or without a lab topology).
+	Infrastructure string
+	// Tags: any of them.
+	Tags []string
+	// Difficulties: any of these levels of the rounded average difficulty, or "none" for sets without one.
+	Difficulties []string
+	// Attached: yes (already used by the event) or no.
+	Attached string
 }
 
 // EventCatalogTag is a tag of the event's attachable exercises with how many

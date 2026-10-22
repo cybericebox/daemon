@@ -160,9 +160,11 @@ func (r *Repository) HasActiveFamily(ctx context.Context, eventID, exerciseID uu
 
 // Detail is one attachment with what the manage list shows (query shape).
 type Detail struct {
-	EventExercise             eventExerciseModel.EventExercise
-	ExerciseName              string
-	Scope                     int16
+	EventExercise eventExerciseModel.EventExercise
+	ExerciseName  string
+	Scope         int16
+	// ExerciseTags: the exercise's categories (catalog tags).
+	ExerciseTags              []string
 	LatestVersionID           uuid.NullUUID
 	VersionNumber             int32
 	LatestVersionNumber       int32
@@ -199,10 +201,13 @@ func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, 
 			ForkedFromVersionID: row.ForkedFromVersionID, SourceName: row.SourceName, SourceLatestVersionID: row.SourceLatestVersionID,
 			SourceVersionNumber: row.SourceVersionNumber, SourceLatestVersionNumber: row.SourceLatestVersionNumber, Infrastructure: row.Infrastructure,
 			VariantCount: row.VariantCount, ChallengeCount: row.ChallengeCount, PublishedCount: row.PublishedCount, HasAttempts: row.HasAttempts,
-			TaskNames: row.TaskNames})
+			TaskNames: row.TaskNames, ExerciseTags: row.ExerciseTags})
 		item := &out[len(out)-1]
 		if item.TaskNames == nil {
 			item.TaskNames = []string{}
+		}
+		if item.ExerciseTags == nil {
+			item.ExerciseTags = []string{}
 		}
 		if row.HasAvgDifficulty {
 			avg := row.AvgDifficulty
@@ -231,22 +236,41 @@ type CatalogItem struct {
 	AvgDifficulty *float64
 	TaskCount     *int
 	TaskNames     []string
+	// MatchedCount: the exercises matching the filters before the list's limit; AvailableCount: all the event may
+	// attach (the same on every row).
+	MatchedCount   int
+	AvailableCount int
 }
 
-// Catalog lists what the event may attach; tags match any (overlap), nil or
-// empty means no tag filter.
-func (r *Repository) Catalog(ctx context.Context, eventID uuid.UUID, search, infrastructure string, tags []string) ([]CatalogItem, error) {
+// CatalogFilter narrows Catalog. Tags match any (overlap); Difficulties are rounded average levels 1..6 (0: no
+// difficulty), any of them; Attached is yes, no or ” (both). Empty fields do not filter.
+type CatalogFilter struct {
+	Search         string
+	Infrastructure string
+	Tags           []string
+	Difficulties   []int32
+	Attached       string
+}
+
+// Catalog lists what the event may attach.
+func (r *Repository) Catalog(ctx context.Context, eventID uuid.UUID, filter CatalogFilter) ([]CatalogItem, error) {
+	tags, difficulties := filter.Tags, filter.Difficulties
 	if tags == nil {
 		tags = []string{}
 	}
-	rows, err := r.q.ListEventCatalog(ctx, postgres.ListEventCatalogParams{EventID: eventID, Search: search, Infrastructure: infrastructure, Tags: tags})
+	if difficulties == nil {
+		difficulties = []int32{}
+	}
+	rows, err := r.q.ListEventCatalog(ctx, postgres.ListEventCatalogParams{EventID: eventID, Search: filter.Search, Infrastructure: filter.Infrastructure,
+		Tags: tags, Difficulties: difficulties, Attached: filter.Attached})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]CatalogItem, 0, len(rows))
 	for _, row := range rows {
 		item := CatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: row.Scope,
-			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached, TaskNames: row.TaskNames}
+			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached, TaskNames: row.TaskNames,
+			MatchedCount: int(row.MatchedCount), AvailableCount: int(row.AvailableCount)}
 		if item.TaskNames == nil {
 			item.TaskNames = []string{}
 		}

@@ -161,7 +161,7 @@ type (
 		AttachExercise(ctx context.Context, eventID uuid.UUID, in eventUseCase.AttachExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventExerciseView, error)
 		GetResourcePlan(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventResourcePlan, error)
-		ListPublishedExercisesForEvent(ctx context.Context, eventID uuid.UUID, search, infrastructure string, tags []string) ([]eventUseCase.PublishedExerciseChoice, error)
+		ListPublishedExercisesForEvent(ctx context.Context, eventID uuid.UUID, filter eventUseCase.EventCatalogFilter) ([]eventUseCase.PublishedExerciseChoice, error)
 		ListEventCatalogTags(ctx context.Context, eventID uuid.UUID, prefix string, limit int) ([]eventUseCase.EventCatalogTag, error)
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
 		ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in eventUseCase.ReplaceEventExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
@@ -497,14 +497,25 @@ func (h *Handler) getResourcePlan(ctx *gin.Context) {
 // @Param search query string false "name or description substring"
 // @Param infrastructure query string false "yes or no: only exercises with or without a lab topology"
 // @Param tags query []string false "keep exercises with any of these tags (union); combined with the other filters by AND" collectionFormat(multi)
+// @Param difficulty query []string false "keep exercises whose rounded average difficulty is any of these levels (elementary, trivial, easy, medium, hard, insane; none: no difficulty)" collectionFormat(multi)
+// @Param attached query string false "yes or no: only exercises the event already uses (or does not)"
 // @Success 200 {object} response.Response{data=[]publishedExerciseChoiceResponse}
+// @Failure 400 {object} response.Response
 // @Router /events/{id}/manage/exercise-catalog [get]
 func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return
 	}
-	items, err := h.useCase.ListPublishedExercisesForEvent(ctx, eventID, ctx.Query("search"), ctx.Query("infrastructure"), ctx.QueryArray("tags"))
+	difficulties := ctx.QueryArray("difficulty")
+	for _, value := range difficulties {
+		if !eventUseCase.ValidCatalogDifficulty(value) {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("unknown difficulty %q", value))
+			return
+		}
+	}
+	items, err := h.useCase.ListPublishedExercisesForEvent(ctx, eventID, eventUseCase.EventCatalogFilter{Search: ctx.Query("search"),
+		Infrastructure: ctx.Query("infrastructure"), Tags: ctx.QueryArray("tags"), Difficulties: difficulties, Attached: ctx.Query("attached")})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -518,7 +529,8 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
 			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
 			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy,
-			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames)})
+			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames),
+			MatchedCount: item.MatchedCount, AvailableCount: item.AvailableCount})
 	}
 	response.AbortWithData(ctx, out)
 }

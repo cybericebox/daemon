@@ -93,6 +93,8 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
        ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at, ee.stage_id,
        ex.name::text AS exercise_name,
        ex.scope,
+       -- The exercise's categories (catalog tags), for the event's task statistics.
+       COALESCE(ex.tags, '{}')::text[] AS exercise_tags,
        ex.published_version_id AS latest_version_id,
        ex.forked_from_exercise_id,
        ex.forked_from_version_id,
@@ -169,7 +171,14 @@ SELECT ex.id, ex.name, ex.description, ex.tags, ex.scope, ex.published_version_i
                WHERE ee.event_id = sqlc.arg(event_id)
                  AND ee.status = 0
                  AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
-                   OR ex.forked_from_exercise_id = attached.id))::boolean AS attached
+                   OR ex.forked_from_exercise_id = attached.id))::boolean AS attached,
+       -- How many exercises match the filters before the LIMIT, and how many the event may attach at all.
+       (count(*) OVER ())::integer AS matched_count,
+       (SELECT count(*)
+        FROM exercises avail
+        WHERE avail.published_version_id IS NOT NULL
+          AND avail.archived_at IS NULL
+          AND exercise_available_to_event(avail.id, sqlc.arg(event_id)))::integer AS available_count
 FROM exercises ex
 JOIN exercise_versions published ON published.id = ex.published_version_id
 WHERE ex.published_version_id IS NOT NULL
@@ -180,6 +189,19 @@ WHERE ex.published_version_id IS NOT NULL
   AND (sqlc.arg(infrastructure)::text = ''
     OR exercise_has_infrastructure(ex.id) = (sqlc.arg(infrastructure)::text = 'yes'))
   AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR ex.tags && sqlc.arg(tags)::text[])
+  -- difficulties: the rounded average level 1..6 (as the catalog filter rounds it), 0 for a set without one; any of
+  -- them (union); empty means no difficulty filter.
+  AND (coalesce(cardinality(sqlc.arg(difficulties)::int[]), 0) = 0
+    OR COALESCE(round(published.avg_difficulty)::int, 0) = ANY (sqlc.arg(difficulties)::int[]))
+  -- attached: yes or no keeps only the exercises the event already uses (or not); '' keeps both.
+  AND (sqlc.arg(attached)::text = ''
+    OR EXISTS (SELECT 1
+               FROM event_exercises ee
+               JOIN exercises attached ON attached.id = ee.exercise_id
+               WHERE ee.event_id = sqlc.arg(event_id)
+                 AND ee.status = 0
+                 AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
+                   OR ex.forked_from_exercise_id = attached.id)) = (sqlc.arg(attached)::text = 'yes'))
 ORDER BY ex.scope DESC, lower(ex.name), ex.id
 LIMIT 100;
 

@@ -312,7 +312,7 @@ func TestCatalogSubtaskNames(t *testing.T) {
 	if err != nil || len(rows) != 1 || strings.Join(rows[0].TaskNames, "|") != "Task A|Task B" || *rows[0].TaskCount != 2 {
 		t.Fatalf("catalog table names: %+v err=%v", rows, err)
 	}
-	items, err := eventExerciseRepo.New(db.Queries).Catalog(ctx, event.ID, "Picker", "", nil)
+	items, err := eventExerciseRepo.New(db.Queries).Catalog(ctx, event.ID, eventExerciseRepo.CatalogFilter{Search: "Picker"})
 	if err != nil || len(items) != 1 {
 		t.Fatalf("event catalog: %+v err=%v", items, err)
 	}
@@ -320,6 +320,75 @@ func TestCatalogSubtaskNames(t *testing.T) {
 	if strings.Join(got.TaskNames, "|") != "Task A|Task B" || got.TaskCount == nil || *got.TaskCount != 2 || got.AvgDifficulty == nil || *got.AvgDifficulty != 4 {
 		t.Fatalf("event catalog item: names=%v count=%v avg=%v", got.TaskNames, got.TaskCount, got.AvgDifficulty)
 	}
+	if got.MatchedCount != 1 || got.AvailableCount < 1 {
+		t.Fatalf("event catalog counts: matched=%d available=%d", got.MatchedCount, got.AvailableCount)
+	}
+}
+
+// TestEventCatalogDifficultyAndAttachedFilters: the picker narrows by the rounded average level (0: none) and by
+// whether the event already uses the exercise; the counts tell how many match and how many the event may attach.
+func TestEventCatalogDifficultyAndAttachedFilters(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	event := mustSeedEventForParticipants(t, db, "filters")
+	publish := func(name string, variants []exerciseModel.Variant) uuid.UUID {
+		t.Helper()
+		task := mustCreateExerciseFull(t, repo, name, "", []string{"web"}, itNow)
+		if _, err := db.Pool.Exec(ctx, `UPDATE exercises SET access_level = 0 WHERE id = $1`, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		versionID := uuid.Must(uuid.NewV7())
+		if _, err := repo.UpsertDraft(ctx, task.ID, versionID, exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		return task.ID
+	}
+	medium := publish("Filter medium", levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyHard)) // 4: medium
+	easy := publish("Filter easy", levels(exerciseModel.DifficultyEasy))                                   // 3: easy
+	if _, err := db.Queries.CreateEventExercise(ctx, postgres.CreateEventExerciseParams{ID: uuid.Must(uuid.NewV7()), EventID: event.ID, ExerciseID: easy,
+		ExerciseVersionID: mustPublishedVersion(t, db, easy), Revision: 1, CreatedAt: itNow}); err != nil {
+		t.Fatal(err)
+	}
+	catalog := eventExerciseRepo.New(db.Queries)
+	for _, tc := range []struct {
+		name   string
+		filter eventExerciseRepo.CatalogFilter
+		want   []uuid.UUID
+	}{
+		{"medium", eventExerciseRepo.CatalogFilter{Search: "Filter", Difficulties: []int32{4}}, []uuid.UUID{medium}},
+		{"easy or medium", eventExerciseRepo.CatalogFilter{Search: "Filter", Difficulties: []int32{3, 4}}, []uuid.UUID{easy, medium}},
+		{"no difficulty", eventExerciseRepo.CatalogFilter{Search: "Filter", Difficulties: []int32{0}}, nil},
+		{"attached", eventExerciseRepo.CatalogFilter{Search: "Filter", Attached: "yes"}, []uuid.UUID{easy}},
+		{"not attached", eventExerciseRepo.CatalogFilter{Search: "Filter", Attached: "no"}, []uuid.UUID{medium}},
+		{"not attached and easy", eventExerciseRepo.CatalogFilter{Search: "Filter", Attached: "no", Difficulties: []int32{3}}, nil},
+	} {
+		items, err := catalog.Catalog(ctx, event.ID, tc.filter)
+		if err != nil || len(items) != len(tc.want) {
+			t.Fatalf("%s: %+v err=%v", tc.name, items, err)
+		}
+		for i, item := range items {
+			if item.ID != tc.want[i] || item.MatchedCount != len(tc.want) || item.AvailableCount != 2 {
+				t.Fatalf("%s: row %d = %s matched=%d available=%d", tc.name, i, item.Name, item.MatchedCount, item.AvailableCount)
+			}
+		}
+	}
+	details, err := catalog.Details(ctx, event.ID)
+	if err != nil || len(details) != 1 || strings.Join(details[0].ExerciseTags, ",") != "web" {
+		t.Fatalf("the event's set carries the exercise's tags: %+v err=%v", details, err)
+	}
+}
+
+func mustPublishedVersion(t *testing.T, db *testhelpers.TestDB, exerciseID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := db.Pool.QueryRow(context.Background(), `SELECT published_version_id FROM exercises WHERE id = $1`, exerciseID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 // TestEventExerciseDetailsPinnedStats: the event's task list shows the difficulty, count and subtask names of the
