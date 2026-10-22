@@ -105,7 +105,8 @@ func TestEventRenderSourceIgnoresDraftAndOperationalWrites(t *testing.T) {
 	for _, tc := range []struct{ name, query string }{
 		{"event audit timestamp", `UPDATE events SET updated_at=now(),updated_by=created_by WHERE id=$1`},
 		{"landing draft", `UPDATE events SET landing_draft='{"version":1,"blocks":[]}' WHERE id=$1`},
-		{"live layout publication and draft", `UPDATE events SET live_layout=jsonb_set(live_layout,'{version}','999'),live_layout_draft=live_layout WHERE id=$1`},
+		{"live layout publication and draft", `UPDATE event_live_screens SET layout=jsonb_set(layout,'{version}','999'),layout_draft=layout WHERE event_id=$1`},
+		{"another live screen", `INSERT INTO event_live_screens(id,event_id,position,name) VALUES(gen_random_uuid(),$1,1,'Фойє')`},
 		{"internal event name", `UPDATE events SET internal_name='Internal working name' WHERE id=$1`},
 		{"unrelated scoring parameter", `UPDATE events SET dynamic_min_points=dynamic_min_points+1 WHERE id=$1`},
 		{"config audit timestamp", `UPDATE event_configs SET updated_at=now(),updated_by=NULL WHERE event_id=$1`},

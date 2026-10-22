@@ -2485,6 +2485,52 @@
                 }
             }
         },
+        "/events/self/live-screen/version": {
+            "get": {
+                "description": "A light check for an open screen: reload the layout (GET /events/self/live-screen) only when the version changes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Read the published layout version of a screen link's screen",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "screen link token (or ?token=)",
+                        "name": "X-Live-Screen-Token",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen link token, for clients that cannot send the header",
+                        "name": "token",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.liveScreenVersionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/self/participant-answers": {
             "get": {
                 "produces": [
@@ -5572,13 +5618,14 @@
         },
         "/events/{id}/manage/content/live": {
             "get": {
+                "description": "Without ?screen the event's first screen (the single-screen route). The moderator /live page reads the screen it shows with ?screen.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "events"
                 ],
-                "summary": "Read published and draft live-screen layouts",
+                "summary": "Read published and draft live-screen layouts of a screen",
                 "parameters": [
                     {
                         "type": "string",
@@ -5586,18 +5633,37 @@
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID (default: the first screen)",
+                        "name": "screen",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/response.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenEditorSwaggerResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
             },
             "put": {
+                "description": "The single-screen route: the same as PUT content/live/screens/{screenID}/draft for the first screen.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5607,7 +5673,7 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Save an event live-screen layout draft",
+                "summary": "Save the live-screen layout draft of the event's first screen",
                 "parameters": [
                     {
                         "type": "string",
@@ -5690,13 +5756,14 @@
         },
         "/events/{id}/manage/content/live/publish": {
             "post": {
+                "description": "The single-screen route: the same as POST content/live/screens/{screenID}/publish for the first screen.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "events"
                 ],
-                "summary": "Publish an event live-screen layout draft",
+                "summary": "Publish the live-screen layout draft of the event's first screen",
                 "parameters": [
                     {
                         "type": "string",
@@ -5724,7 +5791,7 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Get the event's screen link (without its token)",
+                "summary": "Get the screen link of the event's first screen (without its token)",
                 "parameters": [
                     {
                         "type": "string",
@@ -5765,7 +5832,7 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Create the event's screen link (replaces an existing one; the token is returned once)",
+                "summary": "Create the screen link of the event's first screen (replaces an existing one; the token is returned once)",
                 "parameters": [
                     {
                         "type": "string",
@@ -5809,7 +5876,7 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Turn the screen link off («Вимкнути»)",
+                "summary": "Turn the first screen's link off («Вимкнути»)",
                 "parameters": [
                     {
                         "type": "string",
@@ -5834,7 +5901,7 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Replace the screen link's token (same expiry); the old URL stops working",
+                "summary": "Replace the first screen's link token (same expiry); the old URL stops working",
                 "parameters": [
                     {
                         "type": "string",
@@ -5866,16 +5933,18 @@
                 }
             }
         },
-        "/events/{id}/manage/content/live/version": {
-            "get": {
-                "description": "A light check for open live screens: reload the layout only when the version changes.",
+        "/events/{id}/manage/content/live/screen-order": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "events"
                 ],
-                "summary": "Read the published live-screen layout version",
+                "summary": "Set the order of the event's live screens",
                 "parameters": [
                     {
                         "type": "string",
@@ -5883,6 +5952,646 @@
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "every screen ID once, in the new order",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.reorderLiveScreensRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreensResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "List the event's live screens (the editor's screen switcher)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreensResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Add a live screen (at most 10): empty, a copy of a screen or from a template layout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "screen",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.createLiveScreenSwaggerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenSummaryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Read a live screen with its published layout and draft",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenEditorSwaggerResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "events"
+                ],
+                "summary": "Delete a live screen and its link (not the event's only screen)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Rename a live screen (1 to 40 characters)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.renameLiveScreenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenSummaryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/draft": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Save a live screen's layout draft",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "live layout",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.updateLiveLayoutSwaggerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/duplicate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Duplicate a live screen (its published layout and draft, not its link)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "name of the copy",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.duplicateLiveScreenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenSummaryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/link": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Get a screen's link (without its token)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenLinkStateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Create a screen's link (replaces its existing one; the token is returned once)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "expiry",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.issueLiveScreenLinkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenLinkResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "events"
+                ],
+                "summary": "Turn a screen's link off («Вимкнути»)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/link/regenerate": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Replace a screen's link token (same expiry); the old URL stops working",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveScreenLinkResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/publish": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Publish a live screen's layout draft",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/screens/{screenID}/version": {
+            "get": {
+                "description": "A light check for an open screen: reload the layout only when the version changes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Read a live screen's published layout version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID",
+                        "name": "screenID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.liveLayoutVersionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/content/live/version": {
+            "get": {
+                "description": "A light check for open live screens: reload the layout only when the version changes. Without ?screen the event's first screen.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Read the published live-screen layout version of a screen",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen ID (default: the first screen)",
+                        "name": "screen",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5945,6 +6654,22 @@
                         "description": "keep exercises with any of these tags (union); combined with the other filters by AND",
                         "name": "tags",
                         "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "keep exercises whose rounded average difficulty is any of these levels (elementary, trivial, easy, medium, hard, insane; none: no difficulty)",
+                        "name": "difficulty",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "yes or no: only exercises the event already uses (or does not)",
+                        "name": "attached",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5967,6 +6692,12 @@
                                     }
                                 }
                             ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -26640,6 +27371,18 @@
                 }
             }
         },
+        "event.createLiveScreenSwaggerRequest": {
+            "type": "object",
+            "properties": {
+                "CopyFrom": {
+                    "type": "string"
+                },
+                "Layout": {},
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "event.createManagedTeamRequest": {
             "type": "object",
             "properties": {
@@ -26720,6 +27463,15 @@
                     "type": "string"
                 },
                 "Reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.duplicateLiveScreenRequest": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "description": "Name empty = «Екран N».",
                     "type": "string"
                 }
             }
@@ -27059,6 +27811,13 @@
                 },
                 "SupersededAt": {
                     "type": "string"
+                },
+                "Tags": {
+                    "description": "Tags: the exercise's categories (catalog tags).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "TaskCount": {
                     "type": "integer"
@@ -27687,6 +28446,38 @@
         "event.liveLayoutVersionResponse": {
             "type": "object",
             "properties": {
+                "ScreenID": {
+                    "description": "ScreenID is the screen the version belongs to.",
+                    "type": "string"
+                },
+                "Version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.liveScreenEditorSwaggerResponse": {
+            "type": "object",
+            "properties": {
+                "Draft": {},
+                "HasDraft": {
+                    "type": "boolean"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Link": {
+                    "$ref": "#/definitions/event.liveScreenLinkResponse"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Position": {
+                    "type": "integer"
+                },
+                "Published": {},
+                "UpdatedAt": {
+                    "type": "string"
+                },
                 "Version": {
                     "type": "integer"
                 }
@@ -27715,12 +28506,63 @@
             "type": "object",
             "properties": {
                 "Link": {
-                    "description": "Link is null when the event has no working screen link.",
+                    "description": "Link is null when the screen has no working link.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/event.liveScreenLinkResponse"
                         }
                     ]
+                }
+            }
+        },
+        "event.liveScreenSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "HasDraft": {
+                    "type": "boolean"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Link": {
+                    "description": "Link is the working screen link (never its token); null when the\nscreen has none or the caller may not manage the event.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.liveScreenLinkResponse"
+                        }
+                    ]
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Position": {
+                    "type": "integer"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                },
+                "Version": {
+                    "description": "Version is the published layout version the open screens poll for.",
+                    "type": "integer"
+                }
+            }
+        },
+        "event.liveScreensResponse": {
+            "type": "object",
+            "properties": {
+                "LinksVisible": {
+                    "description": "LinksVisible: the caller manages the event, so Link is filled in.",
+                    "type": "boolean"
+                },
+                "Max": {
+                    "description": "Max is the screen limit of an event.",
+                    "type": "integer"
+                },
+                "Screens": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.liveScreenSummaryResponse"
+                    }
                 }
             }
         },
@@ -28493,6 +29335,9 @@
                     "description": "Attached: the event already uses it (or its fork family).",
                     "type": "boolean"
                 },
+                "AvailableCount": {
+                    "type": "integer"
+                },
                 "AvgDifficulty": {
                     "description": "AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first\nvariant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.",
                     "type": "number"
@@ -28505,6 +29350,10 @@
                 },
                 "Infrastructure": {
                     "type": "boolean"
+                },
+                "MatchedCount": {
+                    "description": "MatchedCount: how many exercises match the filters (the list holds at most 100); AvailableCount: how many the\nevent may attach without filters. The same on every row.",
+                    "type": "integer"
                 },
                 "Name": {
                     "type": "string"
@@ -28552,6 +29401,14 @@
                 }
             }
         },
+        "event.renameLiveScreenRequest": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "event.reorderChallengeGroupsRequest": {
             "type": "object",
             "properties": {
@@ -28585,6 +29442,21 @@
                 },
                 "GroupID": {
                     "type": "string"
+                }
+            }
+        },
+        "event.reorderLiveScreensRequest": {
+            "type": "object",
+            "required": [
+                "ScreenIDs"
+            ],
+            "properties": {
+                "ScreenIDs": {
+                    "description": "ScreenIDs lists every screen of the event once, in the new order.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -32649,6 +33521,17 @@
                 }
             }
         },
+        "eventself.liveScreenIdentityResponse": {
+            "type": "object",
+            "properties": {
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "eventself.liveScreenResponse": {
             "type": "object",
             "properties": {
@@ -32660,6 +33543,14 @@
                     "items": {
                         "type": "integer"
                     }
+                },
+                "Screen": {
+                    "description": "Screen is the screen the link belongs to.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/eventself.liveScreenIdentityResponse"
+                        }
+                    ]
                 },
                 "Stages": {
                     "description": "Stages in the event order; the screen timer counts to the current\nstage end or the next stage start. Empty for an event without stages.",
@@ -32681,6 +33572,17 @@
                 },
                 "OpensAt": {
                     "type": "string"
+                }
+            }
+        },
+        "eventself.liveScreenVersionResponse": {
+            "type": "object",
+            "properties": {
+                "ScreenID": {
+                    "type": "string"
+                },
+                "Version": {
+                    "type": "integer"
                 }
             }
         },

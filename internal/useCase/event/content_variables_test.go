@@ -425,65 +425,6 @@ func testLiveLayoutJSON(t *testing.T) []byte {
 	return value
 }
 
-func TestSaveLiveLayoutDraftValidatesAndWritesEventSettings(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	uc := NewEventUseCase(Dependencies{Repo: q})
-	eventID := uuid.Must(uuid.NewV7())
-	layout := eventContentModel.DefaultLiveLayout()
-	q.EXPECT().SaveEventLiveLayoutDraft(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, arg postgres.SaveEventLiveLayoutDraftParams) (int64, error) {
-			if arg.EventID != eventID {
-				t.Fatalf("event ID = %s, want %s", arg.EventID, eventID)
-			}
-			if !json.Valid(arg.LiveLayoutDraft) {
-				t.Fatalf("draft is not JSON")
-			}
-			return 1, nil
-		})
-	if err := uc.SaveLiveLayoutDraft(context.Background(), eventID, layout); err != nil {
-		t.Fatalf("save live layout: %v", err)
-	}
-	if err := uc.SaveLiveLayoutDraft(context.Background(), eventID, eventContentModel.LiveLayout{}); err == nil {
-		t.Fatal("invalid live canvas must be rejected")
-	}
-}
-
-func TestLiveLayoutEditorReadsDraftAndPublishIncrementsVersion(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	uc := NewEventUseCase(Dependencies{Repo: q})
-	eventID := uuid.Must(uuid.NewV7())
-	published := eventContentModel.DefaultLiveLayout()
-	draft := eventContentModel.DefaultLiveLayout()
-	draft.Theme = "light"
-	draftJSON, err := json.Marshal(draft)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q.EXPECT().GetEventContentSettings(gomock.Any(), eventID).Return(postgres.GetEventContentSettingsRow{
-		ID: eventID, LandingDocument: []byte(`{"blocks":[]}`), LiveLayout: testLiveLayoutJSON(t), LiveLayoutDraft: draftJSON,
-	}, nil)
-	view, err := uc.GetLiveLayoutEditor(context.Background(), eventID)
-	if err != nil || view.Draft == nil || view.Draft.Theme != "light" || view.Published.Version != 1 {
-		t.Fatalf("editor view: %+v %v", view, err)
-	}
-	published.Version = 2
-	published.Theme = "light"
-	publishedJSON, err := json.Marshal(published)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q.EXPECT().GetEventContentSettings(gomock.Any(), eventID).Return(postgres.GetEventContentSettingsRow{
-		ID: eventID, LandingDocument: []byte(`{"blocks":[]}`), LiveLayout: testLiveLayoutJSON(t), LiveLayoutDraft: draftJSON,
-	}, nil)
-	q.EXPECT().PublishEventLiveLayout(gomock.Any(), eventID).Return(publishedJSON, nil)
-	result, err := uc.PublishLiveLayout(context.Background(), eventID)
-	if err != nil || result.Version != 2 || result.Theme != "light" {
-		t.Fatalf("published layout: %+v %v", result, err)
-	}
-}
-
 func TestResolveContentVariablesUsesApprovedParticipantsForIndividualEvents(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	lifecycle, err := eventModel.NewLifecycle(eventModel.JoinPolicyLockedAtStart, now, now.Add(time.Hour), nil, nil, nil)
@@ -502,34 +443,5 @@ func TestResolveContentVariablesUsesApprovedParticipantsForIndividualEvents(t *t
 	}
 	if values["event.finishAt"] != nil || values["event.effectiveFinishAt"] != nil {
 		t.Fatalf("permanent event must expose nil finish values: %#v", values)
-	}
-}
-
-// A legacy layout stored before the 3x3 editor minimum must keep loading, but
-// it cannot be published again until the manager saves a valid draft.
-func TestLegacyTinyLiveLayoutLoadsButDoesNotPublish(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	uc := NewEventUseCase(Dependencies{Repo: q})
-	eventID := uuid.Must(uuid.NewV7())
-	legacy := eventContentModel.DefaultLiveLayout()
-	legacy.Grid = eventContentModel.LiveGrid{Cols: 1, Rows: 1}
-	legacy.Widgets = []eventContentModel.LiveWidget{{ID: "qr", Type: "qr", X: 1, Y: 1, W: 1, H: 1, Props: map[string]json.RawMessage{}}}
-	legacyJSON, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	row := postgres.GetEventContentSettingsRow{ID: eventID, LandingDocument: []byte(`{"blocks":[]}`), LiveLayout: legacyJSON, LiveLayoutDraft: legacyJSON}
-	q.EXPECT().GetEventContentSettings(gomock.Any(), eventID).Return(row, nil).Times(2)
-
-	view, err := uc.GetLiveLayoutEditor(context.Background(), eventID)
-	if err != nil || view.Published.Grid.Cols != 1 || view.Draft == nil {
-		t.Fatalf("legacy layout did not load: %+v %v", view, err)
-	}
-	if _, err = uc.PublishLiveLayout(context.Background(), eventID); !errors.Is(err, eventContentModel.ErrLiveDraftInvalid.Err()) {
-		t.Fatalf("publish err = %v, want ErrLiveDraftInvalid", err)
-	}
-	if err = uc.SaveLiveLayoutDraft(context.Background(), eventID, legacy); !errors.Is(err, eventContentModel.ErrLiveLayoutInvalid.Err()) {
-		t.Fatalf("save err = %v, want ErrLiveLayoutInvalid", err)
 	}
 }

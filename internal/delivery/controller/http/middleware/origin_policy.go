@@ -220,6 +220,7 @@ var PublicReadRoutes = map[string]bool{
 	"/api/events/:id/results/changes":           true,
 	"/api/events/:id/results/live":              true,
 	"/api/events/self/live-screen":              true,
+	"/api/events/self/live-screen/version":      true,
 	"/api/events/self/live-screen/results":      true,
 	"/api/events/self/live-screen/results/live": true,
 	"/api/events/self/public-info":              true,

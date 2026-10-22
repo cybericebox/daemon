@@ -118,9 +118,14 @@ func (q *Queries) DiscardEventPageDraft(ctx context.Context, arg DiscardEventPag
 }
 
 const getEventContentSettings = `-- name: GetEventContentSettings :one
-SELECT id, landing_document, landing_draft, live_layout, live_layout_draft
-FROM events
-WHERE id = $1
+SELECT e.id, e.landing_document, e.landing_draft, first.layout AS live_layout, first.layout_draft AS live_layout_draft
+FROM events AS e
+LEFT JOIN LATERAL (SELECT s.layout, s.layout_draft
+                   FROM event_live_screens AS s
+                   WHERE s.event_id = e.id
+                   ORDER BY s.position, s.id
+                   LIMIT 1) AS first ON true
+WHERE e.id = $1
 `
 
 type GetEventContentSettingsRow struct {
@@ -131,6 +136,7 @@ type GetEventContentSettingsRow struct {
 	LiveLayoutDraft []byte    `json:"live_layout_draft"`
 }
 
+// The live layout is the event's first screen (see event_live_screens.sql).
 func (q *Queries) GetEventContentSettings(ctx context.Context, eventID uuid.UUID) (GetEventContentSettingsRow, error) {
 	row := q.db.QueryRow(ctx, getEventContentSettings, eventID)
 	var i GetEventContentSettingsRow
@@ -372,21 +378,6 @@ func (q *Queries) PublishEventLandingDraft(ctx context.Context, arg PublishEvent
 	return result.RowsAffected(), nil
 }
 
-const publishEventLiveLayout = `-- name: PublishEventLiveLayout :one
-UPDATE events
-SET live_layout = jsonb_set(live_layout_draft, '{version}', to_jsonb(((live_layout->>'version')::bigint + 1))),
-    live_layout_draft = NULL
-WHERE id = $1 AND live_layout_draft IS NOT NULL
-RETURNING live_layout
-`
-
-func (q *Queries) PublishEventLiveLayout(ctx context.Context, eventID uuid.UUID) ([]byte, error) {
-	row := q.db.QueryRow(ctx, publishEventLiveLayout, eventID)
-	var live_layout []byte
-	err := row.Scan(&live_layout)
-	return live_layout, err
-}
-
 const saveEventLandingDraft = `-- name: SaveEventLandingDraft :execrows
 UPDATE events
 SET landing_draft = $1
@@ -400,25 +391,6 @@ type SaveEventLandingDraftParams struct {
 
 func (q *Queries) SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error) {
 	result, err := q.db.Exec(ctx, saveEventLandingDraft, arg.LandingDraft, arg.EventID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const saveEventLiveLayoutDraft = `-- name: SaveEventLiveLayoutDraft :execrows
-UPDATE events
-SET live_layout_draft = $1
-WHERE id = $2
-`
-
-type SaveEventLiveLayoutDraftParams struct {
-	LiveLayoutDraft []byte    `json:"live_layout_draft"`
-	EventID         uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) SaveEventLiveLayoutDraft(ctx context.Context, arg SaveEventLiveLayoutDraftParams) (int64, error) {
-	result, err := q.db.Exec(ctx, saveEventLiveLayoutDraft, arg.LiveLayoutDraft, arg.EventID)
 	if err != nil {
 		return 0, err
 	}

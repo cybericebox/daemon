@@ -582,6 +582,8 @@ type eventExerciseResponse struct {
 	NoAgentFits   bool                       `json:"NoAgentFits"`
 	// FlagsRepeat: two teams may get the same flag of the set; null when they cannot.
 	FlagsRepeat *flagsRepeatResponse `json:"FlagsRepeat"`
+	// Tags: the exercise's categories (catalog tags).
+	Tags []string `json:"Tags"`
 	// The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
 	// none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
 	// else of the first.
@@ -694,6 +696,10 @@ type publishedExerciseChoiceResponse struct {
 	AvgDifficulty *float64 `json:"AvgDifficulty"`
 	TaskCount     *int     `json:"TaskCount"`
 	TaskNames     []string `json:"TaskNames"`
+	// MatchedCount: how many exercises match the filters (the list holds at most 100); AvailableCount: how many the
+	// event may attach without filters. The same on every row.
+	MatchedCount   int `json:"MatchedCount"`
+	AvailableCount int `json:"AvailableCount"`
 }
 
 type publishedExerciseTaskPreviewResponse struct {
@@ -976,7 +982,7 @@ func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResp
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
 		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
-		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames)}
+		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames), Tags: nonNilStrings(v.Tags)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
 	if v.FlagsRepeat != nil {
 		out.FlagsRepeat = &flagsRepeatResponse{Flags: v.FlagsRepeat.Flags, Teams: v.FlagsRepeat.Teams, Reason: v.FlagsRepeat.Reason}

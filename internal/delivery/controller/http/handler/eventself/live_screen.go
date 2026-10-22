@@ -17,14 +17,15 @@ import (
 )
 
 // Screen links (live screen for projector PCs that are not signed in): the
-// token in ?token= opens this event's published layout and the staff live
-// board, read-only. Nothing else is reachable with it.
+// token in ?token= opens the published layout of its screen (an event has up
+// to 10) and the staff live board, read-only. Nothing else is reachable with it.
 func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 	known := func(ctx context.Context, token string, now time.Time) bool {
 		return h.useCase.IsActiveLiveScreenToken(ctx, token, now)
 	}
 	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), liveScreenNoStore, newLiveScreenLimiter(known).middleware, h.liveScreenGate, resolveTenant)
 	screen.GET("", h.liveScreen)
+	screen.GET("version", h.liveScreenVersion)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
 	screen.GET("results/live", h.liveScreenAccess, h.liveResults)
 }
@@ -65,11 +66,23 @@ func (h *Handler) liveScreenGate(ctx *gin.Context) {
 }
 
 type liveScreenResponse struct {
-	Event  publicEventInfoResponse `json:"Event"`
-	Layout json.RawMessage         `json:"Layout"`
+	Event publicEventInfoResponse `json:"Event"`
+	// Screen is the screen the link belongs to.
+	Screen liveScreenIdentityResponse `json:"Screen"`
+	Layout json.RawMessage            `json:"Layout"`
 	// Stages in the event order; the screen timer counts to the current
 	// stage end or the next stage start. Empty for an event without stages.
 	Stages []liveScreenStageResponse `json:"Stages"`
+}
+
+type liveScreenIdentityResponse struct {
+	ID   uuid.UUID `json:"ID"`
+	Name string    `json:"Name"`
+}
+
+type liveScreenVersionResponse struct {
+	Version  int64     `json:"Version"`
+	ScreenID uuid.UUID `json:"ScreenID"`
 }
 
 type liveScreenStageResponse struct {
@@ -106,7 +119,30 @@ func (h *Handler) liveScreen(ctx *gin.Context) {
 	for _, stage := range v.Stages {
 		stages = append(stages, liveScreenStageResponse{Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt})
 	}
-	response.AbortWithData(ctx, liveScreenResponse{Event: toPublicEventInfoResponse(v.Event), Layout: layout, Stages: stages})
+	response.AbortWithData(ctx, liveScreenResponse{Event: toPublicEventInfoResponse(v.Event), Screen: liveScreenIdentityResponse{ID: v.ScreenID, Name: v.ScreenName}, Layout: layout, Stages: stages})
+}
+
+// liveScreenVersion godoc
+// @Summary Read the published layout version of a screen link's screen
+// @Description A light check for an open screen: reload the layout (GET /events/self/live-screen) only when the version changes.
+// @Tags events-self
+// @Produce json
+// @Param X-Live-Screen-Token header string false "screen link token (or ?token=)"
+// @Param token query string false "screen link token, for clients that cannot send the header"
+// @Success 200 {object} response.Response{data=liveScreenVersionResponse}
+// @Router /events/self/live-screen/version [get]
+func (h *Handler) liveScreenVersion(ctx *gin.Context) {
+	tenant, ok := middleware.EventTenantFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithNotFound(ctx)
+		return
+	}
+	v, err := h.useCase.GetLiveScreenVersion(ctx, tenant.EventID, liveScreenToken(ctx))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, liveScreenVersionResponse{Version: v.Version, ScreenID: v.ScreenID})
 }
 
 // liveScreenAccess turns a valid screen link into the read-only staff view

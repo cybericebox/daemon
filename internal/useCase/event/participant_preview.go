@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantPreviewRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
@@ -432,7 +433,7 @@ func (u *EventUseCase) ListPreviewCatalog(ctx context.Context, event, user uuid.
 	var eligible, blocked []previewCandidate
 	seen := map[uuid.UUID]bool{}
 	if event != uuid.Nil {
-		rows, err := u.eventExercises.Catalog(ctx, event, search, "", nil)
+		rows, err := u.eventExercises.Catalog(ctx, event, eventExerciseRepo.CatalogFilter{Search: search})
 		if err != nil {
 			return nil, previewFailure(err)
 		}

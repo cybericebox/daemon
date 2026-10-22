@@ -232,63 +232,6 @@ func (u *EventUseCase) DiscardLandingDraft(ctx context.Context, eventID uuid.UUI
 	return nil
 }
 
-type LiveLayoutEditorView struct {
-	Published eventContentModel.LiveLayout  `json:"Published"`
-	Draft     *eventContentModel.LiveLayout `json:"Draft"`
-}
-
-func (u *EventUseCase) GetLiveLayoutEditor(ctx context.Context, eventID uuid.UUID) (LiveLayoutEditorView, error) {
-	settings, err := u.content.GetSettings(ctx, eventID)
-	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return LiveLayoutEditorView{}, eventModel.ErrEventNotFound.Err()
-		}
-		return LiveLayoutEditorView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get live layout").Err()
-	}
-	return LiveLayoutEditorView{Published: settings.Live, Draft: settings.LiveDraft}, nil
-}
-
-func (u *EventUseCase) SaveLiveLayoutDraft(ctx context.Context, eventID uuid.UUID, layout eventContentModel.LiveLayout) error {
-	if err := layout.Validate(); err != nil {
-		return eventContentModel.ErrLiveLayoutInvalid.WithError(err).Err()
-	}
-	affected, err := u.content.SaveLiveDraft(ctx, eventID, layout)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to save event live layout draft").Err()
-	}
-	if affected == 0 {
-		return eventModel.ErrEventNotFound.Err()
-	}
-	return nil
-}
-
-// PublishLiveLayout promotes the draft. The draft passed the write-side check
-// when saved, but a legacy draft may predate it (e.g. a grid below 3x3), so it
-// is checked again before it becomes the published layout.
-func (u *EventUseCase) PublishLiveLayout(ctx context.Context, eventID uuid.UUID) (eventContentModel.LiveLayout, error) {
-	settings, err := u.content.GetSettings(ctx, eventID)
-	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return eventContentModel.LiveLayout{}, eventModel.ErrEventNotFound.Err()
-		}
-		return eventContentModel.LiveLayout{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get live layout draft").Err()
-	}
-	// A missing draft is reported by PublishLive below (zero rows).
-	if settings.LiveDraft != nil {
-		if err = settings.LiveDraft.Validate(); err != nil {
-			return eventContentModel.LiveLayout{}, eventContentModel.ErrLiveDraftInvalid.WithError(err).Err()
-		}
-	}
-	layout, err := u.content.PublishLive(ctx, eventID)
-	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return eventContentModel.LiveLayout{}, eventContentModel.ErrLiveDraftNotFound.Err()
-		}
-		return eventContentModel.LiveLayout{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish event live layout").Err()
-	}
-	return layout, nil
-}
-
 // GetPublicEventContent returns the landing configuration after the event has
 // been published. It shares the manager resolver but never exposes raw
 // operational counts to a public renderer.

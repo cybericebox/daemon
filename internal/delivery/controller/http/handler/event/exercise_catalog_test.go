@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -23,6 +24,9 @@ type catalogContractUC struct {
 	// W4 filters
 	infrastructure string
 	tags           []string
+	difficulties   []string
+	attached       string
+	calls          int
 	tagItems       []eventUseCase.EventCatalogTag
 	tagPrefix      string
 	tagLimit       int
@@ -34,8 +38,10 @@ func (u *catalogContractUC) RequireReadEvent(context.Context, uuid.UUID, uuid.UU
 	return u.readErr
 }
 
-func (u *catalogContractUC) ListPublishedExercisesForEvent(_ context.Context, _ uuid.UUID, search, infrastructure string, tags []string) ([]eventUseCase.PublishedExerciseChoice, error) {
-	u.search, u.infrastructure, u.tags = search, infrastructure, tags
+func (u *catalogContractUC) ListPublishedExercisesForEvent(_ context.Context, _ uuid.UUID, filter eventUseCase.EventCatalogFilter) ([]eventUseCase.PublishedExerciseChoice, error) {
+	u.search, u.infrastructure, u.tags = filter.Search, filter.Infrastructure, filter.Tags
+	u.difficulties, u.attached = filter.Difficulties, filter.Attached
+	u.calls++
 	return u.items, nil
 }
 
@@ -103,6 +109,32 @@ func TestEventCatalogPassesRepeatedTagsAndInfrastructure(t *testing.T) {
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
 	if w.Code != http.StatusOK || u.search != "web" || u.infrastructure != "yes" || len(u.tags) != 2 || u.tags[0] != "web" || u.tags[1] != "crypto" {
 		t.Fatalf("status=%d search=%q infra=%q tags=%v body=%s", w.Code, u.search, u.infrastructure, u.tags, w.Body.String())
+	}
+}
+
+func TestEventCatalogPassesDifficultyAndAttachedAndReturnsCounts(t *testing.T) {
+	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	url := "/api/events/" + eventID.String() + "/manage/exercise-catalog?difficulty=easy&difficulty=none&attached=no"
+	u := &catalogContractUC{items: []eventUseCase.PublishedExerciseChoice{{ID: uuid.Must(uuid.NewV7()), Name: "Web", PublishedVersionID: uuid.Must(uuid.NewV7()), MatchedCount: 120, AvailableCount: 300}}}
+	router := testEventCRUDRouter(&eventCRUDContractUC{IUseCase: u}, actor)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+	if w.Code != http.StatusOK || len(u.difficulties) != 2 || u.difficulties[0] != "easy" || u.difficulties[1] != "none" || u.attached != "no" {
+		t.Fatalf("status=%d difficulties=%v attached=%q body=%s", w.Code, u.difficulties, u.attached, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"MatchedCount":120`) || !strings.Contains(body, `"AvailableCount":300`) {
+		t.Fatalf("the counts are on the row: %s", body)
+	}
+}
+
+func TestEventCatalogRejectsUnknownDifficulty(t *testing.T) {
+	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	u := &catalogContractUC{}
+	router := testEventCRUDRouter(&eventCRUDContractUC{IUseCase: u}, actor)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/manage/exercise-catalog?difficulty=legendary", nil))
+	if w.Code != http.StatusBadRequest || u.calls != 0 {
+		t.Fatalf("status=%d calls=%d", w.Code, u.calls)
 	}
 }
 

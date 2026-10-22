@@ -60,13 +60,15 @@ func TestRepositoryDecodesSettingsAndWritesStaticPage(t *testing.T) {
 	if affected, err := repo.PublishLanding(context.Background(), eventID, landing, now); err != nil || affected != 1 || q.publishLanding.EventID != eventID || !json.Valid(q.publishLanding.LandingDocument) {
 		t.Fatalf("publish landing: affected=%d params=%+v err=%v", affected, q.publishLanding, err)
 	}
-	live := eventContentModel.DefaultLiveLayout()
-	if affected, err := repo.SaveLiveDraft(context.Background(), eventID, live); err != nil || affected != 1 || q.live.EventID != eventID {
-		t.Fatalf("save live draft: affected=%d params=%+v err=%v", affected, q.live, err)
-	}
-	q.published = mustLiveJSON(t)
-	if published, err := repo.PublishLive(context.Background(), eventID); err != nil || published.Version != 1 {
-		t.Fatalf("publish live: %+v %v", published, err)
+}
+
+// An event row read without a screen (none exists only around the trigger)
+// still has a live layout: the default one.
+func TestGetSettingsWithoutLiveScreenUsesTheDefault(t *testing.T) {
+	q := &fakeQueries{settings: postgres.GetEventContentSettingsRow{LandingDocument: []byte(`{"version":1,"blocks":[]}`)}}
+	settings, err := New(q).GetSettings(context.Background(), uuid.Must(uuid.NewV7()))
+	if err != nil || settings.Live.Version != 1 || settings.LiveDraft != nil {
+		t.Fatalf("settings = %+v, %v", settings, err)
 	}
 }
 
@@ -130,8 +132,6 @@ type fakeQueries struct {
 	delete         postgres.DeleteEventPageParams
 	landing        postgres.SaveEventLandingDraftParams
 	publishLanding postgres.PublishEventLandingDraftParams
-	live           postgres.SaveEventLiveLayoutDraftParams
-	published      []byte
 }
 
 func (q *fakeQueries) GetEventContentSettings(context.Context, uuid.UUID) (postgres.GetEventContentSettingsRow, error) {
@@ -178,15 +178,6 @@ func (q *fakeQueries) PublishEventLandingDraft(_ context.Context, arg postgres.P
 
 func (q *fakeQueries) DiscardEventLandingDraft(context.Context, uuid.UUID) (int64, error) {
 	return 1, nil
-}
-
-func (q *fakeQueries) SaveEventLiveLayoutDraft(_ context.Context, arg postgres.SaveEventLiveLayoutDraftParams) (int64, error) {
-	q.live = arg
-	return 1, nil
-}
-
-func (q *fakeQueries) PublishEventLiveLayout(context.Context, uuid.UUID) ([]byte, error) {
-	return q.published, nil
 }
 
 func (*fakeQueries) GetEventRenderMetadata(context.Context, postgres.GetEventRenderMetadataParams) (postgres.GetEventRenderMetadataRow, error) {

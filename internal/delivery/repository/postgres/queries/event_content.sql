@@ -1,7 +1,13 @@
 -- name: GetEventContentSettings :one
-SELECT id, landing_document, landing_draft, live_layout, live_layout_draft
-FROM events
-WHERE id = sqlc.arg(event_id);
+-- The live layout is the event's first screen (see event_live_screens.sql).
+SELECT e.id, e.landing_document, e.landing_draft, first.layout AS live_layout, first.layout_draft AS live_layout_draft
+FROM events AS e
+LEFT JOIN LATERAL (SELECT s.layout, s.layout_draft
+                   FROM event_live_screens AS s
+                   WHERE s.event_id = e.id
+                   ORDER BY s.position, s.id
+                   LIMIT 1) AS first ON true
+WHERE e.id = sqlc.arg(event_id);
 
 -- name: SaveEventLandingDraft :execrows
 UPDATE events
@@ -21,18 +27,6 @@ WHERE id = sqlc.arg(event_id) AND landing_draft IS NOT NULL;
 UPDATE events
 SET landing_draft = NULL
 WHERE id = sqlc.arg(event_id) AND landing_draft IS NOT NULL;
-
--- name: SaveEventLiveLayoutDraft :execrows
-UPDATE events
-SET live_layout_draft = sqlc.arg(live_layout_draft)
-WHERE id = sqlc.arg(event_id);
-
--- name: PublishEventLiveLayout :one
-UPDATE events
-SET live_layout = jsonb_set(live_layout_draft, '{version}', to_jsonb(((live_layout->>'version')::bigint + 1))),
-    live_layout_draft = NULL
-WHERE id = sqlc.arg(event_id) AND live_layout_draft IS NOT NULL
-RETURNING live_layout;
 
 -- A new page is unpublished: its columns mirror the draft (reserving the slug).
 -- name: CreateEventPage :one
