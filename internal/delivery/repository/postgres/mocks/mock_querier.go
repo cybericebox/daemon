@@ -2575,6 +2575,21 @@ func (mr *MockQuerierMockRecorder) DeleteOwnedExerciseTestDeploy(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).DeleteOwnedExerciseTestDeploy), ctx, arg)
 }
 
+// DeletePendingExerciseResourceElevation mocks base method.
+func (m *MockQuerier) DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePendingExerciseResourceElevation", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeletePendingExerciseResourceElevation indicates an expected call of DeletePendingExerciseResourceElevation.
+func (mr *MockQuerierMockRecorder) DeletePendingExerciseResourceElevation(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePendingExerciseResourceElevation", reflect.TypeOf((*MockQuerier)(nil).DeletePendingExerciseResourceElevation), ctx, id)
+}
+
 // DeletePlatformImage mocks base method.
 func (m *MockQuerier) DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error) {
 	m.ctrl.T.Helper()

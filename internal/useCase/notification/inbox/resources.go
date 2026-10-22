@@ -77,6 +77,12 @@ func (r *RequestRouter) CPUThrottled(ctx context.Context, t CPUThrottle) error {
 	return r.fanOut(ctx, admins, inboxModel.TypeResourceCPUThrottled, vars, meta)
 }
 
+// CPUThrottleGone closes the admins' throttling request of a device whose lab run is gone (deleted, or missing
+// from the agent's snapshot): nothing is left to look at.
+func (r *RequestRouter) CPUThrottleGone(ctx context.Context, labRun, device string) error {
+	return r.resolve(ctx, inboxModel.CPUThrottleRef(labRun, device), inboxModel.ResolutionResolved, uuid.Nil)
+}
+
 func (r *RequestRouter) resourceChangeVars(ctx context.Context, c ResourceChange) (map[string]any, error) {
 	vars := map[string]any{
 		"change_id": c.ID.String(), "event_id": c.EventID.String(), "event_name": c.EventName, "event_tag": c.EventTag,

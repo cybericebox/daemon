@@ -44,3 +44,11 @@ FROM exercise_resource_elevations
 WHERE exercise_id = ANY (sqlc.arg(exercise_ids)::uuid[])
   AND status = 1
   AND approved IS NOT NULL;
+
+-- name: DeletePendingExerciseResourceElevation :execrows
+-- Withdraws a pending request that has nothing left to ask (the working copy is inside the frame or covered by
+-- approvals); a decided request is history and stays. 0 rows: it was decided or removed meanwhile.
+DELETE
+FROM exercise_resource_elevations
+WHERE id = $1
+  AND status = 0;
