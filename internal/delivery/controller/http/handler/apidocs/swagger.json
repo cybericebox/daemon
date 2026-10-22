@@ -6654,6 +6654,22 @@
                         "description": "keep exercises with any of these tags (union); combined with the other filters by AND",
                         "name": "tags",
                         "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "keep exercises whose rounded average difficulty is any of these levels (elementary, trivial, easy, medium, hard, insane; none: no difficulty)",
+                        "name": "difficulty",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "yes or no: only exercises the event already uses (or does not)",
+                        "name": "attached",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -6676,6 +6692,12 @@
                                     }
                                 }
                             ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -27790,6 +27812,13 @@
                 "SupersededAt": {
                     "type": "string"
                 },
+                "Tags": {
+                    "description": "Tags: the exercise's categories (catalog tags).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "TaskCount": {
                     "type": "integer"
                 },
@@ -29306,6 +29335,9 @@
                     "description": "Attached: the event already uses it (or its fork family).",
                     "type": "boolean"
                 },
+                "AvailableCount": {
+                    "type": "integer"
+                },
                 "AvgDifficulty": {
                     "description": "AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first\nvariant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.",
                     "type": "number"
@@ -29318,6 +29350,10 @@
                 },
                 "Infrastructure": {
                     "type": "boolean"
+                },
+                "MatchedCount": {
+                    "description": "MatchedCount: how many exercises match the filters (the list holds at most 100); AvailableCount: how many the\nevent may attach without filters. The same on every row.",
+                    "type": "integer"
                 },
                 "Name": {
                     "type": "string"

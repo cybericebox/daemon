@@ -1521,6 +1521,11 @@ definitions:
         type: integer
       SupersededAt:
         type: string
+      Tags:
+        description: 'Tags: the exercise''s categories (catalog tags).'
+        items:
+          type: string
+        type: array
       TaskCount:
         type: integer
       TaskNames:
@@ -2546,6 +2551,8 @@ definitions:
       Attached:
         description: 'Attached: the event already uses it (or its fork family).'
         type: boolean
+      AvailableCount:
+        type: integer
       AvgDifficulty:
         description: |-
           AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first
@@ -2557,6 +2564,11 @@ definitions:
         type: string
       Infrastructure:
         type: boolean
+      MatchedCount:
+        description: |-
+          MatchedCount: how many exercises match the filters (the list holds at most 100); AvailableCount: how many the
+          event may attach without filters. The same on every row.
+        type: integer
       Name:
         type: string
       PublishedVersionID:
@@ -15562,6 +15574,18 @@ paths:
           type: string
         name: tags
         type: array
+      - collectionFormat: multi
+        description: 'keep exercises whose rounded average difficulty is any of these
+          levels (elementary, trivial, easy, medium, hard, insane; none: no difficulty)'
+        in: query
+        items:
+          type: string
+        name: difficulty
+        type: array
+      - description: 'yes or no: only exercises the event already uses (or does not)'
+        in: query
+        name: attached
+        type: string
       produces:
       - application/json
       responses:
@@ -15576,6 +15600,10 @@ paths:
                     $ref: '#/definitions/event.publishedExerciseChoiceResponse'
                   type: array
               type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
       summary: List published catalog choices available to this event manager
       tags:
       - events

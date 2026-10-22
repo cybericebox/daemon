@@ -29,7 +29,7 @@ func (u *resourcePlanUC) GetResourcePlan(context.Context, uuid.UUID) (eventUseCa
 func (u *resourcePlanUC) ListEventExercises(context.Context, uuid.UUID) ([]eventUseCase.EventExerciseView, error) {
 	return u.exercises, nil
 }
-func (u *resourcePlanUC) ListPublishedExercisesForEvent(context.Context, uuid.UUID, string, string, []string) ([]eventUseCase.PublishedExerciseChoice, error) {
+func (u *resourcePlanUC) ListPublishedExercisesForEvent(context.Context, uuid.UUID, eventUseCase.EventCatalogFilter) ([]eventUseCase.PublishedExerciseChoice, error) {
 	return u.catalog, nil
 }
 

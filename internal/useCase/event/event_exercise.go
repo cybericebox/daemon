@@ -172,6 +172,7 @@ func toEventExerciseDetailView(row eventExerciseRepo.Detail) EventExerciseView {
 	view.Infrastructure, view.VariantCount = row.Infrastructure, row.VariantCount
 	view.ChallengeCount, view.PublishedCount, view.HasAttempts = row.ChallengeCount, row.PublishedCount, row.HasAttempts
 	view.AvgDifficulty, view.TaskCount, view.TaskNames = row.AvgDifficulty, row.TaskCount, row.TaskNames
+	view.Tags = row.ExerciseTags
 	return view
 }
 
@@ -233,14 +234,43 @@ func normalizeCatalogTags(tags []string) []string {
 	return out
 }
 
-// ListPublishedExercisesForEvent lists what the event may attach: its own
-// published exercises and the catalog exercises available to it. tags keep
-// the exercises carrying any of them (union); empty means no tag filter.
-func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, eventID uuid.UUID, search, infrastructure string, tags []string) ([]PublishedExerciseChoice, error) {
-	if infrastructure != "yes" && infrastructure != "no" {
-		infrastructure = ""
+// catalogDifficultyLevels maps a difficulty filter value to the rounded average level (0: no difficulty).
+var catalogDifficultyLevels = map[string]int32{
+	"none": 0, string(exerciseModel.DifficultyElementary): 1, string(exerciseModel.DifficultyTrivial): 2, string(exerciseModel.DifficultyEasy): 3,
+	string(exerciseModel.DifficultyMedium): 4, string(exerciseModel.DifficultyHard): 5, string(exerciseModel.DifficultyInsane): 6,
+}
+
+// ValidCatalogDifficulty reports whether value is a difficulty filter value (a level or "none").
+func ValidCatalogDifficulty(value string) bool {
+	_, ok := catalogDifficultyLevels[strings.ToLower(strings.TrimSpace(value))]
+	return ok
+}
+
+func normalizeCatalogDifficulties(values []string) []int32 {
+	out := make([]int32, 0, len(values))
+	for _, value := range values {
+		level, ok := catalogDifficultyLevels[strings.ToLower(strings.TrimSpace(value))]
+		if ok && !slices.Contains(out, level) {
+			out = append(out, level)
+		}
 	}
-	rows, err := u.eventExercises.Catalog(ctx, eventID, strings.TrimSpace(search), infrastructure, normalizeCatalogTags(tags))
+	return out
+}
+
+func yesNoFilter(value string) string {
+	if value != "yes" && value != "no" {
+		return ""
+	}
+	return value
+}
+
+// ListPublishedExercisesForEvent lists what the event may attach: its own
+// published exercises and the catalog exercises available to it, narrowed by
+// the filter (tags and difficulties keep any of theirs; empty fields do not filter).
+func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, eventID uuid.UUID, filter EventCatalogFilter) ([]PublishedExerciseChoice, error) {
+	rows, err := u.eventExercises.Catalog(ctx, eventID, eventExerciseRepo.CatalogFilter{Search: strings.TrimSpace(filter.Search),
+		Infrastructure: yesNoFilter(filter.Infrastructure), Tags: normalizeCatalogTags(filter.Tags),
+		Difficulties: normalizeCatalogDifficulties(filter.Difficulties), Attached: yesNoFilter(filter.Attached)})
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list published exercises").Err()
 	}
@@ -252,7 +282,8 @@ func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, event
 		}
 		items = append(items, EventCatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: scope,
 			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached,
-			AvgDifficulty: row.AvgDifficulty, TaskCount: row.TaskCount, TaskNames: row.TaskNames})
+			AvgDifficulty: row.AvgDifficulty, TaskCount: row.TaskCount, TaskNames: row.TaskNames,
+			MatchedCount: row.MatchedCount, AvailableCount: row.AvailableCount})
 	}
 	if err = u.decorateCatalogResources(ctx, items); err != nil {
 		return nil, err
