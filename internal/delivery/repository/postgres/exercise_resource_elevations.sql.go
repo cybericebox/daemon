@@ -79,6 +79,23 @@ func (q *Queries) DecideExerciseResourceElevation(ctx context.Context, arg Decid
 	return result.RowsAffected(), nil
 }
 
+const deletePendingExerciseResourceElevation = `-- name: DeletePendingExerciseResourceElevation :execrows
+DELETE
+FROM exercise_resource_elevations
+WHERE id = $1
+  AND status = 0
+`
+
+// Withdraws a pending request that has nothing left to ask (the working copy is inside the frame or covered by
+// approvals); a decided request is history and stays. 0 rows: it was decided or removed meanwhile.
+func (q *Queries) DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePendingExerciseResourceElevation, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getExerciseResourceElevation = `-- name: GetExerciseResourceElevation :one
 SELECT id, exercise_id, version_id, status, reason, requested, approved, decision_note, requested_by, requested_at, decided_by, decided_at
 FROM exercise_resource_elevations

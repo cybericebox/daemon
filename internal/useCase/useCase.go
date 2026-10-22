@@ -495,7 +495,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Config:   deps.ErrorJournal,
 	})
 
-	inboxUC := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: deps.Repo})
+	inboxUC := inboxUseCase.NewNotificationInboxUseCase(inboxUseCase.Dependencies{Repo: deps.Repo, Elevations: deps.Repo})
 	eventManagers, eventParticipants := eventManagerRepo.New(deps.Repo), participantRepo.New(deps.Repo)
 	bannerUC := bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{
 		Repo: deps.Repo,

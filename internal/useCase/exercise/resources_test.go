@@ -93,10 +93,26 @@ func (f *fakeElevations) ApprovedFor(_ context.Context, ids []uuid.UUID) (map[uu
 	return out, nil
 }
 
+func (f *fakeElevations) WithdrawPendingElevation(_ context.Context, id uuid.UUID) (int64, error) {
+	for i, it := range f.items {
+		if it.ID == id && it.Status == resourcesModel.ElevationPending {
+			f.items = append(f.items[:i], f.items[i+1:]...)
+			return 1, nil
+		}
+	}
+	return 0, nil
+}
+
 type fakeElevationInbox struct {
 	requested []inboxUseCase.Elevation
 	decided   []inboxUseCase.Elevation
 	approved  []bool
+	withdrawn []uuid.UUID
+}
+
+func (f *fakeElevationInbox) ElevationWithdrawn(_ context.Context, id uuid.UUID) error {
+	f.withdrawn = append(f.withdrawn, id)
+	return nil
 }
 
 func (f *fakeElevationInbox) ElevationRequested(_ context.Context, e inboxUseCase.Elevation) error {
@@ -298,6 +314,72 @@ func TestElevationApprovalIsKeptByALaterVersionAtOrBelowTheBlock(t *testing.T) {
 	// Another request is not needed while the block is covered.
 	_, err = u.RequestElevation(ctx, author, exerciseID, "again")
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationNotNeeded.Err()), "%v", err)
+}
+
+type noMedia struct{}
+
+func (noMedia) ReplaceReferences(context.Context, string, uuid.UUID, []uuid.UUID) error { return nil }
+func (noMedia) RemoveReferences(context.Context, string, uuid.UUID) error               { return nil }
+func (noMedia) RemoveReferencesBatch(context.Context, string, []uuid.UUID) error        { return nil }
+
+func TestDeleteExerciseWithdrawsItsPendingElevationRequests(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	exerciseID, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	pending := resourcesModel.Elevation{ID: uuid.Must(uuid.NewV7()), ExerciseID: exerciseID, Status: resourcesModel.ElevationPending}
+	decided := resourcesModel.Elevation{ID: uuid.Must(uuid.NewV7()), ExerciseID: exerciseID, Status: resourcesModel.ElevationRejected}
+	otherPending := resourcesModel.Elevation{ID: uuid.Must(uuid.NewV7()), ExerciseID: other, Status: resourcesModel.ElevationPending}
+	store, inbox := &fakeElevations{items: []resourcesModel.Elevation{decided, pending, otherPending}}, &fakeElevationInbox{}
+	u := NewExerciseUseCase(Dependencies{Repo: q, Elevations: store, Media: noMedia{}})
+	u.SetElevationInbox(inbox)
+
+	q.EXPECT().ListExerciseUsageEvents(gomock.Any(), gomock.Any()).Return([]postgres.ListExerciseUsageEventsRow{}, nil)
+	q.EXPECT().ListExerciseVersionIDs(gomock.Any(), exerciseID).Return(nil, nil)
+	q.EXPECT().DeleteExercise(gomock.Any(), exerciseID).Return(int64(1), nil)
+
+	require.NoError(t, u.DeleteExercise(ctx, exerciseID))
+	assert.Equal(t, []uuid.UUID{pending.ID}, inbox.withdrawn, "only the deleted task's undecided request is closed")
+}
+
+func TestDeleteExerciseThatFailsWithdrawsNothing(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	exerciseID := uuid.Must(uuid.NewV7())
+	store := &fakeElevations{items: []resourcesModel.Elevation{{ID: uuid.Must(uuid.NewV7()), ExerciseID: exerciseID, Status: resourcesModel.ElevationPending}}}
+	inbox := &fakeElevationInbox{}
+	u := NewExerciseUseCase(Dependencies{Repo: q, Elevations: store, Media: noMedia{}})
+	u.SetElevationInbox(inbox)
+
+	q.EXPECT().ListExerciseUsageEvents(gomock.Any(), gomock.Any()).Return([]postgres.ListExerciseUsageEventsRow{}, nil)
+	q.EXPECT().ListExerciseVersionIDs(gomock.Any(), exerciseID).Return(nil, nil)
+	q.EXPECT().DeleteExercise(gomock.Any(), exerciseID).Return(int64(0), nil)
+
+	require.True(t, errors.Is(u.DeleteExercise(ctx, exerciseID), exerciseModel.ErrExerciseNotFound.Err()))
+	assert.Empty(t, inbox.withdrawn)
+}
+
+func TestMootElevationIsWithdrawnOnlyWhenTheWorkingCopyNeedsNothing(t *testing.T) {
+	ctx := context.Background()
+	heavy := deviceOf("db", "max")
+	u, store, inbox, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(heavy)})
+	view, err := u.RequestElevation(ctx, Actor{UserID: uuid.Must(uuid.NewV7())}, exerciseID, "db")
+	require.NoError(t, err)
+
+	// Still above the frame: the request stays.
+	u.withdrawMootElevation(ctx, exerciseID, u.pendingElevations(ctx, exerciseID), []exerciseModel.Variant{variantOf(heavy)})
+	require.Len(t, store.items, 1)
+	assert.Empty(t, inbox.withdrawn)
+
+	// Back inside the frame: the request is removed and the admins' copy closed.
+	u.withdrawMootElevation(ctx, exerciseID, u.pendingElevations(ctx, exerciseID), []exerciseModel.Variant{variantOf(deviceOf("db", "small"))})
+	assert.Empty(t, store.items)
+	assert.Equal(t, []uuid.UUID{view.ID}, inbox.withdrawn)
+
+	// A new request can be filed again.
+	_, err = u.RequestElevation(ctx, Actor{UserID: uuid.Must(uuid.NewV7())}, exerciseID, "db again")
+	require.NoError(t, err)
 }
 
 func mustJSON(t *testing.T, v any) []byte {

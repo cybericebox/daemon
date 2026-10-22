@@ -53,6 +53,7 @@ type elevationPayload struct {
 	Reason        string `var:"reason" desc:"Author reason" default:"A database server needs more memory"`
 	DecisionNote  string `var:"decision_note" desc:"Admin note (decisions only)" default:""`
 	Devices       string `var:"devices" desc:"Requested devices with their values" default:"db: 500m / 2Gi"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
 	UserEmail     string `var:"user_email" desc:"Recipient email" default:"moderator@example.org"`
 	UserFirstName string `var:"user_first_name" desc:"Recipient first name" default:"Jane"`

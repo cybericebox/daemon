@@ -203,12 +203,15 @@ func Run(cfg *config.Config) {
 				listed, gone := labagent.ReservationsOf(reservations, deleted)
 				return ucs.ObserveClusterReservations(ctx, member.ID, snapshot, listed, gone)
 			})
-			// A device that its CPU limit starves is reported to the platform admins, once per device per lab run.
+			// A device that its CPU limit starves is reported to the platform admins, once per device per lab run;
+			// the request closes by itself when the lab run is gone.
 			runner = runner.WithThrottleWatcher(labMonitoring.NewThrottleWatcher(member.ID.String(), func(ctx context.Context, a labMonitoring.ThrottleAlert) error {
 				return ucs.InboxRequests.CPUThrottled(ctx, inboxUseCase.CPUThrottle{
 					AgentID: a.AgentID, LabRun: a.Run, LabName: a.LabName, LabGroupName: a.LabGroupName,
 					Device: a.Device, Percent: a.Percent, WindowSeconds: a.WindowSeconds, RaisedAt: time.Now().UTC(),
 				})
+			}).WithGone(func(ctx context.Context, run, device string) error {
+				return ucs.InboxRequests.CPUThrottleGone(ctx, run, device)
 			}))
 			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},

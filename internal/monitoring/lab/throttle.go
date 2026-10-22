@@ -27,12 +27,17 @@ type ThrottleAlert struct {
 // ThrottleNotifier delivers an alert (the staff inbox). A failure is retried with the next report.
 type ThrottleNotifier func(ctx context.Context, alert ThrottleAlert) error
 
+// ThrottleGone closes the alert of a device whose lab run is gone (the staff inbox). A failure is logged only:
+// an admin may still close the request by hand.
+type ThrottleGone func(ctx context.Context, run, device string) error
+
 // ThrottleWatcher raises one alert per device per lab run. A lab run is the lab object (its uid); a lab that is
 // deleted, or missing from a snapshot, starts a new run when it comes back. What was alerted lives in memory: a
 // restarted daemon may repeat an alert for a device that is still throttled.
 type ThrottleWatcher struct {
 	agentID string
 	notify  ThrottleNotifier
+	gone    ThrottleGone
 	mu      sync.Mutex
 	// alerted is the devices already alerted, by lab run key.
 	alerted map[string]map[string]bool
@@ -44,13 +49,41 @@ func NewThrottleWatcher(agentID string, notify ThrottleNotifier) *ThrottleWatche
 	return &ThrottleWatcher{agentID: agentID, notify: notify, alerted: map[string]map[string]bool{}, runs: map[string]string{}}
 }
 
+// WithGone sets what closes the alerts of a lab run that disappeared; without it they stay open.
+func (w *ThrottleWatcher) WithGone(gone ThrottleGone) *ThrottleWatcher {
+	w.gone = gone
+	return w
+}
+
+// goneAlert is one alerted device of a lab run that disappeared.
+type goneAlert struct{ run, device string }
+
 // Observe looks at the labs of one monitoring message. It never blocks the stream on a failing notifier.
 func (w *ThrottleWatcher) Observe(ctx context.Context, update *labpb.MonitoringUpdate) {
 	if w == nil || w.notify == nil {
 		return
 	}
+	for _, g := range w.observe(ctx, update) {
+		if err := w.gone(ctx, g.run, g.device); err != nil {
+			log.Error().Err(err).Str("run", g.run).Str("device", g.device).Msg("Failed to close the CPU throttling alert of a gone lab")
+		}
+	}
+}
+
+// observe updates the state under the lock and returns the alerts of the lab runs that disappeared (only when
+// something closes them).
+func (w *ThrottleWatcher) observe(ctx context.Context, update *labpb.MonitoringUpdate) []goneAlert {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	var gone []goneAlert
+	forget := func(run string) {
+		if w.gone != nil {
+			for device := range w.alerted[run] {
+				gone = append(gone, goneAlert{run: run, device: device})
+			}
+		}
+		delete(w.alerted, run)
+	}
 	if update.GetSnapshot() {
 		present := map[string]bool{}
 		for _, l := range update.GetLabs() {
@@ -58,7 +91,7 @@ func (w *ThrottleWatcher) Observe(ctx context.Context, update *labpb.MonitoringU
 		}
 		for run := range w.alerted {
 			if !present[run] {
-				delete(w.alerted, run)
+				forget(run)
 			}
 		}
 		for name, run := range w.runs {
@@ -72,7 +105,9 @@ func (w *ThrottleWatcher) Observe(ctx context.Context, update *labpb.MonitoringU
 			continue
 		}
 		name := deleted.GetNamespace() + "/" + deleted.GetName()
-		delete(w.alerted, w.runs[name])
+		if run, ok := w.runs[name]; ok {
+			forget(run)
+		}
 		delete(w.runs, name)
 	}
 	for _, l := range update.GetLabs() {
@@ -101,6 +136,7 @@ func (w *ThrottleWatcher) Observe(ctx context.Context, update *labpb.MonitoringU
 			w.alerted[run][d.GetName()] = true
 		}
 	}
+	return gone
 }
 
 func runKey(l *labpb.Lab) string {
