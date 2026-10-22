@@ -232,9 +232,12 @@ type resultsSnapshotResponse struct {
 	Timeline   []eventScoreTimelineEntryResponse `json:"Timeline"`
 	TotalTeams int                               `json:"TotalTeams"`
 	// Tasks: the published tasks count, only on the live screen (view=live).
-	Tasks   *int64                 `json:"Tasks,omitempty"`
-	Freeze  resultsFreezeResponse  `json:"Freeze"`
-	Display resultsDisplayResponse `json:"Display"`
+	Tasks *int64 `json:"Tasks,omitempty"`
+	// MaxPoints: the points all published tasks can award at most (static
+	// points or dynamic max), only on the live screen (view=live).
+	MaxPoints *int64                 `json:"MaxPoints,omitempty"`
+	Freeze    resultsFreezeResponse  `json:"Freeze"`
+	Display   resultsDisplayResponse `json:"Display"`
 }
 
 // resultsFreezeResponse: Applied tells whether this response is the frozen
@@ -406,7 +409,7 @@ func toResultsSnapshotResponse(v eventUseCase.ResultsSnapshotView) resultsSnapsh
 	for _, item := range v.Timeline {
 		timeline = append(timeline, eventScoreTimelineEntryResponse{EventTeamID: item.EventTeamID, EventChallengeID: item.EventChallengeID, ChallengeName: item.ChallengeName, Points: item.Points, SolvedAt: item.SolvedAt})
 	}
-	return resultsSnapshotResponse{Revision: v.Revision, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams, Tasks: v.Tasks,
+	return resultsSnapshotResponse{Revision: v.Revision, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams, Tasks: v.Tasks, MaxPoints: v.MaxPoints,
 		Freeze:  toResultsFreezeResponse(v.Freeze),
 		Display: resultsDisplayResponse{ChartEnabled: v.Display.ChartEnabled, ChartTeams: v.Display.ChartTeams, RowsLimit: v.Display.RowsLimit}}
 }

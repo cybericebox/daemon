@@ -143,6 +143,9 @@ type Statistics struct {
 	ParticipantCount, ApprovedParticipantCount int64
 	ChallengeCount, PublishedChallengeCount    int64
 	SolvedChallengeCount, SolveCount           int64
+	// PublishedMaxPoints sums the top value of every published task: its
+	// effective static points, or its resolved dynamic profile's max points.
+	PublishedMaxPoints int64
 }
 
 // ValidateStored checks settings loaded from storage; live layouts use the

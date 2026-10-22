@@ -105,6 +105,7 @@ func (r *Repository) ContentStatistics(ctx context.Context, eventID uuid.UUID, c
 	return eventContentModel.Statistics{
 		ChallengeCount: row.ChallengeCount, PublishedChallengeCount: row.PublishedChallengeCount,
 		SolvedChallengeCount: row.SolvedChallengeCount, SolveCount: row.SolveCount,
+		PublishedMaxPoints: row.PublishedMaxPoints,
 	}, nil
 }
 
