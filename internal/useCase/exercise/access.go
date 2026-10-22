@@ -253,30 +253,35 @@ func (u *ExerciseUseCase) GetAccessSummary(ctx context.Context, actor Actor) (Ac
 }
 
 // permissionsFor computes what the caller may do with one exercise, given
-// their memberships (one query per page).
+// their memberships (one query per page). Proposing an event exercise to the
+// catalog belongs to the owner event's owners and managers only: an admin who
+// is one of them may propose too, the admin role alone never does.
 func permissionsFor(actor Actor, e exerciseModel.Exercise, memberships map[uuid.UUID]int16) ExercisePermissions {
+	manage := false
+	if e.IsEventScoped() && e.OwnerEventID.Valid {
+		role, member := memberships[e.OwnerEventID.UUID]
+		manage = member && canManage(role)
+	}
+	propose := manage && e.PublishedVersionID.Valid && e.ArchivedAt == nil
 	if actor.has(rbac.PermExercisesRead) {
 		write := actor.has(rbac.PermExercisesWrite)
 		return ExercisePermissions{
 			CanRead: true, CanEdit: write, CanPublish: actor.has(rbac.PermExercisesPublish),
 			CanDelete: actor.has(rbac.PermExercisesDelete), CanManageAccess: write && !e.IsEventScoped(),
-			CanPropose: false, CanExport: actor.has(rbac.PermExercisesExport),
+			CanPropose: propose, CanExport: actor.has(rbac.PermExercisesExport),
 		}
 	}
 	if !e.IsEventScoped() || !e.OwnerEventID.Valid {
 		return ExercisePermissions{}
 	}
-	role, member := memberships[e.OwnerEventID.UUID]
-	manage := member && canManage(role)
-	return ExercisePermissions{CanRead: member, CanEdit: manage, CanPublish: manage, CanDelete: manage, CanExport: manage,
-		CanPropose: manage && e.PublishedVersionID.Valid && e.ArchivedAt == nil}
+	_, member := memberships[e.OwnerEventID.UUID]
+	return ExercisePermissions{CanRead: member, CanEdit: manage, CanPublish: manage, CanDelete: manage, CanExport: manage, CanPropose: propose}
 }
 
+// membershipMap reads the caller's event roles, admins included: an admin
+// who manages the owner event may propose its exercise.
 func (u *ExerciseUseCase) membershipMap(ctx context.Context, actor Actor) (map[uuid.UUID]int16, error) {
 	out := map[uuid.UUID]int16{}
-	if actor.has(rbac.PermExercisesRead) {
-		return out, nil
-	}
 	memberships, err := u.exercises.Memberships(ctx, actor.UserID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
