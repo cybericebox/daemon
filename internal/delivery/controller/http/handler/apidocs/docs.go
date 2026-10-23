@@ -35222,6 +35222,12 @@ const docTemplate = `{
                 },
                 "visible": {
                     "type": "boolean"
+                },
+                "width": {
+                    "description": "Width is the column's width in px the user resized it to; absent or 0 = the frontend's default width.",
+                    "type": "integer",
+                    "maximum": 1600,
+                    "minimum": 0
                 }
             }
         },

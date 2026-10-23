@@ -33,7 +33,7 @@ func TestCatalogColumnsPreference(t *testing.T) {
 	if w := serve(http.MethodGet, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Data":null`) {
 		t.Fatalf("unset: %d %s", w.Code, w.Body.String())
 	}
-	if w := serve(http.MethodPut, `[{"key":"status","visible":true},{"key":"tags","visible":false}]`); w.Code != http.StatusOK {
+	if w := serve(http.MethodPut, `[{"key":"status","visible":true,"width":180},{"key":"tags","visible":false}]`); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	w := serve(http.MethodGet, "")
@@ -41,10 +41,10 @@ func TestCatalogColumnsPreference(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Data) != 2 || body.Data[0] != (exerciseUseCase.CatalogColumn{Key: "status", Visible: true}) || body.Data[1].Visible {
+	if len(body.Data) != 2 || body.Data[0] != (exerciseUseCase.CatalogColumn{Key: "status", Visible: true, Width: 180}) || body.Data[1].Visible || body.Data[1].Width != 0 {
 		t.Fatalf("read back: %+v", body.Data)
 	}
-	for _, bad := range []string{`[{"key":"Status"}]`, `[{"key":"a"},{"key":"a"}]`, `{"key":"a"}`, `[{"key":"` + strings.Repeat("a", 33) + `"}]`} {
+	for _, bad := range []string{`[{"key":"Status"}]`, `[{"key":"a"},{"key":"a"}]`, `{"key":"a"}`, `[{"key":"` + strings.Repeat("a", 33) + `"}]`, `[{"key":"a","width":59}]`, `[{"key":"a","width":1601}]`} {
 		if w := serve(http.MethodPut, bad); w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: got %d", bad, w.Code)
 		}
