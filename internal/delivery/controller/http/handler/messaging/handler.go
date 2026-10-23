@@ -175,8 +175,9 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	bc.GET(":broadcastID", h.getBroadcast(platform))
 	bc.GET(":broadcastID/deliveries", h.listDeliveries(platform))
 
-	// Saved broadcast messages: whoever may send platform broadcasts manages them.
-	bt := api.Group("notifications/broadcast-templates", h.prot.RequirePermission(rbac.PermNotificationsBroadcast))
+	// Custom templates (saved broadcast messages, not bound to any platform action) sit beside the triggered
+	// templates under notifications/templates; whoever may send platform broadcasts manages them.
+	bt := api.Group("notifications/templates/custom", h.prot.RequirePermission(rbac.PermNotificationsBroadcast))
 	bt.GET("", h.listTemplates(platform))
 	bt.POST("", h.createTemplate(platform))
 	bt.GET(":templateID", h.getTemplate(platform))
@@ -196,11 +197,11 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	manage.GET("broadcasts", h.requireRead, h.listBroadcasts(eventScope))
 	manage.GET("broadcasts/:broadcastID", h.requireRead, h.getBroadcast(eventScope))
 	manage.GET("broadcasts/:broadcastID/deliveries", h.requireRead, h.listDeliveries(eventScope))
-	manage.GET("broadcast-templates", h.requireRead, h.listTemplates(eventScope))
-	manage.GET("broadcast-templates/:templateID", h.requireRead, h.getTemplate(eventScope))
-	manage.POST("broadcast-templates", h.requireManage, h.createTemplate(eventScope))
-	manage.PUT("broadcast-templates/:templateID", h.requireManage, h.updateTemplate(eventScope))
-	manage.DELETE("broadcast-templates/:templateID", h.requireManage, h.deleteTemplate(eventScope))
+	manage.GET("notification-templates/custom", h.requireRead, h.listTemplates(eventScope))
+	manage.GET("notification-templates/custom/:templateID", h.requireRead, h.getTemplate(eventScope))
+	manage.POST("notification-templates/custom", h.requireManage, h.createTemplate(eventScope))
+	manage.PUT("notification-templates/custom/:templateID", h.requireManage, h.updateTemplate(eventScope))
+	manage.DELETE("notification-templates/custom/:templateID", h.requireManage, h.deleteTemplate(eventScope))
 	manage.GET("banners", h.requireRead, h.listBanners(eventScope))
 	manage.POST("banners", h.requireManage, h.createBanner(eventScope))
 	manage.PUT("banners/:bannerID", h.requireManage, h.updateBanner(eventScope))

@@ -19,7 +19,10 @@ type (
 		Name string `json:"Name"`
 	}
 
+	// templateResponse is a custom template. Kind is always "custom": it tells it apart from the triggered
+	// (action-bound) email and in-app templates listed beside it.
 	templateResponse struct {
+		Kind          string     `json:"Kind" enums:"custom"`
 		ID            uuid.UUID  `json:"ID"`
 		ScopeEventID  *uuid.UUID `json:"ScopeEventID"`
 		Name          string     `json:"Name"`
@@ -44,7 +47,7 @@ func toTemplateResponse(t broadcastModel.Template) templateResponse {
 		channels = append(channels, string(ch))
 	}
 	return templateResponse{
-		ID: t.ID, ScopeEventID: t.ScopeEventID, Name: t.Name, Channels: channels,
+		Kind: "custom", ID: t.ID, ScopeEventID: t.ScopeEventID, Name: t.Name, Channels: channels,
 		Subject: t.Content.Subject, Preheader: t.Content.Preheader,
 		EmailBody: rawOrNil(t.Content.EmailBody), EmailStyling: rawOrNil(t.Content.EmailStyling),
 		InAppTitle: t.Content.InAppTitle, InAppBody: t.Content.InAppBody, InAppLink: t.Content.InAppLink,
@@ -61,12 +64,12 @@ func (r templateRequest) toModel() (broadcastModel.TemplateInput, error) {
 }
 
 // listTemplates godoc
-// @Summary  Saved broadcast templates of the scope, recently edited first
+// @Summary  Custom templates (saved broadcast messages) of the scope, recently edited first
 // @Tags     notification-broadcasts
 // @Produce  json
 // @Success  200  {object}  response.Response{data=[]templateResponse}
-// @Router   /notifications/broadcast-templates [get]
-// @Router   /events/{id}/manage/broadcast-templates [get]
+// @Router   /notifications/templates/custom [get]
+// @Router   /events/{id}/manage/notification-templates/custom [get]
 func (h *Handler) listTemplates(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		eventID, ok := scope(ctx)
@@ -87,14 +90,14 @@ func (h *Handler) listTemplates(scope scopeFn) gin.HandlerFunc {
 }
 
 // getTemplate godoc
-// @Summary  Get a broadcast template
+// @Summary  Get a custom template
 // @Tags     notification-broadcasts
 // @Produce  json
 // @Param    templateID  path  string  true  "template ID"
 // @Success  200  {object}  response.Response{data=templateResponse}
 // @Failure  404  {object}  response.Response
-// @Router   /notifications/broadcast-templates/{templateID} [get]
-// @Router   /events/{id}/manage/broadcast-templates/{templateID} [get]
+// @Router   /notifications/templates/custom/{templateID} [get]
+// @Router   /events/{id}/manage/notification-templates/custom/{templateID} [get]
 func (h *Handler) getTemplate(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		id, eventID, ok := templateRef(ctx, scope)
@@ -111,7 +114,7 @@ func (h *Handler) getTemplate(scope scopeFn) gin.HandlerFunc {
 }
 
 // createTemplate godoc
-// @Summary  Save a broadcast template
+// @Summary  Create a custom template
 // @Tags     notification-broadcasts
 // @Accept   json
 // @Produce  json
@@ -119,8 +122,8 @@ func (h *Handler) getTemplate(scope scopeFn) gin.HandlerFunc {
 // @Success  200  {object}  response.Response{data=templateResponse}
 // @Failure  400  {object}  response.Response
 // @Failure  409  {object}  response.Response
-// @Router   /notifications/broadcast-templates [post]
-// @Router   /events/{id}/manage/broadcast-templates [post]
+// @Router   /notifications/templates/custom [post]
+// @Router   /events/{id}/manage/notification-templates/custom [post]
 func (h *Handler) createTemplate(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		eventID, ok := scope(ctx)
@@ -141,7 +144,7 @@ func (h *Handler) createTemplate(scope scopeFn) gin.HandlerFunc {
 }
 
 // updateTemplate godoc
-// @Summary  Update a broadcast template
+// @Summary  Update a custom template
 // @Tags     notification-broadcasts
 // @Accept   json
 // @Produce  json
@@ -151,8 +154,8 @@ func (h *Handler) createTemplate(scope scopeFn) gin.HandlerFunc {
 // @Failure  400  {object}  response.Response
 // @Failure  404  {object}  response.Response
 // @Failure  409  {object}  response.Response
-// @Router   /notifications/broadcast-templates/{templateID} [put]
-// @Router   /events/{id}/manage/broadcast-templates/{templateID} [put]
+// @Router   /notifications/templates/custom/{templateID} [put]
+// @Router   /events/{id}/manage/notification-templates/custom/{templateID} [put]
 func (h *Handler) updateTemplate(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		id, eventID, ok := templateRef(ctx, scope)
@@ -173,14 +176,14 @@ func (h *Handler) updateTemplate(scope scopeFn) gin.HandlerFunc {
 }
 
 // deleteTemplate godoc
-// @Summary  Delete a broadcast template
+// @Summary  Delete a custom template
 // @Tags     notification-broadcasts
 // @Produce  json
 // @Param    templateID  path  string  true  "template ID"
 // @Success  200  {object}  response.Response
 // @Failure  404  {object}  response.Response
-// @Router   /notifications/broadcast-templates/{templateID} [delete]
-// @Router   /events/{id}/manage/broadcast-templates/{templateID} [delete]
+// @Router   /notifications/templates/custom/{templateID} [delete]
+// @Router   /events/{id}/manage/notification-templates/custom/{templateID} [delete]
 func (h *Handler) deleteTemplate(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		id, eventID, ok := templateRef(ctx, scope)

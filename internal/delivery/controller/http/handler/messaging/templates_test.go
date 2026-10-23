@@ -49,32 +49,32 @@ const templateBody = `{"Name":"Reminder","Channels":["in_app"],"InAppTitle":"Hi"
 
 func TestPlatformTemplateRoutesNeedTheBroadcastPermission(t *testing.T) {
 	uc := &templateUseCase{}
-	if w := doTemplates(t, uc, http.MethodGet, "/api/notifications/broadcast-templates", "", ""); w.Code != http.StatusForbidden {
+	if w := doTemplates(t, uc, http.MethodGet, "/api/notifications/templates/custom", "", ""); w.Code != http.StatusForbidden {
 		t.Fatalf("list without a permission = %d", w.Code)
 	}
 	for _, perm := range []rbac.Permission{rbac.PermNotificationsTemplatesWrite, rbac.PermNotificationsBannersWrite} {
-		if w := doTemplates(t, uc, http.MethodPost, "/api/notifications/broadcast-templates", string(perm), templateBody); w.Code != http.StatusForbidden {
+		if w := doTemplates(t, uc, http.MethodPost, "/api/notifications/templates/custom", string(perm), templateBody); w.Code != http.StatusForbidden {
 			t.Fatalf("create with %s = %d", perm, w.Code)
 		}
 	}
-	if w := doTemplates(t, uc, http.MethodPost, "/api/notifications/broadcast-templates", string(rbac.PermNotificationsBroadcast), templateBody); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Reminder"`) {
+	if w := doTemplates(t, uc, http.MethodPost, "/api/notifications/templates/custom", string(rbac.PermNotificationsBroadcast), templateBody); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Reminder"`) || !strings.Contains(w.Body.String(), `"Kind":"custom"`) {
 		t.Fatalf("create = %d %s", w.Code, w.Body.String())
 	}
 	if len(uc.inputs) != 1 || uc.scopes[0] != nil || uc.inputs[0].Content.InAppTitle != "Hi" {
 		t.Fatalf("platform create: scopes=%v inputs=%+v", uc.scopes, uc.inputs)
 	}
 	id := uuid.Must(uuid.NewV7())
-	if w := doTemplates(t, uc, http.MethodDelete, "/api/notifications/broadcast-templates/"+id.String(), string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusOK {
+	if w := doTemplates(t, uc, http.MethodDelete, "/api/notifications/templates/custom/"+id.String(), string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusOK {
 		t.Fatalf("delete = %d", w.Code)
 	}
-	if w := doTemplates(t, uc, http.MethodPut, "/api/notifications/broadcast-templates/not-a-uuid", string(rbac.PermNotificationsBroadcast), templateBody); w.Code != http.StatusBadRequest {
+	if w := doTemplates(t, uc, http.MethodPut, "/api/notifications/templates/custom/not-a-uuid", string(rbac.PermNotificationsBroadcast), templateBody); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad id = %d", w.Code)
 	}
 }
 
 func TestEventTemplateWritesNeedManageAccess(t *testing.T) {
 	event := uuid.Must(uuid.NewV7())
-	base := "/api/events/" + event.String() + "/manage/broadcast-templates"
+	base := "/api/events/" + event.String() + "/manage/notification-templates/custom"
 
 	viewer := &templateUseCase{fakeUseCase: fakeUseCase{role: "viewer"}}
 	if w := doTemplates(t, viewer, http.MethodGet, base, "", ""); w.Code != http.StatusOK {

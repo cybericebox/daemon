@@ -104,11 +104,6 @@ POST   /api/events/:id/manage/banners | gate: self | layers: messaging.requireMa
 DELETE /api/events/:id/manage/banners/:bannerID | gate: self | layers: messaging.requireManage
 PUT    /api/events/:id/manage/banners/:bannerID | gate: self | layers: messaging.requireManage
 POST   /api/events/:id/manage/brand-drafts/:kind | gate: self | layers: event.requireManage
-GET    /api/events/:id/manage/broadcast-templates | gate: self | layers: messaging.requireRead
-POST   /api/events/:id/manage/broadcast-templates | gate: self | layers: messaging.requireManage
-DELETE /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireManage
-GET    /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireRead
-PUT    /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireRead
 POST   /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts/:broadcastID | gate: self | layers: messaging.requireRead
@@ -215,6 +210,11 @@ PUT    /api/events/:id/manage/name | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/notification-subscriptions | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/notification-subscriptions | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/notification-subscriptions/:signalType/:channel | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/notification-templates/custom | gate: self | layers: messaging.requireRead
+POST   /api/events/:id/manage/notification-templates/custom | gate: self | layers: messaging.requireManage
+DELETE /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireManage
+GET    /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireRead
+PUT    /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/notification-templates/email | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/notification-templates/email | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/notification-templates/email/:templateID | gate: self | layers: event.requireManage
@@ -509,11 +509,6 @@ PUT    /api/mail/settings/providers/order | gate: platform.settings.write | laye
 POST   /api/mail/settings/providers/test | gate: platform.settings.write | layers: -
 GET    /api/notifications/banners | gate: banners.view(public) | layers: middleware.(*SiteResolver).ResolveSite.func
 PATCH  /api/notifications/banners/:id/dismiss | gate: notifications.self | layers: -
-GET    /api/notifications/broadcast-templates | gate: notifications.broadcast | layers: -
-POST   /api/notifications/broadcast-templates | gate: notifications.broadcast | layers: -
-DELETE /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
-GET    /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
-PUT    /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 POST   /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts/:broadcastID | gate: notifications.broadcast | layers: -
@@ -537,6 +532,11 @@ POST   /api/notifications/site-banners | gate: notifications.banners.write | lay
 DELETE /api/notifications/site-banners/:bannerID | gate: notifications.banners.write | layers: -
 PUT    /api/notifications/site-banners/:bannerID | gate: notifications.banners.write | layers: -
 GET    /api/notifications/stats | gate: notifications.templates.read | layers: -
+GET    /api/notifications/templates/custom | gate: notifications.broadcast | layers: -
+POST   /api/notifications/templates/custom | gate: notifications.broadcast | layers: -
+DELETE /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
+GET    /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
+PUT    /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
 GET    /api/notifications/templates/email | gate: notifications.templates.read | layers: -
 POST   /api/notifications/templates/email | gate: notifications.templates.write | layers: -
 DELETE /api/notifications/templates/email/:id | gate: notifications.templates.write | layers: -

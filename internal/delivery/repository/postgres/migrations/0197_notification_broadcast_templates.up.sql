@@ -1,5 +1,9 @@
--- Broadcast templates: authored broadcast content (channels, the email and the
--- in-app parts) saved for later, not bound to any platform action. A template
+-- Custom templates: authored broadcast content (channels, the email and the
+-- in-app parts) saved for sending by hand, not bound to any platform action.
+-- The UI lists them beside the triggered templates as their own kind, but they
+-- are stored apart: the triggered tables hold one draft/published version per
+-- action type and channel, resolved by the dispatcher by action type, while a
+-- custom template is one named record over both channels with no versions. A template
 -- belongs to one scope: the platform (scope_event_id NULL, admins with the
 -- broadcast permission) or one Event (its owners and write moderators). The
 -- audience is chosen when sending, so it is not stored here.
