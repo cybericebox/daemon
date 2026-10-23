@@ -102,3 +102,11 @@ type ArchiveImportPreviewItem struct {
 type ArchiveImportPreview struct {
 	Items []ArchiveImportPreviewItem `json:"Items"`
 }
+
+// Unchanged tells that an update brings nothing new: no general data, variant, subtask, flag or file change.
+// Image counts are not changes by themselves (a reused image is the same image); a different image digest
+// already shows as a changed variant.
+func (s ArchiveImportSummary) Unchanged() bool {
+	return !s.MetadataChanged && s.Variants.Added == 0 && s.Variants.Removed == 0 && s.Variants.Changed == 0 &&
+		s.Subtasks.Before == s.Subtasks.After && s.FlagsChanged == 0 && s.Files.Added == 0 && s.Files.Removed == 0
+}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	"slices"
 	"time"
 
@@ -276,18 +278,27 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 		parsed := &staged[i]
 		choice := choices[parsed.ItemKey]
 		var view ExerciseView
+		mode := choice.Mode
 		if choice.Mode == "new" {
 			view, err = session.storeStagedNewImport(ctx, q, parsed, actor.UserID, in.OwnerEventID, true)
 			result.Created++
 		} else {
-			view, err = session.storeStagedUpdate(ctx, choice.ExerciseID, parsed.Versions[0], actor.UserID)
-			result.Updated++
+			var unchanged bool
+			view, unchanged, err = session.unchangedImport(ctx, actor, choice.ExerciseID, tasks, parsed.ItemKey, refs)
+			if err == nil && unchanged {
+				// The archive brings nothing new: the working copy stays as it is (no new draft, no lost edits).
+				mode = ImportModeUnchanged
+				result.Unchanged++
+			} else if err == nil {
+				view, err = session.storeStagedUpdate(ctx, choice.ExerciseID, parsed.Versions[0], actor.UserID)
+				result.Updated++
+			}
 		}
 		if err != nil {
 			return ArchiveImportStart{}, importItemError(err, parsed.ItemKey, "")
 		}
 		result.Exercises = append(result.Exercises, view)
-		result.Results = append(result.Results, exerciseModel.ImportResult{ItemKey: parsed.ItemKey, Mode: choice.Mode, ExerciseID: view.ID})
+		result.Results = append(result.Results, exerciseModel.ImportResult{ItemKey: parsed.ItemKey, Mode: mode, ExerciseID: view.ID})
 	}
 	if job != nil {
 		done := *job
@@ -480,4 +491,41 @@ func (u *ExerciseUseCase) lockArchiveImportSource(ctx context.Context, q Catalog
 		}
 	}
 	return nil // Trusted legacy/raw NEW helpers have no persisted source ID.
+}
+
+// ImportModeUnchanged marks an update the import skipped: the target's working copy already had that content.
+const ImportModeUnchanged = "unchanged"
+
+// unchangedImport tells whether an archive item brings nothing new to its target: the same general data, variants,
+// subtasks, flags, files and images as the target's working copy (compared like the preview's change summary, the
+// images by the digests the import pushed). It also returns the target's view for the result.
+func (u *ExerciseUseCase) unchangedImport(ctx context.Context, actor Actor, target uuid.UUID, tasks []ParsedExerciseArchive, itemKey string, refs map[string]string) (ExerciseView, bool, error) {
+	index := slices.IndexFunc(tasks, func(task ParsedExerciseArchive) bool { return task.ItemKey == itemKey })
+	if index < 0 {
+		return ExerciseView{}, false, nil
+	}
+	task := tasks[index]
+	selected := workingImportVersion(task.Versions)
+	if selected < 0 {
+		return ExerciseView{}, false, nil
+	}
+	e, current, err := u.previewTarget(ctx, actor, target)
+	if err != nil {
+		return ExerciseView{}, false, err
+	}
+	images := map[string]imageRegistryUseCase.ArchiveImageInspection{}
+	for marker, ref := range refs {
+		if parsed, ok := imageRegistryModel.ParsePlatformRef(ref); ok {
+			images[marker] = imageRegistryUseCase.ArchiveImageInspection{Reference: ref, Digest: parsed.Digest}
+		}
+	}
+	summary, err := u.importSummary(ctx, task, task.Versions[selected], current, images)
+	if err != nil {
+		return ExerciseView{}, false, err
+	}
+	if !summary.Unchanged() {
+		return ExerciseView{}, false, nil
+	}
+	view, err := u.exerciseView(ctx, e.WithVersionMetadata(current))
+	return view, err == nil, err
 }

@@ -7153,6 +7153,10 @@ definitions:
         items:
           $ref: '#/definitions/exerciseModel.ImportResult'
         type: array
+      Unchanged:
+        description: 'Unchanged: updates skipped because the archive brought nothing
+          new.'
+        type: integer
       Updated:
         type: integer
     type: object
@@ -7205,6 +7209,10 @@ definitions:
       TasksDone:
         type: integer
       TasksTotal:
+        type: integer
+      Unchanged:
+        description: 'Unchanged: updates skipped because the archive brought nothing
+          new.'
         type: integer
       Updated:
         type: integer

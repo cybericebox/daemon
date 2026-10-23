@@ -36261,6 +36261,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/exerciseModel.ImportResult"
                     }
                 },
+                "Unchanged": {
+                    "description": "Unchanged: updates skipped because the archive brought nothing new.",
+                    "type": "integer"
+                },
                 "Updated": {
                     "type": "integer"
                 }
@@ -36334,6 +36338,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "TasksTotal": {
+                    "type": "integer"
+                },
+                "Unchanged": {
+                    "description": "Unchanged: updates skipped because the archive brought nothing new.",
                     "type": "integer"
                 },
                 "Updated": {

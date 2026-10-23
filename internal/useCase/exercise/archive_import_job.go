@@ -89,6 +89,8 @@ type (
 		Results   []exerciseModel.ImportResult
 		Created   int
 		Updated   int
+		// Unchanged counts the updates skipped because the archive brought nothing new.
+		Unchanged int
 	}
 
 	// ImportJobView is an import job as its user sees it.
@@ -102,6 +104,8 @@ type (
 		Results     []exerciseModel.ImportResult
 		Created     int
 		Updated     int
+		// Unchanged counts the updates skipped because the archive brought nothing new.
+		Unchanged   int
 		Error       *exerciseModel.ImportJobError
 	}
 )
@@ -318,9 +322,12 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 		view.ExerciseIDs = job.ExerciseIDs
 		view.Results = job.Results
 		for _, item := range job.Results {
-			if item.Mode == "update" {
+			switch item.Mode {
+			case "update":
 				view.Updated++
-			} else {
+			case ImportModeUnchanged:
+				view.Unchanged++
+			default:
 				view.Created++
 			}
 		}

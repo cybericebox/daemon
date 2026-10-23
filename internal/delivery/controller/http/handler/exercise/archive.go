@@ -543,6 +543,8 @@ type importJobResponse struct {
 	Results []exerciseModel.ImportResult `json:"Results,omitempty"`
 	Created int                          `json:"Created"`
 	Updated int                          `json:"Updated"`
+	// Unchanged: updates skipped because the archive brought nothing new.
+	Unchanged int `json:"Unchanged"`
 	// State is running, done or failed.
 	State string `json:"State"`
 	// Stage is unpacking, images or tasks while running, then done or failed.
@@ -588,7 +590,7 @@ func (h *Handler) importJob(ctx *gin.Context) {
 		return
 	}
 	out := importJobResponse{
-		Results: job.Results, Created: job.Created, Updated: job.Updated,
+		Results: job.Results, Created: job.Created, Updated: job.Updated, Unchanged: job.Unchanged,
 		State: string(job.State), Stage: string(job.Stage),
 		ImagesDone: job.Progress.ImagesDone, ImagesTotal: job.Progress.ImagesTotal,
 		TasksDone: job.Progress.TasksDone, TasksTotal: job.Progress.TasksTotal,
@@ -672,6 +674,8 @@ type importCommitResponse struct {
 	Results   []exerciseModel.ImportResult `json:"Results"`
 	Created   int                          `json:"Created"`
 	Updated   int                          `json:"Updated"`
+	// Unchanged: updates skipped because the archive brought nothing new.
+	Unchanged int `json:"Unchanged"`
 }
 
 func respondImportStart(ctx *gin.Context, start exerciseUseCase.ArchiveImportStart, explicit bool) {
@@ -684,7 +688,7 @@ func respondImportStart(ctx *gin.Context, start exerciseUseCase.ArchiveImportSta
 		views = append(views, exerciseToResponse(view))
 	}
 	if explicit {
-		response.AbortWithData(ctx, importCommitResponse{Exercises: views, Results: start.Results, Created: start.Created, Updated: start.Updated})
+		response.AbortWithData(ctx, importCommitResponse{Exercises: views, Results: start.Results, Created: start.Created, Updated: start.Updated, Unchanged: start.Unchanged})
 		return
 	}
 	response.AbortWithData(ctx, views)
