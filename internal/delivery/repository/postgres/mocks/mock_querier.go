@@ -1798,6 +1798,21 @@ func (mr *MockQuerierMockRecorder) CreateNotificationBroadcast(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNotificationBroadcast", reflect.TypeOf((*MockQuerier)(nil).CreateNotificationBroadcast), ctx, arg)
 }
 
+// CreateNotificationBroadcastTemplate mocks base method.
+func (m *MockQuerier) CreateNotificationBroadcastTemplate(ctx context.Context, arg postgres.CreateNotificationBroadcastTemplateParams) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateNotificationBroadcastTemplate", ctx, arg)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateNotificationBroadcastTemplate indicates an expected call of CreateNotificationBroadcastTemplate.
+func (mr *MockQuerierMockRecorder) CreateNotificationBroadcastTemplate(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNotificationBroadcastTemplate", reflect.TypeOf((*MockQuerier)(nil).CreateNotificationBroadcastTemplate), ctx, arg)
+}
+
 // CreatePlatformLabCapacityObservation mocks base method.
 func (m *MockQuerier) CreatePlatformLabCapacityObservation(ctx context.Context, arg postgres.CreatePlatformLabCapacityObservationParams) (postgres.PlatformLabCapacityObservation, error) {
 	m.ctrl.T.Helper()
@@ -2618,6 +2633,21 @@ func (m *MockQuerier) DeleteNonOwnerEventManager(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) DeleteNonOwnerEventManager(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNonOwnerEventManager", reflect.TypeOf((*MockQuerier)(nil).DeleteNonOwnerEventManager), ctx, arg)
+}
+
+// DeleteNotificationBroadcastTemplate mocks base method.
+func (m *MockQuerier) DeleteNotificationBroadcastTemplate(ctx context.Context, arg postgres.DeleteNotificationBroadcastTemplateParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNotificationBroadcastTemplate", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteNotificationBroadcastTemplate indicates an expected call of DeleteNotificationBroadcastTemplate.
+func (mr *MockQuerierMockRecorder) DeleteNotificationBroadcastTemplate(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNotificationBroadcastTemplate", reflect.TypeOf((*MockQuerier)(nil).DeleteNotificationBroadcastTemplate), ctx, arg)
 }
 
 // DeleteOwnedExerciseTestDeploy mocks base method.
@@ -5011,6 +5041,21 @@ func (m *MockQuerier) GetNotificationBroadcast(ctx context.Context, id uuid.UUID
 func (mr *MockQuerierMockRecorder) GetNotificationBroadcast(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNotificationBroadcast", reflect.TypeOf((*MockQuerier)(nil).GetNotificationBroadcast), ctx, id)
+}
+
+// GetNotificationBroadcastTemplate mocks base method.
+func (m *MockQuerier) GetNotificationBroadcastTemplate(ctx context.Context, arg postgres.GetNotificationBroadcastTemplateParams) (postgres.GetNotificationBroadcastTemplateRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNotificationBroadcastTemplate", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetNotificationBroadcastTemplateRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNotificationBroadcastTemplate indicates an expected call of GetNotificationBroadcastTemplate.
+func (mr *MockQuerierMockRecorder) GetNotificationBroadcastTemplate(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNotificationBroadcastTemplate", reflect.TypeOf((*MockQuerier)(nil).GetNotificationBroadcastTemplate), ctx, arg)
 }
 
 // GetNotificationSetting mocks base method.
@@ -8785,6 +8830,21 @@ func (m *MockQuerier) ListNewInboxSince(ctx context.Context, arg postgres.ListNe
 func (mr *MockQuerierMockRecorder) ListNewInboxSince(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNewInboxSince", reflect.TypeOf((*MockQuerier)(nil).ListNewInboxSince), ctx, arg)
+}
+
+// ListNotificationBroadcastTemplates mocks base method.
+func (m *MockQuerier) ListNotificationBroadcastTemplates(ctx context.Context, arg postgres.ListNotificationBroadcastTemplatesParams) ([]postgres.ListNotificationBroadcastTemplatesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListNotificationBroadcastTemplates", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListNotificationBroadcastTemplatesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListNotificationBroadcastTemplates indicates an expected call of ListNotificationBroadcastTemplates.
+func (mr *MockQuerierMockRecorder) ListNotificationBroadcastTemplates(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNotificationBroadcastTemplates", reflect.TypeOf((*MockQuerier)(nil).ListNotificationBroadcastTemplates), ctx, arg)
 }
 
 // ListNotificationBroadcasts mocks base method.
@@ -13296,6 +13356,21 @@ func (m *MockQuerier) UpdateLabBindingReadiness(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) UpdateLabBindingReadiness(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLabBindingReadiness", reflect.TypeOf((*MockQuerier)(nil).UpdateLabBindingReadiness), ctx, arg)
+}
+
+// UpdateNotificationBroadcastTemplate mocks base method.
+func (m *MockQuerier) UpdateNotificationBroadcastTemplate(ctx context.Context, arg postgres.UpdateNotificationBroadcastTemplateParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateNotificationBroadcastTemplate", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateNotificationBroadcastTemplate indicates an expected call of UpdateNotificationBroadcastTemplate.
+func (mr *MockQuerierMockRecorder) UpdateNotificationBroadcastTemplate(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNotificationBroadcastTemplate", reflect.TypeOf((*MockQuerier)(nil).UpdateNotificationBroadcastTemplate), ctx, arg)
 }
 
 // UpdatePlatformSMTPProvider mocks base method.
