@@ -721,7 +721,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 				variantIndex = picked
 			} else {
 				if balance == nil {
-					if balance, err = variantBalance(ctx, teamChallenges, link.ID, len(next.Variants)); err != nil {
+					if balance, err = variantBalance(ctx, teamChallenges, link.ID, len(next.Variants), variantWeights(next.Variants)...); err != nil {
 						return err
 					}
 				}

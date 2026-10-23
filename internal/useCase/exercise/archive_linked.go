@@ -15,7 +15,7 @@ import (
 // its own parts: note (with optional id and index) and, per task, flag and attachments (with an optional id).
 // Everything else is the base's: SyncLinkedVariants fills it in on import.
 var (
-	linkedVariantKeys = map[string]bool{"linked_to": true, "id": true, "index": true, "note": true, "tasks": true}
+	linkedVariantKeys = map[string]bool{"linked_to": true, "id": true, "index": true, "note": true, "weight": true, "tasks": true}
 	linkedTaskKeys    = map[string]bool{"id": true, "flag": true, "attachments": true}
 )
 
@@ -88,8 +88,11 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 	}
 	base := variants[target-1]
 	variantsPath := path[:strings.LastIndex(path, "[")] // versions[V].variants
+	if err := checkArchiveWeight(path, v.Weight); err != nil {
+		return exerciseModel.Variant{}, err
+	}
 	variant := exerciseModel.Variant{
-		ID: ids[position], Index: v.Index, Note: v.Note,
+		ID: ids[position], Index: v.Index, Note: v.Note, Weight: v.Weight,
 		LinkedTo: uuid.NullUUID{UUID: ids[target-1], Valid: true},
 	}
 	if v.Tasks == nil {
@@ -150,7 +153,7 @@ func exportLinkedVariantV2(variant exerciseModel.Variant, variants []exerciseMod
 		return archiveVariantV2{}, false
 	}
 	linkedTo := position + 1
-	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, LinkedTo: &linkedTo}
+	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, LinkedTo: &linkedTo}
 	for ti, task := range variant.Tasks {
 		if task.ID != uuid.Nil && task.ID != base.Tasks[ti].ID {
 			return archiveVariantV2{}, false
@@ -166,6 +169,7 @@ type (
 		ID       string                   `json:"id,omitempty"`
 		Index    int32                    `json:"index,omitempty"`
 		Note     string                   `json:"note,omitempty"`
+		Weight   int                      `json:"weight,omitempty"`
 		LinkedTo int                      `json:"linked_to"`
 		Tasks    []archiveLinkedTaskOutV2 `json:"tasks,omitempty"`
 	}
@@ -182,7 +186,7 @@ func (v archiveVariantV2) MarshalJSON() ([]byte, error) {
 	type plain archiveVariantV2 // without this method
 	var value any = plain(v)
 	if v.LinkedTo != nil {
-		out := archiveLinkedVariantOutV2{ID: v.ID, Index: v.Index, Note: v.Note, LinkedTo: *v.LinkedTo}
+		out := archiveLinkedVariantOutV2{ID: v.ID, Index: v.Index, Note: v.Note, Weight: v.Weight, LinkedTo: *v.LinkedTo}
 		for _, task := range v.Tasks {
 			out.Tasks = append(out.Tasks, archiveLinkedTaskOutV2{ID: task.ID, Flag: task.Flag, Attachments: task.Attachments})
 		}

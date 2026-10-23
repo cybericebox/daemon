@@ -465,6 +465,8 @@ type variantDTO struct {
 	// LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.
 	// The backend rewrites the inherited parts from the base on every save.
 	LinkedTo *uuid.UUID `json:"LinkedTo,omitempty"`
+	// Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.
+	Weight int `json:"Weight,omitempty" binding:"min=0,max=100"`
 	// CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left
 	// blank in the copy takes that variant's value.
 	CopyOf   *uuid.UUID  `json:"CopyOf,omitempty"`
@@ -702,8 +704,9 @@ type versionListItemResponse struct {
 }
 
 type saveDraftRequest struct {
-	AdminNote string       `json:"AdminNote"`
-	Variants  []variantDTO `json:"Variants"`
+	AdminNote string `json:"AdminNote"`
+	// Variants is the full snapshot; a variant Weight outside 0..100 is refused with 400.
+	Variants []variantDTO `json:"Variants" binding:"dive"`
 }
 
 // checkpointRequest: the whole body is optional. Note (≤ 500 characters,
@@ -719,7 +722,7 @@ func (d variantDTO) toDomain() exerciseModel.Variant {
 	for _, t := range d.Tasks {
 		tasks = append(tasks, t.toDomain())
 	}
-	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Tasks: tasks, Topology: d.Topology.toDomain()}
+	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Weight: d.Weight, Tasks: tasks, Topology: d.Topology.toDomain()}
 	if d.ID != nil {
 		out.ID = *d.ID
 	}
@@ -858,7 +861,7 @@ func variantsToDTO(vs []exerciseModel.Variant) []variantDTO {
 }
 
 func variantToDTO(v exerciseModel.Variant) variantDTO {
-	d := variantDTO{Index: v.Index, Note: v.Note, Topology: topologyToDTO(v.Topology)}
+	d := variantDTO{Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topologyToDTO(v.Topology)}
 	if v.ID != uuid.Nil {
 		id := v.ID
 		d.ID = &id

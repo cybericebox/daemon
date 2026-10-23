@@ -158,6 +158,9 @@ func canonicalImportVariants(variants []exerciseModel.Variant, hashes map[uuid.U
 			ids[old.String()] = id.String()
 		}
 		variant.ID = comparisonID("variant", vi)
+		if variant.EffectiveWeight() == 1 {
+			variant.Weight = 0 // an unset weight and weight 1 give the variant out equally often
+		}
 		if variant.LinkedTo.Valid {
 			if id, ok := variantIDs[variant.LinkedTo.UUID]; ok {
 				variant.LinkedTo.UUID = id

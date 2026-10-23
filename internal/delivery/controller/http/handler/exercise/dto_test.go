@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin/binding"
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -170,5 +171,41 @@ func TestTopologyDTOCarriesDeviceWaitReadyFileBothWays(t *testing.T) {
 	raw, err := json.Marshal(out.Devices[1])
 	if err != nil || strings.Contains(string(raw), "WaitReadyFile") {
 		t.Fatalf("an unset flag is omitted: %s %v", raw, err)
+	}
+}
+
+func TestVariantDTO_WeightBothWays(t *testing.T) {
+	var dto variantDTO
+	if err := json.Unmarshal([]byte(`{"Index":1,"Weight":3,"Tasks":[],"Topology":{}}`), &dto); err != nil {
+		t.Fatal(err)
+	}
+	if got := dto.toDomain(); got.Weight != 3 {
+		t.Fatalf("request Weight lost: %d", got.Weight)
+	}
+	raw, err := json.Marshal(variantToDTO(exerciseModel.Variant{Weight: 2}))
+	if err != nil || !strings.Contains(string(raw), `"Weight":2`) {
+		t.Fatalf("response Weight missing: %s %v", raw, err)
+	}
+	raw, err = json.Marshal(variantToDTO(exerciseModel.Variant{}))
+	if err != nil || strings.Contains(string(raw), `"Weight"`) {
+		t.Fatalf("an unset weight is omitted: %s %v", raw, err)
+	}
+}
+
+func TestSaveDraftRequest_WeightRange(t *testing.T) {
+	for raw, valid := range map[string]bool{
+		`{"Variants":[{"Weight":0}]}`:                true,
+		`{"Variants":[{}]}`:                          true,
+		`{"Variants":[{"Weight":100}]}`:              true,
+		`{"Variants":[{"Weight":1},{"Weight":101}]}`: false,
+		`{"Variants":[{"Weight":-1}]}`:               false,
+	} {
+		var req saveDraftRequest
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := binding.Validator.ValidateStruct(req); (err == nil) != valid {
+			t.Errorf("%s: validation error %v, want valid=%v", raw, err, valid)
+		}
 	}
 }

@@ -257,3 +257,21 @@ func TestValidateStructure_RunsLinkedFlagRule(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrLinkedFlagsNotDistinct.Err()))
 }
+
+func TestSyncLinkedVariants_KeepsOwnWeight(t *testing.T) {
+	version := &ExerciseVersion{Variants: []Variant{
+		{ID: linkBaseID, Weight: 3, Tasks: []Task{linkedTask(linkTaskA, "A")}},
+		{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}},
+		{ID: linkThirdID, Weight: 5, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}},
+	}}
+	require.NoError(t, version.SyncLinkedVariants())
+	assert.Equal(t, 3, version.Variants[0].Weight)
+	assert.Equal(t, 0, version.Variants[1].Weight, "a linked variant without a weight does not take the base's")
+	assert.Equal(t, 5, version.Variants[2].Weight)
+}
+
+func TestVariant_EffectiveWeight(t *testing.T) {
+	for weight, want := range map[int]int{-1: 1, 0: 1, 1: 1, 2: 2, MaxVariantWeight: MaxVariantWeight, MaxVariantWeight + 1: MaxVariantWeight} {
+		assert.Equal(t, want, Variant{Weight: weight}.EffectiveWeight(), "weight %d", weight)
+	}
+}

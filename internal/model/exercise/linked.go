@@ -59,7 +59,7 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 				rebuilt.Tasks[taskIndex].Attachments = own.Attachments
 			}
 		}
-		rebuilt.ID, rebuilt.Index, rebuilt.Note, rebuilt.LinkedTo = linked.ID, linked.Index, linked.Note, linked.LinkedTo
+		rebuilt.ID, rebuilt.Index, rebuilt.Note, rebuilt.LinkedTo, rebuilt.Weight = linked.ID, linked.Index, linked.Note, linked.LinkedTo, linked.Weight
 		v.Variants[i] = rebuilt
 	}
 	return nil

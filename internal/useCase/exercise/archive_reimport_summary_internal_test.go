@@ -86,3 +86,24 @@ func TestImportSummaryRebuildsLinkedVariantsAndNormalizesImageNames(t *testing.T
 	require.Equal(t, ImportCountChange{}, summary.Variants)
 	require.Zero(t, summary.FlagsChanged)
 }
+
+func TestImportSummaryCountsAWeightChangeAsAChangedVariant(t *testing.T) {
+	u := &ExerciseUseCase{}
+	variants := func(baseWeight, linkedWeight int) exerciseModel.ExerciseVersion {
+		base := exerciseModel.Variant{ID: freshID(), Weight: baseWeight, Tasks: []exerciseModel.Task{{Name: "one"}}}
+		linked := exerciseModel.Variant{ID: freshID(), Weight: linkedWeight, LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true}, Tasks: []exerciseModel.Task{{}}}
+		return exerciseModel.ExerciseVersion{Name: "Same", Variants: []exerciseModel.Variant{base, linked}}
+	}
+	summary, err := u.importSummary(context.Background(), ParsedExerciseArchive{}, variants(2, 3), variants(2, 3), nil)
+	require.NoError(t, err)
+	require.Zero(t, summary.Variants.Changed)
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, variants(1, 3), variants(2, 3), nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Variants.Changed, "the base's weight changed, the linked variant keeps its own")
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, variants(2, 0), variants(2, 3), nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Variants.Changed, "a linked variant's own weight changed")
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, variants(1, 0), variants(0, 1), nil)
+	require.NoError(t, err)
+	require.Zero(t, summary.Variants.Changed, "an unset weight is weight 1")
+}

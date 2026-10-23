@@ -361,3 +361,55 @@ func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 	require.Equal(t, base.Tasks[0].Hints[0].ID, linked.Tasks[0].Hints[0].ID)
 	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Flag)
 }
+
+// A weight is carried by a whole variant and by a linked variant's compact form.
+func TestExportThenImport_VariantWeights(t *testing.T) {
+	versions := linkedExportVersions()
+	versions[0].Variants[0].Weight = 3
+	versions[0].Variants[1].Weight = 2
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectExport(t, q, exportExerciseID, "Експорт", versions)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
+	require.NoError(t, err)
+
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]json.RawMessage `json:"variants"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
+	require.JSONEq(t, `3`, string(doc.Versions[0].Variants[0]["weight"]))
+	require.JSONEq(t, `2`, string(doc.Versions[0].Variants[1]["weight"]))
+	require.Contains(t, doc.Versions[0].Variants[1], "linked_to")
+	require.NotContains(t, doc.Versions[1].Variants[0], "weight", "an unset weight is not written")
+
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	require.NoError(t, parsed.Versions[0].SyncLinkedVariants())
+	got := parsed.Versions[0].Variants
+	require.Equal(t, 3, got[0].Weight)
+	require.Equal(t, 2, got[1].Weight)
+	require.True(t, got[1].IsLinked())
+	require.Equal(t, 0, parsed.Versions[1].Variants[0].Weight)
+}
+
+func TestToParsed_VariantWeightOutOfRange(t *testing.T) {
+	cases := map[string]struct{ variants, path string }{
+		"whole too big":   {`[{"weight":101,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"whole negative":  {`[{"weight":-1,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"linked too big":  {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":500}]`, "versions[1].variants[2].weight"},
+		"linked negative": {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":-2}]`, "versions[1].variants[2].weight"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", tc.variants, nil), "", exercise.DefaultLimits())
+			require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+			require.Contains(t, errorContext(t, err)["reason"], tc.path)
+		})
+	}
+	parsed, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[{"weight":100,"tasks":[{"name":"t"}]},{"linked_to":1,"weight":1}]`, nil), "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	require.Equal(t, 100, parsed.Versions[0].Variants[0].Weight)
+	require.Equal(t, 1, parsed.Versions[0].Variants[1].Weight)
+}

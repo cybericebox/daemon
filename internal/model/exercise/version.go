@@ -169,8 +169,18 @@ type Variant struct {
 	// LinkedTo is the base variant (same version) this one inherits its content from;
 	// only Flag and Attachments of each task, Note and Index stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
-	Tasks    []Task        `json:"tasks"`
-	Topology Topology      `json:"topology"`
+	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
+	Weight   int      `json:"weight,omitempty"`
+	Tasks    []Task   `json:"tasks"`
+	Topology Topology `json:"topology"`
+}
+
+// MaxVariantWeight bounds a variant's weight.
+const MaxVariantWeight = 100
+
+// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset weight is 1).
+func (v Variant) EffectiveWeight() int {
+	return min(max(v.Weight, 1), MaxVariantWeight)
 }
 
 // ValidateTopologyForDeploy enforces runnable graph rules without requiring
