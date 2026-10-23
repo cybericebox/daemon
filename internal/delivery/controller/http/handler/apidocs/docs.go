@@ -5002,6 +5002,241 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/broadcast-templates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Saved broadcast templates of the scope, recently edited first",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/messaging.templateResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Save a broadcast template",
+                "parameters": [
+                    {
+                        "description": "name and message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/messaging.templateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/broadcast-templates/{templateID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Get a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Update a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "name and message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/messaging.templateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Delete a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/broadcasts": {
             "get": {
                 "produces": [
@@ -21905,6 +22140,241 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/broadcast-templates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Saved broadcast templates of the scope, recently edited first",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/messaging.templateResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Save a broadcast template",
+                "parameters": [
+                    {
+                        "description": "name and message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/messaging.templateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/broadcast-templates/{templateID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Get a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Update a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "name and message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/messaging.templateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.templateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Delete a broadcast template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "template ID",
+                        "name": "templateID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -39229,6 +39699,86 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "messaging.templateRequest": {
+            "type": "object",
+            "properties": {
+                "Channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "EmailBody": {},
+                "EmailStyling": {},
+                "InAppBody": {
+                    "type": "string"
+                },
+                "InAppLink": {
+                    "type": "string"
+                },
+                "InAppTitle": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Preheader": {
+                    "type": "string"
+                },
+                "Subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "messaging.templateResponse": {
+            "type": "object",
+            "properties": {
+                "Channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "EmailBody": {},
+                "EmailStyling": {},
+                "ID": {
+                    "type": "string"
+                },
+                "InAppBody": {
+                    "type": "string"
+                },
+                "InAppLink": {
+                    "type": "string"
+                },
+                "InAppTitle": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Preheader": {
+                    "type": "string"
+                },
+                "ScopeEventID": {
+                    "type": "string"
+                },
+                "Subject": {
+                    "type": "string"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                },
+                "UpdatedBy": {
+                    "type": "string"
+                },
+                "UpdatedByName": {
                     "type": "string"
                 }
             }

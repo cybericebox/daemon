@@ -104,6 +104,11 @@ POST   /api/events/:id/manage/banners | gate: self | layers: messaging.requireMa
 DELETE /api/events/:id/manage/banners/:bannerID | gate: self | layers: messaging.requireManage
 PUT    /api/events/:id/manage/banners/:bannerID | gate: self | layers: messaging.requireManage
 POST   /api/events/:id/manage/brand-drafts/:kind | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/broadcast-templates | gate: self | layers: messaging.requireRead
+POST   /api/events/:id/manage/broadcast-templates | gate: self | layers: messaging.requireManage
+DELETE /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireManage
+GET    /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireRead
+PUT    /api/events/:id/manage/broadcast-templates/:templateID | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireRead
 POST   /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts/:broadcastID | gate: self | layers: messaging.requireRead
@@ -504,6 +509,11 @@ PUT    /api/mail/settings/providers/order | gate: platform.settings.write | laye
 POST   /api/mail/settings/providers/test | gate: platform.settings.write | layers: -
 GET    /api/notifications/banners | gate: banners.view(public) | layers: middleware.(*SiteResolver).ResolveSite.func
 PATCH  /api/notifications/banners/:id/dismiss | gate: notifications.self | layers: -
+GET    /api/notifications/broadcast-templates | gate: notifications.broadcast | layers: -
+POST   /api/notifications/broadcast-templates | gate: notifications.broadcast | layers: -
+DELETE /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
+GET    /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
+PUT    /api/notifications/broadcast-templates/:templateID | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 POST   /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts/:broadcastID | gate: notifications.broadcast | layers: -

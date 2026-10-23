@@ -41,6 +41,12 @@ type (
 		GetBroadcast(ctx context.Context, id uuid.UUID, scopeEventID *uuid.UUID) (broadcastModel.Broadcast, error)
 		ListBroadcastDeliveries(ctx context.Context, id uuid.UUID, limit, offset int32) ([]broadcastModel.Delivery, error)
 
+		ListBroadcastTemplates(ctx context.Context, scopeEventID *uuid.UUID) ([]broadcastModel.Template, error)
+		GetBroadcastTemplate(ctx context.Context, scopeEventID *uuid.UUID, id uuid.UUID) (broadcastModel.Template, error)
+		CreateBroadcastTemplate(ctx context.Context, scopeEventID *uuid.UUID, actor uuid.UUID, in broadcastModel.TemplateInput) (broadcastModel.Template, error)
+		UpdateBroadcastTemplate(ctx context.Context, scopeEventID *uuid.UUID, id, actor uuid.UUID, in broadcastModel.TemplateInput) (broadcastModel.Template, error)
+		DeleteBroadcastTemplate(ctx context.Context, scopeEventID *uuid.UUID, id uuid.UUID) error
+
 		CreateSiteBanner(ctx context.Context, scope *uuid.UUID, actorID uuid.UUID, in siteBannerModel.Input) (siteBannerModel.Banner, error)
 		UpdateSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID, in siteBannerModel.Input) (siteBannerModel.Banner, error)
 		GetSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID) (siteBannerModel.Banner, error)
@@ -169,6 +175,14 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	bc.GET(":broadcastID", h.getBroadcast(platform))
 	bc.GET(":broadcastID/deliveries", h.listDeliveries(platform))
 
+	// Saved broadcast messages: whoever may send platform broadcasts manages them.
+	bt := api.Group("notifications/broadcast-templates", h.prot.RequirePermission(rbac.PermNotificationsBroadcast))
+	bt.GET("", h.listTemplates(platform))
+	bt.POST("", h.createTemplate(platform))
+	bt.GET(":templateID", h.getTemplate(platform))
+	bt.PUT(":templateID", h.updateTemplate(platform))
+	bt.DELETE(":templateID", h.deleteTemplate(platform))
+
 	bn := api.Group("notifications/site-banners")
 	bn.GET("", h.prot.RequirePermission(rbac.PermNotificationsBannersRead), h.listBanners(platform))
 	bn.POST("", h.prot.RequirePermission(rbac.PermNotificationsBannersWrite), h.createBanner(platform))
@@ -182,6 +196,11 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	manage.GET("broadcasts", h.requireRead, h.listBroadcasts(eventScope))
 	manage.GET("broadcasts/:broadcastID", h.requireRead, h.getBroadcast(eventScope))
 	manage.GET("broadcasts/:broadcastID/deliveries", h.requireRead, h.listDeliveries(eventScope))
+	manage.GET("broadcast-templates", h.requireRead, h.listTemplates(eventScope))
+	manage.GET("broadcast-templates/:templateID", h.requireRead, h.getTemplate(eventScope))
+	manage.POST("broadcast-templates", h.requireManage, h.createTemplate(eventScope))
+	manage.PUT("broadcast-templates/:templateID", h.requireManage, h.updateTemplate(eventScope))
+	manage.DELETE("broadcast-templates/:templateID", h.requireManage, h.deleteTemplate(eventScope))
 	manage.GET("banners", h.requireRead, h.listBanners(eventScope))
 	manage.POST("banners", h.requireManage, h.createBanner(eventScope))
 	manage.PUT("banners/:bannerID", h.requireManage, h.updateBanner(eventScope))

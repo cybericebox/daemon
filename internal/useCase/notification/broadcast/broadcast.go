@@ -38,6 +38,7 @@ const (
 type (
 	Repository interface {
 		broadcastRepo.Queries
+		broadcastRepo.TemplateQueries
 		eventRepo.Queries
 	}
 
@@ -66,6 +67,7 @@ type (
 
 	NotificationBroadcastUseCase struct {
 		broadcasts   *broadcastRepo.Repository
+		templates    *broadcastRepo.TemplateRepository
 		events       *eventRepo.Repository
 		notifier     Notifier
 		enqueue      func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
@@ -87,6 +89,7 @@ type (
 func NewNotificationBroadcastUseCase(deps Dependencies) *NotificationBroadcastUseCase {
 	u := &NotificationBroadcastUseCase{
 		broadcasts:   broadcastRepo.New(deps.Repo),
+		templates:    broadcastRepo.NewTemplates(deps.Repo),
 		events:       eventRepo.New(deps.Repo),
 		notifier:     deps.Notifier,
 		enqueue:      deps.Enqueue,
@@ -168,13 +171,17 @@ func (u *NotificationBroadcastUseCase) SendBroadcast(ctx context.Context, in Sen
 
 // checkImages requires the files of the email body to belong to the broadcast's scope.
 func (u *NotificationBroadcastUseCase) checkImages(ctx context.Context, in SendInput) error {
-	if !in.Content.HasChannel(notificationTypes.NotificationChannelEmail) || len(render.ImageFileIDs(in.Content.EmailBody)) == 0 {
+	return u.checkContentImages(ctx, in.ScopeEventID, in.ActorID, in.Content)
+}
+
+func (u *NotificationBroadcastUseCase) checkContentImages(ctx context.Context, scopeEventID *uuid.UUID, actor uuid.UUID, c broadcastModel.Content) error {
+	if !c.HasChannel(notificationTypes.NotificationChannelEmail) || len(render.ImageFileIDs(c.EmailBody)) == 0 {
 		return nil
 	}
 	if u.images == nil {
 		return notificationModel.ErrBroadcastInvalid.WithMessage("Images are not available").Err()
 	}
-	return u.images.ValidateBroadcastBody(ctx, in.ScopeEventID, in.ActorID, in.Content.EmailBody)
+	return u.images.ValidateBroadcastBody(ctx, scopeEventID, actor, c.EmailBody)
 }
 
 // ProcessBroadcast queues the next chunk of recipients that have no dispatch
