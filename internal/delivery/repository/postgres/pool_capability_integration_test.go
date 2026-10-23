@@ -16,7 +16,7 @@ import (
 
 // Every connection the daemon opens comes from the main or the job pool: pooled statements, transactions and the
 // connections the advisory/leader locks hijack for good. Each must reach the server with the catalog writer
-// capability, or the guards of migration 0194/0195 reject its catalog writes with 40001.
+// capability, or the guards of migration 0195/0196 reject its catalog writes with 40001.
 func TestProductionPoolsDeclareCatalogWriterOnEveryConnection(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()

@@ -26,7 +26,7 @@ const migrationTable = "ap_backend_schema_migrations"
 
 // CatalogWriterCapability is a rolling-schema compatibility marker, not an
 // authorization mechanism. Old binaries do not declare it and cannot mutate
-// authored catalog state after migration 0194.
+// authored catalog state after migration 0195.
 const CatalogWriterCapability = "cybericebox.catalog_metadata_writer"
 
 func ConfigureCatalogWriterConnection(cfg *pgx.ConnConfig) {
