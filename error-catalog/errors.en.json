@@ -519,6 +519,7 @@
   "72827": "Secret storage is not configured: registry tokens cannot be saved",
   "72828": "Another image already uses this registry tag",
   "72830": "A platform image cannot be exported: the image registry is not configured, not responding or does not have it",
+  "72832": "The image registry refused the platform token: check the registry token in the platform panel",
   "72906": "The source or target changed; preview and confirm again",
   "72907": "This archive source already has a different running or completed import"
 }

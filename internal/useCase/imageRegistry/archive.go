@@ -53,18 +53,53 @@ func (u *ImageRegistryUseCase) InspectImageArchive(ctx context.Context, archive 
 	if err != nil {
 		return ArchiveImageInspection{}, err
 	}
-	client, _, err := u.PlatformRegistryClient(ctx, false)
+	have, found, err := u.inspectManifest(ctx, ref.Tag())
 	if err != nil {
 		return ArchiveImageInspection{}, err
-	}
-	have, found, err := client.ManifestDigest(ctx, ref.Tag())
-	if err != nil {
-		return ArchiveImageInspection{}, Unavailable(err, "")
 	}
 	if found && have != "" && have != manifest.Digest {
 		return ArchiveImageInspection{}, imageRegistryModel.ErrImageTagTaken.Err()
 	}
 	return ArchiveImageInspection{Reference: ref.String(), Digest: manifest.Digest, Reused: found && have == manifest.Digest}, nil
+}
+
+// inspectManifest reads the digest the platform registry serves under tag, with the pull token (the push token when
+// none is set). An import that goes on pushes with the push token, so a pull token the registry refuses is retried
+// with the push token: the preview answers what the push will see. A refusal of the token that was used last is
+// ErrRegistryAccessDenied naming it; an outage stays ErrRegistryUnavailable. The cause is logged (it never carries
+// a token): the HTTP answer of a 409 does not reach the server log otherwise.
+func (u *ImageRegistryUseCase) inspectManifest(ctx context.Context, tag string) (string, bool, error) {
+	s, pullToken, err := u.platformToken(ctx, false)
+	if err != nil {
+		return "", false, err
+	}
+	if pullToken == "" {
+		return "", false, imageRegistryModel.ErrRegistryNotConfigured.Err()
+	}
+	type attempt struct{ name, token string }
+	pushToken := u.open(s.PushTokenCiphertext, pushContext)
+	attempts := []attempt{{pushTokenName, pushToken}}
+	if pullToken != pushToken {
+		// a pull token is set: it reads first, the push token is the fallback
+		attempts = []attempt{{pullTokenName, pullToken}}
+		if pushToken != "" {
+			attempts = append(attempts, attempt{pushTokenName, pushToken})
+		}
+	}
+	var cause error
+	var used string
+	for _, a := range attempts {
+		have, found, headErr := u.newClient(s.Provider, s.Repository, s.Account, a.token).ManifestDigest(ctx, tag)
+		if headErr == nil {
+			return have, found, nil
+		}
+		cause, used = headErr, a.name
+		log.Warn().Err(headErr).Str("tag", tag).Str("token", a.name).Msg("image archive: manifest check failed")
+		if !errors.Is(headErr, ociregistry.ErrUnauthorized) {
+			break
+		}
+	}
+	return "", false, RegistryFailure(cause, used)
 }
 
 // IndexImageArchive is pass 1 over an image file of a task archive (size bytes, read through open): the image in it,
@@ -120,7 +155,7 @@ func (u *ImageRegistryUseCase) PushImageArchive(ctx context.Context, in PushArch
 		}
 		exists, existsErr := client.BlobExists(ctx, d.Digest)
 		if existsErr != nil {
-			return CreateImageResult{}, Unavailable(existsErr, pushTokenName)
+			return CreateImageResult{}, RegistryFailure(existsErr, pushTokenName)
 		}
 		want[d.Digest] = !exists
 	}
@@ -155,7 +190,7 @@ func pushArchiveBlob(ctx context.Context, client *ociregistry.Client, blob ocire
 		return model.ErrPlatform.WithError(vr.sourceErr).WithMessage("Failed to read the image archive").Err()
 	}
 	log.Warn().Err(err).Str("digest", blob.Digest).Msg("image archive: blob push failed")
-	return Unavailable(err, pushTokenName)
+	return RegistryFailure(err, pushTokenName)
 }
 
 func descriptorOf(b ociregistry.ArchiveBlob) Descriptor {

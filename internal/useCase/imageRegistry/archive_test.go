@@ -212,7 +212,8 @@ func TestPushImageArchiveUnconfigured(t *testing.T) {
 	require.Equal(t, 1, src.opens)
 }
 
-// A registry failing mid-push is the upload refusal with the reason; nothing is recorded or tagged.
+// A registry refusing the push token mid-push is the access refusal naming the token (not "unavailable");
+// nothing is recorded or tagged.
 func TestPushImageArchiveRegistryFailure(t *testing.T) {
 	f := newUploadFixture(t, true)
 	src := &archiveSource{b: archivetest.Legacy(archiveImage())}
@@ -221,8 +222,9 @@ func TestPushImageArchiveRegistryFailure(t *testing.T) {
 	f.reg.allow = map[string]bool{} // the push token was revoked
 	f.reg.mu.Unlock()
 	_, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: a})
-	require.ErrorIs(t, err, imageRegistryModel.ErrRegistryUnavailable.Err())
+	require.ErrorIs(t, err, imageRegistryModel.ErrRegistryAccessDenied.Err())
 	require.Equal(t, "unauthorized", publicReason(t, err)[imageRegistryModel.ContextReason])
+	require.Equal(t, "push", publicReason(t, err)[imageRegistryModel.ContextToken])
 }
 
 // Inspect uses the canonical manifest tag without any image row/blob/manifest mutation.

@@ -239,3 +239,18 @@ func Unavailable(cause error, token string) error {
 	}
 	return e.Err()
 }
+
+// RegistryFailure is Unavailable, except that a registry that answered and refused the token (401/403) is
+// ErrRegistryAccessDenied: the registry works, the platform token does not. Outages, throttling and other
+// failures stay ErrRegistryUnavailable with their reason.
+func RegistryFailure(cause error, token string) error {
+	if !errors.Is(cause, ociregistry.ErrUnauthorized) {
+		return Unavailable(cause, token)
+	}
+	e := imageRegistryModel.ErrRegistryAccessDenied.WithError(cause).
+		WithPublicContext(imageRegistryModel.ContextReason, string(imageRegistryModel.ReasonUnauthorized))
+	if token != "" {
+		e = e.WithPublicContext(imageRegistryModel.ContextToken, token)
+	}
+	return e.Err()
+}
