@@ -209,6 +209,8 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 
 	require.Len(t, variants, 2)
 	base, linked := variants[0], variants[1]
+	require.Equal(t, 2, base.Weight, "the example's base variant is given out twice as often")
+	require.Equal(t, 1, linked.EffectiveWeight(), "a variant without weight counts as 1")
 	require.Len(t, base.Tasks, 2)
 	require.Contains(t, string(base.Tasks[0].Description), `"type":"variable"`)
 	require.Contains(t, string(base.Tasks[0].Description), `"varName":"server"`)
