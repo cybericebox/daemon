@@ -404,7 +404,7 @@ func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repo
 	if found && index >= 0 && int(index) < len(version.Variants) {
 		return index, nil
 	}
-	balance, err := lockedVariantBalance(ctx, teamChallenges, attachment.ID, len(version.Variants))
+	balance, err := lockedVariantBalance(ctx, teamChallenges, attachment.ID, len(version.Variants), variantWeights(version.Variants)...)
 	if err != nil {
 		return 0, err
 	}
@@ -413,23 +413,32 @@ func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repo
 	return index, nil
 }
 
+// variantWeights is the effective weight of each variant, in order.
+func variantWeights(variants []exerciseModel.Variant) []int {
+	weights := make([]int, len(variants))
+	for i, variant := range variants {
+		weights[i] = variant.EffectiveWeight()
+	}
+	return weights
+}
+
 // lockedVariantBalance takes the per-exercise pick lock (held until the
 // transaction ends) and then counts the teams on each variant.
-func lockedVariantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int) (*teamChallengeModel.VariantBalance, error) {
+func lockedVariantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int, weights ...int) (*teamChallengeModel.VariantBalance, error) {
 	if err := teamChallenges.LockVariantPick(ctx, eventExerciseID); err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
 	}
-	return variantBalance(ctx, teamChallenges, eventExerciseID, variantCount)
+	return variantBalance(ctx, teamChallenges, eventExerciseID, variantCount, weights...)
 }
 
 // variantBalance counts the teams on each variant; the caller holds the
 // variant pick lock.
-func variantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int) (*teamChallengeModel.VariantBalance, error) {
+func variantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int, weights ...int) (*teamChallengeModel.VariantBalance, error) {
 	used, err := teamChallenges.VariantUse(ctx, eventExerciseID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the variant use").Err()
 	}
-	return teamChallengeModel.NewVariantBalance(variantCount, used)
+	return teamChallengeModel.NewVariantBalance(variantCount, used, weights...)
 }
 
 // stageSubmitGate is the stage rule of a participant submission: a task of an upcoming stage is hidden (not found),

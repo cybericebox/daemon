@@ -33,8 +33,8 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 	setup := func(t *testing.T) (*exercise.ExerciseUseCase, *postgresMocks.MockQuerier) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 		expectUserNames(q)
-		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
+		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes().AnyTimes()
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes().AnyTimes()
 		q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error) {
 			owners := map[uuid.UUID]uuid.UUID{mine: me, theirs: other, held: other}
 			var rows []postgres.ListFileOwnersRow
@@ -52,7 +52,7 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 			return []uuid.UUID{uuid.Must(uuid.NewV7())}, nil // another exercise's
 		}).AnyTimes()
 		// Nothing is stored as the exercise's copy of a content: only versions hold files here.
-		q.EXPECT().ListExerciseHeldFiles(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		q.EXPECT().ListExerciseHeldFiles(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes().AnyTimes()
 		expectFilesAdoptedAsIs(q)
 		return newUC(q, newFakeMedia()), q
 	}
@@ -80,8 +80,8 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 	})
 	t.Run("nothing attached needs no lookup", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
-		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
+		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
+		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
 		expectUserNames(q)
 		var captured postgres.UpsertExerciseDraftParams
 		expectUpsertCapture(t, q, &captured)

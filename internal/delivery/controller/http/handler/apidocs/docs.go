@@ -16116,7 +16116,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "name, tags, status, author, difficulty, subtasks or updated (offset pages only)",
+                        "description": "name, tags, status, author, difficulty, subtasks, variants or updated (offset pages only)",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -17295,7 +17295,7 @@ const docTemplate = `{
         },
         "/exercises/import": {
             "post": {
-                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).",
+                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).\nThis raw multipart route is legacy all-NEW. Target selections/UPDATE use the immutable UploadID/FileID routes so confirmation binds the same source.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -17520,9 +17520,131 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/import/preview": {
+            "post": {
+                "description": "Omitted Targets are nonbinding editable-ID suggestions. Explicit choices must name every item exactly once. FixedExerciseID forces one item into that editable target. Revisions bind the exact immutable source/item and current target content. Summary never returns flags or device secrets.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Preview every archive item without writing tasks, files or images",
+                "parameters": [
+                    {
+                        "description": "owned source and optional per-item choices",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.archivePreviewRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.ArchiveImportPreview"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/targets": {
+            "get": {
+                "description": "Write policy is applied before pagination. Same-name tasks are distinguished by Scope and OwnerEventID/Name/Tag. Search and Total use the same working snapshot as the returned names.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Search nonarchived editable import targets, with owner context",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "working task name",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "last task UUID of the previous page, descending",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..200, default 50",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/pagination.CursorPage-exercise_ImportTargetExercise"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/import/upload": {
             "post": {
-                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits of the platform settings apply). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
+                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits of the platform settings apply). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.\nTargets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, Results and Created/Updated counts. Every UPDATE requires the exact preview Revision and existing-draft replacement confirmation.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17556,10 +17678,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.exerciseResponse"
-                                            }
+                                            "$ref": "#/definitions/exercise.importCommitResponse"
                                         }
                                     }
                                 }
@@ -17607,7 +17726,7 @@ const docTemplate = `{
         },
         "/exercises/import/uploaded": {
             "post": {
-                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.",
+                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.\nTargets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, per-item Results and Created/Updated counts. Every UPDATE requires its exact preview Revision; ReplaceDraft confirms replacement of an existing draft.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17641,10 +17760,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.exerciseResponse"
-                                            }
+                                            "$ref": "#/definitions/exercise.importCommitResponse"
                                         }
                                     }
                                 }
@@ -17663,6 +17779,95 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/exercise.importJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/preferences/catalog-columns": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The caller's catalog table columns: their order and which are shown; null until arranged once",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.CatalogColumn"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Saves the caller's catalog table columns (at most 32 distinct column names, in order)",
+                "parameters": [
+                    {
+                        "description": "the columns in order",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/exercise.CatalogColumn"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.CatalogColumn"
+                                            }
                                         }
                                     }
                                 }
@@ -34935,6 +35140,105 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.ArchiveImportPreview": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ArchiveImportPreviewItem"
+                    }
+                }
+            }
+        },
+        "exercise.ArchiveImportPreviewItem": {
+            "type": "object",
+            "properties": {
+                "ConfirmationRevision": {
+                    "description": "ConfirmationRevision binds immutable source/item/snapshot and selected\ntarget/current content. No password, flags or secret values are returned.",
+                    "type": "string"
+                },
+                "ItemKey": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "ReplacesDraft": {
+                    "type": "boolean"
+                },
+                "SourceExerciseID": {
+                    "type": "string"
+                },
+                "SourceIDMismatch": {
+                    "type": "boolean"
+                },
+                "SourceVersion": {
+                    "$ref": "#/definitions/exercise.ImportSourceVersion"
+                },
+                "SuggestedTarget": {
+                    "$ref": "#/definitions/exercise.ImportTarget"
+                },
+                "Summary": {
+                    "$ref": "#/definitions/exercise.ArchiveImportSummary"
+                },
+                "Target": {
+                    "$ref": "#/definitions/exercise.ImportTarget"
+                },
+                "TargetExercise": {
+                    "$ref": "#/definitions/exercise.ImportTargetExercise"
+                }
+            }
+        },
+        "exercise.ArchiveImportSummary": {
+            "type": "object",
+            "properties": {
+                "Files": {
+                    "$ref": "#/definitions/exercise.ImportFileChange"
+                },
+                "FlagsChanged": {
+                    "type": "integer"
+                },
+                "Images": {
+                    "$ref": "#/definitions/exercise.ImportImageChange"
+                },
+                "MetadataChanged": {
+                    "description": "MetadataChanged includes Name/Description/Tags and the version AdminNote.",
+                    "type": "boolean"
+                },
+                "Subtasks": {
+                    "$ref": "#/definitions/exercise.ImportSubtaskCount"
+                },
+                "Variants": {
+                    "$ref": "#/definitions/exercise.ImportCountChange"
+                }
+            }
+        },
+        "exercise.CatalogColumn": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "exercise.ConfirmedImportUpdate": {
+            "type": "object",
+            "properties": {
+                "ItemKey": {
+                    "type": "string"
+                },
+                "ReplaceDraft": {
+                    "type": "boolean"
+                },
+                "Revision": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.ExerciseAuthorSuggestion": {
             "type": "object",
             "properties": {
@@ -34956,6 +35260,106 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.ImportCountChange": {
+            "type": "object",
+            "properties": {
+                "Added": {
+                    "type": "integer"
+                },
+                "Changed": {
+                    "type": "integer"
+                },
+                "Removed": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.ImportFileChange": {
+            "type": "object",
+            "properties": {
+                "Added": {
+                    "type": "integer"
+                },
+                "Removed": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.ImportImageChange": {
+            "type": "object",
+            "properties": {
+                "New": {
+                    "type": "integer"
+                },
+                "Reused": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.ImportSourceVersion": {
+            "type": "object",
+            "properties": {
+                "Position": {
+                    "description": "zero-based source snapshot position; -1 when the archive has no versions",
+                    "type": "integer"
+                },
+                "Status": {
+                    "$ref": "#/definitions/exerciseModel.VersionStatus"
+                }
+            }
+        },
+        "exercise.ImportSubtaskCount": {
+            "type": "object",
+            "properties": {
+                "After": {
+                    "type": "integer"
+                },
+                "Before": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.ImportTarget": {
+            "type": "object",
+            "properties": {
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ItemKey": {
+                    "type": "string"
+                },
+                "Mode": {
+                    "description": "new | update",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.ImportTargetExercise": {
+            "type": "object",
+            "properties": {
+                "HasDraft": {
+                    "type": "boolean"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OwnerEventID": {
+                    "type": "string"
+                },
+                "OwnerEventName": {
+                    "type": "string"
+                },
+                "OwnerEventTag": {
+                    "type": "string"
+                },
+                "Scope": {
                     "type": "string"
                 }
             }
@@ -35048,9 +35452,39 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.archivePreviewRequest": {
+            "type": "object",
+            "properties": {
+                "FileID": {
+                    "type": "string"
+                },
+                "FixedExerciseID": {
+                    "type": "string"
+                },
+                "OwnerEventID": {
+                    "type": "string"
+                },
+                "Password": {
+                    "type": "string"
+                },
+                "Targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTarget"
+                    }
+                },
+                "UploadID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.attachmentDTO": {
             "type": "object",
             "properties": {
+                "ContentHash": {
+                    "description": "ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every\nvariant and task. Absent when unknown.",
+                    "type": "string"
+                },
                 "FileID": {
                     "type": "string"
                 },
@@ -35575,6 +36009,7 @@ const docTemplate = `{
             "properties": {
                 "EnvVars": {
                     "type": "array",
+                    "maxItems": 64,
                     "items": {
                         "$ref": "#/definitions/exercise.envVarDTO"
                     }
@@ -35777,6 +36212,10 @@ const docTemplate = `{
                 "Value": {
                     "description": "Value is write-only for secrets: responses blank it, an empty value on\nsave means \"keep the stored one\".",
                     "type": "string"
+                },
+                "ValueGroup": {
+                    "description": "ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold\nthe same value, for comparing variants. It follows where the value came from (kept, inherited by a linked\nvariant, copied, equal values of one import), never the value itself: a value typed anew starts a group of\nits own even when it equals another. The numbers mean nothing outside one response.",
+                    "type": "integer"
                 }
             }
         },
@@ -35921,6 +36360,10 @@ const docTemplate = `{
                 },
                 "UpdatedAt": {
                     "type": "string"
+                },
+                "VariantCount": {
+                    "description": "VariantCount is how many variants the visible snapshot has; null without one (offset pages only).",
+                    "type": "integer"
                 }
             }
         },
@@ -36279,6 +36722,45 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.imageOverrideDTO": {
+            "type": "object",
+            "properties": {
+                "DeviceID": {
+                    "type": "string"
+                },
+                "Image": {
+                    "description": "Image: a registry reference (nginx:1.28) or a platform image (platform:\u003cname\u003e@sha256:…); checked on publish.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importCommitResponse": {
+            "type": "object",
+            "properties": {
+                "Created": {
+                    "type": "integer"
+                },
+                "Exercises": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.exerciseResponse"
+                    }
+                },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportResult"
+                    }
+                },
+                "Unchanged": {
+                    "description": "Unchanged: updates skipped because the archive brought nothing new.",
+                    "type": "integer"
+                },
+                "Updated": {
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.importJobError": {
             "type": "object",
             "properties": {
@@ -36304,6 +36786,9 @@ const docTemplate = `{
                 "BytesTotal": {
                     "type": "integer"
                 },
+                "Created": {
+                    "type": "integer"
+                },
                 "Error": {
                     "description": "Error is why it failed (failed only).",
                     "allOf": [
@@ -36326,6 +36811,12 @@ const docTemplate = `{
                 "ImagesTotal": {
                     "type": "integer"
                 },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportResult"
+                    }
+                },
                 "Stage": {
                     "description": "Stage is unpacking, images or tasks while running, then done or failed.",
                     "type": "string"
@@ -36338,6 +36829,13 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "TasksTotal": {
+                    "type": "integer"
+                },
+                "Unchanged": {
+                    "description": "Unchanged: updates skipped because the archive brought nothing new.",
+                    "type": "integer"
+                },
+                "Updated": {
                     "type": "integer"
                 }
             }
@@ -36356,12 +36854,27 @@ const docTemplate = `{
                 "UploadID"
             ],
             "properties": {
+                "ConfirmedUpdates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ConfirmedImportUpdate"
+                    }
+                },
+                "FixedExerciseID": {
+                    "type": "string"
+                },
                 "OwnerEventID": {
                     "description": "OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the\nplatform catalog (exercises.write).",
                     "type": "string"
                 },
                 "Password": {
                     "type": "string"
+                },
+                "Targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTarget"
+                    }
                 },
                 "UploadID": {
                     "description": "UploadID is a chunked upload with Purpose \"exercise-archive\", every chunk sent (no complete call).",
@@ -36375,8 +36888,17 @@ const docTemplate = `{
                 "FileID"
             ],
             "properties": {
+                "ConfirmedUpdates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ConfirmedImportUpdate"
+                    }
+                },
                 "FileID": {
                     "description": "FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).",
+                    "type": "string"
+                },
+                "FixedExerciseID": {
                     "type": "string"
                 },
                 "OwnerEventID": {
@@ -36385,6 +36907,12 @@ const docTemplate = `{
                 },
                 "Password": {
                     "type": "string"
+                },
+                "Targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTarget"
+                    }
                 }
             }
         },
@@ -36746,6 +37274,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Variants": {
+                    "description": "Variants is the full snapshot; a variant Weight outside 0..100 is refused with 400.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/exercise.variantDTO"
@@ -36966,6 +37495,13 @@ const docTemplate = `{
                 "ID": {
                     "type": "string"
                 },
+                "ImageOverrides": {
+                    "description": "ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base\ndevice's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or\nempty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is\ndropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the\nkept ones, in the order of the devices; the variant's Topology already shows each overridden Image.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.imageOverrideDTO"
+                    }
+                },
                 "Index": {
                     "type": "integer"
                 },
@@ -36984,6 +37520,12 @@ const docTemplate = `{
                 },
                 "Topology": {
                     "$ref": "#/definitions/exercise.topologyDTO"
+                },
+                "Weight": {
+                    "description": "Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.",
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 0
                 }
             }
         },
@@ -37110,6 +37652,9 @@ const docTemplate = `{
                 "CreatedBy": {
                     "type": "string"
                 },
+                "Description": {
+                    "type": "string"
+                },
                 "Elevation": {
                     "description": "Elevation is the exercise's open resource elevation request, else its latest decided one; null when it\nnever had one.",
                     "allOf": [
@@ -37127,6 +37672,9 @@ const docTemplate = `{
                 "Label": {
                     "type": "string"
                 },
+                "Name": {
+                    "type": "string"
+                },
                 "PublishedAt": {
                     "type": "string"
                 },
@@ -37140,6 +37688,12 @@ const docTemplate = `{
                 },
                 "Status": {
                     "type": "string"
+                },
+                "Tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "Variants": {
                     "type": "array",
@@ -37191,6 +37745,20 @@ const docTemplate = `{
                 },
                 "warning": {
                     "description": "Warning is set when the quota is exceeded or snapshots fail; the last good one is kept.",
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.ImportResult": {
+            "type": "object",
+            "properties": {
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ItemKey": {
+                    "type": "string"
+                },
+                "Mode": {
                     "type": "string"
                 }
             }
@@ -37436,6 +38004,21 @@ const docTemplate = `{
                     "format": "int32"
                 }
             }
+        },
+        "exerciseModel.VersionStatus": {
+            "type": "string",
+            "enum": [
+                "draft",
+                "published",
+                "unpublished",
+                "checkpoint"
+            ],
+            "x-enum-varnames": [
+                "VersionStatusDraft",
+                "VersionStatusPublished",
+                "VersionStatusUnpublished",
+                "VersionStatusCheckpoint"
+            ]
         },
         "imageRegistry.checkResponse": {
             "type": "object",
@@ -39856,6 +40439,26 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/event.teamResponse"
+                    }
+                },
+                "NextCursor": {
+                    "type": "string"
+                },
+                "PrevCursor": {
+                    "type": "string"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pagination.CursorPage-exercise_ImportTargetExercise": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.ImportTargetExercise"
                     }
                 },
                 "NextCursor": {

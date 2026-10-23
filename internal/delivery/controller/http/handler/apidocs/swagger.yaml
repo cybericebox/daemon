@@ -6038,6 +6038,74 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.ArchiveImportPreview:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/exercise.ArchiveImportPreviewItem'
+        type: array
+    type: object
+  exercise.ArchiveImportPreviewItem:
+    properties:
+      ConfirmationRevision:
+        description: |-
+          ConfirmationRevision binds immutable source/item/snapshot and selected
+          target/current content. No password, flags or secret values are returned.
+        type: string
+      ItemKey:
+        type: string
+      Name:
+        type: string
+      ReplacesDraft:
+        type: boolean
+      SourceExerciseID:
+        type: string
+      SourceIDMismatch:
+        type: boolean
+      SourceVersion:
+        $ref: '#/definitions/exercise.ImportSourceVersion'
+      SuggestedTarget:
+        $ref: '#/definitions/exercise.ImportTarget'
+      Summary:
+        $ref: '#/definitions/exercise.ArchiveImportSummary'
+      Target:
+        $ref: '#/definitions/exercise.ImportTarget'
+      TargetExercise:
+        $ref: '#/definitions/exercise.ImportTargetExercise'
+    type: object
+  exercise.ArchiveImportSummary:
+    properties:
+      Files:
+        $ref: '#/definitions/exercise.ImportFileChange'
+      FlagsChanged:
+        type: integer
+      Images:
+        $ref: '#/definitions/exercise.ImportImageChange'
+      MetadataChanged:
+        description: MetadataChanged includes Name/Description/Tags and the version
+          AdminNote.
+        type: boolean
+      Subtasks:
+        $ref: '#/definitions/exercise.ImportSubtaskCount'
+      Variants:
+        $ref: '#/definitions/exercise.ImportCountChange'
+    type: object
+  exercise.CatalogColumn:
+    properties:
+      key:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  exercise.ConfirmedImportUpdate:
+    properties:
+      ItemKey:
+        type: string
+      ReplaceDraft:
+        type: boolean
+      Revision:
+        type: string
+    type: object
   exercise.ExerciseAuthorSuggestion:
     properties:
       Count:
@@ -6052,6 +6120,72 @@ definitions:
       Count:
         type: integer
       Tag:
+        type: string
+    type: object
+  exercise.ImportCountChange:
+    properties:
+      Added:
+        type: integer
+      Changed:
+        type: integer
+      Removed:
+        type: integer
+    type: object
+  exercise.ImportFileChange:
+    properties:
+      Added:
+        type: integer
+      Removed:
+        type: integer
+    type: object
+  exercise.ImportImageChange:
+    properties:
+      New:
+        type: integer
+      Reused:
+        type: integer
+    type: object
+  exercise.ImportSourceVersion:
+    properties:
+      Position:
+        description: zero-based source snapshot position; -1 when the archive has
+          no versions
+        type: integer
+      Status:
+        $ref: '#/definitions/exerciseModel.VersionStatus'
+    type: object
+  exercise.ImportSubtaskCount:
+    properties:
+      After:
+        type: integer
+      Before:
+        type: integer
+    type: object
+  exercise.ImportTarget:
+    properties:
+      ExerciseID:
+        type: string
+      ItemKey:
+        type: string
+      Mode:
+        description: new | update
+        type: string
+    type: object
+  exercise.ImportTargetExercise:
+    properties:
+      HasDraft:
+        type: boolean
+      ID:
+        type: string
+      Name:
+        type: string
+      OwnerEventID:
+        type: string
+      OwnerEventName:
+        type: string
+      OwnerEventTag:
+        type: string
+      Scope:
         type: string
     type: object
   exercise.accessEventResponse:
@@ -6116,8 +6250,30 @@ definitions:
       DeviceID:
         type: string
     type: object
+  exercise.archivePreviewRequest:
+    properties:
+      FileID:
+        type: string
+      FixedExerciseID:
+        type: string
+      OwnerEventID:
+        type: string
+      Password:
+        type: string
+      Targets:
+        items:
+          $ref: '#/definitions/exercise.ImportTarget'
+        type: array
+      UploadID:
+        type: string
+    type: object
   exercise.attachmentDTO:
     properties:
+      ContentHash:
+        description: |-
+          ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every
+          variant and task. Absent when unknown.
+        type: string
       FileID:
         type: string
       Name:
@@ -6497,6 +6653,7 @@ definitions:
       EnvVars:
         items:
           $ref: '#/definitions/exercise.envVarDTO'
+        maxItems: 64
         type: array
       External:
         $ref: '#/definitions/exercise.externalDTO'
@@ -6637,6 +6794,13 @@ definitions:
           Value is write-only for secrets: responses blank it, an empty value on
           save means "keep the stored one".
         type: string
+      ValueGroup:
+        description: |-
+          ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold
+          the same value, for comparing variants. It follows where the value came from (kept, inherited by a linked
+          variant, copied, equal values of one import), never the value itself: a value typed anew starts a group of
+          its own even when it equals another. The numbers mean nothing outside one response.
+        type: integer
     type: object
   exercise.eventRefResponse:
     properties:
@@ -6743,6 +6907,10 @@ definitions:
         type: array
       UpdatedAt:
         type: string
+      VariantCount:
+        description: VariantCount is how many variants the visible snapshot has; null
+          without one (offset pages only).
+        type: integer
     type: object
   exercise.exercisePermissionsResponse:
     properties:
@@ -6986,6 +7154,34 @@ definitions:
       Status:
         type: string
     type: object
+  exercise.imageOverrideDTO:
+    properties:
+      DeviceID:
+        type: string
+      Image:
+        description: 'Image: a registry reference (nginx:1.28) or a platform image
+          (platform:<name>@sha256:…); checked on publish.'
+        type: string
+    type: object
+  exercise.importCommitResponse:
+    properties:
+      Created:
+        type: integer
+      Exercises:
+        items:
+          $ref: '#/definitions/exercise.exerciseResponse'
+        type: array
+      Results:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportResult'
+        type: array
+      Unchanged:
+        description: 'Unchanged: updates skipped because the archive brought nothing
+          new.'
+        type: integer
+      Updated:
+        type: integer
+    type: object
   exercise.importJobError:
     properties:
       Code:
@@ -7004,6 +7200,8 @@ definitions:
         type: integer
       BytesTotal:
         type: integer
+      Created:
+        type: integer
       Error:
         allOf:
         - $ref: '#/definitions/exercise.importJobError'
@@ -7019,6 +7217,10 @@ definitions:
         type: integer
       ImagesTotal:
         type: integer
+      Results:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportResult'
+        type: array
       Stage:
         description: Stage is unpacking, images or tasks while running, then done
           or failed.
@@ -7030,6 +7232,12 @@ definitions:
         type: integer
       TasksTotal:
         type: integer
+      Unchanged:
+        description: 'Unchanged: updates skipped because the archive brought nothing
+          new.'
+        type: integer
+      Updated:
+        type: integer
     type: object
   exercise.importJobStarted:
     properties:
@@ -7038,6 +7246,12 @@ definitions:
     type: object
   exercise.importUploadRequest:
     properties:
+      ConfirmedUpdates:
+        items:
+          $ref: '#/definitions/exercise.ConfirmedImportUpdate'
+        type: array
+      FixedExerciseID:
+        type: string
       OwnerEventID:
         description: |-
           OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
@@ -7045,6 +7259,10 @@ definitions:
         type: string
       Password:
         type: string
+      Targets:
+        items:
+          $ref: '#/definitions/exercise.ImportTarget'
+        type: array
       UploadID:
         description: UploadID is a chunked upload with Purpose "exercise-archive",
           every chunk sent (no complete call).
@@ -7054,8 +7272,14 @@ definitions:
     type: object
   exercise.importUploadedRequest:
     properties:
+      ConfirmedUpdates:
+        items:
+          $ref: '#/definitions/exercise.ConfirmedImportUpdate'
+        type: array
       FileID:
         description: FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+        type: string
+      FixedExerciseID:
         type: string
       OwnerEventID:
         description: |-
@@ -7064,6 +7288,10 @@ definitions:
         type: string
       Password:
         type: string
+      Targets:
+        items:
+          $ref: '#/definitions/exercise.ImportTarget'
+        type: array
     required:
     - FileID
     type: object
@@ -7307,6 +7535,8 @@ definitions:
       AdminNote:
         type: string
       Variants:
+        description: Variants is the full snapshot; a variant Weight outside 0..100
+          is refused with 400.
         items:
           $ref: '#/definitions/exercise.variantDTO'
         type: array
@@ -7469,6 +7699,16 @@ definitions:
         type: string
       ID:
         type: string
+      ImageOverrides:
+        description: |-
+          ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base
+          device's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or
+          empty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is
+          dropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the
+          kept ones, in the order of the devices; the variant's Topology already shows each overridden Image.
+        items:
+          $ref: '#/definitions/exercise.imageOverrideDTO'
+        type: array
       Index:
         type: integer
       LinkedTo:
@@ -7484,6 +7724,12 @@ definitions:
         type: array
       Topology:
         $ref: '#/definitions/exercise.topologyDTO'
+      Weight:
+        description: Weight is how often the variant is given out relative to the
+          others (2 = twice as often); absent or 0 = 1.
+        maximum: 100
+        minimum: 0
+        type: integer
     type: object
   exercise.variantResourcesResponse:
     properties:
@@ -7568,6 +7814,8 @@ definitions:
         type: string
       CreatedBy:
         type: string
+      Description:
+        type: string
       Elevation:
         allOf:
         - $ref: '#/definitions/exercise.elevationResponse'
@@ -7580,6 +7828,8 @@ definitions:
         type: string
       Label:
         type: string
+      Name:
+        type: string
       PublishedAt:
         type: string
       Resources:
@@ -7590,6 +7840,10 @@ definitions:
           the platform frame and whether the task is resource-heavy.
       Status:
         type: string
+      Tags:
+        items:
+          type: string
+        type: array
       Variants:
         items:
           $ref: '#/definitions/exercise.variantDTO'
@@ -7626,6 +7880,15 @@ definitions:
       warning:
         description: Warning is set when the quota is exceeded or snapshots fail;
           the last good one is kept.
+        type: string
+    type: object
+  exerciseModel.ImportResult:
+    properties:
+      ExerciseID:
+        type: string
+      ItemKey:
+        type: string
+      Mode:
         type: string
     type: object
   exerciseModel.LabAccess:
@@ -7820,6 +8083,18 @@ definitions:
         format: int32
         type: integer
     type: object
+  exerciseModel.VersionStatus:
+    enum:
+    - draft
+    - published
+    - unpublished
+    - checkpoint
+    type: string
+    x-enum-varnames:
+    - VersionStatusDraft
+    - VersionStatusPublished
+    - VersionStatusUnpublished
+    - VersionStatusCheckpoint
   imageRegistry.checkResponse:
     properties:
       AttemptedAt:
@@ -9474,6 +9749,19 @@ definitions:
       Items:
         items:
           $ref: '#/definitions/event.teamResponse'
+        type: array
+      NextCursor:
+        type: string
+      PrevCursor:
+        type: string
+      Total:
+        type: integer
+    type: object
+  pagination.CursorPage-exercise_ImportTargetExercise:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/exercise.ImportTargetExercise'
         type: array
       NextCursor:
         type: string
@@ -21904,8 +22192,8 @@ paths:
           type: string
         name: status
         type: array
-      - description: name, tags, status, author, difficulty, subtasks or updated (offset
-          pages only)
+      - description: name, tags, status, author, difficulty, subtasks, variants or
+          updated (offset pages only)
         in: query
         name: sortBy
         type: string
@@ -23593,6 +23881,7 @@ paths:
       description: |-
         200 with the created tasks; an archive naming device image files is stored as a file and imported
         in the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).
+        This raw multipart route is legacy all-NEW. Target selections/UPDATE use the immutable UploadID/FileID routes so confirmation binds the same source.
       parameters:
       - description: exercise ZIP
         in: formData
@@ -23728,6 +24017,85 @@ paths:
       summary: State of a background task archive import
       tags:
       - exercises
+  /exercises/import/preview:
+    post:
+      consumes:
+      - application/json
+      description: Omitted Targets are nonbinding editable-ID suggestions. Explicit
+        choices must name every item exactly once. FixedExerciseID forces one item
+        into that editable target. Revisions bind the exact immutable source/item
+        and current target content. Summary never returns flags or device secrets.
+      parameters:
+      - description: owned source and optional per-item choices
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.archivePreviewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.ArchiveImportPreview'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Preview every archive item without writing tasks, files or images
+      tags:
+      - exercises
+  /exercises/import/targets:
+    get:
+      description: Write policy is applied before pagination. Same-name tasks are
+        distinguished by Scope and OwnerEventID/Name/Tag. Search and Total use the
+        same working snapshot as the returned names.
+      parameters:
+      - description: working task name
+        in: query
+        name: search
+        type: string
+      - description: last task UUID of the previous page, descending
+        in: query
+        name: cursor
+        type: string
+      - description: 1..200, default 50
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pagination.CursorPage-exercise_ImportTargetExercise'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Search nonarchived editable import targets, with owner context
+      tags:
+      - exercises
   /exercises/import/upload:
     post:
       consumes:
@@ -23739,6 +24107,7 @@ paths:
         per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
         platform image registry is not configured or failing; 409 70993 when the upload is not a complete
         task archive upload; 404 when the upload is absent, expired or another user's.
+        Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, Results and Created/Updated counts. Every UPDATE requires the exact preview Revision and existing-draft replacement confirmation.
       parameters:
       - description: the upload and the archive password
         in: body
@@ -23756,9 +24125,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/exercise.exerciseResponse'
-                  type: array
+                  $ref: '#/definitions/exercise.importCommitResponse'
               type: object
         "202":
           description: Accepted
@@ -23791,6 +24158,7 @@ paths:
       description: |-
         200 with the created tasks; an archive naming device image files is imported in the background:
         202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
+        Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, per-item Results and Created/Updated counts. Every UPDATE requires its exact preview Revision; ReplaceDraft confirms replacement of an existing draft.
       parameters:
       - description: the uploaded file and the archive password
         in: body
@@ -23808,9 +24176,7 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/exercise.exerciseResponse'
-                  type: array
+                  $ref: '#/definitions/exercise.importCommitResponse'
               type: object
         "202":
           description: Accepted
@@ -23827,6 +24193,60 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Import an exercise ZIP archive that went up in chunks (completed into
         a file, at most the archive limit)
+      tags:
+      - exercises
+  /exercises/preferences/catalog-columns:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.CatalogColumn'
+                  type: array
+              type: object
+      summary: 'The caller''s catalog table columns: their order and which are shown;
+        null until arranged once'
+      tags:
+      - exercises
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: the columns in order
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/exercise.CatalogColumn'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.CatalogColumn'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Saves the caller's catalog table columns (at most 32 distinct column
+        names, in order)
       tags:
       - exercises
   /exercises/proposals:

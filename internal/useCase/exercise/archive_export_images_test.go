@@ -567,3 +567,56 @@ func TestExportJobFileRemoved(t *testing.T) {
 	require.Nil(t, got.File)
 	require.Equal(t, exerciseModel.ErrExportFileRemoved.Err().StatusCode().FullCode(), got.Error.Code)
 }
+
+// A linked variant's own platform image is shipped like any device image: the compact form names the file under
+// device_images, and the archive imports again with the pushed image as the linked variant's own.
+func TestExportWithImagesLinkedOwnImageRoundTrip(t *testing.T) {
+	f := newExportFixture(t)
+	webID := uuid.Must(uuid.NewV7())
+	base := exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Index: 1, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{
+		{ID: webID, Name: "web", Type: "container", Image: f.web.reference("web")},
+	}}}
+	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{base, {
+		ID: uuid.Must(uuid.NewV7()), Index: 2, LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true},
+		ImageOverrides: []exerciseModel.ImageOverride{{DeviceID: webID, Image: f.tool.reference("tool")}},
+	}}}
+	require.NoError(t, version.SyncLinkedVariants())
+	raw, err := json.Marshal(version.Variants)
+	require.NoError(t, err)
+	f.q.EXPECT().GetExerciseByID(gomock.Any(), exportTaskA).Return(postgres.Exercise{ID: exportTaskA, Name: "Web lab"}, nil).AnyTimes()
+	f.q.EXPECT().ListExerciseVersions(gomock.Any(), exportTaskA).Return([]postgres.ExerciseVersion{
+		{ID: uuid.Must(uuid.NewV7()), ExerciseID: exportTaskA, Status: "draft", Variants: raw, CreatedAt: importJobT0},
+	}, nil).AnyTimes()
+
+	archive := f.onlyZip(t, f.run(t, exercise.StartExportInput{IDs: []uuid.UUID{exportTaskA}}))
+	entries := readZip(t, archive)
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]json.RawMessage
+		}
+	}
+	require.NoError(t, json.Unmarshal(entries["exercise.json"], &doc))
+	linked := doc.Versions[0].Variants[1]
+	require.NotContains(t, linked, "topology")
+	var own map[string]map[string]string
+	require.NoError(t, json.Unmarshal(linked["device_images"], &own))
+	require.Contains(t, own, "web")
+	require.Contains(t, entries, own["web"]["file"], "the own image file is in the archive")
+	require.Equal(t, 1, f.tool.calls)
+
+	imp := newImportFixture(t)
+	imp.expectCreation(t)
+	imp.sources.stage(archiveUpID, importer, archive, mediaModel.UploadPurposeExerciseArchive)
+	done := imp.startAndRun(t)
+	require.Equal(t, exerciseModel.ImportJobDone, done.State, "error %+v", done.Error)
+	require.Len(t, imp.images.pushes, 2)
+	var written []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(imp.written[0], &written))
+	require.Len(t, written, 2)
+	ownRef := written[1].ImageOverrides[0].Image
+	require.True(t, strings.HasPrefix(ownRef, "platform:"), ownRef)
+	require.NotEqual(t, "@"+archivetest.Digest(webImage.Config()), ownRef[strings.Index(ownRef, "@"):], "the own image is the tool image")
+	require.Equal(t, ownRef, written[1].Topology.Devices[0].Image)
+	require.Equal(t, written[0].Topology.Devices[0].ID, written[1].ImageOverrides[0].DeviceID)
+	require.NotEqual(t, ownRef, written[0].Topology.Devices[0].Image, "the base keeps its image")
+}

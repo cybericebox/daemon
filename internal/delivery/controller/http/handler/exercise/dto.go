@@ -100,10 +100,10 @@ func scopeToResponse(v exerciseUseCase.ExerciseScopeView) exerciseScopeResponse 
 }
 
 type accessSummaryResponse struct {
-	IsAdmin          bool                  `json:"IsAdmin"`
-	CanCreateCatalog bool                  `json:"CanCreateCatalog"`
-	CanPublish       bool                  `json:"CanPublish"`
-	CanDelete        bool                  `json:"CanDelete"`
+	IsAdmin          bool `json:"IsAdmin"`
+	CanCreateCatalog bool `json:"CanCreateCatalog"`
+	CanPublish       bool `json:"CanPublish"`
+	CanDelete        bool `json:"CanDelete"`
 	// CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,
 	// per task Permissions.CanExport).
 	CanExport bool `json:"CanExport"`
@@ -184,6 +184,8 @@ type exerciseListItemResponse struct {
 	TaskCount *int `json:"TaskCount"`
 	// TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).
 	TaskNames []string `json:"TaskNames"`
+	// VariantCount is how many variants the visible snapshot has; null without one (offset pages only).
+	VariantCount *int `json:"VariantCount"`
 	exerciseScopeResponse
 }
 
@@ -191,7 +193,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames),
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames), VariantCount: e.VariantCount,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }
@@ -274,6 +276,9 @@ type updateExerciseRequest struct {
 type attachmentDTO struct {
 	FileID uuid.UUID `json:"FileID"`
 	Name   string    `json:"Name"`
+	// ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every
+	// variant and task. Absent when unknown.
+	ContentHash string `json:"ContentHash,omitempty"`
 }
 
 type placeholderDTO struct {
@@ -400,6 +405,11 @@ type envVarDTO struct {
 	Value    string `json:"Value,omitempty"`
 	Secret   bool   `json:"Secret"`
 	HasValue bool   `json:"HasValue"` // response-only: a stored value exists
+	// ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold
+	// the same value, for comparing variants. It follows where the value came from (kept, inherited by a linked
+	// variant, copied, equal values of one import), never the value itself: a value typed anew starts a group of
+	// its own even when it equals another. The numbers mean nothing outside one response.
+	ValueGroup int `json:"ValueGroup,omitempty"`
 }
 
 type externalDTO struct {
@@ -429,7 +439,7 @@ type deviceDTO struct {
 	// Resources is refused (400, 20974): a device size is a preset. It is never returned.
 	Resources  *resourcesDTO  `json:"Resources,omitempty"`
 	Interfaces []interfaceDTO `json:"Interfaces,omitempty"`
-	EnvVars    []envVarDTO    `json:"EnvVars,omitempty"`
+	EnvVars    []envVarDTO    `json:"EnvVars,omitempty" binding:"max=64"`
 	External   *externalDTO   `json:"External,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
@@ -451,7 +461,7 @@ type connectionDTO struct {
 type topologyDTO struct {
 	VPN          networkDTO      `json:"VPN"`
 	Internet     networkDTO      `json:"Internet"`
-	Devices      []deviceDTO     `json:"Devices,omitempty"`
+	Devices      []deviceDTO     `json:"Devices,omitempty" binding:"dive"`
 	Connections  []connectionDTO `json:"Connections,omitempty"`
 	VisualRender json.RawMessage `json:"VisualRender,omitempty" swaggertype:"object"`
 }
@@ -463,11 +473,26 @@ type variantDTO struct {
 	// LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.
 	// The backend rewrites the inherited parts from the base on every save.
 	LinkedTo *uuid.UUID `json:"LinkedTo,omitempty"`
+	// Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.
+	Weight int `json:"Weight,omitempty" binding:"min=0,max=100"`
+	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base
+	// device's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or
+	// empty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is
+	// dropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the
+	// kept ones, in the order of the devices; the variant's Topology already shows each overridden Image.
+	ImageOverrides []imageOverrideDTO `json:"ImageOverrides,omitempty"`
 	// CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left
 	// blank in the copy takes that variant's value.
 	CopyOf   *uuid.UUID  `json:"CopyOf,omitempty"`
 	Tasks    []taskDTO   `json:"Tasks"`
 	Topology topologyDTO `json:"Topology"`
+}
+
+// imageOverrideDTO is a linked variant's own image for one device of its base.
+type imageOverrideDTO struct {
+	DeviceID uuid.UUID `json:"DeviceID"`
+	// Image: a registry reference (nginx:1.28) or a platform image (platform:<name>@sha256:…); checked on publish.
+	Image string `json:"Image"`
 }
 
 // resourceAmountResponse: CPU in millicores, memory in bytes.
@@ -669,6 +694,9 @@ type versionResponse struct {
 	ID          uuid.UUID    `json:"ID"`
 	ExerciseID  uuid.UUID    `json:"ExerciseID"`
 	Status      string       `json:"Status"`
+	Name        string       `json:"Name"`
+	Description string       `json:"Description"`
+	Tags        []string     `json:"Tags"`
 	AdminNote   string       `json:"AdminNote"`
 	Label       string       `json:"Label"`
 	Variants    []variantDTO `json:"Variants"`
@@ -697,8 +725,9 @@ type versionListItemResponse struct {
 }
 
 type saveDraftRequest struct {
-	AdminNote string       `json:"AdminNote"`
-	Variants  []variantDTO `json:"Variants"`
+	AdminNote string `json:"AdminNote"`
+	// Variants is the full snapshot; a variant Weight outside 0..100 is refused with 400.
+	Variants []variantDTO `json:"Variants" binding:"dive"`
 }
 
 // checkpointRequest: the whole body is optional. Note (≤ 500 characters,
@@ -714,7 +743,10 @@ func (d variantDTO) toDomain() exerciseModel.Variant {
 	for _, t := range d.Tasks {
 		tasks = append(tasks, t.toDomain())
 	}
-	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Tasks: tasks, Topology: d.Topology.toDomain()}
+	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Weight: d.Weight, Tasks: tasks, Topology: d.Topology.toDomain()}
+	for _, override := range d.ImageOverrides {
+		out.ImageOverrides = append(out.ImageOverrides, exerciseModel.ImageOverride{DeviceID: override.DeviceID, Image: override.Image})
+	}
 	if d.ID != nil {
 		out.ID = *d.ID
 	}
@@ -853,7 +885,10 @@ func variantsToDTO(vs []exerciseModel.Variant) []variantDTO {
 }
 
 func variantToDTO(v exerciseModel.Variant) variantDTO {
-	d := variantDTO{Index: v.Index, Note: v.Note, Topology: topologyToDTO(v.Topology)}
+	d := variantDTO{Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topologyToDTO(v.Topology)}
+	for _, override := range v.ImageOverrides {
+		d.ImageOverrides = append(d.ImageOverrides, imageOverrideDTO{DeviceID: override.DeviceID, Image: override.Image})
+	}
 	if v.ID != uuid.Nil {
 		id := v.ID
 		d.ID = &id
@@ -967,10 +1002,33 @@ func elevationPtr(e *exerciseUseCase.ElevationView) *elevationResponse {
 func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
-		Variants:  variantsToDTO(v.Variants),
+		Name: v.Name, Description: v.Description, Tags: taskNames(v.Tags),
+		Variants:  withContentHashes(variantsToDTO(v.Variants), v.SecretGroups, v.FileHashes),
 		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
 	}
+}
+
+// withContentHashes sets ValueGroup on every stored secret (groups is [variant][device][env], aligned with the
+// view's variants) and ContentHash on every attachment.
+func withContentHashes(variants []variantDTO, groups [][][]int, fileHashes map[uuid.UUID]string) []variantDTO {
+	for vi := range variants {
+		for di := range variants[vi].Topology.Devices {
+			device := &variants[vi].Topology.Devices[di]
+			for ei := range device.EnvVars {
+				if device.EnvVars[ei].Secret && vi < len(groups) && di < len(groups[vi]) && ei < len(groups[vi][di]) {
+					device.EnvVars[ei].ValueGroup = groups[vi][di][ei]
+				}
+			}
+		}
+		for ti := range variants[vi].Tasks {
+			for ai := range variants[vi].Tasks[ti].Attachments {
+				attachment := &variants[vi].Tasks[ti].Attachments[ai]
+				attachment.ContentHash = fileHashes[attachment.FileID]
+			}
+		}
+	}
+	return variants
 }
 
 func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {

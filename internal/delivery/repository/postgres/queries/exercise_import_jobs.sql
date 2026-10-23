@@ -3,10 +3,10 @@
 -- name: StartExerciseImportJob :one
 -- Records a new import of the source, or returns the row the source already has: one import per source.
 INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at,
-                                  owner_event_id)
+                                  owner_event_id, options, plan_hash)
 VALUES (sqlc.arg(id), sqlc.arg(created_by), sqlc.arg(source), sqlc.arg(source_id), sqlc.arg(state),
         sqlc.arg(exercise_ids)::uuid[], sqlc.narg(error), sqlc.arg(created_at), sqlc.arg(updated_at),
-        sqlc.narg(owner_event_id))
+        sqlc.narg(owner_event_id), COALESCE(sqlc.narg(options)::jsonb, '{}'::jsonb), sqlc.arg(plan_hash))
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
 RETURNING *;
 
@@ -16,7 +16,7 @@ FROM exercise_import_jobs
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateExerciseImportJob :execrows
--- The whole job aggregate (state, created tasks, error, progress, target event) in one write.
+-- The outcome belongs to one running attempt; a stale worker cannot overwrite a newer attempt or done state.
 UPDATE exercise_import_jobs
 SET state          = sqlc.arg(state),
     owner_event_id = sqlc.narg(owner_event_id),
@@ -29,12 +29,13 @@ SET state          = sqlc.arg(state),
     tasks_total  = sqlc.arg(tasks_total),
     bytes_pushed = sqlc.arg(bytes_pushed),
     bytes_total  = sqlc.arg(bytes_total),
+    results      = sqlc.arg(results),
     updated_at   = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND generation = sqlc.arg(generation) AND state = 'running';
 
 -- name: UpdateExerciseImportJobProgress :execrows
 -- The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
--- has ended (zero rows) keeps its outcome.
+-- has ended or restarted (zero rows) keeps its outcome.
 UPDATE exercise_import_jobs
 SET stage        = sqlc.arg(stage),
     images_done  = sqlc.arg(images_done),
@@ -45,7 +46,7 @@ SET stage        = sqlc.arg(stage),
     bytes_total  = sqlc.arg(bytes_total),
     updated_at   = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
-  AND state = 'running';
+  AND state = 'running' AND generation = sqlc.arg(generation);
 
 -- name: ListRunningExerciseImportJobs :many
 -- The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
@@ -55,3 +56,10 @@ WHERE created_by = sqlc.arg(created_by)
   AND state = 'running'
   AND updated_at > sqlc.arg(stale_before)
 ORDER BY created_at;
+
+-- name: GetOwnedExerciseImportJobBySource :one
+-- Read-only recovery before source re-open. A foreign job is indistinguishable
+-- from an absent job; no source INSERT/UPDATE is used to probe for it.
+SELECT * FROM exercise_import_jobs
+WHERE source_id = sqlc.arg(source_id) AND source = sqlc.arg(source)
+  AND created_by = sqlc.arg(created_by);

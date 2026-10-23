@@ -67,7 +67,7 @@ func newLinkedSave(t *testing.T, stored []exerciseModel.Variant) *linkedSave {
 	cipher, err := secret.New(testKey)
 	require.NoError(t, err)
 	s := &linkedSave{q: q, cipher: cipher, written: &postgres.UpsertExerciseDraftParams{}}
-	s.uc = exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	s.uc = newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	q.EXPECT().GetExerciseByID(gomock.Any(), saveExerciseID).Return(postgres.Exercise{ID: saveExerciseID}, nil).AnyTimes()
 	if stored == nil {
 		q.EXPECT().GetDraftVersion(gomock.Any(), saveExerciseID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
@@ -275,7 +275,7 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 	require.NoError(t, err)
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive, Password: "pw"})
 	require.NoError(t, err)
@@ -289,6 +289,9 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 		require.NoError(t, openErr)
 		require.Equal(t, "base-pass", string(plain))
 	}
+	origin := base.Topology.Devices[0].EnvVars[0].Origin
+	require.NotEmpty(t, origin, "equal imported values share one origin")
+	require.Equal(t, origin, linked.Topology.Devices[0].EnvVars[0].Origin)
 }
 
 // Sources resolve before they are used: C links to B, a new copy of A whose secret is blank.
@@ -341,4 +344,84 @@ func TestSaveDraft_CopyOfIgnoredForStoredVariant(t *testing.T) {
 	})
 
 	require.Empty(t, secretOf(written[1]))
+}
+
+// A linked variant's own image reaches its stored topology (what every lab of the variant deploys); the rest of
+// the device, its secret included, is still the base's.
+func TestSaveDraft_LinkedVariantOwnDeviceImage(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	base := saveVariant(saveBaseID, "Нове", "", "ICE{a}", "secret")
+	linked := linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)
+	linked.ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: saveDeviceID, Image: "img:own"}, {DeviceID: saveThirdID, Image: "gone:1"}}
+
+	written := s.save(t, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked}})
+
+	require.Equal(t, "img", written[0].Topology.Devices[0].Image)
+	got := written[1]
+	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: saveDeviceID, Image: "img:own"}}, got.ImageOverrides)
+	require.Equal(t, "img:own", got.Topology.Devices[0].Image)
+	require.Equal(t, saveDevice, got.Topology.Devices[0].Name)
+	require.Equal(t, "secret", s.open(t, saveLinkedID, secretOf(got)))
+}
+
+// Secrets are grouped by where their value came from, never by the value: a linked variant's inherited secret and a
+// kept one share the base's group, while a value typed anew starts its own group even when it equals another, so a
+// draft author cannot test guesses against a stored secret. No secret value or value hash is in the view.
+func TestSaveDraft_SecretGroupsFollowOriginNotValue(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	base := saveVariant(saveBaseID, "Нове", "", "ICE{a}", "ICE{short}")
+	linked := linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)
+	guess := saveVariant(saveThirdID, "Нове", "", "ICE{c}", "ICE{short}") // the same value, typed
+
+	view, err := s.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked, guess}})
+	require.NoError(t, err)
+	groups := view.SecretGroups
+	require.Len(t, groups, 3)
+	require.NotZero(t, groups[0][0][0])
+	require.Equal(t, groups[0][0][0], groups[1][0][0], "the linked variant's inherited secret is the base's value")
+	require.NotEqual(t, groups[0][0][0], groups[2][0][0], "an equal value typed anew is never matched")
+	for _, variant := range view.Variants {
+		env := variant.Topology.Devices[0].EnvVars[0]
+		require.Empty(t, env.Value, "the secret value is never returned")
+		require.Empty(t, env.Origin, "the origin stays on the server")
+	}
+
+	// A later save that keeps the values (blank secrets) keeps the groups: the typed guess still is not matched.
+	var written []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(s.written.Variants, &written))
+	stored := newLinkedSave(t, written)
+	keep := func(v exerciseModel.Variant) exerciseModel.Variant {
+		v.Topology.Devices[0].EnvVars[0].Value = ""
+		return v
+	}
+	again, err := stored.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{
+		keep(saveVariant(saveBaseID, "Нове", "", "ICE{a}", "")), keep(linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)),
+		keep(saveVariant(saveThirdID, "Нове", "", "ICE{c}", "")),
+	}})
+	require.NoError(t, err)
+	var rewritten []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(stored.written.Variants, &rewritten))
+	for i := range written {
+		require.Equal(t, written[i].Topology.Devices[0].EnvVars[0].Origin, rewritten[i].Topology.Devices[0].EnvVars[0].Origin)
+	}
+	require.Equal(t, again.SecretGroups[0][0][0], again.SecretGroups[1][0][0])
+	require.NotEqual(t, again.SecretGroups[0][0][0], again.SecretGroups[2][0][0])
+}
+
+// Secrets stored before origins existed are grouped among themselves by their opened value (no such secret can be
+// a value typed since); a typed one never joins them.
+func TestSecretValueGroups_LegacyByValueOnly(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	legacy := func(id uuid.UUID, plain string) exerciseModel.Variant {
+		v := saveVariant(id, "Нове", "", "ICE{a}", "")
+		v.Topology.Devices[0].EnvVars[0].Value = seal(t, id, plain)
+		return v
+	}
+	typed := legacy(saveThirdID, "same")
+	typed.Topology.Devices[0].EnvVars[0].Origin = "typed-origin"
+	groups := exercise.SecretValueGroups(s.uc, []exerciseModel.Variant{legacy(saveBaseID, "same"), legacy(saveLinkedID, "same"), typed, legacy(saveDraftID, "other")})
+	require.Equal(t, groups[0][0][0], groups[1][0][0])
+	require.NotEqual(t, groups[0][0][0], groups[2][0][0])
+	require.NotEqual(t, groups[0][0][0], groups[3][0][0])
+	require.NotZero(t, groups[3][0][0])
 }

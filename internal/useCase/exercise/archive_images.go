@@ -31,7 +31,7 @@ import (
 
 // imageFileMarker starts the image a device holds while its image file is not pushed yet; the rest is the file's
 // archive path. A reference in the document may not start with it.
-const imageFileMarker = "\x00archive-image:"
+const imageFileMarker = exerciseModel.PendingArchiveImagePrefix
 
 // archiveImageFile is one device image file of the archive, left in the zip.
 type archiveImageFile struct {
@@ -96,7 +96,7 @@ func openZipAt(r io.ReaderAt, size int64, password string, lim exerciseModel.Arc
 		return entries, false, nil
 	}
 	if password == "" {
-		return nil, false, zip.ErrAlgorithm
+		return nil, false, exerciseModel.ErrArchivePasswordRequired.Err()
 	}
 	ybr := newOpenBudgetReaderAt(r, lim.Entries)
 	yr, err := yzip.NewReader(ybr, size)
@@ -203,12 +203,19 @@ func documentImageFiles(documents map[string][]byte) (map[string]bool, bool, err
 		prefix := path.Dir(name)
 		for _, version := range doc.Versions {
 			for _, variant := range version.Variants {
+				files := make([]string, 0, len(variant.Topology.Devices)+len(variant.DeviceImages))
 				for _, device := range variant.Topology.Devices {
-					if device.Image.File == "" {
+					files = append(files, device.Image.File)
+				}
+				for _, image := range variant.DeviceImages {
+					files = append(files, image.File)
+				}
+				for _, file := range files {
+					if file == "" {
 						continue
 					}
 					named = true
-					clean, linkErr := checkLinkPath(device.Image.File)
+					clean, linkErr := checkLinkPath(file)
 					if linkErr != nil {
 						continue
 					}
@@ -331,48 +338,10 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 		if parseErr != nil {
 			return nil, parseErr
 		}
+		parsed.ItemKey = importItemKey(folder.Prefix)
 		tasks = append(tasks, parsed)
 	}
 	return tasks, nil
-}
-
-// importArchiveRead imports every task of an archive read with its image files, all or nothing: every task is
-// parsed and checked, every image file indexed and then pushed, and only then are the tasks created. A failure
-// while creating removes the tasks this import already created.
-func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID, ownerEventID *uuid.UUID, progress *importProgress) ([]ExerciseView, error) {
-	tasks, err := parseArchiveRead(read)
-	if err != nil {
-		return nil, err
-	}
-	progress.tasksTotal(ctx, len(tasks))
-	for i := range tasks {
-		if err = u.prepareImport(ctx, &tasks[i], read.protected, ownerEventID); err != nil {
-			return nil, err
-		}
-	}
-	refs, err := u.pushArchiveImages(ctx, tasks, createdBy, progress)
-	if err != nil {
-		return nil, err
-	}
-	progress.stage(ctx, exerciseModel.ImportStageTasks)
-	for i := range tasks {
-		if err = replaceImageMarkers(tasks[i].Versions, refs); err != nil {
-			return nil, err
-		}
-	}
-	created := make([]ExerciseView, 0, len(tasks))
-	for i := range tasks {
-		view, storeErr := u.storeImport(ctx, &tasks[i], createdBy, ownerEventID)
-		if storeErr != nil {
-			for _, done := range created {
-				_, _ = u.exercises.Delete(context.WithoutCancel(ctx), done.ID)
-			}
-			return nil, storeErr
-		}
-		created = append(created, view)
-		progress.taskCreated(ctx)
-	}
-	return created, nil
 }
 
 // pushArchiveImages indexes every image file the tasks name (each once), then pushes each; it returns the platform
@@ -435,20 +404,28 @@ func withImageFile(failure error, file string) error {
 	return creator.WithPublicContext("file", file).Err()
 }
 
-// replaceImageMarkers gives every device holding an image file marker the pushed image's reference.
+// replaceImageMarkers gives every device and every own image of a linked variant holding an image file marker the
+// pushed image's reference.
 func replaceImageMarkers(versions []exerciseModel.ExerciseVersion, refs map[string]string) error {
 	for vi := range versions {
 		for xi := range versions[vi].Variants {
-			devices := versions[vi].Variants[xi].Topology.Devices
-			for di := range devices {
-				if !strings.HasPrefix(devices[di].Image, imageFileMarker) {
+			variant := &versions[vi].Variants[xi]
+			images := make([]*string, 0, len(variant.Topology.Devices)+len(variant.ImageOverrides))
+			for di := range variant.Topology.Devices {
+				images = append(images, &variant.Topology.Devices[di].Image)
+			}
+			for oi := range variant.ImageOverrides {
+				images = append(images, &variant.ImageOverrides[oi].Image)
+			}
+			for _, image := range images {
+				if !strings.HasPrefix(*image, imageFileMarker) {
 					continue
 				}
-				ref, ok := refs[devices[di].Image]
+				ref, ok := refs[*image]
 				if !ok {
 					return model.ErrPlatform.WithMessage("An image file of the archive was not pushed").Err()
 				}
-				devices[di].Image = ref
+				*image = ref
 			}
 		}
 	}

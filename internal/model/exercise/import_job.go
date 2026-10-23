@@ -16,7 +16,13 @@ type ImportJob struct {
 	SourceID  uuid.UUID
 	// OwnerEventID is the event the tasks are created in (an event moderator's import); NULL: the platform catalog.
 	OwnerEventID uuid.NullUUID
-	State        ImportJobState
+	// Generation fences progress/outcomes from an older run of the same source.
+	Generation int64
+	// Options is the canonical, non-secret target/confirmation plan.
+	Options  []byte
+	PlanHash string
+	Results  []ImportResult
+	State    ImportJobState
 	// ExerciseIDs are the tasks the import created (done only).
 	ExerciseIDs []uuid.UUID
 	// Error is what the user is told when the import failed: never a secret or an internal detail.
@@ -25,6 +31,13 @@ type ImportJob struct {
 	Progress  ImportProgress
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ImportResult records which source item created or updated which task.
+type ImportResult struct {
+	ItemKey    string    `json:"ItemKey"`
+	Mode       string    `json:"Mode"`
+	ExerciseID uuid.UUID `json:"ExerciseID"`
 }
 
 // ImportSource is where the archive lies: a chunked upload (purpose exercise-archive) or a stored file.
@@ -84,7 +97,7 @@ const (
 
 // NewImportJob starts an import of the source.
 func NewImportJob(id, createdBy, sourceID uuid.UUID, source ImportSource, ownerEventID uuid.NullUUID, now time.Time) ImportJob {
-	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, OwnerEventID: ownerEventID, State: ImportJobRunning, CreatedAt: now, UpdatedAt: now}
+	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, OwnerEventID: ownerEventID, Generation: 1, Options: []byte("{}"), State: ImportJobRunning, CreatedAt: now, UpdatedAt: now}
 }
 
 // OwnedBy tells whether user started the import.
@@ -107,6 +120,8 @@ func (j *ImportJob) Restart(ownerEventID uuid.NullUUID, now time.Time) bool {
 		return false
 	}
 	j.OwnerEventID = ownerEventID
+	j.Generation++
+	j.Results = nil
 	j.State, j.Error, j.ExerciseIDs, j.Progress, j.UpdatedAt = ImportJobRunning, nil, nil, ImportProgress{Stage: ImportStageUnpacking}, now
 	return true
 }

@@ -14,30 +14,31 @@ import (
 )
 
 const createDraftFromVersion = `-- name: CreateDraftFromVersion :one
-WITH src AS (SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDATE),
+     src AS (SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
              FROM exercise_versions
-             WHERE exercise_versions.id = $1
-               AND exercise_versions.exercise_id = $2),
+             WHERE exercise_versions.id = $2
+               AND exercise_versions.exercise_id = (SELECT id FROM ex)),
      inserted AS (
-         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by)
+         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
              SELECT $3, src.exercise_id, 'draft', src.admin_note, src.variants,
-                    $4, $5
+                    $4, $5, src.name, src.description, src.tags
              FROM src
              WHERE NOT EXISTS (SELECT 1
                                FROM exercise_versions dv
-                               WHERE dv.exercise_id = $2
+                               WHERE dv.exercise_id = $1
                                  AND dv.status = 'draft')
-             RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty),
+             RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags),
      pointer AS (
          UPDATE exercises
              SET draft_version_id = (SELECT inserted.id FROM inserted)
-             WHERE exercises.id = $2 AND EXISTS (SELECT 1 FROM inserted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM inserted
+             WHERE exercises.id = $1 AND EXISTS (SELECT 1 FROM inserted))
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM inserted
 `
 
 type CreateDraftFromVersionParams struct {
-	SourceID   uuid.UUID     `json:"source_id"`
 	ExerciseID uuid.UUID     `json:"exercise_id"`
+	SourceID   uuid.UUID     `json:"source_id"`
 	NewID      uuid.UUID     `json:"new_id"`
 	CreatedAt  time.Time     `json:"created_at"`
 	CreatedBy  uuid.NullUUID `json:"created_by"`
@@ -54,6 +55,9 @@ type CreateDraftFromVersionRow struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
 // Rollback: a new draft cloned from a historical version's content. Fails
@@ -61,8 +65,8 @@ type CreateDraftFromVersionRow struct {
 // caller re-reads to discriminate 404 vs 409.
 func (q *Queries) CreateDraftFromVersion(ctx context.Context, arg CreateDraftFromVersionParams) (CreateDraftFromVersionRow, error) {
 	row := q.db.QueryRow(ctx, createDraftFromVersion,
-		arg.SourceID,
 		arg.ExerciseID,
+		arg.SourceID,
 		arg.NewID,
 		arg.CreatedAt,
 		arg.CreatedBy,
@@ -79,28 +83,32 @@ func (q *Queries) CreateDraftFromVersion(ctx context.Context, arg CreateDraftFro
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
 
 const discardExerciseDraft = `-- name: DiscardExerciseDraft :one
+WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDATE)
 DELETE
 FROM exercise_versions
-WHERE exercise_id = $1
+WHERE exercise_id = (SELECT id FROM ex)
   AND status = 'draft'
 RETURNING id
 `
 
 // exercises.draft_version_id clears itself via ON DELETE SET NULL.
-func (q *Queries) DiscardExerciseDraft(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, discardExerciseDraft, exerciseID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, discardExerciseDraft, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
 }
 
 const getDraftVersion = `-- name: GetDraftVersion :one
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
 FROM exercise_versions
 WHERE exercise_id = $1
   AND status = 'draft'
@@ -120,12 +128,15 @@ func (q *Queries) GetDraftVersion(ctx context.Context, exerciseID uuid.UUID) (Ex
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
 
 const getExerciseVersionByID = `-- name: GetExerciseVersionByID :one
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
 FROM exercise_versions
 WHERE id = $1
 `
@@ -144,14 +155,17 @@ func (q *Queries) GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (Exe
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
 
 const insertImportedExerciseVersion = `-- name: InsertImportedExerciseVersion :one
-INSERT INTO exercise_versions (id, exercise_id, status, admin_note, label, variants, created_at, created_by, published_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+INSERT INTO exercise_versions (id, exercise_id, status, admin_note, label, variants, created_at, created_by, published_at, name, description, tags)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
 `
 
 type InsertImportedExerciseVersionParams struct {
@@ -164,6 +178,9 @@ type InsertImportedExerciseVersionParams struct {
 	CreatedAt   time.Time          `json:"created_at"`
 	CreatedBy   uuid.NullUUID      `json:"created_by"`
 	PublishedAt pgtype.Timestamptz `json:"published_at"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Tags        []string           `json:"tags"`
 }
 
 func (q *Queries) InsertImportedExerciseVersion(ctx context.Context, arg InsertImportedExerciseVersionParams) (ExerciseVersion, error) {
@@ -177,6 +194,9 @@ func (q *Queries) InsertImportedExerciseVersion(ctx context.Context, arg InsertI
 		arg.CreatedAt,
 		arg.CreatedBy,
 		arg.PublishedAt,
+		arg.Name,
+		arg.Description,
+		arg.Tags,
 	)
 	var i ExerciseVersion
 	err := row.Scan(
@@ -190,6 +210,9 @@ func (q *Queries) InsertImportedExerciseVersion(ctx context.Context, arg InsertI
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
@@ -221,7 +244,7 @@ func (q *Queries) ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UU
 }
 
 const listExerciseVersions = `-- name: ListExerciseVersions :many
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
 FROM exercise_versions
 WHERE exercise_id = $1
 ORDER BY created_at DESC, id DESC
@@ -247,6 +270,9 @@ func (q *Queries) ListExerciseVersions(ctx context.Context, exerciseID uuid.UUID
 			&i.PublishedAt,
 			&i.Label,
 			&i.AvgDifficulty,
+			&i.Name,
+			&i.Description,
+			&i.Tags,
 		); err != nil {
 			return nil, err
 		}
@@ -262,7 +288,7 @@ const publishExerciseDraft = `-- name: PublishExerciseDraft :one
 WITH ex AS (SELECT id, draft_version_id, published_version_id
             FROM exercises
             WHERE exercises.id = $1
-              AND draft_version_id IS NOT NULL),
+              AND draft_version_id IS NOT NULL FOR UPDATE),
      demoted AS (
          UPDATE exercise_versions
              SET status = 'unpublished'
@@ -282,14 +308,17 @@ WITH ex AS (SELECT id, draft_version_id, published_version_id
                  -- index "one published per exercise" in the same instant,
                  -- raising a spurious 23505 even though the end state is valid.
                  AND (SELECT count(*) FROM demoted) IS NOT NULL
-             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty),
+             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty, exercise_versions.name, exercise_versions.description, exercise_versions.tags),
      pointers AS (
          UPDATE exercises
              SET published_version_id = (SELECT promoted.id FROM promoted),
-                 draft_version_id = NULL
+                 draft_version_id = NULL,
+                 name = (SELECT promoted.name FROM promoted),
+                 description = (SELECT promoted.description FROM promoted),
+                 tags = (SELECT promoted.tags FROM promoted)
              WHERE exercises.id = (SELECT ex.id FROM ex)
                  AND EXISTS (SELECT 1 FROM promoted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM promoted
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM promoted
 `
 
 type PublishExerciseDraftParams struct {
@@ -308,6 +337,9 @@ type PublishExerciseDraftRow struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
 // Atomic family transition: demote the current published row, promote the
@@ -327,13 +359,109 @@ func (q *Queries) PublishExerciseDraft(ctx context.Context, arg PublishExerciseD
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
+	)
+	return i, err
+}
+
+const saveExerciseDraftIdentity = `-- name: SaveExerciseDraftIdentity :one
+WITH ex AS (
+    SELECT id, name, description, tags, created_at, created_by, updated_at, updated_by, draft_version_id, published_version_id, archived_at, scope, owner_event_id, access_level, origin_event_id, forked_from_exercise_id, forked_from_version_id FROM exercises
+    WHERE exercises.id = $1
+      AND exercises.updated_at IS NOT DISTINCT FROM $2
+    FOR UPDATE
+), saved AS (
+    INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
+    SELECT $3, ex.id, 'draft', COALESCE(p.admin_note, ''), COALESCE(p.variants, '[]'::jsonb),
+           $4, $5, $6, $7, $8
+    FROM ex LEFT JOIN exercise_versions p ON p.id = ex.published_version_id
+    ON CONFLICT (exercise_id) WHERE status = 'draft' DO UPDATE
+        SET name = EXCLUDED.name, description = EXCLUDED.description, tags = EXCLUDED.tags
+    RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+), copied_refs AS (
+    INSERT INTO file_references (ref_type, ref_id, file_id)
+    SELECT 'exercise_version', saved.id, refs.file_id
+    FROM saved JOIN ex ON ex.id = saved.exercise_id
+    JOIN file_references refs ON refs.ref_type = 'exercise_version' AND refs.ref_id = ex.published_version_id
+    WHERE saved.id = $3
+    ON CONFLICT DO NOTHING
+), pointers AS (
+    UPDATE exercises
+    SET draft_version_id = (SELECT id FROM saved),
+        updated_at = $4, updated_by = $5
+    WHERE exercises.id = (SELECT id FROM ex) AND EXISTS (SELECT 1 FROM saved)
+)
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM saved
+`
+
+type SaveExerciseDraftIdentityParams struct {
+	ExerciseID        uuid.UUID     `json:"exercise_id"`
+	ExpectedUpdatedAt time.Time     `json:"expected_updated_at"`
+	NewID             uuid.UUID     `json:"new_id"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	UpdatedBy         uuid.NullUUID `json:"updated_by"`
+	Name              string        `json:"name"`
+	Description       string        `json:"description"`
+	Tags              []string      `json:"tags"`
+}
+
+type SaveExerciseDraftIdentityRow struct {
+	ID            uuid.UUID          `json:"id"`
+	ExerciseID    uuid.UUID          `json:"exercise_id"`
+	Status        string             `json:"status"`
+	AdminNote     string             `json:"admin_note"`
+	Variants      []byte             `json:"variants"`
+	CreatedAt     time.Time          `json:"created_at"`
+	CreatedBy     uuid.NullUUID      `json:"created_by"`
+	PublishedAt   pgtype.Timestamptz `json:"published_at"`
+	Label         string             `json:"label"`
+	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
+}
+
+// The legacy PATCH edits metadata in the draft. A lazy draft inherits the
+// published content and file references; a following content PUT preserves
+// the edited metadata, including across a concurrent first-draft insert.
+func (q *Queries) SaveExerciseDraftIdentity(ctx context.Context, arg SaveExerciseDraftIdentityParams) (SaveExerciseDraftIdentityRow, error) {
+	row := q.db.QueryRow(ctx, saveExerciseDraftIdentity,
+		arg.ExerciseID,
+		arg.ExpectedUpdatedAt,
+		arg.NewID,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+		arg.Name,
+		arg.Description,
+		arg.Tags,
+	)
+	var i SaveExerciseDraftIdentityRow
+	err := row.Scan(
+		&i.ID,
+		&i.ExerciseID,
+		&i.Status,
+		&i.AdminNote,
+		&i.Variants,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.PublishedAt,
+		&i.Label,
+		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
 
 const setImportedExercisePointers = `-- name: SetImportedExercisePointers :exec
-UPDATE exercises SET draft_version_id = $1, published_version_id = $2
-WHERE id = $3
+UPDATE exercises e SET draft_version_id = $1::uuid, published_version_id = $2::uuid,
+    name = COALESCE((SELECT v.name FROM exercise_versions v WHERE v.id = COALESCE($2::uuid, $1::uuid)), e.name),
+    description = COALESCE((SELECT v.description FROM exercise_versions v WHERE v.id = COALESCE($2::uuid, $1::uuid)), e.description),
+    tags = COALESCE((SELECT v.tags FROM exercise_versions v WHERE v.id = COALESCE($2::uuid, $1::uuid)), e.tags)
+WHERE e.id = $3
 `
 
 type SetImportedExercisePointersParams struct {
@@ -348,36 +476,28 @@ func (q *Queries) SetImportedExercisePointers(ctx context.Context, arg SetImport
 }
 
 const upsertExerciseDraft = `-- name: UpsertExerciseDraft :one
-WITH ex AS (SELECT id
-            FROM exercises
-            WHERE exercises.id = $1),
-     updated AS (
-         UPDATE exercise_versions v
-             SET variants = $2,
-                 admin_note = $3
-             WHERE v.exercise_id = (SELECT id FROM ex) AND v.status = 'draft'
-             RETURNING v.id, v.exercise_id, v.status, v.admin_note, v.variants, v.created_at, v.created_by, v.published_at, v.label, v.avg_difficulty),
-     inserted AS (
-         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by)
-             SELECT $4, ex.id, 'draft', $3, $2,
-                    $5, $6
-             FROM ex
-             WHERE NOT EXISTS (SELECT 1 FROM updated)
-             RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty),
-     pointer AS (
-         UPDATE exercises
-             SET draft_version_id = (SELECT id FROM inserted)
-             WHERE exercises.id = (SELECT id FROM ex) AND EXISTS (SELECT 1 FROM inserted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM updated
-UNION ALL
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM inserted
+WITH ex AS (SELECT id, name, description, tags, created_at, created_by, updated_at, updated_by, draft_version_id, published_version_id, archived_at, scope, owner_event_id, access_level, origin_event_id, forked_from_exercise_id, forked_from_version_id FROM exercises WHERE exercises.id = $1 FOR UPDATE),
+     saved AS (
+         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
+         SELECT $2, ex.id, 'draft', $3, $4,
+                $5, $6,
+                COALESCE(p.name, ex.name), COALESCE(p.description, ex.description), COALESCE(p.tags, ex.tags)
+         FROM ex LEFT JOIN exercise_versions p ON p.id = ex.published_version_id
+         ON CONFLICT (exercise_id) WHERE status = 'draft' DO UPDATE
+             SET variants = EXCLUDED.variants, admin_note = EXCLUDED.admin_note
+         RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+     ), pointer AS (
+         UPDATE exercises SET draft_version_id = (SELECT id FROM saved)
+         WHERE exercises.id = (SELECT id FROM ex) AND EXISTS (SELECT 1 FROM saved)
+     )
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM saved
 `
 
 type UpsertExerciseDraftParams struct {
 	ExerciseID uuid.UUID     `json:"exercise_id"`
-	Variants   []byte        `json:"variants"`
-	AdminNote  string        `json:"admin_note"`
 	NewID      uuid.UUID     `json:"new_id"`
+	AdminNote  string        `json:"admin_note"`
+	Variants   []byte        `json:"variants"`
 	CreatedAt  time.Time     `json:"created_at"`
 	CreatedBy  uuid.NullUUID `json:"created_by"`
 }
@@ -393,20 +513,20 @@ type UpsertExerciseDraftRow struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
-// Draft save is an upsert against the partial-unique draft slot: update the
-// existing draft's content or insert a fresh draft row, then point
-// exercises.draft_version_id at it. Anchored on the exercises row: a missing
-// exercise yields zero rows (caller maps to 404). Identity columns
-// (updated_at & co) are deliberately untouched — the identity optimistic lock
-// must not be disturbed by content saves.
+// Serialize family writers on the identity first, then use PostgreSQL's
+// partial-unique conflict target. ON CONFLICT sees a concurrent first draft
+// even when it committed after this statement's read snapshot was taken.
 func (q *Queries) UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error) {
 	row := q.db.QueryRow(ctx, upsertExerciseDraft,
 		arg.ExerciseID,
-		arg.Variants,
-		arg.AdminNote,
 		arg.NewID,
+		arg.AdminNote,
+		arg.Variants,
 		arg.CreatedAt,
 		arg.CreatedBy,
 	)
@@ -422,6 +542,9 @@ func (q *Queries) UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDra
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }

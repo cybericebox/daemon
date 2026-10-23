@@ -273,6 +273,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			FlagConfig: deps.ExerciseConfig,
 			Sessions:   testSessions,
 			DeployUoW:  postgres.NewUnitOfWorker[testDeployRepo.Queries](deps.Repo.UoWFactory()),
+			CatalogUoW: postgres.NewUnitOfWorker[exerciseUseCase.CatalogRepository](deps.Repo.UoWFactory()),
 			Resources:  deps.ResourcesPolicy,
 			Elevations: exerciseRepo.New(deps.Repo),
 			// The per-task file store follows the media GC: a file past this window with no reference is gone soon.

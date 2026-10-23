@@ -113,6 +113,33 @@ func TestPushImageArchiveSkipsPresentBlobs(t *testing.T) {
 	require.Equal(t, 1, src.opens)
 }
 
+// Re-importing the exact portable bytes reuses the immutable manifest as well
+// as its blobs; a genuinely different digest creates its own immutable tag.
+func TestRepeatedArchiveImportReusesImmutableManifestAndBlobs(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.reg.immutable = true
+	f.expectImageRow(t)
+	first := &archiveSource{b: archivetest.Legacy(archiveImage())}
+	a := f.index(t, first)
+	one, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: a})
+	require.NoError(t, err)
+	puts := f.reg.putCount()
+	require.Equal(t, 1, puts)
+	repeated := &archiveSource{b: first.b}
+	b := f.index(t, repeated)
+	two, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: b})
+	require.NoError(t, err)
+	require.Equal(t, one.Reference, two.Reference)
+	require.Equal(t, puts, f.reg.putCount(), "no second manifest PUT under the immutable digest tag")
+	require.Equal(t, 1, repeated.opens, "only indexing reads the repeated archive; no missing blob stream is opened")
+	changed := &archiveSource{b: archivetest.Legacy(archivetest.Amd64([]byte("changed content")))}
+	c := f.index(t, changed)
+	three, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: c})
+	require.NoError(t, err)
+	require.NotEqual(t, one.Reference, three.Reference)
+	require.Equal(t, puts+1, f.reg.putCount())
+}
+
 func unreadableReason(t *testing.T, err error) any {
 	t.Helper()
 	require.ErrorIs(t, err, imageRegistryModel.ErrImageArchiveUnreadable.Err())
@@ -196,4 +223,33 @@ func TestPushImageArchiveRegistryFailure(t *testing.T) {
 	_, err := f.uc.PushImageArchive(context.Background(), PushArchiveInput{Name: "web", UploadedBy: uploader, Archive: a})
 	require.ErrorIs(t, err, imageRegistryModel.ErrRegistryUnavailable.Err())
 	require.Equal(t, "unauthorized", publicReason(t, err)[imageRegistryModel.ContextReason])
+}
+
+// Inspect uses the canonical manifest tag without any image row/blob/manifest mutation.
+func TestInspectImageArchiveIsReadOnlyAndUsesCanonicalManifest(t *testing.T) {
+	f := newUploadFixture(t, true)
+	src := &archiveSource{b: archivetest.Legacy(archiveImage())}
+	indexed := f.index(t, src)
+	inspected, err := f.uc.InspectImageArchive(context.Background(), indexed, "web")
+	require.NoError(t, err)
+	require.False(t, inspected.Reused)
+	require.NotEmpty(t, inspected.Digest)
+	require.Zero(t, f.reg.putCount())
+	require.Empty(t, f.pushes)
+	require.Empty(t, f.queued)
+	for _, blob := range append([]ociregistry.ArchiveBlob{indexed.Config}, indexed.Layers...) {
+		require.False(t, f.has(t, blob.Digest), "inspection must not push a blob")
+	}
+
+	manifest, err := imageRegistryModel.BuildManifest(descriptorOf(indexed.Config), []Descriptor{descriptorOf(indexed.Layers[0]), descriptorOf(indexed.Layers[1])})
+	require.NoError(t, err)
+	ref, err := imageRegistryModel.NewPlatformRef("web", manifest.Digest)
+	require.NoError(t, err)
+	_, err = f.registry().PutManifest(context.Background(), ref.Tag(), manifest.MediaType, manifest.Body)
+	require.NoError(t, err)
+	inspected, err = f.uc.InspectImageArchive(context.Background(), indexed, "other-name")
+	require.NoError(t, err)
+	require.True(t, inspected.Reused)
+	require.Equal(t, manifest.Digest, inspected.Digest)
+	require.Equal(t, 1, src.opens, "inspection never streams/pushes the tar a second time")
 }

@@ -30,6 +30,43 @@ type PushArchiveInput struct {
 	Archive *ociregistry.ImageArchive
 }
 
+// ArchiveImageInspection is a read-only observation, never a reservation.
+type ArchiveImageInspection struct {
+	Reference string
+	Digest    string
+	Reused    bool
+}
+
+// InspectImageArchive shares the push manifest/ref construction. Indexing has
+// already read and verified every blob. Only the digest tag is requested here;
+// no registry bytes, ownership claims or platform_images rows are written.
+func (u *ImageRegistryUseCase) InspectImageArchive(ctx context.Context, archive *ociregistry.ImageArchive, name string) (ArchiveImageInspection, error) {
+	layers := make([]Descriptor, 0, len(archive.Layers))
+	for _, layer := range archive.Layers {
+		layers = append(layers, descriptorOf(layer))
+	}
+	manifest, err := imageRegistryModel.BuildManifest(descriptorOf(archive.Config), layers)
+	if err != nil {
+		return ArchiveImageInspection{}, err
+	}
+	ref, err := imageRegistryModel.NewPlatformRef(imageRegistryModel.SanitizeName(name), manifest.Digest)
+	if err != nil {
+		return ArchiveImageInspection{}, err
+	}
+	client, _, err := u.PlatformRegistryClient(ctx, false)
+	if err != nil {
+		return ArchiveImageInspection{}, err
+	}
+	have, found, err := client.ManifestDigest(ctx, ref.Tag())
+	if err != nil {
+		return ArchiveImageInspection{}, Unavailable(err, "")
+	}
+	if found && have != "" && have != manifest.Digest {
+		return ArchiveImageInspection{}, imageRegistryModel.ErrImageTagTaken.Err()
+	}
+	return ArchiveImageInspection{Reference: ref.String(), Digest: manifest.Digest, Reused: found && have == manifest.Digest}, nil
+}
+
 // IndexImageArchive is pass 1 over an image file of a task archive (size bytes, read through open): the image in it,
 // or ErrImageArchiveUnreadable with the reason. A failure to read the file itself is a platform error.
 func (u *ImageRegistryUseCase) IndexImageArchive(open ociregistry.ArchiveSource, size int64) (*ociregistry.ImageArchive, error) {

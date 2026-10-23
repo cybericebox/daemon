@@ -28,6 +28,9 @@ func TestNewPoolConfigTakesSizeAndLifetimes(t *testing.T) {
 				pc.MaxConnIdleTime,
 			)
 		}
+		if pc.ConnConfig.RuntimeParams["cybericebox.catalog_metadata_writer"] != "1" {
+			t.Fatal("every production main/job connection must declare the versioned catalog writer capability")
+		}
 	}
 }
 

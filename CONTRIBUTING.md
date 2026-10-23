@@ -46,3 +46,23 @@ The same rule applies to GitHub release pages and published images, in every rep
 - Older minors keep only their latest patch. The other patches of a minor are deleted when the next minor is released.
 - Besides the newest minor, the latest patches of the 10 previous minors are kept (release page and images). An older minor drops out when it is no longer among the last 10: its release page and images are deleted, the tag stays. There are no exceptions: production always runs a current version.
 - Pruning runs automatically in the release workflow. Manual cleanup is done only once, when the policy is introduced.
+
+## Catalog metadata migration (0195)
+
+Task metadata is versioned with the content. Existing historical versions receive the currently known name, description and tags as a baseline; past values that were never stored cannot be reconstructed.
+
+Both production repository pools automatically declare `cybericebox.catalog_metadata_writer=1` as a PostgreSQL startup parameter. This is a binary/schema compatibility marker, not an authorization boundary. After migration 0195, connections from older binaries receive SQLSTATE `40001` (`catalog_metadata_writer capability required`) when mutating authored catalog families, attachment claims/references or catalog access. During an ordinary rolling update, catalog saves routed to an old pod may temporarily fail and can be retried after the rollout. New pods write normally; unrelated event runtime writes remain available. No deployment flag or manual activation is required.
+
+The migration locks the protected tables through backfill and guard installation. Even capable version INSERTs must explicitly supply a nonempty Name and nonnull Description/Tags; empty Description/Tags are valid. Deliberate administrator repairs must use a transaction with `SET LOCAL cybericebox.catalog_metadata_writer = '1'` and preserve the same snapshot/family invariants. A binary-only rollback leaves old catalog writers fenced. Removing the schema guard requires an explicit schema rollback, which cannot losslessly retain metadata introduced per version; do not describe that downgrade as lossless.
+
+An old image-import worker already running during rollout may finish uploading unreferenced immutable bytes before its first protected database mutation fails. Existing authored state and file claims/references remain protected; existing media/registry garbage collection handles unused uploads. The fence does not claim to undo external bytes.
+
+### Import attempt migration (0196)
+
+Import targets, confirmation revisions, generation and durable results are stored with the import job. Task changes and a successful job outcome commit together. Old arguments without a generation refer to migrated generation1; new restarts increment the generation and stale progress/outcome writes affect no rows.
+
+Migration 0196 extends the existing automatic `cybericebox.catalog_metadata_writer=1` fence to import-job mutations. During mixed RollingUpdate, old import workers may receive retryable SQLSTATE40001 instead of overwriting a new outcome. New workers and unrelated event runtime continue normally. Staged unreferenced registry/blob bytes can remain for existing cleanup; external uploads are not rolled back by PostgreSQL. No manual activation is required. A binary-only rollback leaves the mutation fence in place; a coordinated schema rollback loses stored plans/results/generations and must not run with new imports in flight.
+
+Source-backed import retries recover an owned running/completed job by its exact non-secret canonical plan before reopening the archive or rechecking its now-stale execution confirmation. A different active/completed plan is a conflict; failed/stale attempts still pass current source, permission and confirmation checks before restart. Successful UploadID cleanup therefore does not prevent outcome recovery.
+
+New executions recheck and lock source metadata after staging and target-lock waits, before catalog writes: current existence, ownership and upload purpose/completeness/expiry. Archive/object streaming stays outside that short transaction. Restore/rollback draft transitions and their checkpoint/draft file references use the same required catalog transaction and family lock as save/import, preventing a late reference replacement from erasing an acknowledged draft's attachments.

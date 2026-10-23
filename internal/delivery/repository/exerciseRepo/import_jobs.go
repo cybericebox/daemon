@@ -20,7 +20,7 @@ func (r *Repository) StartImportJob(ctx context.Context, j exerciseModel.ImportJ
 	row, err := r.q.StartExerciseImportJob(ctx, postgres.StartExerciseImportJobParams{
 		ID: j.ID, CreatedBy: j.CreatedBy, Source: string(j.Source), SourceID: j.SourceID, State: string(j.State),
 		ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt,
-		OwnerEventID: j.OwnerEventID,
+		OwnerEventID: j.OwnerEventID, Options: j.Options, PlanHash: j.PlanHash,
 	})
 	if err != nil {
 		return exerciseModel.ImportJob{}, err
@@ -56,7 +56,16 @@ func (r *Repository) SaveImportJob(ctx context.Context, j exerciseModel.ImportJo
 	if err != nil {
 		return 0, err
 	}
+	results := j.Results
+	if results == nil {
+		results = []exerciseModel.ImportResult{}
+	}
+	encoded, err := json.Marshal(results)
+	if err != nil {
+		return 0, err
+	}
 	return r.q.UpdateExerciseImportJob(ctx, postgres.UpdateExerciseImportJobParams{
+		Generation: importGeneration(j.Generation), Results: encoded,
 		ID: j.ID, State: string(j.State), OwnerEventID: j.OwnerEventID, ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, UpdatedAt: j.UpdatedAt,
 		Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
 		TasksDone: int32(j.Progress.TasksDone), TasksTotal: int32(j.Progress.TasksTotal),
@@ -67,10 +76,27 @@ func (r *Repository) SaveImportJob(ctx context.Context, j exerciseModel.ImportJo
 // SaveImportJobProgress writes only the progress of a running job; zero rows: the job has ended or is gone.
 func (r *Repository) SaveImportJobProgress(ctx context.Context, j exerciseModel.ImportJob) (int64, error) {
 	return r.q.UpdateExerciseImportJobProgress(ctx, postgres.UpdateExerciseImportJobProgressParams{
-		ID: j.ID, Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
+		Generation: importGeneration(j.Generation),
+		ID:         j.ID, Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
 		TasksDone: int32(j.Progress.TasksDone), TasksTotal: int32(j.Progress.TasksTotal),
 		BytesPushed: j.Progress.BytesPushed, BytesTotal: j.Progress.BytesTotal, UpdatedAt: j.UpdatedAt,
 	})
+}
+
+func importGeneration(g int64) int64 {
+	if g == 0 {
+		return 1
+	}
+	return g
+}
+
+// RestartImportJob compares the observed generation and the failed/stale state.
+func (r *Repository) RestartImportJob(ctx context.Context, j exerciseModel.ImportJob, expectedGeneration int64, now time.Time) (exerciseModel.ImportJob, error) {
+	row, err := r.q.RestartExerciseImportJob(ctx, postgres.RestartExerciseImportJobParams{ID: j.ID, ExpectedGeneration: importGeneration(expectedGeneration), OwnerEventID: j.OwnerEventID, Options: j.Options, PlanHash: j.PlanHash, UpdatedAt: now, StaleBefore: now.Add(-exerciseModel.ImportJobStaleAfter)})
+	if err != nil {
+		return exerciseModel.ImportJob{}, err
+	}
+	return importJobFromRow(row), nil
 }
 
 func stageOrDefault(stage exerciseModel.ImportStage) string {
@@ -97,6 +123,7 @@ func importJobErrorJSON(e *exerciseModel.ImportJobError) ([]byte, error) {
 // importJobFromRow never refuses a row: an error that does not decode is kept as its code-less shape.
 func importJobFromRow(row postgres.ExerciseImportJob) exerciseModel.ImportJob {
 	j := exerciseModel.ImportJob{
+		Generation: row.Generation, Options: row.Options, PlanHash: row.PlanHash,
 		ID: row.ID, CreatedBy: row.CreatedBy, Source: exerciseModel.ImportSource(row.Source), SourceID: row.SourceID, OwnerEventID: row.OwnerEventID,
 		State: exerciseModel.ImportJobState(row.State), ExerciseIDs: row.ExerciseIds, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		Progress: exerciseModel.ImportProgress{
@@ -104,10 +131,21 @@ func importJobFromRow(row postgres.ExerciseImportJob) exerciseModel.ImportJob {
 			TasksDone: int(row.TasksDone), TasksTotal: int(row.TasksTotal), BytesPushed: row.BytesPushed, BytesTotal: row.BytesTotal,
 		},
 	}
+	_ = json.Unmarshal(row.Results, &j.Results)
 	if len(row.Error) > 0 {
 		var e exerciseModel.ImportJobError
 		_ = json.Unmarshal(row.Error, &e)
 		j.Error = &e
 	}
 	return j
+}
+
+// GetOwnedImportJobBySource recovers an existing outcome without mutating the
+// job or requiring its successfully consumed source to remain present.
+func (r *Repository) GetOwnedImportJobBySource(ctx context.Context, source exerciseModel.ImportSource, id, owner uuid.UUID) (exerciseModel.ImportJob, error) {
+	row, err := r.q.GetOwnedExerciseImportJobBySource(ctx, postgres.GetOwnedExerciseImportJobBySourceParams{Source: string(source), SourceID: id, CreatedBy: owner})
+	if err != nil {
+		return exerciseModel.ImportJob{}, err
+	}
+	return importJobFromRow(row), nil
 }

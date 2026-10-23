@@ -99,7 +99,7 @@ func TestSetExerciseAccess_NoneClearsSelection(t *testing.T) {
 	q.EXPECT().DeleteExerciseEventAccess(gomock.Any(), exerciseID).Return(nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListUserEventMemberships(gomock.Any(), gomock.Any()).Return(nil, nil)
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 	view, err := uc.SetExerciseAccess(context.Background(), exercise.Actor{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleSuperAdmin}, exerciseID,
 		exercise.SetAccessInput{AccessLevel: exerciseModel.AccessNone, EventIDs: []uuid.UUID{uuid.Must(uuid.NewV7())}})

@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 31
+// ImageRegistryObjectCode — next free detail code: 32
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -108,6 +108,10 @@ var (
 	// export adds "device" and "file".
 	ErrImageNotExportable = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("A platform image cannot be exported: the image registry is not configured, not responding or does not have it").WithDetailCode(30)
+	// ErrDeviceImageInvalid: a device image a variant sets for itself (a linked variant's own image) is not a valid
+	// image reference. Public context "variant" (1-based position) and "device" (its name).
+	ErrDeviceImageInvalid = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("The device image is not a valid image reference").WithDetailCode(31)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

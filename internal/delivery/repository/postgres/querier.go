@@ -71,6 +71,7 @@ type Querier interface {
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
+	CountEditableImportTargets(ctx context.Context, arg CountEditableImportTargetsParams) (int64, error)
 	// Messages delivered through one SMTP transport since a moment (the rolling
 	// daily quota). event_id narrows the count to one Event's own transport; the
 	// platform and env transports count every dispatch that went through them,
@@ -326,7 +327,7 @@ type Querier interface {
 	DiscardEventLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error)
 	DiscardEventPageDraft(ctx context.Context, arg DiscardEventPageDraftParams) (int64, error)
 	// exercises.draft_version_id clears itself via ON DELETE SET NULL.
-	DiscardExerciseDraft(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error)
+	DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	DismissInAppBanner(ctx context.Context, arg DismissInAppBannerParams) (int64, error)
 	// Whether an Event's email templates may use/serve the file: it must already
 	// be referenced by a platform template (scope NULL), a block preset, or one of
@@ -528,6 +529,8 @@ type Querier interface {
 	GetFirstEventLiveScreen(ctx context.Context, eventID uuid.UUID) (EventLiveScreen, error)
 	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
+	// Caller has already checked ActionWrite and the archive freeze for this ID.
+	GetImportTargetContext(ctx context.Context, id uuid.UUID) (GetImportTargetContextRow, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
 	GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUserParams) (GetInboxItemForUserRow, error)
 	// One indexed read for the pulse of a scope: the newest inbox item (the nil
@@ -574,6 +577,9 @@ type Querier interface {
 	GetNotificationBroadcastTemplate(ctx context.Context, arg GetNotificationBroadcastTemplateParams) (GetNotificationBroadcastTemplateRow, error)
 	GetNotificationSetting(ctx context.Context, arg GetNotificationSettingParams) (NotificationSetting, error)
 	GetOpenResourceAlarm(ctx context.Context, arg GetOpenResourceAlarmParams) (ResourceAlarm, error)
+	// Read-only recovery before source re-open. A foreign job is indistinguishable
+	// from an absent job; no source INSERT/UPDATE is used to probe for it.
+	GetOwnedExerciseImportJobBySource(ctx context.Context, arg GetOwnedExerciseImportJobBySourceParams) (ExerciseImportJob, error)
 	GetOwnedExerciseTestDeploy(ctx context.Context, arg GetOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// Team-wide counters, including members who have left since.
 	GetParticipationTeamTotals(ctx context.Context, arg GetParticipationTeamTotalsParams) (GetParticipationTeamTotalsRow, error)
@@ -665,6 +671,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]UserProvider, error)
+	GetUserUIPreference(ctx context.Context, arg GetUserUIPreferenceParams) ([]byte, error)
 	// IS NOT DISTINCT FROM matches a null scope_ref (the test scope) NULL-safely.
 	GetUserVPNConfig(ctx context.Context, arg GetUserVPNConfigParams) (UserVpnConfig, error)
 	HasActiveEventLabRuntimeSelection(ctx context.Context, arg HasActiveEventLabRuntimeSelectionParams) (bool, error)
@@ -747,6 +754,8 @@ type Querier interface {
 	ListDispatches(ctx context.Context, arg ListDispatchesParams) ([]ListDispatchesRow, error)
 	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error)
 	ListDueTimedEventFormAssignmentsForUpdate(ctx context.Context, arg ListDueTimedEventFormAssignmentsForUpdateParams) ([]EventFormAssignment, error)
+	// Apply the exact write policy and archive freeze BEFORE keyset pagination.
+	ListEditableImportTargets(ctx context.Context, arg ListEditableImportTargetsParams) ([]ListEditableImportTargetsRow, error)
 	ListEffectiveCorrectAttemptIDs(ctx context.Context, teamChallengeID uuid.UUID) ([]uuid.UUID, error)
 	// Event rows are overrides of platform_signal_notification_defaults: the
 	// effective subscription for (event, signal, channel) is the Event row when it
@@ -1462,6 +1471,10 @@ type Querier interface {
 	// of event_filter ('' = no Event site). user_id is NULL for an anonymous
 	// viewer; a participant is an approved participant or a manager of the Event.
 	ListVisibleSiteBanners(ctx context.Context, arg ListVisibleSiteBannersParams) ([]SiteBanner, error)
+	// Selected metadata and resource totals use the same actor-visible snapshot.
+	// What the resource totals of a page of exercises need from their selected versions: per variant its id and
+	// the container-device fields that decide a device's size (never the image, env vars or secrets).
+	ListVisibleVariantDevices(ctx context.Context, arg ListVisibleVariantDevicesParams) ([]ListVisibleVariantDevicesRow, error)
 	// Lab groups are retained through finish, then become eligible for final teardown
 	// only once the event is withdrawn. A destroyed binding never re-enters this
 	// queue; a failed agent call leaves it eligible for River's next retry.
@@ -1493,6 +1506,14 @@ type Querier interface {
 	// Team admission locks precede all Lab/question/binding locks. Include teams
 	// without assignments so preparation cannot insert a new canonical Lab midway.
 	LockEventTeamsForLabSourceChange(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
+	// A separate statement before fresh reads: waiters see the latest acknowledged
+	// family/policy snapshot, rather than the snapshot from before the lock wait.
+	LockExerciseForImport(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockExerciseImportFile(ctx context.Context, id uuid.UUID) (File, error)
+	LockExerciseImportJob(ctx context.Context, id uuid.UUID) (ExerciseImportJob, error)
+	// Stabilize source eligibility through the task/outcome transaction; bytes were
+	// already staged outside it. Expiry is checked against wall time after waiting.
+	LockExerciseImportUpload(ctx context.Context, id uuid.UUID) (MediaUpload, error)
 	// Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
 	// Resource calendar: reservations, change requests, readiness alarms, settings and test lab holds. See
@@ -1562,6 +1583,10 @@ type Querier interface {
 	// caller re-reads to discriminate.
 	PublishExerciseDraft(ctx context.Context, arg PublishExerciseDraftParams) (PublishExerciseDraftRow, error)
 	PublishInAppTemplate(ctx context.Context, arg PublishInAppTemplateParams) (NotificationInAppTemplate, error)
+	// Atomic family transition: demote the current published row, promote the
+	// draft, move both pointers. Zero rows -> no draft (or no exercise); the
+	// caller re-reads to discriminate.
+	PublishValidatedExerciseDraft(ctx context.Context, arg PublishValidatedExerciseDraftParams) (PublishValidatedExerciseDraftRow, error)
 	// Residual personal data of deleted accounts. Deletion already scrubbed the
 	// user row (name, email, password, picture) and cut sessions and providers;
 	// this removes everything else that belongs to the person and anonymizes
@@ -1692,6 +1717,9 @@ type Querier interface {
 	ResolveInboxBySubjectRef(ctx context.Context, arg ResolveInboxBySubjectRefParams) (int64, error)
 	// Closes a single request without a subject (one recipient's copy).
 	ResolveInboxItem(ctx context.Context, arg ResolveInboxItemParams) (int64, error)
+	// Only the observed failed/stale attempt may be replaced. Old queued arguments
+	// normalize generation zero to the migrated generation one in the worker.
+	RestartExerciseImportJob(ctx context.Context, arg RestartExerciseImportJobParams) (ExerciseImportJob, error)
 	// Save the current draft as a checkpoint in the same statement before
 	// replacing its contents with the selected historical version. The source
 	// must belong to this exercise; a foreign id produces zero rows.
@@ -1719,6 +1747,10 @@ type Querier interface {
 	// Saves the editor's draft. A page that was never published also mirrors the
 	// draft into its columns, so its slug stays reserved by the unique index.
 	SaveEventPageDraft(ctx context.Context, arg SaveEventPageDraftParams) (EventPage, error)
+	// The legacy PATCH edits metadata in the draft. A lazy draft inherits the
+	// published content and file references; a following content PUT preserves
+	// the edited metadata, including across a concurrent first-draft insert.
+	SaveExerciseDraftIdentity(ctx context.Context, arg SaveExerciseDraftIdentityParams) (SaveExerciseDraftIdentityRow, error)
 	ScheduleEventLabGroupRetry(ctx context.Context, arg ScheduleEventLabGroupRetryParams) error
 	// Narrow retry write; never copies physical state over a concurrent observation.
 	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
@@ -1795,6 +1827,8 @@ type Querier interface {
 	TrimErrorSamples(ctx context.Context, arg TrimErrorSamplesParams) error
 	// max_team_size is supplied by the event config inside the same transaction.
 	TryAddEventTeamMember(ctx context.Context, arg TryAddEventTeamMemberParams) (int64, error)
+	// Timestamps come from the domain factory, not DB defaults.
+	TryCreateImportedExercise(ctx context.Context, arg TryCreateImportedExerciseParams) (Exercise, error)
 	// The same lock for background jobs: false instead of waiting while a request or another job holds it.
 	TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
@@ -1848,16 +1882,16 @@ type Querier interface {
 	// recreate cannot be overwritten and a failure transition fires only once.
 	// A removed stand is terminal.
 	UpdateEventTeamStand(ctx context.Context, arg UpdateEventTeamStandParams) (int64, error)
-	// Whole-identity write. Deliberately excludes draft_version_id /
-	// published_version_id (owned by the lifecycle CTEs — including them here
-	// would race a concurrent publish) and created_at/created_by (immutable).
+	// Policy/audit write. Authored metadata and version pointers belong to the
+	// lifecycle CTEs; writing a loaded copy here could revert a concurrent publish.
+	// created_at/created_by are immutable.
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
-	// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
+	// The outcome belongs to one running attempt; a stale worker cannot overwrite a newer attempt or done state.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
-	// has ended (zero rows) keeps its outcome.
+	// has ended or restarted (zero rows) keeps its outcome.
 	UpdateExerciseImportJobProgress(ctx context.Context, arg UpdateExerciseImportJobProgressParams) (int64, error)
 	// The periodic check result, written apart from the settings (the narrow-query exception, like the batched
 	// last_seen): only while the settings are still the ones that were checked (updated_at), so a result for a
@@ -1906,12 +1940,9 @@ type Querier interface {
 	UpsertEventSignalNotificationSubscription(ctx context.Context, arg UpsertEventSignalNotificationSubscriptionParams) (UpsertEventSignalNotificationSubscriptionRow, error)
 	UpsertEventTeamFieldConfig(ctx context.Context, arg UpsertEventTeamFieldConfigParams) (EventTeamFieldConfig, error)
 	UpsertEventVPNSession(ctx context.Context, arg UpsertEventVPNSessionParams) error
-	// Draft save is an upsert against the partial-unique draft slot: update the
-	// existing draft's content or insert a fresh draft row, then point
-	// exercises.draft_version_id at it. Anchored on the exercises row: a missing
-	// exercise yields zero rows (caller maps to 404). Identity columns
-	// (updated_at & co) are deliberately untouched — the identity optimistic lock
-	// must not be disturbed by content saves.
+	// Serialize family writers on the identity first, then use PostgreSQL's
+	// partial-unique conflict target. ON CONFLICT sees a concurrent first draft
+	// even when it committed after this statement's read snapshot was taken.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
 	// The whole push state of one blob in one statement (queued, failed).
 	UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error
@@ -1934,6 +1965,7 @@ type Querier interface {
 	UpsertTeamChallengePracticeSolve(ctx context.Context, arg UpsertTeamChallengePracticeSolveParams) error
 	UpsertTeamChallengeSolve(ctx context.Context, arg UpsertTeamChallengeSolveParams) error
 	UpsertUserSetting(ctx context.Context, arg UpsertUserSettingParams) error
+	UpsertUserUIPreference(ctx context.Context, arg UpsertUserUIPreferenceParams) error
 	// Store (or replace) a user's VPN config for a scope. The unique
 	// (user_id, scope, scope_ref) constraint (NULLS NOT DISTINCT) makes this an
 	// upsert: re-issuing within the same scope overwrites the ciphertext. Timestamps

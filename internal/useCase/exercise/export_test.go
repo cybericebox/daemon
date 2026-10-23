@@ -40,3 +40,8 @@ func SetImportStateRetryDelay(t testing.TB, d time.Duration) {
 	importStateRetryDelay = d
 	t.Cleanup(func() { importStateRetryDelay = old })
 }
+
+// SecretValueGroups lets the external tests group the secrets of stored variants like a read does.
+func SecretValueGroups(u *ExerciseUseCase, variants []exerciseModel.Variant) [][][]int {
+	return u.secretValueGroups(variants)
+}

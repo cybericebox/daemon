@@ -37,7 +37,7 @@ func importRejected(t *testing.T, files map[string][]byte, policy resourcesModel
 	require.NoError(t, err)
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	media := newFakeMedia()
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media, Resources: policy})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media, Resources: policy})
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	return media, err
 }
@@ -99,7 +99,7 @@ func TestImportExerciseArchive_DraftSkipsPublishGate(t *testing.T) {
 					return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 				})
 			q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+			uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 			_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 			require.NoError(t, err)
 		})

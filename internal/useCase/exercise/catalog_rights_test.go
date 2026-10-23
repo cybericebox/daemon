@@ -193,7 +193,7 @@ func TestListPermissions_ExportPerRow(t *testing.T) {
 	q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).Return([]postgres.ListExercisesPageRow{{Exercise: own, Status: "none"}, {Exercise: catalog, Status: "published"}}, nil)
 	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	res, err := uc.ListExercisesFor(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleUser}, exercise.ExercisesFilter{Page: 1})
 	if err != nil {
 		t.Fatal(err)

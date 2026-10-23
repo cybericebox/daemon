@@ -3,12 +3,15 @@ package exercise
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin/binding"
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
 func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
@@ -170,5 +173,109 @@ func TestTopologyDTOCarriesDeviceWaitReadyFileBothWays(t *testing.T) {
 	raw, err := json.Marshal(out.Devices[1])
 	if err != nil || strings.Contains(string(raw), "WaitReadyFile") {
 		t.Fatalf("an unset flag is omitted: %s %v", raw, err)
+	}
+}
+
+func TestVariantDTO_WeightBothWays(t *testing.T) {
+	var dto variantDTO
+	if err := json.Unmarshal([]byte(`{"Index":1,"Weight":3,"Tasks":[],"Topology":{}}`), &dto); err != nil {
+		t.Fatal(err)
+	}
+	if got := dto.toDomain(); got.Weight != 3 {
+		t.Fatalf("request Weight lost: %d", got.Weight)
+	}
+	raw, err := json.Marshal(variantToDTO(exerciseModel.Variant{Weight: 2}))
+	if err != nil || !strings.Contains(string(raw), `"Weight":2`) {
+		t.Fatalf("response Weight missing: %s %v", raw, err)
+	}
+	raw, err = json.Marshal(variantToDTO(exerciseModel.Variant{}))
+	if err != nil || strings.Contains(string(raw), `"Weight"`) {
+		t.Fatalf("an unset weight is omitted: %s %v", raw, err)
+	}
+}
+
+func TestSaveDraftRequest_WeightRange(t *testing.T) {
+	for raw, valid := range map[string]bool{
+		`{"Variants":[{"Weight":0}]}`:                true,
+		`{"Variants":[{}]}`:                          true,
+		`{"Variants":[{"Weight":100}]}`:              true,
+		`{"Variants":[{"Weight":1},{"Weight":101}]}`: false,
+		`{"Variants":[{"Weight":-1}]}`:               false,
+	} {
+		var req saveDraftRequest
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := binding.Validator.ValidateStruct(req); (err == nil) != valid {
+			t.Errorf("%s: validation error %v, want valid=%v", raw, err, valid)
+		}
+	}
+}
+
+func TestVariantDTO_ImageOverridesBothWays(t *testing.T) {
+	base, device := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d101"), uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d1e1")
+	var dto variantDTO
+	raw := `{"LinkedTo":"` + base.String() + `","ImageOverrides":[{"DeviceID":"` + device.String() + `","Image":"nginx:1.28"}],"Tasks":[],"Topology":{}}`
+	if err := json.Unmarshal([]byte(raw), &dto); err != nil {
+		t.Fatal(err)
+	}
+	got := dto.toDomain()
+	if want := []exerciseModel.ImageOverride{{DeviceID: device, Image: "nginx:1.28"}}; !reflect.DeepEqual(got.ImageOverrides, want) {
+		t.Fatalf("request ImageOverrides = %+v, want %+v", got.ImageOverrides, want)
+	}
+	encoded, err := json.Marshal(variantToDTO(got))
+	if err != nil || !strings.Contains(string(encoded), `"ImageOverrides":[{"DeviceID":"`+device.String()+`","Image":"nginx:1.28"}]`) {
+		t.Fatalf("response ImageOverrides missing: %s %v", encoded, err)
+	}
+	encoded, err = json.Marshal(variantToDTO(exerciseModel.Variant{}))
+	if err != nil || strings.Contains(string(encoded), "ImageOverrides") {
+		t.Fatalf("a variant without overrides has no ImageOverrides key: %s %v", encoded, err)
+	}
+}
+
+func TestVersionToResponse_SecretGroupsAndContentHashes(t *testing.T) {
+	file := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f001")
+	view := exerciseUseCase.VersionView{
+		Variants: []exerciseModel.Variant{{
+			Tasks: []exerciseModel.Task{{Name: "t", Attachments: []exerciseModel.AttachmentRef{{FileID: file, Name: "a.txt"}}}},
+			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer,
+				EnvVars: []exerciseModel.EnvVar{{Name: "PASS", Secret: true}, {Name: "MODE", Value: "ctf"}}}}},
+		}},
+		SecretGroups: [][][]int{{{3, 7}}},
+		FileHashes:   map[uuid.UUID]string{file: "cc33"},
+	}
+	encoded, err := json.Marshal(versionToResponse(view))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"Name":"PASS","Secret":true,"HasValue":true,"ValueGroup":3`, `"FileID":"` + file.String() + `","Name":"a.txt","ContentHash":"cc33"`} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("response misses %s: %s", want, encoded)
+		}
+	}
+	if strings.Contains(string(encoded), `"ValueGroup":7`) || strings.Contains(string(encoded), "ValueHash") {
+		t.Errorf("a plain var has no group and nothing has a value hash: %s", encoded)
+	}
+	view.SecretGroups, view.FileHashes = nil, nil
+	encoded, _ = json.Marshal(versionToResponse(view))
+	if strings.Contains(string(encoded), "ValueGroup") || strings.Contains(string(encoded), "ContentHash") {
+		t.Errorf("unknown groups and hashes must be absent: %s", encoded)
+	}
+}
+
+func TestSaveDraftRequest_EnvVarCap(t *testing.T) {
+	vars := make([]string, 0, 65)
+	for i := range 65 {
+		vars = append(vars, `{"Name":"V`+strconv.Itoa(i)+`"}`)
+	}
+	for count, valid := range map[int]bool{64: true, 65: false} {
+		raw := `{"Variants":[{"Topology":{"Devices":[{"Name":"web","Type":"container","EnvVars":[` + strings.Join(vars[:count], ",") + `]}]}}]}`
+		var req saveDraftRequest
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := binding.Validator.ValidateStruct(req); (err == nil) != valid {
+			t.Errorf("%d env vars: validation error %v, want valid=%v", count, err, valid)
+		}
 	}
 }

@@ -32,6 +32,7 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	reimport previewCalls
 	// deployLength is the run length the last deploy asked for.
 	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
@@ -50,6 +51,7 @@ type fakeUC struct {
 	exerciseView          exerciseUseCase.ExerciseView
 	listResult            exerciseUseCase.ExercisesListResult
 	listFilter            exerciseUseCase.ExercisesFilter
+	catalogColumns        []exerciseUseCase.CatalogColumn
 	tagPrefix             string
 	tagLimit              int
 	accessInput           exerciseUseCase.SetAccessInput
@@ -1889,6 +1891,7 @@ func (f *fakeUC) AuthorizeFileUpload(_ context.Context, actor exerciseUseCase.Ac
 	}
 	return nil
 }
+
 // RequireAuthor, AuthorizeImport and AuthorizeExport mirror the use case policy: RBAC, else the managed event.
 func (f *fakeUC) RequireAuthor(_ context.Context, actor exerciseUseCase.Actor) error {
 	if actor.Role.HasPermission(rbac.PermExercisesWrite) || f.managedEvent != uuid.Nil {
@@ -1942,6 +1945,13 @@ func (f *fakeUC) GetExerciseFor(ctx context.Context, _ exerciseUseCase.Actor, id
 }
 func (f *fakeUC) ListExercisesFor(ctx context.Context, _ exerciseUseCase.Actor, filter exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error) {
 	return f.ListExercises(ctx, filter)
+}
+func (f *fakeUC) CatalogColumns(context.Context, exerciseUseCase.Actor) ([]exerciseUseCase.CatalogColumn, error) {
+	return f.catalogColumns, f.err
+}
+func (f *fakeUC) SetCatalogColumns(_ context.Context, _ exerciseUseCase.Actor, columns []exerciseUseCase.CatalogColumn) error {
+	f.catalogColumns = columns
+	return f.err
 }
 func (f *fakeUC) SetExerciseAccess(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error) {
 	f.accessInput = in

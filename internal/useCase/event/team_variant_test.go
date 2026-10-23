@@ -152,3 +152,23 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 		}
 	}
 }
+
+// Weights decide the pick: variant 0 (weight 3) with 2 teams is still under its share next to variant 1 (1 team).
+func TestPickTeamVariant_FollowsVariantWeights(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
+	version := variantVersion(2, uuid.Nil)
+	version.Variants[0].Weight = 3
+	gomock.InOrder(
+		q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), gomock.Any()).Return(int32(0), pgx.ErrNoRows),
+		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
+		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
+			{VariantIndex: 0, Teams: 2}, {VariantIndex: 1, Teams: 1},
+		}, nil),
+	)
+	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, version, nil)
+	if err != nil || got != 0 {
+		t.Fatalf("pick = %d, %v; want the weighted 0", got, err)
+	}
+}

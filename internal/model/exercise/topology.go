@@ -184,6 +184,12 @@ type (
 		Name   string `json:"name"`
 		Value  string `json:"value"` // ciphertext at rest when Secret
 		Secret bool   `json:"secret"`
+		// Origin (a secret only; server-side, never from or to a client or an archive) is an opaque id of where the
+		// stored value came from: a fresh one for every value an author types, carried along when the value is kept,
+		// inherited by a linked variant or copied. Two secrets with one origin hold the same value, so the editor can
+		// group them without any value-derived hash an author could test guesses against. Empty for values stored
+		// before it existed.
+		Origin string `json:"origin,omitempty"`
 	}
 
 	ExternalAccess struct {

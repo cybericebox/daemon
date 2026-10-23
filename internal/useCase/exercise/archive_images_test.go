@@ -26,6 +26,7 @@ import (
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
@@ -95,6 +96,7 @@ func (f *fakeImages) PushImageArchive(_ context.Context, in imageRegistryUseCase
 
 // fakeSources is the media side: chunked uploads by id.
 type fakeSources struct {
+	persist func(mediaModel.Upload)
 	uploads map[uuid.UUID]mediaModel.Upload
 	data    map[uuid.UUID][]byte
 	// pads are zero bytes read before an upload's data (a large upload without holding it).
@@ -150,9 +152,12 @@ func (s *fakeSources) stage(id, owner uuid.UUID, b []byte, purpose mediaModel.Up
 
 func (s *fakeSources) stagePadded(id, owner uuid.UUID, pad int64, b []byte, purpose mediaModel.UploadPurpose) {
 	s.pads[id] = pad
-	up := mediaModel.NewUpload(id, owner, "tasks.zip", "application/zip", pad+int64(len(b)), 8, time.Hour, importJobT0, purpose)
+	up := mediaModel.NewUpload(id, owner, "tasks.zip", "application/zip", pad+int64(len(b)), 8, time.Hour, time.Now(), purpose)
 	up.ChunksReceived = up.ChunkCount()
 	s.uploads[id], s.data[id] = up, b
+	if s.persist != nil {
+		s.persist(up)
+	}
 }
 
 func (s *fakeSources) UploadStatus(_ context.Context, id, owner uuid.UUID) (mediaModel.Upload, error) {
@@ -229,7 +234,7 @@ func newImportFixture(t *testing.T) *importFixture {
 	cipher, err := secret.NewFromBytes([]byte("0123456789abcdef0123456789abcdef"))
 	require.NoError(t, err)
 	f := &importFixture{q: q, images: &fakeImages{}, sources: newFakeSources(), jobs: map[uuid.UUID]postgres.ExerciseImportJob{}, cipher: cipher, now: importJobT0}
-	f.uc = exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	f.uc = newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	f.uc.SetClock(func() time.Time { return f.now })
 	f.inbox = &fakeImportInbox{}
 	f.uc.SetImportInbox(f.inbox)
@@ -247,7 +252,7 @@ func newImportFixture(t *testing.T) *importFixture {
 			}
 		}
 		j := postgres.ExerciseImportJob{
-			ID: p.ID, CreatedBy: p.CreatedBy, Source: p.Source, SourceID: p.SourceID, State: p.State,
+			ID: p.ID, CreatedBy: p.CreatedBy, Source: p.Source, SourceID: p.SourceID, State: p.State, Generation: 1, Options: p.Options, PlanHash: p.PlanHash,
 			ExerciseIds: p.ExerciseIds, Error: p.Error, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Stage: "unpacking",
 		}
 		f.jobs[j.ID] = j
@@ -270,7 +275,10 @@ func newImportFixture(t *testing.T) *importFixture {
 			return 0, errors.New("database unavailable")
 		}
 		j := f.jobs[p.ID]
-		j.State, j.ExerciseIds, j.Error, j.UpdatedAt = p.State, p.ExerciseIds, p.Error, p.UpdatedAt
+		if (j.Generation != 0 && j.Generation != p.Generation) || j.State != "running" {
+			return 0, nil
+		}
+		j.State, j.ExerciseIds, j.Error, j.UpdatedAt, j.Results = p.State, p.ExerciseIds, p.Error, p.UpdatedAt, p.Results
 		j.Stage, j.ImagesDone, j.ImagesTotal, j.TasksDone, j.TasksTotal = p.Stage, p.ImagesDone, p.ImagesTotal, p.TasksDone, p.TasksTotal
 		j.BytesPushed, j.BytesTotal = p.BytesPushed, p.BytesTotal
 		f.jobs[p.ID] = j
@@ -278,7 +286,7 @@ func newImportFixture(t *testing.T) *importFixture {
 	}).AnyTimes()
 	q.EXPECT().UpdateExerciseImportJobProgress(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpdateExerciseImportJobProgressParams) (int64, error) {
 		j, ok := f.jobs[p.ID]
-		if !ok || j.State != "running" {
+		if !ok || j.State != "running" || (j.Generation != 0 && j.Generation != p.Generation) {
 			return 0, nil
 		}
 		f.progress = append(f.progress, p)
@@ -287,11 +295,60 @@ func newImportFixture(t *testing.T) *importFixture {
 		f.jobs[p.ID] = j
 		return 1, nil
 	}).AnyTimes()
+	q.EXPECT().LockExerciseImportUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.MediaUpload, error) {
+		up, ok := f.sources.uploads[id]
+		if !ok {
+			return postgres.MediaUpload{}, pgx.ErrNoRows
+		}
+		return postgres.MediaUpload{ID: up.ID, CreatedBy: up.CreatedBy, SizeBytes: up.SizeBytes, ChunkBytes: up.ChunkBytes, ChunksReceived: int32(up.ChunksReceived), Purpose: string(up.Purpose), ExpiresAt: up.ExpiresAt}, nil
+	}).AnyTimes()
+	q.EXPECT().GetOwnedExerciseImportJobBySource(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.GetOwnedExerciseImportJobBySourceParams) (postgres.ExerciseImportJob, error) {
+		for _, job := range f.jobs {
+			if job.SourceID == p.SourceID && job.Source == p.Source && job.CreatedBy == p.CreatedBy {
+				return job, nil
+			}
+		}
+		return postgres.ExerciseImportJob{}, pgx.ErrNoRows
+	}).AnyTimes()
+	q.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{ID: importer, Role: "super_admin", Status: "active"}, nil).AnyTimes()
+	q.EXPECT().LockExerciseImportJob(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error) {
+		j := f.jobs[id]
+		if j.Generation == 0 {
+			j.Generation = 1
+		}
+		return j, nil
+	}).AnyTimes()
+	q.EXPECT().RestartExerciseImportJob(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.RestartExerciseImportJobParams) (postgres.ExerciseImportJob, error) {
+		j := f.jobs[p.ID]
+		if j.Generation == 0 {
+			j.Generation = 1
+		}
+		if j.Generation != p.ExpectedGeneration || (j.State != "failed" && !(j.State == "running" && j.UpdatedAt.Before(p.StaleBefore))) {
+			return postgres.ExerciseImportJob{}, pgx.ErrNoRows
+		}
+		j.Generation++
+		j.State = "running"
+		j.Error = nil
+		j.ExerciseIds = nil
+		j.Results = []byte("[]")
+		j.Options = p.Options
+		j.PlanHash = p.PlanHash
+		j.OwnerEventID = p.OwnerEventID
+		j.UpdatedAt = p.UpdatedAt
+		j.Stage = "unpacking"
+		f.jobs[j.ID] = j
+		return j, nil
+	}).AnyTimes()
 	return f
 }
 
 // expectCreation lets the import create tasks (draft versions) and records them.
 func (f *importFixture) expectCreation(t *testing.T) {
+	entities := map[uuid.UUID]postgres.Exercise{}
+	f.q.EXPECT().TryCreateImportedExercise(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, p postgres.TryCreateImportedExerciseParams) (postgres.Exercise, error) {
+		return f.q.CreateExercise(ctx, postgres.CreateExerciseParams(p))
+	}).AnyTimes()
+	f.q.EXPECT().GetExerciseByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.Exercise, error) { return entities[id], nil }).AnyTimes()
 	t.Helper()
 	expectUserNames(f.q)
 	expectFilesAdoptedAsIs(f.q)
@@ -301,7 +358,9 @@ func (f *importFixture) expectCreation(t *testing.T) {
 			if f.onCreate != nil {
 				f.onCreate()
 			}
-			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
+			row := postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}
+			entities[arg.ID] = row
+			return row, nil
 		}).AnyTimes()
 	f.q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
@@ -747,32 +806,8 @@ func TestRunArchiveImportImageEntryOverItsSize(t *testing.T) {
 	require.Equal(t, "images/web.tar", failure.Context["file"])
 }
 
-// The outcome of a finished import is written again until it sticks; the job never answers River with an error
-// after it created tasks (a retry would import them twice).
-func TestRunArchiveImportDoneWriteIsRetriedNotTheImport(t *testing.T) {
-	exercise.SetImportStateRetryDelay(t, time.Millisecond)
-	for name, failures := range map[string]int{"second write sticks": 1, "every write fails": 100} {
-		t.Run(name, func(t *testing.T) {
-			f := newImportFixture(t)
-			f.expectCreation(t)
-			f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
-				"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
-				"images/web.tar": webImageTar,
-			}), mediaModel.UploadPurposeExerciseArchive)
-			start, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
-			require.NoError(t, err)
-			f.failUpdates = failures
-			require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
-			require.Len(t, f.created, 1)
-			if failures == 1 {
-				view, viewErr := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
-				require.NoError(t, viewErr)
-				require.Equal(t, exerciseModel.ImportJobDone, view.State)
-				require.Equal(t, 2, f.updates)
-			}
-		})
-	}
-}
+// Task changes and done are one database outcome; lost commit responses never replay it.
+func TestRunArchiveImportDoneWriteIsAtomicWithTheImport(t *testing.T) { testAtomicImportOutcome(t) }
 
 // The synchronous import (an archive in memory) still refuses an image file: such archives go to the job.
 func TestArchiveNamesImages(t *testing.T) {
@@ -855,8 +890,6 @@ func TestImportJobReportsStageAndCounts(t *testing.T) {
 		{"images", 1, 2, 0, 2},
 		{"images", 2, 2, 0, 2},
 		{"tasks", 2, 2, 0, 2},
-		{"tasks", 2, 2, 1, 2},
-		{"tasks", 2, 2, 2, 2},
 	}, stepsOf(f.progress))
 	last := f.progress[len(f.progress)-1]
 	require.Equal(t, last.BytesTotal, last.BytesPushed)
@@ -938,4 +971,19 @@ func TestRunningArchiveImportsListsTheCallersRunningJobs(t *testing.T) {
 	require.Equal(t, exerciseModel.ImportStageImages, got[0].Stage)
 	require.Equal(t, 3, got[0].Progress.ImagesTotal)
 	require.Equal(t, 4, got[0].Progress.TasksTotal)
+}
+
+func (f *fakeImages) InspectImageArchive(ctx context.Context, a *ociregistry.ImageArchive, name string) (imageRegistryUseCase.ArchiveImageInspection, error) {
+	return (&previewImages{fakeImages: f}).InspectImageArchive(ctx, a, name)
+}
+
+func TestSourceCommitRetainsThePlanOfAnExistingLegacyNewJob(t *testing.T) {
+	f := newImportFixture(t)
+	f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{"exercise.json": imageTask("Images", [2]string{"web", "images/web.tar"}), "images/web.tar": webImageTar}), mediaModel.UploadPurposeExerciseArchive)
+	legacy, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+	require.NoError(t, err)
+	current, err := f.uc.CommitArchiveImport(context.Background(), exercise.Actor{UserID: importer, Role: rbac.RoleSuperAdmin}, exercise.CommitArchiveInput{PreviewArchiveInput: exercise.PreviewArchiveInput{UploadID: archiveUpID}})
+	require.NoError(t, err)
+	require.Equal(t, legacy.JobID, current.JobID)
+	require.Len(t, f.queued, 1)
 }

@@ -76,7 +76,7 @@ func (u *EventUseCase) AttachExercise(ctx context.Context, eventID uuid.UUID, in
 		return EventExerciseView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to attach event exercise").Err()
 	}
 	view := toEventExerciseView(created)
-	view.ExerciseName = catalogEntry.Name
+	view.ExerciseName = catalogEntry.WithVersionMetadata(version).Name
 	u.applyVersionResources(ctx, &view, version)
 	return view, nil
 }
@@ -208,7 +208,8 @@ func (u *EventUseCase) GetPublishedExercisePreviewForEvent(ctx context.Context, 
 	if variant < 0 || variant >= len(version.Variants) {
 		return PublishedExercisePreview{}, eventExerciseModel.ErrEventExerciseVariantModeInvalid.Err()
 	}
-	preview := PublishedExercisePreview{ID: entry.ID, Name: entry.Name, Description: entry.Description, VersionID: version.ID, VariantCount: len(version.Variants), Variant: variant, Tasks: []PublishedExerciseTaskPreview{}}
+	metadata := entry.WithVersionMetadata(version)
+	preview := PublishedExercisePreview{ID: entry.ID, Name: metadata.Name, Description: metadata.Description, VersionID: version.ID, VariantCount: len(version.Variants), Variant: variant, Tasks: []PublishedExerciseTaskPreview{}}
 	for _, task := range version.Variants[variant].Tasks {
 		preview.Tasks = append(preview.Tasks, PublishedExerciseTaskPreview{Name: task.Name, Difficulty: task.Difficulty, HintCount: len(task.Hints)})
 	}
@@ -392,11 +393,13 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		return EventExerciseView{}, err
 	}
 	now := time.Now()
+	source = source.WithVersionMetadata(pinned)
 	fork, err := exerciseModel.NewFork(source, pinned.ID, eventID, by, now)
 	if err != nil {
 		return EventExerciseView{}, err
 	}
 	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), ExerciseID: fork.ID, Status: exerciseModel.VersionStatusPublished,
+		Name: fork.Name, Description: fork.Description, Tags: fork.Tags,
 		AdminNote: pinned.AdminNote, Variants: pinned.Variants, CreatedAt: now, CreatedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}, PublishedAt: &now}
 	// The copy carries the pinned topology, so it asks for what the task asks for now; the gate still looks.
 	if err = u.requireReservedForChange(ctx, eventID, link, version, now); err != nil {
@@ -412,6 +415,7 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 			// The event already has an exercise with that name: name the
 			// copy apart instead of failing the action.
 			fork.Name = forkName(source.Name)
+			version.Name = fork.Name
 			if created, createErr = exercises.Create(ctx, fork); createErr != nil {
 				return model.ErrPlatform.WithError(createErr).WithMessage("Failed to create event fork").Err()
 			}
@@ -543,7 +547,7 @@ func (u *EventUseCase) switchInTransaction(ctx context.Context, link eventExerci
 	}
 	u.finishStandRecreation(ctx, recreation, policy.by)
 	view := toEventExerciseView(switched)
-	view.ExerciseName = entry.Name
+	view.ExerciseName = entry.WithVersionMetadata(version).Name
 	return view, nil
 }
 
@@ -717,7 +721,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 				variantIndex = picked
 			} else {
 				if balance == nil {
-					if balance, err = variantBalance(ctx, teamChallenges, link.ID, len(next.Variants)); err != nil {
+					if balance, err = variantBalance(ctx, teamChallenges, link.ID, len(next.Variants), variantWeights(next.Variants)...); err != nil {
 						return err
 					}
 				}

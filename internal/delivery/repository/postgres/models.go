@@ -742,6 +742,10 @@ type ExerciseImportJob struct {
 	BytesPushed  int64         `json:"bytes_pushed"`
 	BytesTotal   int64         `json:"bytes_total"`
 	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
+	Generation   int64         `json:"generation"`
+	Options      []byte        `json:"options"`
+	PlanHash     string        `json:"plan_hash"`
+	Results      []byte        `json:"results"`
 }
 
 type ExerciseProposal struct {
@@ -800,6 +804,9 @@ type ExerciseVersion struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
 type File struct {

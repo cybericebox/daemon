@@ -13,7 +13,7 @@ import (
 )
 
 const getExerciseImportJob = `-- name: GetExerciseImportJob :one
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 FROM exercise_import_jobs
 WHERE id = $1
 `
@@ -39,12 +39,59 @@ func (q *Queries) GetExerciseImportJob(ctx context.Context, id uuid.UUID) (Exerc
 		&i.BytesPushed,
 		&i.BytesTotal,
 		&i.OwnerEventID,
+		&i.Generation,
+		&i.Options,
+		&i.PlanHash,
+		&i.Results,
+	)
+	return i, err
+}
+
+const getOwnedExerciseImportJobBySource = `-- name: GetOwnedExerciseImportJobBySource :one
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results FROM exercise_import_jobs
+WHERE source_id = $1 AND source = $2
+  AND created_by = $3
+`
+
+type GetOwnedExerciseImportJobBySourceParams struct {
+	SourceID  uuid.UUID `json:"source_id"`
+	Source    string    `json:"source"`
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// Read-only recovery before source re-open. A foreign job is indistinguishable
+// from an absent job; no source INSERT/UPDATE is used to probe for it.
+func (q *Queries) GetOwnedExerciseImportJobBySource(ctx context.Context, arg GetOwnedExerciseImportJobBySourceParams) (ExerciseImportJob, error) {
+	row := q.db.QueryRow(ctx, getOwnedExerciseImportJobBySource, arg.SourceID, arg.Source, arg.CreatedBy)
+	var i ExerciseImportJob
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedBy,
+		&i.Source,
+		&i.SourceID,
+		&i.State,
+		&i.ExerciseIds,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Stage,
+		&i.ImagesDone,
+		&i.ImagesTotal,
+		&i.TasksDone,
+		&i.TasksTotal,
+		&i.BytesPushed,
+		&i.BytesTotal,
+		&i.OwnerEventID,
+		&i.Generation,
+		&i.Options,
+		&i.PlanHash,
+		&i.Results,
 	)
 	return i, err
 }
 
 const listRunningExerciseImportJobs = `-- name: ListRunningExerciseImportJobs :many
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 FROM exercise_import_jobs
 WHERE created_by = $1
   AND state = 'running'
@@ -85,6 +132,10 @@ func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRun
 			&i.BytesPushed,
 			&i.BytesTotal,
 			&i.OwnerEventID,
+			&i.Generation,
+			&i.Options,
+			&i.PlanHash,
+			&i.Results,
 		); err != nil {
 			return nil, err
 		}
@@ -99,12 +150,12 @@ func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRun
 const startExerciseImportJob = `-- name: StartExerciseImportJob :one
 
 INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at,
-                                  owner_event_id)
+                                  owner_event_id, options, plan_hash)
 VALUES ($1, $2, $3, $4, $5,
         $6::uuid[], $7, $8, $9,
-        $10)
+        $10, COALESCE($11::jsonb, '{}'::jsonb), $12)
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
-RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
+RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 `
 
 type StartExerciseImportJobParams struct {
@@ -118,6 +169,8 @@ type StartExerciseImportJobParams struct {
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
+	Options      []byte        `json:"options"`
+	PlanHash     string        `json:"plan_hash"`
 }
 
 // Background imports of task archives with device images (the import job aggregate: one row per source).
@@ -134,6 +187,8 @@ func (q *Queries) StartExerciseImportJob(ctx context.Context, arg StartExerciseI
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.OwnerEventID,
+		arg.Options,
+		arg.PlanHash,
 	)
 	var i ExerciseImportJob
 	err := row.Scan(
@@ -154,6 +209,10 @@ func (q *Queries) StartExerciseImportJob(ctx context.Context, arg StartExerciseI
 		&i.BytesPushed,
 		&i.BytesTotal,
 		&i.OwnerEventID,
+		&i.Generation,
+		&i.Options,
+		&i.PlanHash,
+		&i.Results,
 	)
 	return i, err
 }
@@ -171,8 +230,9 @@ SET state          = $1,
     tasks_total  = $9,
     bytes_pushed = $10,
     bytes_total  = $11,
-    updated_at   = $12
-WHERE id = $13
+    results      = $12,
+    updated_at   = $13
+WHERE id = $14 AND generation = $15 AND state = 'running'
 `
 
 type UpdateExerciseImportJobParams struct {
@@ -187,11 +247,13 @@ type UpdateExerciseImportJobParams struct {
 	TasksTotal   int32         `json:"tasks_total"`
 	BytesPushed  int64         `json:"bytes_pushed"`
 	BytesTotal   int64         `json:"bytes_total"`
+	Results      []byte        `json:"results"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 	ID           uuid.UUID     `json:"id"`
+	Generation   int64         `json:"generation"`
 }
 
-// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
+// The outcome belongs to one running attempt; a stale worker cannot overwrite a newer attempt or done state.
 func (q *Queries) UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateExerciseImportJob,
 		arg.State,
@@ -205,8 +267,10 @@ func (q *Queries) UpdateExerciseImportJob(ctx context.Context, arg UpdateExercis
 		arg.TasksTotal,
 		arg.BytesPushed,
 		arg.BytesTotal,
+		arg.Results,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.Generation,
 	)
 	if err != nil {
 		return 0, err
@@ -225,7 +289,7 @@ SET stage        = $1,
     bytes_total  = $7,
     updated_at   = $8
 WHERE id = $9
-  AND state = 'running'
+  AND state = 'running' AND generation = $10
 `
 
 type UpdateExerciseImportJobProgressParams struct {
@@ -238,10 +302,11 @@ type UpdateExerciseImportJobProgressParams struct {
 	BytesTotal  int64     `json:"bytes_total"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	ID          uuid.UUID `json:"id"`
+	Generation  int64     `json:"generation"`
 }
 
 // The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
-// has ended (zero rows) keeps its outcome.
+// has ended or restarted (zero rows) keeps its outcome.
 func (q *Queries) UpdateExerciseImportJobProgress(ctx context.Context, arg UpdateExerciseImportJobProgressParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateExerciseImportJobProgress,
 		arg.Stage,
@@ -253,6 +318,7 @@ func (q *Queries) UpdateExerciseImportJobProgress(ctx context.Context, arg Updat
 		arg.BytesTotal,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.Generation,
 	)
 	if err != nil {
 		return 0, err

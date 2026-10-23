@@ -21,15 +21,17 @@ WITH evs AS (
     WHERE e.lifecycle_configured
       AND e.start_at >= $2::timestamptz AND e.start_at < $3::timestamptz
 ), chal AS (
-    SELECT ec.id AS challenge_id, ee.event_id, ee.exercise_id, ec.task_id, ex.name AS exercise_name, ex.tags,
+    SELECT ec.id AS challenge_id, ee.event_id, ee.exercise_id, ec.task_id, pinned.name AS exercise_name, pinned.tags,
+           COALESCE(pinned.published_at, pinned.created_at) AS version_at, pinned.id AS version_id,
            COALESCE(ec.snapshot ->> 'name', '')       AS task_name,
            COALESCE(ec.snapshot ->> 'difficulty', '') AS difficulty
     FROM event_exercises ee
     JOIN exercises ex ON ex.id = ee.exercise_id AND ex.scope = 0
+    JOIN exercise_versions pinned ON pinned.id = ee.exercise_version_id
     JOIN event_challenges ec ON ec.event_exercise_id = ee.id AND ec.published
     WHERE ee.event_id IN (SELECT id FROM evs)
       AND ee.status <> 2
-      AND ($4::text IS NULL OR $4::text = ANY (ex.tags))
+      AND ($4::text IS NULL OR $4::text = ANY (pinned.tags))
       AND ($5::text IS NULL OR ec.snapshot ->> 'difficulty' = $5::text)
 ), attempts AS (
     SELECT tc.event_challenge_id AS challenge_id, a.event_team_id AS team_id,
@@ -89,12 +91,15 @@ WITH evs AS (
     FROM solve_times
     WHERE secs IS NOT NULL AND secs >= 0
     GROUP BY exercise_id, task_id
+), metadata AS (
+    -- One display snapshot for the same filtered population as the metrics:
+    -- the newest relevant pinned version, with deterministic tie breakers.
+    SELECT DISTINCT ON (exercise_id, task_id)
+           exercise_id, task_id, exercise_name, task_name, difficulty, tags
+    FROM chal
+    ORDER BY exercise_id, task_id, version_at DESC, version_id DESC, event_id, challenge_id
 ), tasks AS (
     SELECT c.exercise_id, c.task_id,
-           max(c.exercise_name)                              AS exercise_name,
-           max(c.task_name)                                  AS task_name,
-           max(c.difficulty)                                 AS difficulty,
-           c.tags                                            AS tags,
            count(DISTINCT c.event_id)                        AS events_used,
            COALESCE(sum(at.attempts), 0)                     AS attempts,
            COALESCE(sum(at.teams_tried), 0)                  AS teams_tried,
@@ -106,14 +111,14 @@ WITH evs AS (
     LEFT JOIN engaged_totals en ON en.challenge_id = c.challenge_id
     LEFT JOIN solve_totals so ON so.challenge_id = c.challenge_id
     LEFT JOIN hint_totals hi ON hi.challenge_id = c.challenge_id
-    GROUP BY c.exercise_id, c.task_id, c.tags
+    GROUP BY c.exercise_id, c.task_id
 )
 SELECT t.exercise_id                                  AS exercise_id,
        t.task_id                                      AS task_id,
-       t.exercise_name::text                          AS exercise_name,
-       t.task_name::text                              AS task_name,
-       t.difficulty::text                             AS difficulty,
-       t.tags::text[]                                 AS tags,
+       metadata.exercise_name::text                   AS exercise_name,
+       metadata.task_name::text                       AS task_name,
+       metadata.difficulty::text                      AS difficulty,
+       metadata.tags::text[]                          AS tags,
        t.events_used::bigint                          AS events_used,
        t.attempts::bigint                             AS attempts,
        t.teams_tried::bigint                          AS teams_tried,
@@ -123,8 +128,9 @@ SELECT t.exercise_id                                  AS exercise_id,
        COALESCE(round(m.median_secs), -1)::bigint     AS median_solve_secs,
        count(*) OVER ()::bigint                       AS total
 FROM tasks t
+JOIN metadata USING (exercise_id, task_id)
 LEFT JOIN medians m ON m.exercise_id = t.exercise_id AND m.task_id = t.task_id
-ORDER BY t.events_used DESC, t.exercise_name, t.task_name, t.task_id
+ORDER BY t.events_used DESC, metadata.exercise_name, metadata.task_name, t.task_id
 LIMIT $1
 `
 
@@ -214,7 +220,8 @@ FROM event_exercises ee
 JOIN events e ON e.id = ee.event_id AND e.lifecycle_configured
      AND e.start_at >= $1::timestamptz AND e.start_at < $2::timestamptz
 JOIN exercises ex ON ex.id = ee.exercise_id AND ex.scope = 0
-CROSS JOIN LATERAL unnest(ex.tags) AS cat(name)
+    JOIN exercise_versions pinned ON pinned.id = ee.exercise_version_id
+CROSS JOIN LATERAL unnest(pinned.tags) AS cat(name)
 WHERE ee.status <> 2
 ORDER BY 1
 LIMIT 200
