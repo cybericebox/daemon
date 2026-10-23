@@ -391,12 +391,14 @@ func (c *Client) ManifestExists(ctx context.Context, reference string) (bool, er
 // ManifestDigest is the digest a registry states (Docker-Content-Digest) for the manifest under a tag, for a
 // registry whose tags cannot be updated: a tag that already serves the image needs no second PUT. found is false
 // for a 404. A found manifest whose registry sends no digest returns "" and the caller decides.
+// It is a read (HEAD), so it asks for the pull scope only: a pull-only credential (a read-only Docker Hub access
+// token) is refused a token for push and must still be able to see that an image already exists.
 func (c *Client) ManifestDigest(ctx context.Context, tag string) (digest string, found bool, err error) {
 	repo, err := c.repo()
 	if err != nil {
 		return "", false, err
 	}
-	hc, err := c.http(ctx, repo, transport.PushScope)
+	hc, err := c.http(ctx, repo, transport.PullScope)
 	if err != nil {
 		return "", false, c.wrap("manifest digest", err)
 	}
