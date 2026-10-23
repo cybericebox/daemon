@@ -136,6 +136,8 @@ type (
 		CreateExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		ListExercisesFor(ctx context.Context, actor exerciseUseCase.Actor, f exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error)
+		CatalogColumns(ctx context.Context, actor exerciseUseCase.Actor) ([]exerciseUseCase.CatalogColumn, error)
+		SetCatalogColumns(ctx context.Context, actor exerciseUseCase.Actor, columns []exerciseUseCase.CatalogColumn) error
 		SetExerciseAccess(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error)
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
 		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
@@ -178,6 +180,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.GET("tags", self, h.listTags)
 		ex.GET("authors", self, h.listAuthors)
 		ex.GET("access", self, h.access)
+		// the caller's own catalog table columns (order and visibility)
+		ex.GET("preferences/catalog-columns", self, h.catalogColumns)
+		ex.PUT("preferences/catalog-columns", self, h.setCatalogColumns)
 		ex.POST("", self, h.create)
 
 		// files routes are static segments ("files", "files/:fileID") and must

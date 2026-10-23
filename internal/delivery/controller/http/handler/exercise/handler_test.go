@@ -51,6 +51,7 @@ type fakeUC struct {
 	exerciseView          exerciseUseCase.ExerciseView
 	listResult            exerciseUseCase.ExercisesListResult
 	listFilter            exerciseUseCase.ExercisesFilter
+	catalogColumns        []exerciseUseCase.CatalogColumn
 	tagPrefix             string
 	tagLimit              int
 	accessInput           exerciseUseCase.SetAccessInput
@@ -1944,6 +1945,13 @@ func (f *fakeUC) GetExerciseFor(ctx context.Context, _ exerciseUseCase.Actor, id
 }
 func (f *fakeUC) ListExercisesFor(ctx context.Context, _ exerciseUseCase.Actor, filter exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error) {
 	return f.ListExercises(ctx, filter)
+}
+func (f *fakeUC) CatalogColumns(context.Context, exerciseUseCase.Actor) ([]exerciseUseCase.CatalogColumn, error) {
+	return f.catalogColumns, f.err
+}
+func (f *fakeUC) SetCatalogColumns(_ context.Context, _ exerciseUseCase.Actor, columns []exerciseUseCase.CatalogColumn) error {
+	f.catalogColumns = columns
+	return f.err
 }
 func (f *fakeUC) SetExerciseAccess(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error) {
 	f.accessInput = in

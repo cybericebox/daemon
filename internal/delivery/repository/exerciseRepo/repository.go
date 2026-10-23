@@ -50,6 +50,9 @@ type Queries interface {
 	ListExercisesCursor(ctx context.Context, arg postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error)
 	ListExercisesPage(ctx context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error)
 	ListExerciseTags(ctx context.Context, arg postgres.ListExerciseTagsParams) ([]postgres.ListExerciseTagsRow, error)
+	// The user's own catalog settings (the table columns).
+	GetUserUIPreference(ctx context.Context, arg postgres.GetUserUIPreferenceParams) ([]byte, error)
+	UpsertUserUIPreference(ctx context.Context, arg postgres.UpsertUserUIPreferenceParams) error
 	ListExerciseAuthors(ctx context.Context, arg postgres.ListExerciseAuthorsParams) ([]postgres.ListExerciseAuthorsRow, error)
 	CountExercises(ctx context.Context, arg postgres.CountExercisesParams) (int64, error)
 	CountExercisesPage(ctx context.Context, arg postgres.CountExercisesPageParams) (int64, error)

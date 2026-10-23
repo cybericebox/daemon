@@ -668,6 +668,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]UserProvider, error)
+	GetUserUIPreference(ctx context.Context, arg GetUserUIPreferenceParams) ([]byte, error)
 	// IS NOT DISTINCT FROM matches a null scope_ref (the test scope) NULL-safely.
 	GetUserVPNConfig(ctx context.Context, arg GetUserVPNConfigParams) (UserVpnConfig, error)
 	HasActiveEventLabRuntimeSelection(ctx context.Context, arg HasActiveEventLabRuntimeSelectionParams) (bool, error)
@@ -1956,6 +1957,7 @@ type Querier interface {
 	UpsertTeamChallengePracticeSolve(ctx context.Context, arg UpsertTeamChallengePracticeSolveParams) error
 	UpsertTeamChallengeSolve(ctx context.Context, arg UpsertTeamChallengeSolveParams) error
 	UpsertUserSetting(ctx context.Context, arg UpsertUserSettingParams) error
+	UpsertUserUIPreference(ctx context.Context, arg UpsertUserUIPreferenceParams) error
 	// Store (or replace) a user's VPN config for a scope. The unique
 	// (user_id, scope, scope_ref) constraint (NULLS NOT DISTINCT) makes this an
 	// upsert: re-issuing within the same scope overwrites the ciphertext. Timestamps

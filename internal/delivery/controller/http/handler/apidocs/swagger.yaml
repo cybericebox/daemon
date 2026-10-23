@@ -6090,6 +6090,13 @@ definitions:
       Variants:
         $ref: '#/definitions/exercise.ImportCountChange'
     type: object
+  exercise.CatalogColumn:
+    properties:
+      key:
+        type: string
+      visible:
+        type: boolean
+    type: object
   exercise.ConfirmedImportUpdate:
     properties:
       ItemKey:
@@ -23937,6 +23944,60 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Import an exercise ZIP archive that went up in chunks (completed into
         a file, at most the archive limit)
+      tags:
+      - exercises
+  /exercises/preferences/catalog-columns:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.CatalogColumn'
+                  type: array
+              type: object
+      summary: 'The caller''s catalog table columns: their order and which are shown;
+        null until arranged once'
+      tags:
+      - exercises
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: the columns in order
+        in: body
+        name: body
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/exercise.CatalogColumn'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.CatalogColumn'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Saves the caller's catalog table columns (at most 32 distinct column
+        names, in order)
       tags:
       - exercises
   /exercises/proposals:

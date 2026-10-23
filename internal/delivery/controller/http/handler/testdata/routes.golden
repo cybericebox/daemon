@@ -439,6 +439,8 @@ POST   /api/exercises/import/preview | gate: self | layers: download.LongOperati
 GET    /api/exercises/import/targets | gate: self | layers: -
 POST   /api/exercises/import/upload | gate: self | layers: download.LongOperation.func
 POST   /api/exercises/import/uploaded | gate: self | layers: download.LongOperation.func
+GET    /api/exercises/preferences/catalog-columns | gate: self | layers: -
+PUT    /api/exercises/preferences/catalog-columns | gate: self | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
