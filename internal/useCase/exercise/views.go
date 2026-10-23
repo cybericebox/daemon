@@ -56,6 +56,8 @@ type ExerciseListItem struct {
 	TaskCount *int
 	// TaskNames are the names of those subtasks in order (page lists only; empty without a variant).
 	TaskNames []string
+	// VariantCount is how many variants the visible snapshot has; nil without one (page lists only).
+	VariantCount *int
 
 	ExerciseScopeView
 }

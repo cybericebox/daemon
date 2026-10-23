@@ -927,6 +927,8 @@ WITH listed AS (SELECT e.id,
                                                                         THEN version.variants -> 0 -> 'tasks'
                                                                     ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
                                       ORDER BY task.position), '{}')::text[] AS task_names,
+                       -- How many variants the visible snapshot has; NULL without a snapshot.
+                       CASE WHEN jsonb_typeof(version.variants) = 'array' THEN jsonb_array_length(version.variants) END AS variant_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The whole actor-visible snapshot: working for full readers, published for public readers.
@@ -962,7 +964,9 @@ SELECT exercises.id, exercises.name, exercises.description, exercises.tags, exer
        COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
        (listed.task_count IS NOT NULL)::boolean      AS has_task_count,
        COALESCE(listed.task_count, 0)::int           AS task_count,
-       listed.task_names
+       listed.task_names,
+       (listed.variant_count IS NOT NULL)::boolean   AS has_variant_count,
+       COALESCE(listed.variant_count, 0)::int        AS variant_count
 FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality($1::text[]), 0) = 0 OR listed.status = ANY ($1::text[]))
@@ -982,6 +986,8 @@ ORDER BY
   CASE WHEN $2::text = 'author' AND $3::text = 'desc' THEN lower(listed.author_name) END DESC,
   CASE WHEN $2::text = 'subtasks' AND $3::text = 'asc' THEN listed.task_count END ASC NULLS LAST,
   CASE WHEN $2::text = 'subtasks' AND $3::text = 'desc' THEN listed.task_count END DESC NULLS LAST,
+  CASE WHEN $2::text = 'variants' AND $3::text = 'asc' THEN listed.variant_count END ASC NULLS LAST,
+  CASE WHEN $2::text = 'variants' AND $3::text = 'desc' THEN listed.variant_count END DESC NULLS LAST,
   CASE WHEN $2::text = 'difficulty' AND $3::text = 'asc' THEN listed.avg_difficulty END ASC NULLS LAST,
   CASE WHEN $2::text = 'difficulty' AND $3::text = 'desc' THEN listed.avg_difficulty END DESC NULLS LAST,
   CASE WHEN $2::text = 'updated' AND $3::text = 'asc' THEN updated_at END ASC,
@@ -1022,6 +1028,8 @@ type ListExercisesPageRow struct {
 	HasTaskCount       bool     `json:"has_task_count"`
 	TaskCount          int32    `json:"task_count"`
 	TaskNames          []string `json:"task_names"`
+	HasVariantCount    bool     `json:"has_variant_count"`
+	VariantCount       int32    `json:"variant_count"`
 }
 
 // status is the single derived catalog status (exercise_status); the working
@@ -1085,6 +1093,8 @@ func (q *Queries) ListExercisesPage(ctx context.Context, arg ListExercisesPagePa
 			&i.HasTaskCount,
 			&i.TaskCount,
 			&i.TaskNames,
+			&i.HasVariantCount,
+			&i.VariantCount,
 		); err != nil {
 			return nil, err
 		}

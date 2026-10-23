@@ -174,6 +174,14 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	if row := byName["Hard crypto"]; row.TaskCount == nil || *row.TaskCount != 2 {
 		t.Fatalf("subtask count of a draft-only task: %+v", row.TaskCount)
 	}
+	// One variant each in the visible snapshot; none without a version.
+	if row := byName["Easy web"]; row.VariantCount == nil || *row.VariantCount != 1 {
+		t.Fatalf("variant count of the working version: %+v", row.VariantCount)
+	}
+	if row := byName["No content"]; row.VariantCount != nil {
+		t.Fatalf("no version, no variant count: %+v", row.VariantCount)
+	}
+	expect("variants descending, none last; ties newest first", list(exerciseRepo.PageParams{SortBy: "variants", SortDir: "desc"}), "Hard crypto", "Easy web", "No content", "Legacy web")
 	// Sorted by subtasks: none last in both directions; ties keep the newest first.
 	expect("subtasks ascending", list(exerciseRepo.PageParams{SortBy: "subtasks", SortDir: "asc"}), "Easy web", "Hard crypto", "No content", "Legacy web")
 

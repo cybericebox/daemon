@@ -184,6 +184,8 @@ type exerciseListItemResponse struct {
 	TaskCount *int `json:"TaskCount"`
 	// TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).
 	TaskNames []string `json:"TaskNames"`
+	// VariantCount is how many variants the visible snapshot has; null without one (offset pages only).
+	VariantCount *int `json:"VariantCount"`
 	exerciseScopeResponse
 }
 
@@ -191,7 +193,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames),
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames), VariantCount: e.VariantCount,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }

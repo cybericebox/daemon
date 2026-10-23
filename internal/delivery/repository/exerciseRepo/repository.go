@@ -139,6 +139,8 @@ type Listed struct {
 	// TaskCount is the number of subtasks of the first variant (nil: no variant); TaskNames are their names in order.
 	TaskCount *int
 	TaskNames []string
+	// VariantCount is the number of variants of the visible snapshot (nil: no snapshot).
+	VariantCount *int
 }
 
 // PageParams filter, sort and page the catalog table. Tags: any of them; TagsAll: every one; TagsNone: none of
@@ -242,6 +244,10 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, erro
 		item.TaskNames = row.TaskNames
 		if item.TaskNames == nil {
 			item.TaskNames = []string{}
+		}
+		if row.HasVariantCount {
+			count := int(row.VariantCount)
+			item.VariantCount = &count
 		}
 		out = append(out, item)
 	}

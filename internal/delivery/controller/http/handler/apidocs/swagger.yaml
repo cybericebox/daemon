@@ -6887,6 +6887,10 @@ definitions:
         type: array
       UpdatedAt:
         type: string
+      VariantCount:
+        description: VariantCount is how many variants the visible snapshot has; null
+          without one (offset pages only).
+        type: integer
     type: object
   exercise.exercisePermissionsResponse:
     properties:
@@ -21932,8 +21936,8 @@ paths:
           type: string
         name: status
         type: array
-      - description: name, tags, status, author, difficulty, subtasks or updated (offset
-          pages only)
+      - description: name, tags, status, author, difficulty, subtasks, variants or
+          updated (offset pages only)
         in: query
         name: sortBy
         type: string

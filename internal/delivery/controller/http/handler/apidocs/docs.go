@@ -15881,7 +15881,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "name, tags, status, author, difficulty, subtasks or updated (offset pages only)",
+                        "description": "name, tags, status, author, difficulty, subtasks, variants or updated (offset pages only)",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -35781,6 +35781,10 @@ const docTemplate = `{
                 },
                 "UpdatedAt": {
                     "type": "string"
+                },
+                "VariantCount": {
+                    "description": "VariantCount is how many variants the visible snapshot has; null without one (offset pages only).",
+                    "type": "integer"
                 }
             }
         },

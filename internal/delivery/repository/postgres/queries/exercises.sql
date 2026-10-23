@@ -115,6 +115,8 @@ WITH listed AS (SELECT e.id,
                                                                         THEN version.variants -> 0 -> 'tasks'
                                                                     ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
                                       ORDER BY task.position), '{}')::text[] AS task_names,
+                       -- How many variants the visible snapshot has; NULL without a snapshot.
+                       CASE WHEN jsonb_typeof(version.variants) = 'array' THEN jsonb_array_length(version.variants) END AS variant_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The whole actor-visible snapshot: working for full readers, published for public readers.
@@ -150,7 +152,9 @@ SELECT sqlc.embed(exercises), listed.status, listed.author_name,
        COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
        (listed.task_count IS NOT NULL)::boolean      AS has_task_count,
        COALESCE(listed.task_count, 0)::int           AS task_count,
-       listed.task_names
+       listed.task_names,
+       (listed.variant_count IS NOT NULL)::boolean   AS has_variant_count,
+       COALESCE(listed.variant_count, 0)::int        AS variant_count
 FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality(sqlc.arg(statuses)::text[]), 0) = 0 OR listed.status = ANY (sqlc.arg(statuses)::text[]))
@@ -170,6 +174,8 @@ ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(listed.author_name) END DESC,
   CASE WHEN sqlc.arg(sort_by)::text = 'subtasks' AND sqlc.arg(sort_dir)::text = 'asc' THEN listed.task_count END ASC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'subtasks' AND sqlc.arg(sort_dir)::text = 'desc' THEN listed.task_count END DESC NULLS LAST,
+  CASE WHEN sqlc.arg(sort_by)::text = 'variants' AND sqlc.arg(sort_dir)::text = 'asc' THEN listed.variant_count END ASC NULLS LAST,
+  CASE WHEN sqlc.arg(sort_by)::text = 'variants' AND sqlc.arg(sort_dir)::text = 'desc' THEN listed.variant_count END DESC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'difficulty' AND sqlc.arg(sort_dir)::text = 'asc' THEN listed.avg_difficulty END ASC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'difficulty' AND sqlc.arg(sort_dir)::text = 'desc' THEN listed.avg_difficulty END DESC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'updated' AND sqlc.arg(sort_dir)::text = 'asc' THEN updated_at END ASC,
