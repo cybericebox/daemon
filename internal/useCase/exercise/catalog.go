@@ -65,7 +65,21 @@ func (u *ExerciseUseCase) GetExerciseFor(ctx context.Context, actor Actor, id uu
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	return u.decorateView(ctx, actor, view)
+	view, err = u.decorateView(ctx, actor, view)
+	if err != nil {
+		return ExerciseView{}, err
+	}
+	// The identity columns are the public projection. Only a full working-copy
+	// reader receives the draft metadata, just like that reader's version content.
+	if view.Permissions.CanRead && view.DraftVersionID != nil {
+		draft, readErr := u.exercises.GetDraft(ctx, id)
+		if readErr == nil && draft.Name != "" {
+			view.Name, view.Description, view.Tags = draft.Name, draft.Description, draft.Tags
+		} else if readErr != nil && !repositoryTools.IsObjectNotFoundError(readErr) {
+			return ExerciseView{}, model.ErrPlatform.WithError(readErr).WithMessage("Failed to read working metadata").Err()
+		}
+	}
+	return view, nil
 }
 
 // decorateView fills names, infrastructure, the access list, a pending
@@ -88,22 +102,22 @@ func (u *ExerciseUseCase) decorateView(ctx context.Context, actor Actor, view Ex
 	if err = u.applyAccessEvents(ctx, actor, []*ExerciseScopeView{&view.ExerciseScopeView}, []uuid.UUID{e.ID}); err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.applyResources(ctx, []*ExerciseScopeView{&view.ExerciseScopeView}, []uuid.UUID{e.ID}); err != nil {
+	if err = u.applyResources(ctx, actor, []*ExerciseScopeView{&view.ExerciseScopeView}, []uuid.UUID{e.ID}); err != nil {
 		return ExerciseView{}, err
 	}
 	return view, nil
 }
 
-// applyResources fills the total resources and the resource-heavy mark of the views from the published
-// versions (one query for all of them).
-func (u *ExerciseUseCase) applyResources(ctx context.Context, views []*ExerciseScopeView, ids []uuid.UUID) error {
-	published, err := u.publishedResources(ctx, ids)
+// applyResources fills totals, infrastructure and the resource-heavy mark from
+// the same actor-visible snapshots as the catalog metadata (one query for the page).
+func (u *ExerciseUseCase) applyResources(ctx context.Context, actor Actor, views []*ExerciseScopeView, ids []uuid.UUID) error {
+	visible, err := u.visibleResources(ctx, actor, ids)
 	if err != nil {
 		return err
 	}
 	for i, v := range views {
-		if r, ok := published[ids[i]]; ok {
-			v.Resources, v.ResourceHeavy = r.Range, r.Heavy
+		if r, ok := visible[ids[i]]; ok {
+			v.Resources, v.ResourceHeavy, v.Infrastructure = r.Range, r.Heavy, r.Infrastructure
 		}
 	}
 	return nil
@@ -183,7 +197,7 @@ func (u *ExerciseUseCase) ListExercisesFor(ctx context.Context, actor Actor, f E
 	if err = u.applyAccessEvents(ctx, actor, views, ids); err != nil {
 		return ExercisesListResult{}, err
 	}
-	if err = u.applyResources(ctx, views, ids); err != nil {
+	if err = u.applyResources(ctx, actor, views, ids); err != nil {
 		return ExercisesListResult{}, err
 	}
 	return result, nil
@@ -235,7 +249,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "name", "tags", "status", "updated", "author", "difficulty", "subtasks":
+		case "name", "tags", "status", "updated", "author", "difficulty", "subtasks", "variants":
 		default:
 			sortBy = "updated"
 		}
@@ -261,7 +275,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 		items := make([]ExerciseListItem, 0, len(exercises))
 		for _, e := range exercises {
 			item := toExerciseListItem(e.Exercise, e.Status)
-			item.AuthorName, item.AvgDifficulty, item.TaskCount, item.TaskNames = e.AuthorName, e.AvgDifficulty, e.TaskCount, e.TaskNames
+			item.AuthorName, item.AvgDifficulty, item.TaskCount, item.TaskNames, item.VariantCount = e.AuthorName, e.AvgDifficulty, e.TaskCount, e.TaskNames, e.VariantCount
 			items = append(items, item)
 		}
 		total, err := u.exercises.CountPage(ctx, params)
@@ -398,15 +412,30 @@ func (u *ExerciseUseCase) ListExerciseTags(ctx context.Context, actor Actor, pre
 	return out, nil
 }
 
-// UpdateExerciseIdentity renames/retags via the canonical mutate path. Route
-// gate: exercises.write.
+// UpdateExerciseIdentity preserves the PATCH DTO while editing the full draft
+// snapshot. The public identity projection changes only in Publish's SQL CTE.
 func (u *ExerciseUseCase) UpdateExerciseIdentity(ctx context.Context, in UpdateExerciseInput) (ExerciseView, error) {
-	e, err := u.mutateExercise(ctx, in.ID, func(e *exerciseModel.Exercise) error {
-		return e.UpdateIdentity(in.Name, in.Description, in.Tags, in.UpdatedBy, time.Now())
-	})
+	e, err := u.loadEditable(ctx, in.ID)
 	if err != nil {
 		return ExerciseView{}, err
 	}
+	expected := e.UpdatedAt
+	if err = e.UpdateIdentity(in.Name, in.Description, in.Tags, in.UpdatedBy, time.Now()); err != nil {
+		return ExerciseView{}, err
+	}
+	draft, err := u.exercises.SaveDraftIdentity(ctx, e, expected, freshID())
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			if _, readErr := u.exercises.GetByID(ctx, in.ID); repositoryTools.IsObjectNotFoundError(readErr) {
+				return ExerciseView{}, exerciseModel.ErrExerciseNotFound.Err()
+			} else if readErr != nil {
+				return ExerciseView{}, model.ErrPlatform.WithError(readErr).Err()
+			}
+			return ExerciseView{}, exerciseModel.ErrExerciseModified.Err()
+		}
+		return ExerciseView{}, classifyExerciseWriteError(err, "save draft metadata")
+	}
+	e.DraftVersionID = uuid.NullUUID{UUID: draft.ID, Valid: true}
 	return u.exerciseView(ctx, e)
 }
 

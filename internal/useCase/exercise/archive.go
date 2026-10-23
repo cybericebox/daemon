@@ -42,6 +42,11 @@ type exportedFile struct {
 	ContentType string `json:"content_type"`
 }
 type ParsedExerciseArchive struct {
+	// SourceExerciseID is only a re-import suggestion. New imports still allocate
+	// their own identity; legacy archives may omit it or use an unrelated id format.
+	SourceExerciseID uuid.UUID
+	// ItemKey identifies the task folder, independently of optional/repeated source ids.
+	ItemKey  string
 	Exercise exerciseModel.Exercise
 	Versions []exerciseModel.ExerciseVersion
 	// Files are the task folder's entries, paths relative to it.
@@ -101,7 +106,11 @@ func parseTaskFiles(all map[string][]byte) (ParsedExerciseArchive, error) {
 	if len(folders) != 1 {
 		return ParsedExerciseArchive{}, archiveInvalid("the archive holds several task folders: import it as a bundle")
 	}
-	return parseTaskFolder(folders[0].Files, nil)
+	parsed, err := parseTaskFolder(folders[0].Files, nil)
+	if err == nil {
+		parsed.ItemKey = importItemKey(folders[0].Prefix)
+	}
+	return parsed, err
 }
 
 // parseTaskFolder parses one task folder; images are its device image files (paths relative to it), nil where
@@ -190,6 +199,18 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
 // statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
 func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
+	if err := u.validateImportContent(parsed, protected); err != nil {
+		return err
+	}
+	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
+		return err
+	}
+	return u.encryptImportedSecrets(parsed.Versions)
+}
+
+// validateImportContent is the write-free parse/content preparation shared by
+// preview and commit. Destination policy and random secret encryption follow it.
+func (u *ExerciseUseCase) validateImportContent(parsed *ParsedExerciseArchive, protected bool) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
@@ -197,9 +218,23 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 	if err := validateImportedVersions(parsed.Versions); err != nil {
 		return err
 	}
+	// Every authored snapshot is validated, including history that an update
+	// would not select. Never create a first task before discovering invalid
+	// metadata in a later snapshot or archive item.
+	for i := range parsed.Versions {
+		v := &parsed.Versions[i]
+		metadata := exerciseModel.Exercise{}
+		if err := metadata.UpdateIdentity(v.Name, v.Description, v.Tags, uuid.Nil, time.Time{}); err != nil {
+			return withImportedPath(err, i, v.Variants)
+		}
+		v.Name, v.Description, v.Tags = metadata.Name, metadata.Description, metadata.Tags
+	}
 	// Only an archive that really was protected may carry secret values: a typed password proves nothing.
 	if secretPath := firstSecretValue(parsed.Versions); !protected && secretPath != "" {
 		return archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
+	}
+	if firstSecretValue(parsed.Versions) != "" && u.cipher == nil {
+		return exerciseModel.ErrSecretsNotConfigured.Err()
 	}
 	// A secret is bound to its variant id: the ids are final before anything is sealed.
 	for i := range parsed.Versions {
@@ -209,11 +244,7 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
 	}
-	// A version imported as published passes the same gate as PublishDraft, before anything is uploaded or written.
-	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
-		return err
-	}
-	return u.encryptImportedSecrets(parsed.Versions)
+	return nil
 }
 
 // storeImport uploads the attachments of a prepared task and creates it.
@@ -221,24 +252,20 @@ func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExercis
 	if err := u.copyImportedAttachments(ctx, parsed, createdBy); err != nil {
 		return ExerciseView{}, err
 	}
-	created, err := u.createImportedIdentity(ctx, parsed.Exercise, createdBy, ownerEventID)
+	ctx, session, q, unit, err := u.beginCatalog(ctx)
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	// Database writes happen only after archive validation, secret encryption
-	// and all media uploads succeeded. On a later database/ref failure, remove
-	// the newly-created aggregate; unreferenced media is intentionally left to
-	// the media garbage collector rather than risking deletion of deduplicated
-	// blobs.
-	if err = u.adoptImportedFiles(ctx, created.ID, parsed.Versions); err != nil {
-		_, _ = u.exercises.Delete(ctx, created.ID)
+	defer unit.Restore()
+	view, err := session.storeStagedNewImport(ctx, q, parsed, createdBy, ownerEventID, false)
+	if err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.persistImportedVersions(ctx, created.ID, parsed.Versions, createdBy); err != nil {
-		_, _ = u.exercises.Delete(ctx, created.ID)
+	if err = unit.Save(); err != nil {
 		return ExerciseView{}, err
 	}
-	return created, nil
+	return view, nil
+
 }
 
 // adoptImportedFiles stores the uploaded attachments as the new task's files (each content once), in every
@@ -426,21 +453,6 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	return nil
 }
 
-func (u *ExerciseUseCase) createImportedIdentity(ctx context.Context, source exerciseModel.Exercise, createdBy uuid.UUID, ownerEventID *uuid.UUID) (ExerciseView, error) {
-	baseName := source.Name
-	for attempt := 0; attempt < 100; attempt++ {
-		name := importedName(baseName, attempt)
-		created, err := u.CreateExercise(ctx, CreateExerciseInput{Name: name, Description: source.Description, Tags: source.Tags, CreatedBy: createdBy, OwnerEventID: ownerEventID})
-		if err == nil {
-			return created, nil
-		}
-		if !errors.Is(err, exerciseModel.ErrExerciseExists.Err()) {
-			return ExerciseView{}, err
-		}
-	}
-	return ExerciseView{}, fmt.Errorf("could not allocate a unique imported exercise name")
-}
-
 func importedName(base string, attempt int) string {
 	if attempt == 0 {
 		return base
@@ -469,6 +481,8 @@ func (u *ExerciseUseCase) persistImportedVersions(ctx context.Context, exerciseI
 	draft, published := uuid.NullUUID{}, uuid.NullUUID{}
 	for index := range versions {
 		version := versions[index]
+		// New archives carry every snapshot's metadata; legacy archives were
+		// expanded to their known root baseline by the parser.
 		version.ID = uuid.Must(uuid.NewV7())
 		version.ExerciseID = exerciseID
 		version.CreatedAt = now.Add(time.Duration(index) * time.Nanosecond)

@@ -102,7 +102,7 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	if _, err := repo.Publish(ctx, easy.ID, itNow.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	// The working copy is harder, the published version is what the catalog describes.
+	// The full reader sees this harder working snapshot; published-only readers retain the earlier snapshot.
 	save(easy.ID, levels(exerciseModel.DifficultyInsane), itNow.Add(2*time.Minute))
 	hard := create("Hard crypto", []string{"crypto"}, bob, itNow.Add(time.Second))
 	save(hard.ID, levels(exerciseModel.DifficultyHard, exerciseModel.DifficultyInsane), itNow) // draft only: 5.5 → 6
@@ -158,8 +158,8 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	for _, row := range all {
 		byName[row.Name] = row
 	}
-	if row := byName["Easy web"]; row.AuthorName != "Ada Lovelace" || row.AvgDifficulty == nil || *row.AvgDifficulty != 3 {
-		t.Fatalf("published version describes the task: %+v", row)
+	if row := byName["Easy web"]; row.AuthorName != "Ada Lovelace" || row.AvgDifficulty == nil || *row.AvgDifficulty != 6 {
+		t.Fatalf("working version describes the full-reader task: %+v", row)
 	}
 	if row := byName["Hard crypto"]; row.AuthorName != "" || row.AvgDifficulty == nil || *row.AvgDifficulty != 5.5 {
 		t.Fatalf("an author without a name, the working copy of a draft-only task: %+v", row)
@@ -167,15 +167,23 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	if row := byName["No content"]; row.AvgDifficulty != nil || row.TaskCount != nil {
 		t.Fatalf("no version, no difficulty, no subtask count: %+v", row)
 	}
-	// Subtasks of the first variant of the published version (2), not of the working copy (1).
-	if row := byName["Easy web"]; row.TaskCount == nil || *row.TaskCount != 2 {
-		t.Fatalf("subtask count of the published version: %+v", row.TaskCount)
+	// Full readers see the working version's one subtask; the published version has two.
+	if row := byName["Easy web"]; row.TaskCount == nil || *row.TaskCount != 1 {
+		t.Fatalf("subtask count of the working version: %+v", row.TaskCount)
 	}
 	if row := byName["Hard crypto"]; row.TaskCount == nil || *row.TaskCount != 2 {
 		t.Fatalf("subtask count of a draft-only task: %+v", row.TaskCount)
 	}
+	// One variant each in the visible snapshot; none without a version.
+	if row := byName["Easy web"]; row.VariantCount == nil || *row.VariantCount != 1 {
+		t.Fatalf("variant count of the working version: %+v", row.VariantCount)
+	}
+	if row := byName["No content"]; row.VariantCount != nil {
+		t.Fatalf("no version, no variant count: %+v", row.VariantCount)
+	}
+	expect("variants descending, none last; ties newest first", list(exerciseRepo.PageParams{SortBy: "variants", SortDir: "desc"}), "Hard crypto", "Easy web", "No content", "Legacy web")
 	// Sorted by subtasks: none last in both directions; ties keep the newest first.
-	expect("subtasks ascending", list(exerciseRepo.PageParams{SortBy: "subtasks", SortDir: "asc"}), "Hard crypto", "Easy web", "No content", "Legacy web")
+	expect("subtasks ascending", list(exerciseRepo.PageParams{SortBy: "subtasks", SortDir: "asc"}), "Easy web", "Hard crypto", "No content", "Legacy web")
 
 	expect("author", list(exerciseRepo.PageParams{AuthorIDs: []uuid.UUID{ada}}), "Easy web", "Legacy web")
 	expect("authors", list(exerciseRepo.PageParams{AuthorIDs: []uuid.UUID{ada, bob}}), "Easy web", "Hard crypto", "Legacy web", "No content")
@@ -185,14 +193,14 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	expect("several statuses", list(exerciseRepo.PageParams{Statuses: []string{"changed", "draft_only"}}), "Easy web", "Hard crypto")
 	expect("archived with others", list(exerciseRepo.PageParams{Statuses: []string{"archived", "none"}, Archived: "any"}), "Legacy web", "No content", "Old one")
 	expect("archived only", list(exerciseRepo.PageParams{Statuses: []string{"archived"}, Archived: "only"}), "Old one")
-	// Rounded levels: Easy web 3 (easy), Hard crypto 5.5 → 6 (insane).
-	expect("easy..hard", list(exerciseRepo.PageParams{DifficultyMin: 3, DifficultyMax: 5}), "Easy web")
-	expect("from insane", list(exerciseRepo.PageParams{DifficultyMin: 6}), "Hard crypto")
-	expect("up to medium", list(exerciseRepo.PageParams{DifficultyMax: 4}), "Easy web")
+	// Working levels: Easy web 6, Hard crypto 5.5 → 6 (insane).
+	expect("easy..hard", list(exerciseRepo.PageParams{DifficultyMin: 3, DifficultyMax: 5}))
+	expect("from insane", list(exerciseRepo.PageParams{DifficultyMin: 6}), "Easy web", "Hard crypto")
+	expect("up to medium", list(exerciseRepo.PageParams{DifficultyMax: 4}))
 	// Ties (no difficulty) keep the newest first.
-	expect("difficulty ascending, none last", list(exerciseRepo.PageParams{SortBy: "difficulty", SortDir: "asc"}), "Easy web", "Hard crypto", "No content", "Legacy web")
+	expect("difficulty ascending, none last", list(exerciseRepo.PageParams{SortBy: "difficulty", SortDir: "asc"}), "Hard crypto", "Easy web", "No content", "Legacy web")
 	desc := list(exerciseRepo.PageParams{SortBy: "difficulty", SortDir: "desc"})
-	if got := names(desc); got[0] != "Hard crypto" || got[1] != "Easy web" {
+	if got := names(desc); got[0] != "Easy web" || got[1] != "Hard crypto" {
 		t.Fatalf("difficulty descending, none last: %v", got)
 	}
 	byAuthor := names(list(exerciseRepo.PageParams{SortBy: "author", SortDir: "desc"}))
@@ -307,10 +315,27 @@ func TestCatalogSubtaskNames(t *testing.T) {
 	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: draft}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
+	workingIdentity := task
+	workingIdentity.Name, workingIdentity.Description, workingIdentity.Tags = "Working picker task", "private working description", []string{"crypto"}
+	workingIdentity.UpdatedAt = itNow.Add(3 * time.Minute)
+	if _, err := repo.SaveDraftIdentity(ctx, workingIdentity, task.UpdatedAt, uuid.Must(uuid.NewV7())); err != nil {
+		t.Fatal(err)
+	}
 
 	rows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: "Picker", Archived: "exclude", SortBy: "name", SortDir: "asc", Limit: 5})
-	if err != nil || len(rows) != 1 || strings.Join(rows[0].TaskNames, "|") != "Task A|Task B" || *rows[0].TaskCount != 2 {
-		t.Fatalf("catalog table names: %+v err=%v", rows, err)
+	if err != nil || len(rows) != 1 || strings.Join(rows[0].TaskNames, "|") != "Secret draft subtask" || *rows[0].TaskCount != 1 {
+		t.Fatalf("working catalog table names: %+v err=%v", rows, err)
+	}
+	if rows[0].Name != workingIdentity.Name || strings.Join(rows[0].Tags, "|") != "crypto" || *rows[0].AvgDifficulty != 3 {
+		t.Fatalf("all working metadata/statistics use the same snapshot: %+v", rows[0])
+	}
+	reader := mustSeedUser(t, db, "picker-public-reader@test.test")
+	if _, err := db.Queries.CreateEventManager(ctx, postgres.CreateEventManagerParams{EventID: event.ID, UserID: reader, Role: 1, CreatedAt: itNow}); err != nil {
+		t.Fatal(err)
+	}
+	publicRows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: "Picker", Tags: []string{"web"}, Visibility: exerciseRepo.Visibility{ViewerID: uuid.NullUUID{UUID: reader, Valid: true}}, SortBy: "name", SortDir: "asc", Limit: 5})
+	if err != nil || len(publicRows) != 1 || publicRows[0].Name != "Picker task" || strings.Join(publicRows[0].TaskNames, "|") != "Task A|Task B" || *publicRows[0].TaskCount != 2 || *publicRows[0].AvgDifficulty != 4 {
+		t.Fatalf("published-only reader retains metadata and stats from the published snapshot: %+v err=%v", publicRows, err)
 	}
 	items, err := eventExerciseRepo.New(db.Queries).Catalog(ctx, event.ID, eventExerciseRepo.CatalogFilter{Search: "Picker"})
 	if err != nil || len(items) != 1 {

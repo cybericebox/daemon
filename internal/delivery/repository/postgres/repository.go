@@ -13,6 +13,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/rs/zerolog/log"
@@ -22,6 +23,18 @@ import (
 )
 
 const migrationTable = "ap_backend_schema_migrations"
+
+// CatalogWriterCapability is a rolling-schema compatibility marker, not an
+// authorization mechanism. Old binaries do not declare it and cannot mutate
+// authored catalog state after migration 0195.
+const CatalogWriterCapability = "cybericebox.catalog_metadata_writer"
+
+func ConfigureCatalogWriterConnection(cfg *pgx.ConnConfig) {
+	if cfg.RuntimeParams == nil {
+		cfg.RuntimeParams = make(map[string]string)
+	}
+	cfg.RuntimeParams[CatalogWriterCapability] = "1"
+}
 
 type (
 	// PostgresRepository is the concrete postgres data store. It embeds the
@@ -51,6 +64,7 @@ func newPoolConfig(dsn string, maxConns int, cfg *config.PostgresConfig) (*pgxpo
 	if err != nil {
 		return nil, err
 	}
+	ConfigureCatalogWriterConnection(poolConfig.ConnConfig)
 	poolConfig.MaxConns = int32(maxConns) //nolint:gosec // validated: at least 4, far below int32
 	poolConfig.MaxConnLifetime = cfg.MaxConnLifetime
 	poolConfig.MaxConnIdleTime = cfg.MaxConnIdleTime

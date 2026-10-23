@@ -165,3 +165,32 @@ func TestEventPreviewDeploy_UsesTheEventScope(t *testing.T) {
 	require.Equal(t, rewrittenWeb, infra.deployedTopo.Devices[0].Image)
 	require.Equal(t, []infraModel.RegistryCredential{platformPull}, infra.meta.PullCredentials)
 }
+
+// A linked variant's test lab runs its own device image: the stored (saved, so rebuilt) variant already carries it,
+// and the image check sees it as the device's image.
+func TestDeployVariantTest_LinkedVariantRunsItsOwnImage(t *testing.T) {
+	exerciseID := uuid.Must(uuid.NewV7())
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	baseID, linkedID, versionID, ownerID, deviceID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{
+		{ID: baseID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: deviceID, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27"}}}},
+		{ID: linkedID, LinkedTo: uuid.NullUUID{UUID: baseID, Valid: true}, ImageOverrides: []exerciseModel.ImageOverride{{DeviceID: deviceID, Image: "platform:web@sha256:" + strings.Repeat("1", 64)}}},
+	}}
+	require.NoError(t, version.SyncLinkedVariants())
+	variants, err := json.Marshal(version.Variants)
+	require.NoError(t, err)
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, ExerciseID: exerciseID, Variants: variants}, nil).AnyTimes()
+	createdDeploy(q)
+	infra := &fakeInfra{}
+	images := &fakeImageAccess{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	uc.SetImageAccess(images)
+
+	_, err = uc.DeployVariantTest(context.Background(), ownerID, versionID, linkedID, 0)
+	require.NoError(t, err)
+	require.Len(t, images.topos, 1)
+	require.Equal(t, "platform:web@sha256:"+strings.Repeat("1", 64), images.topos[0].Devices[0].Image)
+	require.Equal(t, "web", images.topos[0].Devices[0].Name)
+	require.Equal(t, rewrittenWeb, infra.deployedTopo.Devices[0].Image)
+}

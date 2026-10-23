@@ -99,11 +99,11 @@ func TestSaveDraft_FileStoreErrorStopsSave(t *testing.T) {
 	setup := func(t *testing.T) *postgresMocks.MockQuerier {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 		expectUserNames(q)
-		q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
-		q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes()
+		q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes().AnyTimes()
+		q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes().AnyTimes()
 		q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).Return([]postgres.ListFileOwnersRow{
 			{ID: filesFirstID, CreatedBy: uuid.NullUUID{UUID: filesAuthorID, Valid: true}},
-		}, nil)
+		}, nil).AnyTimes()
 		// No UpsertExerciseDraft expectation: the strict mock fails the test if the draft is written.
 		return q
 	}
@@ -130,15 +130,15 @@ func TestSaveDraft_FileStoreErrorStopsSave(t *testing.T) {
 func TestSaveDraft_DedupesSameBytes(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectUserNames(q)
-	q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
-	q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes()
+	q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes().AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes().AnyTimes()
 	q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).Return([]postgres.ListFileOwnersRow{
 		{ID: filesFirstID, CreatedBy: uuid.NullUUID{UUID: filesAuthorID, Valid: true}},
 		{ID: filesSecondID, CreatedBy: uuid.NullUUID{UUID: filesAuthorID, Valid: true}},
-	}, nil)
+	}, nil).AnyTimes()
 	q.EXPECT().ListFileHashes(gomock.Any(), gomock.Any()).Return([]postgres.ListFileHashesRow{
 		{ID: filesFirstID, ContentHash: filesHash}, {ID: filesSecondID, ContentHash: filesHash},
-	}, nil)
+	}, nil).MinTimes(1) // the save, then the view's ContentHash
 	// The task already holds these bytes as an older file: that one is the canonical id.
 	q.EXPECT().ClaimExerciseFile(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error) {
 		require.Equal(t, filesTaskID, arg.ExerciseID)
@@ -165,13 +165,13 @@ func TestSaveDraft_DedupesSameBytes(t *testing.T) {
 func TestSaveDraft_AcceptsFileHeldByTask(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectUserNames(q)
-	q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
-	q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes()
+	q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes().AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes().AnyTimes()
 	q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).Return([]postgres.ListFileOwnersRow{
 		{ID: filesHeldID, CreatedBy: uuid.NullUUID{UUID: filesOtherID, Valid: true}},
-	}, nil)
+	}, nil).AnyTimes()
 	q.EXPECT().ListExerciseHeldFiles(gomock.Any(), postgres.ListExerciseHeldFilesParams{ExerciseID: filesTaskID, FileIds: []uuid.UUID{filesHeldID}}).
-		Return([]uuid.UUID{filesHeldID}, nil)
+		Return([]uuid.UUID{filesHeldID}, nil).AnyTimes()
 	q.EXPECT().ListFileExerciseIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	expectFilesAdoptedAsIs(q)
 	var captured postgres.UpsertExerciseDraftParams
@@ -205,7 +205,7 @@ func TestImportExerciseArchive_UploadsEachContentOnce(t *testing.T) {
 	archive := linkedArchive(t, "draft", `[{"tasks":[{"name":"Перше","attachments":[{"file":"files/a.txt"},{"file":"other/b.txt"}]}]}]`,
 		map[string]string{"files/a.txt": "same bytes", "other/b.txt": "same bytes"})
 
-	created, err := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media}).
+	created, err := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media}).
 		ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
 	require.Len(t, media.uploads, 1)

@@ -83,14 +83,16 @@ type (
 		ExtendTestDeploy(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, error)
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
+		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
+		CommitArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
+		ImportRawArchive(context.Context, exerciseUseCase.Actor, exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ArchiveImportStart, error)
+		ListImportTargets(context.Context, exerciseUseCase.Actor, string, uuid.UUID, int) (pagination.CursorPage[exerciseUseCase.ImportTargetExercise], error)
 		// archive portability
 		// ArchiveLimits are the archive limits in force: read once per import or export and passed down.
 		ArchiveLimits(ctx context.Context) exerciseModel.ArchiveLimits
 		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions, lim exerciseModel.ArchiveLimits) ([]byte, error)
-		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
 		// background import of archives naming device image files
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
-		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
 		RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error)
 		// background export of tasks «з образами»
@@ -134,6 +136,8 @@ type (
 		CreateExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		ListExercisesFor(ctx context.Context, actor exerciseUseCase.Actor, f exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error)
+		CatalogColumns(ctx context.Context, actor exerciseUseCase.Actor) ([]exerciseUseCase.CatalogColumn, error)
+		SetCatalogColumns(ctx context.Context, actor exerciseUseCase.Actor, columns []exerciseUseCase.CatalogColumn) error
 		SetExerciseAccess(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error)
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
 		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
@@ -176,6 +180,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.GET("tags", self, h.listTags)
 		ex.GET("authors", self, h.listAuthors)
 		ex.GET("access", self, h.access)
+		// the caller's own catalog table columns (order and visibility)
+		ex.GET("preferences/catalog-columns", self, h.catalogColumns)
+		ex.PUT("preferences/catalog-columns", self, h.setCatalogColumns)
 		ex.POST("", self, h.create)
 
 		// files routes are static segments ("files", "files/:fileID") and must
@@ -194,6 +201,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("uploads/:uploadID/complete", long, self, h.completeUpload)
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks; the target (catalog or event) is authorized in the handler
+		ex.POST("import/preview", long, self, h.previewArchive)
+		ex.GET("import/targets", self, h.importTargets)
 		ex.POST("import/uploaded", long, self, h.importUploadedArchive)
 		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
 		ex.POST("import/upload", long, self, h.importArchiveUpload)
@@ -387,7 +396,7 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 // @Param    page      query  int       false  "1-based page; selects offset pagination"
 // @Param    pageSize  query  int       false  "page size"
 // @Param    status    query  []string  false  "published, changed, draft_only, archived or none, repeated or comma-separated: any of them; archived with others lists both (offset pages only)"  collectionFormat(multi)
-// @Param    sortBy    query  string    false  "name, tags, status, author, difficulty, subtasks or updated (offset pages only)"
+// @Param    sortBy    query  string    false  "name, tags, status, author, difficulty, subtasks, variants or updated (offset pages only)"
 // @Param    sortDir   query  string    false  "asc or desc (offset pages only)"
 // @Param    archived  query  string    false  "exclude (default) or only; status=archived implies only"
 // @Param    scope     query  string    false  "catalog, event, or empty for both"

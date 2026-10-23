@@ -58,7 +58,7 @@ func TestArchiveLimits_TheSavedLimitsApply(t *testing.T) {
 	limits := exerciseModel.DefaultArchiveLimits()
 	limits.Entries = 2
 	settings := &fakeSettings{limits: limits}
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Settings: settings})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Settings: settings})
 
 	require.Equal(t, limits, uc.ArchiveLimits(context.Background()))
 	_, err := uc.ImportArchiveBundle(context.Background(), threeEntries(t), "", uuid.Must(uuid.NewV7()))
@@ -68,7 +68,7 @@ func TestArchiveLimits_TheSavedLimitsApply(t *testing.T) {
 
 func TestArchiveLimits_SourceErrorFallsBackToTheDefaults(t *testing.T) {
 	warnings := captureLog(t)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{err: errors.New("db down")}})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{err: errors.New("db down")}})
 
 	require.Equal(t, exerciseModel.DefaultArchiveLimits(), uc.ArchiveLimits(context.Background()))
 	require.Contains(t, warnings.String(), `"level":"warn"`)
@@ -76,7 +76,7 @@ func TestArchiveLimits_SourceErrorFallsBackToTheDefaults(t *testing.T) {
 	require.Error(t, err, "no task document")
 	require.NotErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err(), "the default 1000 entries apply")
 
-	require.Equal(t, exerciseModel.DefaultArchiveLimits(), exercise.NewExerciseUseCase(exercise.Dependencies{}).ArchiveLimits(context.Background()),
+	require.Equal(t, exerciseModel.DefaultArchiveLimits(), newTestExerciseUseCase(exercise.Dependencies{}).ArchiveLimits(context.Background()),
 		"no source: the defaults")
 }
 
@@ -84,7 +84,7 @@ func TestArchiveLimits_SourceErrorFallsBackToTheDefaults(t *testing.T) {
 func TestImportExerciseArchive_ZeroLimitsReadTheSource(t *testing.T) {
 	limits := exerciseModel.DefaultArchiveLimits()
 	limits.Entries = 2
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{limits: limits}})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{limits: limits}})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: threeEntries(t)})
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err())
@@ -95,7 +95,7 @@ func TestDeployVariantTest_StaticTakesTheSavedLease(t *testing.T) {
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
 	gate := &fakeGate{}
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}}})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}}})
 	uc.SetTestLabGate(gate)
 	now := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
 	uc.SetClock(func() time.Time { return now })
@@ -112,7 +112,7 @@ func TestDeployVariantTest_SourceErrorUsesTheConfigLease(t *testing.T) {
 	q, variantID, versionID, ownerID := staticFixture(t, nil, nil)
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{
+	uc := newTestExerciseUseCase(exercise.Dependencies{
 		Repo: q, FlagConfig: config.ExerciseConfig{TestDeployTTL: 90 * time.Minute}, Settings: &fakeSettings{err: errors.New("db down")},
 	})
 	now := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
@@ -138,7 +138,7 @@ func TestExtendTestDeploy_CappedByTheSavedMaximum(t *testing.T) {
 			row.ExpiresAt = arg.ExpiresAt
 			return row, nil
 		})
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 4 * time.Hour}}})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 4 * time.Hour}}})
 	uc.SetTestLabGate(&fakeGate{})
 	uc.SetClock(func() time.Time { return now })
 
@@ -149,9 +149,9 @@ func TestExtendTestDeploy_CappedByTheSavedMaximum(t *testing.T) {
 
 // The calendar's room check takes the same lease the admission holds.
 func TestTestLabLease_IsTheLeaseInForce(t *testing.T) {
-	saved := exercise.NewExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}}})
+	saved := newTestExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}}})
 	require.Equal(t, 3*time.Hour, saved.TestLabLease(context.Background()))
-	failing := exercise.NewExerciseUseCase(exercise.Dependencies{
+	failing := newTestExerciseUseCase(exercise.Dependencies{
 		FlagConfig: config.ExerciseConfig{TestDeployTTL: 90 * time.Minute}, Settings: &fakeSettings{err: errors.New("db down")},
 	})
 	require.Equal(t, 90*time.Minute, failing.TestLabLease(context.Background()))

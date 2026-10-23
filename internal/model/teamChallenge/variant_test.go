@@ -8,9 +8,9 @@ import (
 
 // assign hands variants to n new teams one after another, as the stand engine
 // does: every pick is counted before the next one.
-func assign(t *testing.T, n, variants int, used map[int32]int) []int32 {
+func assign(t *testing.T, n, variants int, used map[int32]int, weights ...int) []int32 {
 	t.Helper()
-	balance, err := teamChallengeModel.NewVariantBalance(variants, used)
+	balance, err := teamChallengeModel.NewVariantBalance(variants, used, weights...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +78,50 @@ func TestVariantBalance_PickWithoutUseKeepsCounts(t *testing.T) {
 func TestVariantBalance_RejectsNoVariants(t *testing.T) {
 	if _, err := teamChallengeModel.NewVariantBalance(0, nil); err == nil {
 		t.Fatal("a version without variants must be refused")
+	}
+}
+
+func equalPicks(got, want []int32) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestVariantBalance_WeightTwoComesUpTwiceAsOften(t *testing.T) {
+	got := assign(t, 9, 2, nil, 2, 1)
+	if want := []int32{0, 1, 0, 0, 1, 0, 0, 1, 0}; !equalPicks(got, want) {
+		t.Fatalf("picks = %v, want %v", got, want)
+	}
+}
+
+func TestVariantBalance_WeightedTiesGoToTheLowestIndex(t *testing.T) {
+	// Weights 1, 2, 2: after 0, 1, 2 the ratios are 1, 1/2, 1/2, so 1 then 2 come before 0 again.
+	got := assign(t, 5, 3, nil, 1, 2, 2)
+	if want := []int32{0, 1, 2, 1, 2}; !equalPicks(got, want) {
+		t.Fatalf("picks = %v, want %v", got, want)
+	}
+}
+
+func TestVariantBalance_MissingOrZeroWeightIsOne(t *testing.T) {
+	plain := assign(t, 7, 3, nil)
+	for _, weights := range [][]int{{0, 0, 0}, {1, 1, 1}, {1}, {-3, 0}} {
+		if got := assign(t, 7, 3, nil, weights...); !equalPicks(got, plain) {
+			t.Fatalf("weights %v: picks = %v, want the unweighted %v", weights, got, plain)
+		}
+	}
+}
+
+func TestVariantBalance_WeightCountsTeamsAlreadyThere(t *testing.T) {
+	// Variant 0 (weight 3) already has 2 teams, variant 1 (weight 1) has 1: 2/3 < 1, so 0 goes next,
+	// then 3/3 ties 1/1 and goes to 0 again, then 4/3 > 1 gives 1.
+	got := assign(t, 3, 2, map[int32]int{0: 2, 1: 1}, 3, 1)
+	if want := []int32{0, 0, 1}; !equalPicks(got, want) {
+		t.Fatalf("picks = %v, want %v", got, want)
 	}
 }

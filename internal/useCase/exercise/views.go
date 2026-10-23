@@ -56,6 +56,8 @@ type ExerciseListItem struct {
 	TaskCount *int
 	// TaskNames are the names of those subtasks in order (page lists only; empty without a variant).
 	TaskNames []string
+	// VariantCount is how many variants the visible snapshot has; nil without one (page lists only).
+	VariantCount *int
 
 	ExerciseScopeView
 }
@@ -264,13 +266,21 @@ func uuidPtr(n uuid.NullUUID) *uuid.UUID {
 // VersionView is one exercise version's content, secrets masked. Consumed by
 // the SaveDraft/PublishDraft/RollbackToVersion/GetVersion handlers (Task 11).
 type VersionView struct {
-	ID         uuid.UUID
-	ExerciseID uuid.UUID
-	Status     string
-	AdminNote  string
-	Label      string
+	ID          uuid.UUID
+	ExerciseID  uuid.UUID
+	Status      string
+	Name        string
+	Description string
+	Tags        []string
+	AdminNote   string
+	Label       string
 
 	Variants []exerciseModel.Variant // secrets masked
+	// SecretGroups[variant][device][env] groups the stored secrets that hold the same value (1, 2, …; 0 for a plain
+	// var or an empty secret), from where each value came from and never from the value (see hashes.go).
+	// FileHashes is the sha256 hex of each attached file's bytes by file id.
+	SecretGroups [][][]int
+	FileHashes   map[uuid.UUID]string
 
 	VariantCount int
 	CreatedAt    time.Time
@@ -305,6 +315,9 @@ func toVersionView(v exerciseModel.ExerciseVersion) VersionView {
 		ID:           v.ID,
 		ExerciseID:   v.ExerciseID,
 		Status:       string(v.Status),
+		Name:         v.Name,
+		Description:  v.Description,
+		Tags:         v.Tags,
 		AdminNote:    v.AdminNote,
 		Label:        v.Label,
 		Variants:     maskSecrets(v.Variants),

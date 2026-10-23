@@ -35,7 +35,7 @@ func TestImportArchive_ReadsTheLimitsOnceAndPassesThem(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
-	if uc.limitReads != 1 || len(uc.imports) != 2 {
+	if uc.limitReads != 1 || len(uc.imports) != 1 {
 		t.Fatalf("limits read %d times, %d imports", uc.limitReads, len(uc.imports))
 	}
 	for _, in := range uc.imports {

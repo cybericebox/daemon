@@ -130,7 +130,7 @@ func (noMedia) RemoveReferencesBatch(context.Context, string, []uuid.UUID) error
 // New wires the use cases the seeder drives. No signal publisher is wired, so seeding sends no
 // notification mail.
 func New(deps Deps) *Seeder {
-	exercises := exerciseUseCase.NewExerciseUseCase(exerciseUseCase.Dependencies{Repo: deps.Queries, Cipher: deps.Cipher, Media: noMedia{}})
+	exercises := exerciseUseCase.NewExerciseUseCase(exerciseUseCase.Dependencies{Repo: deps.Queries, Cipher: deps.Cipher, Media: noMedia{}, CatalogUoW: postgres.NewUnitOfWorker[exerciseUseCase.CatalogRepository](postgres.NewUoWFactory(deps.Pool))})
 	events := eventUseCase.NewEventUseCase(eventUseCase.Dependencies{
 		Repo:                     deps.Queries,
 		UoW:                      postgres.NewUnitOfWorker[eventUseCase.IRepository](postgres.NewUoWFactory(deps.Pool)),

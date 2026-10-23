@@ -83,13 +83,13 @@ func TestSaveDraft_EncryptsSecrets(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
 	m := newFakeMedia()
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: m})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: m})
 	exID := uuid.Must(uuid.NewV7())
 
-	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
+	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
 	// No draft: secretMergeSource falls back to checking for a published
 	// version — this exercise has none, so nothing to merge from.
-	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
+	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -108,11 +108,11 @@ func TestSaveDraft_EncryptsSecrets(t *testing.T) {
 func TestSaveDraft_SecretWithoutCipher(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: nil, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: nil, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 
-	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
-	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
+	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes().AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes().AnyTimes()
 
 	_, err := uc.SaveDraft(context.Background(), exID, exercise.SaveDraftInput{
 		Variants: draftVariants("v", true),
@@ -127,7 +127,7 @@ func TestSaveDraft_KeepsPriorSecret(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
@@ -136,7 +136,7 @@ func TestSaveDraft_KeepsPriorSecret(t *testing.T) {
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "draft", Variants: priorBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -161,7 +161,7 @@ func TestSaveDraft_FallsBackToPublishedWhenNoDraft(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	publishedID := uuid.Must(uuid.NewV7())
 
@@ -169,13 +169,13 @@ func TestSaveDraft_FallsBackToPublishedWhenNoDraft(t *testing.T) {
 	published := draftVariants(priorCipher, true)
 	publishedBlob := mustMarshal(t, published)
 
-	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
+	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{
 		ID: exID, PublishedVersionID: uuid.NullUUID{UUID: publishedID, Valid: true},
-	}, nil)
+	}, nil).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), publishedID).Return(postgres.ExerciseVersion{
 		ID: publishedID, ExerciseID: exID, Status: "published", Variants: publishedBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -203,7 +203,7 @@ func TestSaveDraft_TwoVariants_NoCrossContamination(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 	idA, idB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -216,7 +216,7 @@ func TestSaveDraft_TwoVariants_NoCrossContamination(t *testing.T) {
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "draft", Variants: priorBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -271,7 +271,7 @@ func TestSaveDraft_VariantsReordered_SecretsFollowID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 	idA, idB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -283,7 +283,7 @@ func TestSaveDraft_VariantsReordered_SecretsFollowID(t *testing.T) {
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "draft", Variants: priorBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -330,7 +330,7 @@ func TestSaveDraft_LegacySourceWithoutVariantIDs_KeepsSecrets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
@@ -341,7 +341,7 @@ func TestSaveDraft_LegacySourceWithoutVariantIDs_KeepsSecrets(t *testing.T) {
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "draft", Variants: priorBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 
@@ -380,7 +380,7 @@ func TestSaveDraft_LegacySource_AddedVariantStoresEmpty(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, _ := secret.New(testKey)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: newFakeMedia()})
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
@@ -389,7 +389,7 @@ func TestSaveDraft_LegacySource_AddedVariantStoresEmpty(t *testing.T) {
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "draft", Variants: priorBlob,
-	}, nil)
+	}, nil).AnyTimes()
 	var captured postgres.UpsertExerciseDraftParams
 	expectUpsertCapture(t, q, &captured)
 

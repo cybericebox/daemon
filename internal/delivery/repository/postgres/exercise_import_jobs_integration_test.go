@@ -66,6 +66,12 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 	}
 
 	created := []uuid.UUID{uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000e1")}
+	expectedGeneration := got.Generation
+	got.Restart(uuid.NullUUID{}, t0.Add(3*time.Minute))
+	got, err = repo.RestartImportJob(ctx, got, expectedGeneration, t0.Add(3*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
 	got.Finish(created, t0.Add(3*time.Minute))
 	if _, err = repo.SaveImportJob(ctx, got); err != nil {
 		t.Fatal(err)
@@ -96,11 +102,15 @@ func TestExerciseImportJobOwnerEvent(t *testing.T) {
 		t.Fatalf("stored %+v err %v", stored, err)
 	}
 	stored.Fail(exerciseModel.ImportJobError{Code: 1, Message: "m"}, t0.Add(time.Minute))
+	if n, saveErr := repo.SaveImportJob(ctx, stored); saveErr != nil || n != 1 {
+		t.Fatalf("record failed attempt: %d %v", n, saveErr)
+	}
+	expectedGeneration := stored.Generation
 	moved := uuid.NullUUID{UUID: eventB.ID, Valid: true}
 	if !stored.Restart(moved, t0.Add(2*time.Minute)) {
 		t.Fatal("a failed import restarts")
 	}
-	if _, err = repo.SaveImportJob(ctx, stored); err != nil {
+	if stored, err = repo.RestartImportJob(ctx, stored, expectedGeneration, t0.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if got, getErr := repo.GetImportJob(ctx, job.ID); getErr != nil || got.OwnerEventID != moved {

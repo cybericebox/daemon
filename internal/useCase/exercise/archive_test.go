@@ -77,7 +77,7 @@ func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, AdminNote: arg.AdminNote, Variants: arg.Variants, CreatedAt: arg.CreatedAt, CreatedBy: arg.CreatedBy, PublishedAt: arg.PublishedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive, CreatedBy: owner})
 	require.NoError(t, err)
 	require.NotEqual(t, sourceID, imported.ID)
@@ -107,7 +107,7 @@ func TestImportExerciseArchive_AcceptsIncompleteDraft(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestImportExerciseArchive_RejectsUnpublishablePublishedVersion(t *testing.T
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	archive := mustExerciseArchive(t, `{"name":"broken"}`, `[{"status":"published"}]`)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.ErrorIs(t, err, exerciseModel.ErrVersionNoVariants.Err())
@@ -131,7 +131,7 @@ func TestExportExerciseArchive_OmitsRegenerateFlags(t *testing.T) {
 	q.EXPECT().ListExerciseVersions(gomock.Any(), exID).Return([]postgres.ExerciseVersion{
 		{ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "published", Variants: []byte(`[]`)},
 	}, nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 	q.EXPECT().ListExerciseVersions(gomock.Any(), exID).Return([]postgres.ExerciseVersion{
 		{ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "checkpoint", Label: "Before refactor", Variants: []byte(`[]`)},
 	}, nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestImportExerciseArchive_RestoresLabel(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Label: arg.Label, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestImportExerciseArchive_EnforcesLabelInvariant(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Label: arg.Label, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestImportExerciseArchive_Schema1Published(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
 	q.EXPECT().ListExerciseVersions(gomock.Any(), exID).Return([]postgres.ExerciseVersion{
 		{ID: exID, ExerciseID: exID, Status: "draft", Variants: []byte(`[]`)},
 	}, nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestImportExerciseArchive_V2AttachmentUploaded(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)

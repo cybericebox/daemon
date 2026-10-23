@@ -16,13 +16,19 @@ type ImportEnd struct {
 	User uuid.UUID
 	// Created is how many tasks the import created (done only).
 	Created int
+	Updated int
 	At      time.Time
 }
 
 // ExerciseImportDone tells the user who started an import how many tasks it created.
 func (r *RequestRouter) ExerciseImportDone(ctx context.Context, e ImportEnd) error {
 	meta := inboxModel.NewMeta(inboxModel.TypeExerciseImportDone, inboxModel.RoleSubject, "").Raised(e.At)
-	return r.fanOut(ctx, []uuid.UUID{e.User}, inboxModel.TypeExerciseImportDone, map[string]any{"count": strconv.Itoa(e.Created)}, meta)
+	data := map[string]any{"count": strconv.Itoa(e.Created + e.Updated)}
+	if e.Updated > 0 {
+		data["created"] = strconv.Itoa(e.Created)
+		data["updated"] = strconv.Itoa(e.Updated)
+	}
+	return r.fanOut(ctx, []uuid.UUID{e.User}, inboxModel.TypeExerciseImportDone, data, meta)
 }
 
 // ExerciseImportFailed tells the user who started an import that it failed and created nothing.

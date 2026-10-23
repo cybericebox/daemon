@@ -102,3 +102,56 @@ func (q *Queries) ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID
 	}
 	return items, nil
 }
+
+const listVisibleVariantDevices = `-- name: ListVisibleVariantDevices :many
+SELECT e.id AS exercise_id,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                           'id', variant -> 'id',
+                           'topology', jsonb_build_object(
+                                   'devices', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                                                    'id', device -> 'id',
+                                                                    'name', device -> 'name',
+                                                                    'type', device -> 'type',
+                                                                    'resource_preset', device -> 'resource_preset',
+                                                                    'resources', device -> 'resources'))
+                                                        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device),
+                                                       '[]'::jsonb))))
+                 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(version.variants) = 'array' THEN version.variants ELSE '[]'::jsonb END) AS variant), '[]'::jsonb)::jsonb AS variants
+FROM exercises e
+         JOIN exercise_versions version ON version.id = CASE WHEN $1::uuid IS NULL OR e.scope = 1
+    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
+WHERE e.id = ANY ($2::uuid[])
+`
+
+type ListVisibleVariantDevicesParams struct {
+	ViewerID uuid.NullUUID `json:"viewer_id"`
+	Ids      []uuid.UUID   `json:"ids"`
+}
+
+type ListVisibleVariantDevicesRow struct {
+	ExerciseID uuid.UUID `json:"exercise_id"`
+	Variants   []byte    `json:"variants"`
+}
+
+// Selected metadata and resource totals use the same actor-visible snapshot.
+// What the resource totals of a page of exercises need from their selected versions: per variant its id and
+// the container-device fields that decide a device's size (never the image, env vars or secrets).
+func (q *Queries) ListVisibleVariantDevices(ctx context.Context, arg ListVisibleVariantDevicesParams) ([]ListVisibleVariantDevicesRow, error) {
+	rows, err := q.db.Query(ctx, listVisibleVariantDevices, arg.ViewerID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVisibleVariantDevicesRow{}
+	for rows.Next() {
+		var i ListVisibleVariantDevicesRow
+		if err := rows.Scan(&i.ExerciseID, &i.Variants); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

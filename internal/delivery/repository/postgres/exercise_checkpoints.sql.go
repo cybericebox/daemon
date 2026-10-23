@@ -14,9 +14,9 @@ import (
 )
 
 const createExerciseCheckpoint = `-- name: CreateExerciseCheckpoint :one
-INSERT INTO exercise_versions (id, exercise_id, status, admin_note, label, variants, created_at, created_by)
+INSERT INTO exercise_versions (id, exercise_id, status, admin_note, label, variants, created_at, created_by, name, description, tags)
 SELECT $1, src.exercise_id, 'checkpoint', src.admin_note, $2::text,
-       src.variants, $3, $4
+       src.variants, $3, $4, src.name, src.description, src.tags
 FROM exercise_versions src
 WHERE src.exercise_id = $5
   AND (src.status = 'draft'
@@ -25,7 +25,7 @@ WHERE src.exercise_id = $5
                         FROM exercise_versions dv
                         WHERE dv.exercise_id = $5
                           AND dv.status = 'draft')))
-RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
+RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
 `
 
 type CreateExerciseCheckpointParams struct {
@@ -61,42 +61,51 @@ func (q *Queries) CreateExerciseCheckpoint(ctx context.Context, arg CreateExerci
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }
 
 const restoreVersionPreservingDraft = `-- name: RestoreVersionPreservingDraft :one
-WITH source AS (
-    SELECT admin_note, variants
+WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDATE), source AS (
+    SELECT admin_note, variants, name, description, tags
     FROM exercise_versions src
-    WHERE src.id = $1
-      AND src.exercise_id = $2
+    WHERE src.id = $2
+      AND src.exercise_id = (SELECT id FROM ex)
       AND src.status <> 'draft'
+), locked_draft AS MATERIALIZED (
+    -- A parent lock acquired after waiting does not refresh this statement's
+    -- snapshot. Lock the draft too: READ COMMITTED rechecks an updated row and
+    -- returns its current full contents, including the just-acknowledged edit.
+    SELECT d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags
+    FROM exercise_versions d JOIN ex ON ex.id = d.exercise_id
+    WHERE d.status = 'draft' AND EXISTS (SELECT 1 FROM source)
+    FOR UPDATE OF d
 ), preserved AS (
-    INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by)
+    INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
     SELECT $3, d.exercise_id, 'checkpoint', d.admin_note, d.variants,
-           $4, $5
-    FROM exercise_versions d
-    WHERE d.exercise_id = $2
-      AND d.status = 'draft'
-      AND EXISTS (SELECT 1 FROM source)
+           $4, $5, d.name, d.description, d.tags
+    FROM locked_draft d
     RETURNING id
 ), restored AS (
     UPDATE exercise_versions d
     SET admin_note = source.admin_note,
-        variants = source.variants
+        variants = source.variants,
+        name = source.name, description = source.description, tags = source.tags
     FROM source
-    WHERE d.exercise_id = $2
+    WHERE d.exercise_id = $1
       AND d.status = 'draft'
       AND EXISTS (SELECT 1 FROM preserved)
-    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty
+    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags
 )
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM restored
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM restored
 `
 
 type RestoreVersionPreservingDraftParams struct {
-	SourceID     uuid.UUID     `json:"source_id"`
 	ExerciseID   uuid.UUID     `json:"exercise_id"`
+	SourceID     uuid.UUID     `json:"source_id"`
 	CheckpointID uuid.UUID     `json:"checkpoint_id"`
 	CreatedAt    time.Time     `json:"created_at"`
 	CreatedBy    uuid.NullUUID `json:"created_by"`
@@ -113,6 +122,9 @@ type RestoreVersionPreservingDraftRow struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
 // Save the current draft as a checkpoint in the same statement before
@@ -120,8 +132,8 @@ type RestoreVersionPreservingDraftRow struct {
 // must belong to this exercise; a foreign id produces zero rows.
 func (q *Queries) RestoreVersionPreservingDraft(ctx context.Context, arg RestoreVersionPreservingDraftParams) (RestoreVersionPreservingDraftRow, error) {
 	row := q.db.QueryRow(ctx, restoreVersionPreservingDraft,
-		arg.SourceID,
 		arg.ExerciseID,
+		arg.SourceID,
 		arg.CheckpointID,
 		arg.CreatedAt,
 		arg.CreatedBy,
@@ -138,6 +150,9 @@ func (q *Queries) RestoreVersionPreservingDraft(ctx context.Context, arg Restore
 		&i.PublishedAt,
 		&i.Label,
 		&i.AvgDifficulty,
+		&i.Name,
+		&i.Description,
+		&i.Tags,
 	)
 	return i, err
 }

@@ -66,12 +66,11 @@ func TestBulkSetArchived_PerRole(t *testing.T) {
 					q.EXPECT().GetExerciseByID(gomock.Any(), row.ID).Return(row, nil).AnyTimes()
 				}
 				written := map[uuid.UUID]bool{}
-				byName := map[string]uuid.UUID{own.Name: own.ID, foreign.Name: foreign.ID, catalog.Name: catalog.ID}
 				q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpdateExerciseParams) (int64, error) {
 					if arg.ArchivedAt.Valid != archived {
 						t.Fatalf("archived_at written %v, want %v", arg.ArchivedAt.Valid, archived)
 					}
-					written[byName[arg.Name]] = true
+					written[arg.ID] = true
 					return 1, nil
 				}).AnyTimes()
 				results, _ := uc.BulkSetArchived(context.Background(), exercise.Actor{UserID: userID, Role: tc.role}, []uuid.UUID{own.ID, foreign.ID, catalog.ID}, archived)
@@ -128,14 +127,14 @@ func TestBulkSetAccess_PerItem(t *testing.T) {
 		q.EXPECT().GetExerciseByID(gomock.Any(), row.ID).Return(row, nil).AnyTimes()
 	}
 	q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpdateExerciseParams) (int64, error) {
-		if arg.Name != catalog.Name || arg.AccessLevel != int16(exerciseModel.AccessNone) {
+		if arg.ID != catalog.ID || arg.AccessLevel != int16(exerciseModel.AccessNone) {
 			t.Fatalf("unexpected access write %+v", arg)
 		}
 		return 1, nil
 	}).Times(1)
 	q.EXPECT().DeleteExerciseEventAccess(gomock.Any(), catalog.ID).Return(nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	results, _ := uc.BulkSetAccess(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}, []uuid.UUID{own.ID, catalog.ID},
 		exercise.SetAccessInput{AccessLevel: exerciseModel.AccessNone, UpdatedBy: userID})
 	if got := [2]string{bulkOutcome(results[0]), bulkOutcome(results[1])}; got != [2]string{"invalid", "changed"} {

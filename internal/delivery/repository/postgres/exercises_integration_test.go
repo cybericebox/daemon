@@ -346,8 +346,8 @@ func TestUpdateExercise_OptimisticLock(t *testing.T) {
 	created := mustCreateExercise(t, repo, "IT lock")
 
 	fresh := created
-	if err := fresh.UpdateIdentity("IT lock v2", "d", nil, uuid.Nil, itNow.Add(time.Hour)); err != nil {
-		t.Fatalf("UpdateIdentity: %v", err)
+	if err := fresh.SetAccess(exerciseModel.AccessNone, false, uuid.Nil, itNow.Add(time.Hour)); err != nil {
+		t.Fatalf("SetAccess: %v", err)
 	}
 	affected, err := repo.Update(ctx, fresh, created.UpdatedAt)
 	if err != nil || affected != 1 {
@@ -355,7 +355,7 @@ func TestUpdateExercise_OptimisticLock(t *testing.T) {
 	}
 
 	stale := created
-	_ = stale.UpdateIdentity("IT lock v3", "d", nil, uuid.Nil, itNow.Add(2*time.Hour))
+	_ = stale.SetAccess(exerciseModel.AccessAllEvents, false, uuid.Nil, itNow.Add(2*time.Hour))
 	affected, err = repo.Update(ctx, stale, created.UpdatedAt)
 	if err != nil || affected != 0 {
 		t.Fatalf("stale snapshot must hit 0 rows: affected=%d err=%v", affected, err)

@@ -51,7 +51,7 @@ func positionalSecretKey(vi int, device, env string) string {
 // positional keys, so the fallback is inert there and reorder safety holds;
 // against a legacy source, positional matching IS the pre-change behavior.
 func mergeKeptSecrets(incoming, current []exerciseModel.Variant) {
-	kept := map[string]string{}
+	kept := map[string]exerciseModel.EnvVar{}
 	for vi, v := range current {
 		for _, d := range v.Topology.Devices {
 			for _, ev := range d.EnvVars {
@@ -59,9 +59,9 @@ func mergeKeptSecrets(incoming, current []exerciseModel.Variant) {
 					continue
 				}
 				if v.ID == uuid.Nil {
-					kept[positionalSecretKey(vi, d.Name, ev.Name)] = ev.Value
+					kept[positionalSecretKey(vi, d.Name, ev.Name)] = ev
 				} else {
-					kept[secretKey(v.ID, d.Name, ev.Name)] = ev.Value
+					kept[secretKey(v.ID, d.Name, ev.Name)] = ev
 				}
 			}
 		}
@@ -74,10 +74,11 @@ func mergeKeptSecrets(incoming, current []exerciseModel.Variant) {
 				if !ev.Secret || ev.Value != "" {
 					continue
 				}
+				// The kept value keeps its origin: it is still the value that was stored.
 				if val, ok := kept[secretKey(incoming[vi].ID, d.Name, ev.Name)]; ok {
-					ev.Value = val
+					ev.Value, ev.Origin = val.Value, val.Origin
 				} else if val, ok = kept[positionalSecretKey(vi, d.Name, ev.Name)]; ok {
-					ev.Value = val
+					ev.Value, ev.Origin = val.Value, val.Origin
 				}
 			}
 		}
@@ -173,10 +174,10 @@ func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, s
 			if env.Value != "" && (!linked || submitted[targetKey]) {
 				continue
 			}
-			sourceValue := sourceSecret(source, device.Name, env.Name)
+			sourceValue, sourceOrigin := sourceSecret(source, device.Name, env.Name)
 			if sourceValue == "" {
 				if linked {
-					env.Value = ""
+					env.Value, env.Origin = "", ""
 				}
 				continue
 			}
@@ -187,6 +188,7 @@ func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, s
 			if env.Value != "" && u.cipher != nil {
 				own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name))
 				if openErr == nil && string(own) == plain {
+					env.Origin = sourceOrigin
 					continue
 				}
 				if openErr != nil {
@@ -194,26 +196,27 @@ func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, s
 						Msg("Linked variant secret does not open; replaced with the base value")
 				}
 			}
-			env.Value = plain
+			// The source's value under the target's id: the same value, so the same origin.
+			env.Value, env.Origin = plain, sourceOrigin
 			submitted[targetKey] = true
 		}
 	}
 	return nil
 }
 
-// sourceSecret is the source variant's secret value of (device, env), "" when it has none.
-func sourceSecret(source exerciseModel.Variant, deviceName, envName string) string {
+// sourceSecret is the source variant's secret value of (device, env) and its origin, "" when it has none.
+func sourceSecret(source exerciseModel.Variant, deviceName, envName string) (string, string) {
 	for _, device := range source.Topology.Devices {
 		if device.Name != deviceName {
 			continue
 		}
 		for _, env := range device.EnvVars {
 			if env.Secret && env.Name == envName {
-				return env.Value
+				return env.Value, env.Origin
 			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // secretPlaintext opens a variant's secret value after the merge: a value submitted in this save is
@@ -238,6 +241,47 @@ func envSecretContext(variantID uuid.UUID, device, name string) []byte {
 	return []byte("exercise-env:" + variantID.String() + ":" + device + ":" + name)
 }
 
+// originTypedSecrets gives every secret value the author typed in this save (submitted, before the merge and the
+// inheritance) a new origin, whatever the value: a typed value is never matched with another by value. It runs
+// before inheritSecrets, so a linked variant or a copy takes the origin with the value.
+func originTypedSecrets(variants []exerciseModel.Variant, submitted map[string]bool) {
+	for vi := range variants {
+		for di := range variants[vi].Topology.Devices {
+			d := &variants[vi].Topology.Devices[di]
+			for ei := range d.EnvVars {
+				ev := &d.EnvVars[ei]
+				if ev.Secret && ev.Value != "" && submitted[secretKey(variants[vi].ID, d.Name, ev.Name)] {
+					ev.Origin = freshID().String()
+				} else if !ev.Secret {
+					ev.Origin = ""
+				}
+			}
+		}
+	}
+	// A linked variant's topology is its base's (SyncLinkedVariants copied the base's values in), so its secrets
+	// are the base's values with the base's origins.
+	byID := make(map[uuid.UUID]int, len(variants))
+	for i, v := range variants {
+		byID[v.ID] = i
+	}
+	for vi := range variants {
+		base, ok := byID[variants[vi].LinkedTo.UUID]
+		if !variants[vi].IsLinked() || !ok {
+			continue
+		}
+		for di := range variants[vi].Topology.Devices {
+			d := &variants[vi].Topology.Devices[di]
+			for ei := range d.EnvVars {
+				if ev := &d.EnvVars[ei]; ev.Secret && ev.Value != "" {
+					if _, origin := sourceSecret(variants[base], d.Name, ev.Name); origin != "" {
+						ev.Origin = origin
+					}
+				}
+			}
+		}
+	}
+}
+
 // encryptSecrets encrypts every secret env-var value that the caller actually
 // submitted as non-empty plaintext (tracked via rawSubmitted). Values merged
 // in from the stored draft are already ciphertext and are skipped.
@@ -258,6 +302,9 @@ func (u *ExerciseUseCase) encryptSecrets(variants []exerciseModel.Variant, rawSu
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt secret env var").Err()
 				}
 				ev.Value = ct
+				if ev.Origin == "" {
+					ev.Origin = freshID().String() // set by originTypedSecrets; a fallback only
+				}
 			}
 		}
 	}
@@ -288,6 +335,9 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 					}
 					env.Value = string(plain)
 				}
+				for envIndex := range device.EnvVars {
+					device.EnvVars[envIndex].Origin = "" // server-side only: never in an archive
+				}
 			}
 		}
 	}
@@ -298,6 +348,9 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 // before imported snapshots are persisted, so plaintext exists only in the
 // password-protected archive and the short-lived import copy.
 func (u *ExerciseUseCase) encryptImportedSecrets(versions []exerciseModel.ExerciseVersion) error {
+	// The importer holds every value of the archive, so equal values of one task share an origin: the editor
+	// groups them as identical. They never share one with a value stored before.
+	origins := map[string]string{}
 	for vi := range versions {
 		for variantIndex := range versions[vi].Variants {
 			for deviceIndex := range versions[vi].Variants[variantIndex].Topology.Devices {
@@ -310,11 +363,16 @@ func (u *ExerciseUseCase) encryptImportedSecrets(versions []exerciseModel.Exerci
 					if u.cipher == nil {
 						return exerciseModel.ErrSecretsNotConfigured.Err()
 					}
+					origin, seen := origins[env.Value]
+					if !seen {
+						origin = freshID().String()
+						origins[env.Value] = origin
+					}
 					ciphertext, err := u.cipher.EncryptWithContext([]byte(env.Value), envSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
 					if err != nil {
 						return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt imported secret env var").Err()
 					}
-					env.Value = ciphertext
+					env.Value, env.Origin = ciphertext, origin
 				}
 			}
 		}
@@ -338,6 +396,7 @@ func maskSecrets(variants []exerciseModel.Variant) []exerciseModel.Variant {
 				if envs[ei].Secret {
 					envs[ei].Value = ""
 				}
+				envs[ei].Origin = "" // server-side only
 			}
 			devices[di].EnvVars = envs
 		}

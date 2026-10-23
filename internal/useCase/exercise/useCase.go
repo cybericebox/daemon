@@ -41,6 +41,7 @@ type ExerciseUseCase struct {
 	exercises   *exerciseRepo.Repository
 	testDeploys *testDeployRepo.Repository
 	deployUoW   postgres.IUnitOfWorker[testDeployRepo.Queries]
+	catalogUoW  postgres.IUnitOfWorker[CatalogRepository]
 	cipher      *secret.Cipher // nil when EXERCISE_SECRETS_KEY is unset
 	media       IMedia
 	infra       IInfrastructure // nil when no infrastructure agent is configured
@@ -132,6 +133,9 @@ type Dependencies struct {
 	// DeployUoW makes the "one active test lab per user" check and the reservation one
 	// serialized transaction. Nil (tests): the check and the insert are separate calls.
 	DeployUoW postgres.IUnitOfWorker[testDeployRepo.Queries]
+	// CatalogUoW is required for draft saves and imports: content, file claims
+	// and references must commit together. No autocommit fallback is permitted.
+	CatalogUoW postgres.IUnitOfWorker[CatalogRepository]
 	// Resources are the platform's device resources settings; Elevations the store of elevation requests.
 	Resources  resourcesModel.Policy
 	Elevations IElevations
@@ -172,6 +176,7 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 		exercises:   exerciseRepo.New(deps.Repo),
 		testDeploys: testDeployRepo.New(deps.Repo),
 		deployUoW:   deps.DeployUoW,
+		catalogUoW:  deps.CatalogUoW,
 		cipher:      deps.Cipher,
 		media:       deps.Media,
 		infra:       deps.Infra,
@@ -185,7 +190,7 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 	}
 }
 
-// mutateExercise: fetch → domain mutation → whole-identity write under the
+// mutateExercise: fetch → domain mutation → policy/audit write under the
 // optimistic lock; zero rows re-reads to tell 404 from 409 (mutateUser twin).
 func (u *ExerciseUseCase) mutateExercise(ctx context.Context, id uuid.UUID, mutate func(*exerciseModel.Exercise) error) (exerciseModel.Exercise, error) {
 	e, err := u.exercises.GetByID(ctx, id)
@@ -261,7 +266,7 @@ func (u *ExerciseUseCase) exerciseView(ctx context.Context, e exerciseModel.Exer
 // for BOTH create and rename.
 func classifyExerciseWriteError(err error, action string) error {
 	if creator, ok := repositoryTools.UniqueViolationError(err, exerciseModel.ErrExerciseExists); ok {
-		return creator.Err()
+		return creator.WithPublicContext("field", "Name").Err()
 	}
 	return model.ErrPlatform.WithError(err).WithMessage("Failed to " + action + " exercise").Err()
 }

@@ -28,6 +28,11 @@ import (
 // than the base table directly) — their field sets are identical to
 // ExerciseVersion, so the repository converts with a plain struct conversion.
 type Queries interface {
+	PublishValidatedExerciseDraft(context.Context, postgres.PublishValidatedExerciseDraftParams) (postgres.PublishValidatedExerciseDraftRow, error)
+	RestartExerciseImportJob(context.Context, postgres.RestartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
+	GetImportTargetContext(context.Context, uuid.UUID) (postgres.GetImportTargetContextRow, error)
+	ListEditableImportTargets(context.Context, postgres.ListEditableImportTargetsParams) ([]postgres.ListEditableImportTargetsRow, error)
+	CountEditableImportTargets(context.Context, postgres.CountEditableImportTargetsParams) (int64, error)
 	CreateExercise(ctx context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)
 	UpdateExercise(ctx context.Context, arg postgres.UpdateExerciseParams) (int64, error)
@@ -36,6 +41,7 @@ type Queries interface {
 	GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (postgres.ExerciseVersion, error)
 	ListExerciseVersions(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVersion, error)
 	UpsertExerciseDraft(ctx context.Context, arg postgres.UpsertExerciseDraftParams) (postgres.UpsertExerciseDraftRow, error)
+	SaveExerciseDraftIdentity(ctx context.Context, arg postgres.SaveExerciseDraftIdentityParams) (postgres.SaveExerciseDraftIdentityRow, error)
 	PublishExerciseDraft(ctx context.Context, arg postgres.PublishExerciseDraftParams) (postgres.PublishExerciseDraftRow, error)
 	DiscardExerciseDraft(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error)
 	CreateDraftFromVersion(ctx context.Context, arg postgres.CreateDraftFromVersionParams) (postgres.CreateDraftFromVersionRow, error)
@@ -44,6 +50,9 @@ type Queries interface {
 	ListExercisesCursor(ctx context.Context, arg postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error)
 	ListExercisesPage(ctx context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error)
 	ListExerciseTags(ctx context.Context, arg postgres.ListExerciseTagsParams) ([]postgres.ListExerciseTagsRow, error)
+	// The user's own catalog settings (the table columns).
+	GetUserUIPreference(ctx context.Context, arg postgres.GetUserUIPreferenceParams) ([]byte, error)
+	UpsertUserUIPreference(ctx context.Context, arg postgres.UpsertUserUIPreferenceParams) error
 	ListExerciseAuthors(ctx context.Context, arg postgres.ListExerciseAuthorsParams) ([]postgres.ListExerciseAuthorsRow, error)
 	CountExercises(ctx context.Context, arg postgres.CountExercisesParams) (int64, error)
 	CountExercisesPage(ctx context.Context, arg postgres.CountExercisesPageParams) (int64, error)
@@ -53,6 +62,7 @@ type Queries interface {
 	SetImportedExercisePointers(ctx context.Context, arg postgres.SetImportedExercisePointersParams) error
 	StartExerciseImportJob(ctx context.Context, arg postgres.StartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
 	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error)
+	GetOwnedExerciseImportJobBySource(context.Context, postgres.GetOwnedExerciseImportJobBySourceParams) (postgres.ExerciseImportJob, error)
 	UpdateExerciseImportJob(ctx context.Context, arg postgres.UpdateExerciseImportJobParams) (int64, error)
 	ListRunningExerciseImportJobs(ctx context.Context, arg postgres.ListRunningExerciseImportJobsParams) ([]postgres.ExerciseImportJob, error)
 	UpdateExerciseImportJobProgress(ctx context.Context, arg postgres.UpdateExerciseImportJobProgressParams) (int64, error)
@@ -77,6 +87,7 @@ type Queries interface {
 	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListApprovedExerciseResourceElevationsRow, error)
 	DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error)
 	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListPublishedVariantDevicesRow, error)
+	ListVisibleVariantDevices(ctx context.Context, arg postgres.ListVisibleVariantDevicesParams) ([]postgres.ListVisibleVariantDevicesRow, error)
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
@@ -131,6 +142,8 @@ type Listed struct {
 	// TaskCount is the number of subtasks of the first variant (nil: no variant); TaskNames are their names in order.
 	TaskCount *int
 	TaskNames []string
+	// VariantCount is the number of variants of the visible snapshot (nil: no snapshot).
+	VariantCount *int
 }
 
 // PageParams filter, sort and page the catalog table. Tags: any of them; TagsAll: every one; TagsNone: none of
@@ -198,7 +211,11 @@ func (r *Repository) ListCursor(ctx context.Context, p ListParams) ([]Listed, er
 	}
 	out := make([]Listed, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Listed{Exercise: ToDomain(row.Exercise), Status: exerciseModel.CatalogStatus(row.Status)})
+		entity := ToDomain(row.Exercise)
+		if row.VisibleName != "" {
+			entity.Name, entity.Description, entity.Tags = row.VisibleName, row.VisibleDescription, row.VisibleTags
+		}
+		out = append(out, Listed{Exercise: entity, Status: exerciseModel.CatalogStatus(row.Status)})
 	}
 	return out, nil
 }
@@ -216,6 +233,9 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, erro
 	out := make([]Listed, 0, len(rows))
 	for _, row := range rows {
 		item := Listed{Exercise: ToDomain(row.Exercise), Status: exerciseModel.CatalogStatus(row.Status), AuthorName: row.AuthorName}
+		if row.VisibleName != "" {
+			item.Name, item.Description, item.Tags = row.VisibleName, row.VisibleDescription, row.VisibleTags
+		}
 		if row.HasAvgDifficulty {
 			avg := row.AvgDifficulty
 			item.AvgDifficulty = &avg
@@ -227,6 +247,10 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, erro
 		item.TaskNames = row.TaskNames
 		if item.TaskNames == nil {
 			item.TaskNames = []string{}
+		}
+		if row.HasVariantCount {
+			count := int(row.VariantCount)
+			item.VariantCount = &count
 		}
 		out = append(out, item)
 	}
@@ -398,15 +422,11 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (exerciseModel.E
 	return ToDomain(row), nil
 }
 
-// Update writes the identity columns (archive state included) in one
-// statement guarded by the optimistic lock (see users). Version pointers are
-// excluded — they belong to the lifecycle CTEs.
+// Update writes policy/audit columns under the optimistic lock. Authored
+// metadata and version pointers belong to draft/publication lifecycle SQL.
 func (r *Repository) Update(ctx context.Context, e exerciseModel.Exercise, expectedUpdatedAt time.Time) (int64, error) {
 	return r.q.UpdateExercise(ctx, postgres.UpdateExerciseParams{
 		ID:                e.ID,
-		Name:              e.Name,
-		Description:       e.Description,
-		Tags:              e.Tags,
 		ArchivedAt:        timestamptzFromPtr(e.ArchivedAt),
 		AccessLevel:       int16(e.AccessLevel),
 		UpdatedAt:         e.UpdatedAt,
@@ -456,7 +476,7 @@ func (r *Repository) InsertImportedVersion(ctx context.Context, v exerciseModel.
 	if err != nil {
 		return exerciseModel.ExerciseVersion{}, err
 	}
-	row, err := r.q.InsertImportedExerciseVersion(ctx, postgres.InsertImportedExerciseVersionParams{ID: v.ID, ExerciseID: v.ExerciseID, Status: string(v.Status), AdminNote: v.AdminNote, Label: v.Label, Variants: variants, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: timestamptzFromPtr(v.PublishedAt)})
+	row, err := r.q.InsertImportedExerciseVersion(ctx, postgres.InsertImportedExerciseVersionParams{ID: v.ID, ExerciseID: v.ExerciseID, Status: string(v.Status), Name: v.Name, Description: v.Description, Tags: nonNilTags(v.Tags), AdminNote: v.AdminNote, Label: v.Label, Variants: variants, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: timestamptzFromPtr(v.PublishedAt)})
 	if err != nil {
 		return exerciseModel.ExerciseVersion{}, err
 	}
@@ -500,6 +520,41 @@ func (r *Repository) Publish(ctx context.Context, exerciseID uuid.UUID, publishe
 		return exerciseModel.ExerciseVersion{}, err
 	}
 	return VersionToDomain(postgres.ExerciseVersion(row))
+}
+
+// PublishValidated promotes only the exact authored snapshot that passed the
+// business/resource checks. The SQL locks and rechecks a concurrent row update.
+func (r *Repository) PublishValidated(ctx context.Context, v exerciseModel.ExerciseVersion, at time.Time) (exerciseModel.ExerciseVersion, error) {
+	variants, err := json.Marshal(v.Variants)
+	if err != nil {
+		return exerciseModel.ExerciseVersion{}, err
+	}
+	row, err := r.q.PublishValidatedExerciseDraft(ctx, postgres.PublishValidatedExerciseDraftParams{ExerciseID: v.ExerciseID, PublishedAt: timestamptzFromTime(at), ExpectedID: v.ID, ExpectedName: v.Name, ExpectedDescription: v.Description, ExpectedTags: v.Tags, ExpectedAdminNote: v.AdminNote, ExpectedVariants: variants})
+	if err != nil {
+		return exerciseModel.ExerciseVersion{}, err
+	}
+	return VersionToDomain(postgres.ExerciseVersion(row))
+}
+
+// SaveDraftIdentity is the legacy PATCH contract with version-owned metadata.
+// The SQL operation clones the published content lazily and owns the pointer.
+func (r *Repository) SaveDraftIdentity(ctx context.Context, e exerciseModel.Exercise, expectedUpdatedAt time.Time, newID uuid.UUID) (exerciseModel.ExerciseVersion, error) {
+	row, err := r.q.SaveExerciseDraftIdentity(ctx, postgres.SaveExerciseDraftIdentityParams{
+		ExerciseID: e.ID, ExpectedUpdatedAt: expectedUpdatedAt,
+		Name: e.Name, Description: e.Description, Tags: nonNilTags(e.Tags),
+		NewID: newID, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy,
+	})
+	if err != nil {
+		return exerciseModel.ExerciseVersion{}, err
+	}
+	return VersionToDomain(postgres.ExerciseVersion(row))
+}
+
+func nonNilTags(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
 }
 
 func (r *Repository) Discard(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error) {
@@ -581,6 +636,9 @@ func VersionToDomain(row postgres.ExerciseVersion) (exerciseModel.ExerciseVersio
 		ID:          row.ID,
 		ExerciseID:  row.ExerciseID,
 		Status:      exerciseModel.VersionStatus(row.Status),
+		Name:        row.Name,
+		Description: row.Description,
+		Tags:        row.Tags,
 		AdminNote:   row.AdminNote,
 		Label:       row.Label,
 		Variants:    variants,
@@ -691,6 +749,28 @@ func (r *Repository) PublishedVariants(ctx context.Context, ids []uuid.UUID) (ma
 		return out, nil
 	}
 	rows, err := r.q.ListPublishedVariantDevices(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		var variants []exerciseModel.Variant
+		if err = json.Unmarshal(row.Variants, &variants); err != nil {
+			return nil, err
+		}
+		out[row.ExerciseID] = variants
+	}
+	return out, nil
+}
+
+// VisibleVariants reduces the same selected working/public snapshot as the
+// catalog's authored metadata and statistics. The caller supplies only IDs it
+// already authorized; viewerID distinguishes published-only catalog readers.
+func (r *Repository) VisibleVariants(ctx context.Context, ids []uuid.UUID, viewerID uuid.NullUUID) (map[uuid.UUID][]exerciseModel.Variant, error) {
+	out := make(map[uuid.UUID][]exerciseModel.Variant, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListVisibleVariantDevices(ctx, postgres.ListVisibleVariantDevicesParams{Ids: ids, ViewerID: viewerID})
 	if err != nil {
 		return nil, err
 	}

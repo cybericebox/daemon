@@ -31,7 +31,7 @@ type (
 		Versions []archiveVersionV2 `json:"versions"`
 	}
 
-	// archiveExerciseV2: id is accepted and ignored, a new exercise gets its own.
+	// archiveExerciseV2: id suggests a re-import target; a new exercise gets its own.
 	archiveExerciseV2 struct {
 		ID          string   `json:"id,omitempty"`
 		Name        string   `json:"name"`
@@ -41,11 +41,14 @@ type (
 
 	// archiveVersionV2: id is accepted and ignored.
 	archiveVersionV2 struct {
-		ID        string                      `json:"id,omitempty"`
-		Status    exerciseModel.VersionStatus `json:"status,omitempty"`
-		AdminNote string                      `json:"admin_note,omitempty"`
-		Label     string                      `json:"label,omitempty"`
-		Variants  []archiveVariantV2          `json:"variants"`
+		ID     string                      `json:"id,omitempty"`
+		Status exerciseModel.VersionStatus `json:"status,omitempty"`
+		// Older archives keep metadata only at the root. New archives preserve
+		// the authored metadata of each snapshot, including historical names.
+		Exercise  *archiveExerciseV2 `json:"exercise,omitempty"`
+		AdminNote string             `json:"admin_note,omitempty"`
+		Label     string             `json:"label,omitempty"`
+		Variants  []archiveVariantV2 `json:"variants"`
 	}
 
 	archiveVariantV2 struct {
@@ -53,9 +56,13 @@ type (
 		Index int32  `json:"index,omitempty"`
 		Note  string `json:"note,omitempty"`
 		// LinkedTo: the 1-based position of the base variant; the variant then holds only its own parts.
-		LinkedTo *int              `json:"linked_to,omitempty"`
-		Tasks    []archiveTaskV2   `json:"tasks,omitempty"`
-		Topology archiveTopologyV2 `json:"topology"`
+		LinkedTo *int `json:"linked_to,omitempty"`
+		// Weight: how often the variant is given out relative to the others (absent = 1).
+		Weight int `json:"weight,omitempty"`
+		// DeviceImages (a linked variant only): its own image for base devices, by device name.
+		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
+		Tasks        []archiveTaskV2           `json:"tasks,omitempty"`
+		Topology     archiveTopologyV2         `json:"topology"`
 	}
 
 	archiveTaskV2 struct {
@@ -100,10 +107,17 @@ type (
 		SecurityPreset exerciseModel.SecurityPreset     `json:"security_preset,omitempty"`
 		ResourcePreset string                           `json:"resource_preset,omitempty"`
 		Interfaces     []exerciseModel.Interface        `json:"interfaces,omitempty"`
-		EnvVars        []exerciseModel.EnvVar           `json:"env_vars,omitempty"`
+		EnvVars        []archiveEnvVarV2                `json:"env_vars,omitempty"`
 		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
 		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
+	}
+
+	// archiveEnvVarV2 is a device env var as the document writes it (the server-side origin of a secret is not).
+	archiveEnvVarV2 struct {
+		Name   string `json:"name"`
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
 	}
 
 	archiveConnectionV2 struct {
@@ -469,8 +483,9 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 // image's platform reference. nil images: an image file is refused (archiveImageFileUnsupported).
 func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[string]*archiveImageFile) (ParsedExerciseArchive, error) {
 	parsed := ParsedExerciseArchive{
-		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
-		Files:    files,
+		SourceExerciseID: uuid.FromStringOrNil(d.Exercise.ID),
+		Exercise:         exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
+		Files:            files,
 	}
 	links := newArchiveLinks(files, &parsed)
 	links.images = images
@@ -482,7 +497,12 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 		if !version.Status.Valid() {
 			return ParsedExerciseArchive{}, unknownEnum(statusPath, string(version.Status))
 		}
-		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
+		metadata := d.Exercise
+		if version.Exercise != nil {
+			metadata = *version.Exercise
+		}
+		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label,
+			Name: metadata.Name, Description: metadata.Description, Tags: metadata.Tags}
 		// Ids first: a linked variant names its base by position, possibly a later one.
 		// A repeated id would make the link name two variants at once.
 		ids := make([]uuid.UUID, len(version.Variants))
@@ -502,20 +522,28 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 			seen[id] = true
 			ids[xi] = id
 		}
-		for xi, variant := range version.Variants {
-			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
-			var value exerciseModel.Variant
-			var err error
-			if variant.LinkedTo != nil {
-				value, err = variant.toLinkedDomain(path, xi, version.Variants, ids, links)
-			} else {
-				value, err = variant.toDomain(path, ids[xi], links)
+		// Unlinked variants first: a linked variant names the devices of its base (possibly a later one) by name.
+		values := make([]exerciseModel.Variant, len(version.Variants))
+		for _, linkedPass := range []bool{false, true} {
+			for xi, variant := range version.Variants {
+				if (variant.LinkedTo != nil) != linkedPass {
+					continue
+				}
+				path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
+				var value exerciseModel.Variant
+				var err error
+				if variant.LinkedTo != nil {
+					value, err = variant.toLinkedDomain(path, xi, version.Variants, values, ids, links)
+				} else {
+					value, err = variant.toDomain(path, ids[xi], links)
+				}
+				if err != nil {
+					return ParsedExerciseArchive{}, err
+				}
+				values[xi] = value
 			}
-			if err != nil {
-				return ParsedExerciseArchive{}, err
-			}
-			mapped.Variants = append(mapped.Variants, value)
 		}
+		mapped.Variants = append(mapped.Variants, values...)
 		parsed.Versions = append(parsed.Versions, mapped)
 	}
 	if err := links.orphan(); err != nil {
@@ -524,12 +552,26 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 	return parsed, nil
 }
 
+// checkArchiveWeight refuses a variant weight outside 0..MaxVariantWeight (0 or absent means 1).
+func checkArchiveWeight(path string, weight int) error {
+	if weight < 0 || weight > exerciseModel.MaxVariantWeight {
+		return archiveInvalid(fmt.Sprintf("%s.weight must be a whole number from 1 to %d", path, exerciseModel.MaxVariantWeight))
+	}
+	return nil
+}
+
 func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
+	if err := checkArchiveWeight(path, v.Weight); err != nil {
+		return exerciseModel.Variant{}, err
+	}
+	if len(v.DeviceImages) > 0 {
+		return exerciseModel.Variant{}, archiveInvalid(path + ".device_images is only for a linked variant (with linked_to)")
+	}
 	topology, deviceIDs, err := v.Topology.toDomain(path+".topology", links)
 	if err != nil {
 		return exerciseModel.Variant{}, err
 	}
-	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Topology: topology}
+	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topology}
 	for ti, task := range v.Tasks {
 		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, links)
 		if taskErr != nil {
@@ -663,6 +705,9 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 			}
 			image = marker
 		}
+		if len(device.EnvVars) > exerciseModel.MaxDeviceEnvVars {
+			return exerciseModel.Topology{}, nil, archiveInvalid(fmt.Sprintf("%s.env_vars has more than %d variables", devicePath, exerciseModel.MaxDeviceEnvVars))
+		}
 		if _, seen := deviceIDs[device.Name]; seen {
 			deviceIDs[device.Name] = ambiguousDevice
 		} else {
@@ -671,7 +716,7 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 		topology.Devices = append(topology.Devices, exerciseModel.Device{
 			ID: id, Name: device.Name, Type: device.Type, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
-			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
+			Interfaces: device.Interfaces, EnvVars: envVarsToDomain(device.EnvVars),
 			External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
@@ -704,11 +749,13 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 // buildV2DocumentWithImages is buildV2Document for an export «з образами»: a device whose platform image has a path in
 // imagePaths (by the image's digest) names that file, `image: {file: …}`.
 func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string, imagePaths map[string]string) ([]byte, error) {
-	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
+	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{ID: e.ID.String(), Name: e.Name, Description: e.Description, Tags: e.Tags}}
 	for _, version := range versions {
-		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
+		metadata := e.WithVersionMetadata(version)
+		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{},
+			Exercise: &archiveExerciseV2{Name: metadata.Name, Description: metadata.Description, Tags: metadata.Tags}}
 		for _, variant := range version.Variants {
-			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths); ok {
+			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths, imagePaths); ok {
 				out.Variants = append(out.Variants, linked)
 				continue
 			}
@@ -737,7 +784,7 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
 			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
-			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
+			EnvVars: exportEnvVarsV2(device.EnvVars), External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
 	for _, connection := range variant.Topology.Connections {
@@ -749,11 +796,27 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		}
 		topology.Connections = append(topology.Connections, out)
 	}
-	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Topology: topology}
+	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, Topology: topology}
 	for _, task := range variant.Tasks {
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}
 	return result
+}
+
+func envVarsToDomain(vars []archiveEnvVarV2) []exerciseModel.EnvVar {
+	var out []exerciseModel.EnvVar
+	for _, v := range vars {
+		out = append(out, exerciseModel.EnvVar{Name: v.Name, Value: v.Value, Secret: v.Secret})
+	}
+	return out
+}
+
+func exportEnvVarsV2(vars []exerciseModel.EnvVar) []archiveEnvVarV2 {
+	var out []archiveEnvVarV2
+	for _, v := range vars {
+		out = append(out, archiveEnvVarV2{Name: v.Name, Value: v.Value, Secret: v.Secret})
+	}
+	return out
 }
 
 // exportDeviceImage is the image as the document writes it: the file of its platform image when the export carries

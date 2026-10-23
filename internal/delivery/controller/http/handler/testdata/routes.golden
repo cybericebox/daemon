@@ -210,6 +210,11 @@ PUT    /api/events/:id/manage/name | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/notification-subscriptions | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/notification-subscriptions | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/notification-subscriptions/:signalType/:channel | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/notification-templates/custom | gate: self | layers: messaging.requireRead
+POST   /api/events/:id/manage/notification-templates/custom | gate: self | layers: messaging.requireManage
+DELETE /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireManage
+GET    /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireRead
+PUT    /api/events/:id/manage/notification-templates/custom/:templateID | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/notification-templates/email | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/notification-templates/email | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/notification-templates/email/:templateID | gate: self | layers: event.requireManage
@@ -435,8 +440,12 @@ GET    /api/exercises/import/example | gate: self | layers: -
 GET    /api/exercises/import/example/document | gate: self | layers: -
 GET    /api/exercises/import/jobs | gate: self | layers: -
 GET    /api/exercises/import/jobs/:jobID | gate: self | layers: -
+POST   /api/exercises/import/preview | gate: self | layers: download.LongOperation.func
+GET    /api/exercises/import/targets | gate: self | layers: -
 POST   /api/exercises/import/upload | gate: self | layers: download.LongOperation.func
 POST   /api/exercises/import/uploaded | gate: self | layers: download.LongOperation.func
+GET    /api/exercises/preferences/catalog-columns | gate: self | layers: -
+PUT    /api/exercises/preferences/catalog-columns | gate: self | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
@@ -527,6 +536,11 @@ POST   /api/notifications/site-banners | gate: notifications.banners.write | lay
 DELETE /api/notifications/site-banners/:bannerID | gate: notifications.banners.write | layers: -
 PUT    /api/notifications/site-banners/:bannerID | gate: notifications.banners.write | layers: -
 GET    /api/notifications/stats | gate: notifications.templates.read | layers: -
+GET    /api/notifications/templates/custom | gate: notifications.broadcast | layers: -
+POST   /api/notifications/templates/custom | gate: notifications.broadcast | layers: -
+DELETE /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
+GET    /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
+PUT    /api/notifications/templates/custom/:templateID | gate: notifications.broadcast | layers: -
 GET    /api/notifications/templates/email | gate: notifications.templates.read | layers: -
 POST   /api/notifications/templates/email | gate: notifications.templates.write | layers: -
 DELETE /api/notifications/templates/email/:id | gate: notifications.templates.write | layers: -

@@ -10,6 +10,7 @@ import (
 // platform cipher (bound to the job id), "" for an unprotected archive: the plain password is never stored.
 type ExerciseImportArgs struct {
 	JobID          uuid.UUID `json:"job_id" river:"unique"`
+	Generation     int64     `json:"generation,omitempty" river:"unique"`
 	SealedPassword string    `json:"sealed_password,omitempty"`
 }
 

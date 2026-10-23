@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -12,11 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
@@ -216,6 +217,7 @@ func (h *Handler) exportJob(ctx *gin.Context) {
 // @Produce  json
 // @Param    archive   formData  file    true   "exercise ZIP"
 // @Param    password  formData  string  false  "archive password when it contains secrets"
+// @Description  This raw multipart route is legacy all-NEW. Target selections/UPDATE use the immutable UploadID/FileID routes so confirmation binds the same source.
 // @Param    OwnerEventID  formData  string  false  "the event the tasks are created in (its owner/manager, or exercises.write); empty: the platform catalog (exercises.write)"
 // @Success  200  {object}  response.Response{data=[]exerciseResponse}
 // @Success  202  {object}  response.Response{data=importJobStarted}
@@ -250,6 +252,26 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 	contents, err := exerciseUseCase.ReadArchiveBytes(input, lim.ArchiveBytes)
 	if err != nil {
 		abortArchiveError(ctx, err)
+		return
+	}
+	if strings.TrimSpace(ctx.PostForm("FixedExerciseID")) != "" {
+		response.AbortWithError(ctx, exerciseModel.ErrImportSourceRequired.WithPublicContext("field", "target").Err())
+		return
+	}
+	if raw := ctx.PostForm("Targets"); raw != "" {
+		var targets []exerciseUseCase.ImportTarget
+		if err = json.Unmarshal([]byte(raw), &targets); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+		for _, target := range targets {
+			if target.Mode == "update" {
+				response.AbortWithError(ctx, exerciseModel.ErrImportSourceRequired.WithPublicContext("field", "target").WithPublicContext("itemKey", target.ItemKey).Err())
+				return
+			}
+		}
+		// Raw multipart has no selector protocol; explicit choices belong to the source-backed routes.
+		response.AbortWithError(ctx, exerciseModel.ErrImportSourceRequired.WithPublicContext("field", "target").Err())
 		return
 	}
 	owner, ok := ownerEventFromForm(ctx)
@@ -364,17 +386,19 @@ type importUploadedRequest struct {
 	// OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
 	// platform catalog (exercises.write).
 	OwnerEventID *uuid.UUID `json:"OwnerEventID"`
+	exerciseUseCase.ImportOptions
 }
 
 // importUploadedArchive godoc
 // @Summary      Import an exercise ZIP archive that went up in chunks (completed into a file, at most the archive limit)
 // @Description  200 with the created tasks; an archive naming device image files is imported in the background:
 // @Description  202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
+// @Description  Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, per-item Results and Created/Updated counts. Every UPDATE requires its exact preview Revision; ReplaceDraft confirms replacement of an existing draft.
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    body  body  importUploadedRequest  true  "the uploaded file and the archive password"
-// @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Success  200  {object}  response.Response{data=importCommitResponse}
 // @Success  202  {object}  response.Response{data=importJobStarted}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/import/uploaded [post]
@@ -389,38 +413,14 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err := h.useCase.AuthorizeImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, req.OwnerEventID); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	// Only a file the caller uploaded: another person's file is not found, like an absent one.
-	meta, err := h.useCase.GetFile(ctx, req.FileID)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	if !meta.CreatedBy.Valid || meta.CreatedBy.UUID != claims.UserID {
-		response.AbortWithError(ctx, mediaModel.ErrFileNotFound.Err())
-		return
-	}
-	reader, _, err := h.useCase.StreamFile(ctx, req.FileID)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	defer func() { _ = reader.Close() }()
-	// One set of archive limits for the whole import.
-	lim := h.useCase.ArchiveLimits(ctx)
-	contents, err := exerciseUseCase.ReadArchiveBytes(reader, lim.ArchiveBytes)
+	start, err := h.useCase.CommitArchiveImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseUseCase.CommitArchiveInput{PreviewArchiveInput: exerciseUseCase.PreviewArchiveInput{FileID: req.FileID, Password: req.Password, OwnerEventID: req.OwnerEventID, Targets: req.Targets, FixedExerciseID: req.FixedExerciseID}, ConfirmedUpdates: req.ConfirmedUpdates})
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
 	}
-	if exerciseUseCase.ArchiveNamesImages(contents, req.Password, lim) {
-		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: req.FileID, Password: req.Password, CreatedBy: claims.UserID, OwnerEventID: req.OwnerEventID})
-		return
-	}
-	h.importContents(ctx, claims.UserID, req.OwnerEventID, contents, req.Password, lim)
+	setImportAuditTarget(ctx, req.ImportOptions)
+	respondImportStart(ctx, start, req.Targets != nil || req.FixedExerciseID != uuid.Nil)
+
 }
 
 // importJobStarted is the answer of an import that runs in the background (an archive naming device image files):
@@ -446,6 +446,7 @@ type importUploadRequest struct {
 	// OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
 	// platform catalog (exercises.write).
 	OwnerEventID *uuid.UUID `json:"OwnerEventID"`
+	exerciseUseCase.ImportOptions
 }
 
 // importArchiveUpload godoc
@@ -456,11 +457,12 @@ type importUploadRequest struct {
 // @Description  per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
 // @Description  platform image registry is not configured or failing; 409 70993 when the upload is not a complete
 // @Description  task archive upload; 404 when the upload is absent, expired or another user's.
+// @Description  Targets omitted retains the legacy NEW array response. Explicit Targets/FixedExerciseID returns importCommitResponse with Exercises, Results and Created/Updated counts. Every UPDATE requires the exact preview Revision and existing-draft replacement confirmation.
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    body  body  importUploadRequest  true  "the upload and the archive password"
-// @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Success  200  {object}  response.Response{data=importCommitResponse}
 // @Success  202  {object}  response.Response{data=importJobStarted}
 // @Failure  400  {object}  response.Response
 // @Failure  404  {object}  response.Response
@@ -477,24 +479,14 @@ func (h *Handler) importArchiveUpload(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err := h.useCase.AuthorizeImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, req.OwnerEventID); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	start, err := h.useCase.ImportUploadedArchive(ctx, exerciseUseCase.ImportUploadInput{UploadID: req.UploadID, Password: req.Password, CreatedBy: claims.UserID, OwnerEventID: req.OwnerEventID})
+	start, err := h.useCase.CommitArchiveImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseUseCase.CommitArchiveInput{PreviewArchiveInput: exerciseUseCase.PreviewArchiveInput{UploadID: req.UploadID, Password: req.Password, OwnerEventID: req.OwnerEventID, Targets: req.Targets, FixedExerciseID: req.FixedExerciseID}, ConfirmedUpdates: req.ConfirmedUpdates})
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
 	}
-	if start.JobID != uuid.Nil {
-		response.AbortWithDataStatus(ctx, http.StatusAccepted, importJobStarted{JobID: start.JobID})
-		return
-	}
-	created := make([]exerciseResponse, 0, len(start.Exercises))
-	for _, view := range start.Exercises {
-		created = append(created, exerciseToResponse(view))
-	}
-	response.AbortWithData(ctx, created)
+	setImportAuditTarget(ctx, req.ImportOptions)
+	respondImportStart(ctx, start, req.Targets != nil || req.FixedExerciseID != uuid.Nil)
+
 }
 
 // importJobError is why a background import failed, as an error response's Status carries it: the API code, the
@@ -548,6 +540,11 @@ func (h *Handler) runningImportJobs(ctx *gin.Context) {
 }
 
 type importJobResponse struct {
+	Results []exerciseModel.ImportResult `json:"Results,omitempty"`
+	Created int                          `json:"Created"`
+	Updated int                          `json:"Updated"`
+	// Unchanged: updates skipped because the archive brought nothing new.
+	Unchanged int `json:"Unchanged"`
 	// State is running, done or failed.
 	State string `json:"State"`
 	// Stage is unpacking, images or tasks while running, then done or failed.
@@ -593,6 +590,7 @@ func (h *Handler) importJob(ctx *gin.Context) {
 		return
 	}
 	out := importJobResponse{
+		Results: job.Results, Created: job.Created, Updated: job.Updated, Unchanged: job.Unchanged,
 		State: string(job.State), Stage: string(job.Stage),
 		ImagesDone: job.Progress.ImagesDone, ImagesTotal: job.Progress.ImagesTotal,
 		TasksDone: job.Progress.TasksDone, TasksTotal: job.Progress.TasksTotal,
@@ -602,7 +600,15 @@ func (h *Handler) importJob(ctx *gin.Context) {
 		out.Error = &importJobError{Code: job.Error.Code, Message: job.Error.Message, Context: job.Error.Context}
 	}
 	for _, exerciseID := range job.ExerciseIDs {
-		view, getErr := h.useCase.GetExercise(ctx, exerciseID)
+		actor := exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}
+		if _, accessErr := h.useCase.AuthorizeExercise(ctx, actor, exerciseID, exerciseUseCase.ActionRead); accessErr != nil {
+			if errors.Is(accessErr, exerciseModel.ErrExerciseNotFound.Err()) || errors.Is(accessErr, exerciseModel.ErrExerciseForbidden.Err()) {
+				continue
+			}
+			response.AbortWithError(ctx, accessErr)
+			return
+		}
+		view, getErr := h.useCase.GetExerciseFor(ctx, actor, exerciseID)
 		if errors.Is(getErr, exerciseModel.ErrExerciseNotFound.Err()) {
 			continue // removed since the import
 		}
@@ -615,31 +621,26 @@ func (h *Handler) importJob(ctx *gin.Context) {
 	response.AbortWithData(ctx, out)
 }
 
-// importContents expands the archive bytes and imports every exercise in them, all under lim.
+// importContents delegates one whole legacy NEW bundle to the atomic use-case boundary.
 func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, ownerEventID *uuid.UUID, contents []byte, password string, lim exerciseModel.ArchiveLimits) {
-	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password, lim)
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return
+	}
+	start, err := h.useCase.ImportRawArchive(ctx, actor, exerciseUseCase.ImportExerciseInput{Archive: contents, Password: password, CreatedBy: createdBy, OwnerEventID: ownerEventID, Limits: lim})
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
 	}
-	created := make([]exerciseResponse, 0, len(imports))
-	for _, item := range imports {
-		view, importErr := h.useCase.ImportExerciseArchive(ctx, exerciseUseCase.ImportExerciseInput{
-			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, OwnerEventID: ownerEventID, Limits: lim,
-		})
-		if importErr != nil {
-			response.AbortWithError(ctx, importErr)
-			return
-		}
-		created = append(created, exerciseToResponse(view))
-	}
-	response.AbortWithData(ctx, created)
+	respondImportStart(ctx, start, false)
+
 }
 
 // abortArchiveError keeps a typed error (its code and public context reach the client; an internal one is answered
 // generically); an untyped failure of the archive itself (a broken zip, a wrong password) stays a plain 400 with its
 // text; any other untyped failure (storage, database) is an internal error whose text stays in the server log.
 func abortArchiveError(ctx *gin.Context, failure error) {
+	failure = exerciseUseCase.ArchivePasswordError(failure)
 	var typed appErr.Error
 	switch {
 	case errors.As(failure, &typed):
@@ -664,4 +665,41 @@ func archiveFilename(name string) string {
 		name = "exercise"
 	}
 	return filepath.Base(name) + ".cybericebox.zip"
+}
+
+// Explicit choices opt into the additive mixed-import result. Legacy clients
+// retain their exact array response; both paths share the same atomic commit.
+type importCommitResponse struct {
+	Exercises []exerciseResponse           `json:"Exercises"`
+	Results   []exerciseModel.ImportResult `json:"Results"`
+	Created   int                          `json:"Created"`
+	Updated   int                          `json:"Updated"`
+	// Unchanged: updates skipped because the archive brought nothing new.
+	Unchanged int `json:"Unchanged"`
+}
+
+func respondImportStart(ctx *gin.Context, start exerciseUseCase.ArchiveImportStart, explicit bool) {
+	if start.JobID != uuid.Nil {
+		response.AbortWithDataStatus(ctx, http.StatusAccepted, importJobStarted{JobID: start.JobID})
+		return
+	}
+	views := make([]exerciseResponse, 0, len(start.Exercises))
+	for _, view := range start.Exercises {
+		views = append(views, exerciseToResponse(view))
+	}
+	if explicit {
+		response.AbortWithData(ctx, importCommitResponse{Exercises: views, Results: start.Results, Created: start.Created, Updated: start.Updated, Unchanged: start.Unchanged})
+		return
+	}
+	response.AbortWithData(ctx, views)
+}
+
+func setImportAuditTarget(ctx *gin.Context, in exerciseUseCase.ImportOptions) {
+	id := in.FixedExerciseID
+	if id == uuid.Nil && len(in.Targets) == 1 && in.Targets[0].Mode == "update" {
+		id = in.Targets[0].ExerciseID
+	}
+	if id != uuid.Nil {
+		audit.SetTarget(ctx, "exercise:"+id.String())
+	}
 }

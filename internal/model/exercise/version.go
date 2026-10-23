@@ -167,10 +167,33 @@ type Variant struct {
 	Index int32     `json:"index"` // decorative admin-facing number; not an identity
 	Note  string    `json:"note"`  // per-variant admin note (never shown to participants)
 	// LinkedTo is the base variant (same version) this one inherits its content from;
-	// only Flag and Attachments of each task, Note and Index stay its own. Zero = independent.
+	// only Flag and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
-	Tasks    []Task        `json:"tasks"`
-	Topology Topology      `json:"topology"`
+	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
+	Weight int `json:"weight,omitempty"`
+	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by device id.
+	// The device keeps the base's name and everything else, so the descriptions' placeholders stay valid.
+	// SyncLinkedVariants writes them into the rebuilt topology and drops the ones of devices the base no longer has.
+	ImageOverrides []ImageOverride `json:"image_overrides,omitempty"`
+	Tasks          []Task          `json:"tasks"`
+	Topology       Topology        `json:"topology"`
+}
+
+// ImageOverride is a linked variant's own image for one device of its base.
+type ImageOverride struct {
+	DeviceID uuid.UUID `json:"device_id"`
+	Image    string    `json:"image"`
+}
+
+// MaxDeviceEnvVars bounds the env vars of one device.
+const MaxDeviceEnvVars = 64
+
+// MaxVariantWeight bounds a variant's weight.
+const MaxVariantWeight = 100
+
+// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset weight is 1).
+func (v Variant) EffectiveWeight() int {
+	return min(max(v.Weight, 1), MaxVariantWeight)
 }
 
 // ValidateTopologyForDeploy enforces runnable graph rules without requiring
@@ -188,7 +211,12 @@ type ExerciseVersion struct {
 	ID         uuid.UUID
 	ExerciseID uuid.UUID
 	Status     VersionStatus
-	AdminNote  string
+	// Authored metadata publishes together with the variants. Identity-level
+	// copies are only the published/bootstrap projection, never the working copy.
+	Name        string
+	Description string
+	Tags        []string
+	AdminNote   string
 	// Label names an explicit snapshot (checkpoint note); '' for every other
 	// version. Not content: excluded from HasChanges, never restored into the
 	// working copy. Part of the portable archive format.
@@ -267,6 +295,9 @@ func (v *ExerciseVersion) ValidateStructure() error {
 			}
 		}
 		if err := variant.Topology.validateStructure(); err != nil {
+			return err
+		}
+		if err := validateImageOverrides(variantIndex, variant); err != nil {
 			return err
 		}
 		if err := variant.Topology.validateFlagEnvTargets(variant.Tasks); err != nil {

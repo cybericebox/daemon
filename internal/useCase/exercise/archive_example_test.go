@@ -140,7 +140,7 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		}).AnyTimes()
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
 		Archive: archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})
@@ -200,7 +200,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
 		Archive: imports[0].Archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})
@@ -252,6 +252,14 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Len(t, second.Hints, 4)
 	require.Equal(t, uuid.NullUUID{UUID: base.ID, Valid: true}, linked.LinkedTo)
 	require.Equal(t, []string{"ICE{example_flag_2}"}, linked.Tasks[0].Flag)
+	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: devices["db"].ID, Image: "redis:7.4"}}, linked.ImageOverrides)
+	for _, device := range linked.Topology.Devices {
+		if device.Name == "db" {
+			require.Equal(t, "redis:7.4", device.Image, "the linked variant runs its own db image")
+		} else {
+			require.Equal(t, devices[device.Name].Image, device.Image)
+		}
+	}
 	require.Equal(t, []string{"ICE{example_flag}"}, base.Tasks[0].Flag)
 	require.Len(t, media.uploads, 2)
 }
@@ -378,7 +386,7 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.connections[6].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[6].endpoints[2].device":                    "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[6].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
-	"versions[1].variants[2].linked_to":                                                      "task difficulty must match at the same position in every variant",
+	"versions[1].variants[2].linked_to":                                                      "device_images is only for a linked variant (with linked_to)",
 	"versions[1].variants[2].tasks[1].flag":                                                  "task flag must use ice{...} without whitespace",
 	"versions[1].variants[2].tasks[1].attachments[1].file":                                   "an archive path is not allowed",
 }
@@ -467,7 +475,7 @@ func TestExampleArchive_LinkedVariantMinimal(t *testing.T) {
 	linked := doc.Versions[0].Variants[1]
 	require.Equal(t, 1, linked["linked_to"])
 	for key := range linked {
-		require.Contains(t, []string{"linked_to", "index", "note", "tasks"}, key)
+		require.Contains(t, []string{"linked_to", "index", "note", "weight", "device_images", "tasks"}, key)
 	}
 	tasks, ok := linked["tasks"].([]any)
 	require.True(t, ok)

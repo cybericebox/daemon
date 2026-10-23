@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -207,7 +208,7 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
 	expectFilesAdoptedAsIs(q)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
@@ -250,7 +251,7 @@ func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
 		{"linked_to":1,"tasks":[{"flag":["ICE{same}"]}]}]`
 	t.Run("published", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "published", variants, nil)})
 		require.ErrorIs(t, err, exerciseModel.ErrLinkedFlagsNotDistinct.Err())
 	})
@@ -259,7 +260,7 @@ func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
 		expectImport(q, func(written []exerciseModel.Variant) {
 			require.Equal(t, uuid.NullUUID{UUID: written[0].ID, Valid: true}, written[1].LinkedTo)
 		})
-		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "draft", variants, nil)})
 		require.NoError(t, err)
 	})
@@ -279,7 +280,7 @@ func exportLinked(t *testing.T) []byte {
 	t.Helper()
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectExport(t, q, exportExerciseID, "Експорт", linkedExportVersions())
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
 	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	return data
@@ -349,7 +350,7 @@ func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 		  "hints":[{"text":"підказка"}]}]}]`
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "draft", variants, nil)})
 	require.NoError(t, err)
 	linked, base := written[0], written[1]
@@ -360,4 +361,168 @@ func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 	require.Equal(t, base.Tasks[0].ID, linked.Tasks[0].ID)
 	require.Equal(t, base.Tasks[0].Hints[0].ID, linked.Tasks[0].Hints[0].ID)
 	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Flag)
+}
+
+// A weight is carried by a whole variant and by a linked variant's compact form.
+func TestExportThenImport_VariantWeights(t *testing.T) {
+	versions := linkedExportVersions()
+	versions[0].Variants[0].Weight = 3
+	versions[0].Variants[1].Weight = 2
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectExport(t, q, exportExerciseID, "Експорт", versions)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
+	require.NoError(t, err)
+
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]json.RawMessage `json:"variants"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
+	require.JSONEq(t, `3`, string(doc.Versions[0].Variants[0]["weight"]))
+	require.JSONEq(t, `2`, string(doc.Versions[0].Variants[1]["weight"]))
+	require.Contains(t, doc.Versions[0].Variants[1], "linked_to")
+	require.NotContains(t, doc.Versions[1].Variants[0], "weight", "an unset weight is not written")
+
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	require.NoError(t, parsed.Versions[0].SyncLinkedVariants())
+	got := parsed.Versions[0].Variants
+	require.Equal(t, 3, got[0].Weight)
+	require.Equal(t, 2, got[1].Weight)
+	require.True(t, got[1].IsLinked())
+	require.Equal(t, 0, parsed.Versions[1].Variants[0].Weight)
+}
+
+func TestToParsed_VariantWeightOutOfRange(t *testing.T) {
+	cases := map[string]struct{ variants, path string }{
+		"whole too big":   {`[{"weight":101,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"whole negative":  {`[{"weight":-1,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"linked too big":  {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":500}]`, "versions[1].variants[2].weight"},
+		"linked negative": {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":-2}]`, "versions[1].variants[2].weight"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", tc.variants, nil), "", exercise.DefaultLimits())
+			require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+			require.Contains(t, errorContext(t, err)["reason"], tc.path)
+		})
+	}
+	parsed, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[{"weight":100,"tasks":[{"name":"t"}]},{"linked_to":1,"weight":1}]`, nil), "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	require.Equal(t, 100, parsed.Versions[0].Variants[0].Weight)
+	require.Equal(t, 1, parsed.Versions[0].Variants[1].Weight)
+}
+
+// device_images names base devices by name, also when the base comes later in the list.
+func TestToParsed_LinkedDeviceImages(t *testing.T) {
+	archive := linkedArchive(t, "draft", `[{"linked_to":2,"device_images":{"web":"nginx:1.28"}},`+fullBase+`]`, map[string]string{"files/base.txt": "base"})
+	parsed, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	variants := parsed.Versions[0].Variants
+	web := variants[1].Topology.Devices[0]
+	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: web.ID, Image: "nginx:1.28"}}, variants[0].ImageOverrides)
+	require.NoError(t, parsed.Versions[0].SyncLinkedVariants())
+	require.Equal(t, "nginx:1.28", parsed.Versions[0].Variants[0].Topology.Devices[0].Image)
+	require.Equal(t, "nginx:1.27", parsed.Versions[0].Variants[1].Topology.Devices[0].Image)
+}
+
+func TestToParsed_LinkedDeviceImagesRejected(t *testing.T) {
+	base := `{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","image":"a:1"},{"name":"web","type":"container"},{"name":"sw","type":"unmanaged-switch"},{"name":"db","type":"container"}]}}`
+	cases := map[string]struct{ variants, reason string }{
+		"unknown device":   {`[` + base + `,{"linked_to":1,"device_images":{"nope":"x:1"}}]`, "versions[1].variants[2].device_images.nope must name exactly one device"},
+		"ambiguous device": {`[` + base + `,{"linked_to":1,"device_images":{"web":"x:1"}}]`, "versions[1].variants[2].device_images.web must name exactly one device"},
+		"switch":           {`[` + base + `,{"linked_to":1,"device_images":{"sw":"x:1"}}]`, "versions[1].variants[2].device_images.sw names a switch or hub"},
+		"empty image":      {`[` + base + `,{"linked_to":1,"device_images":{"db":""}}]`, "versions[1].variants[2].device_images.db is not a valid image reference"},
+		"not linked":       {`[{"tasks":[{"name":"t"}],"device_images":{"db":"x:1"}}]`, "versions[1].variants[1].device_images is only for a linked variant"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", tc.variants, nil), "", exercise.DefaultLimits())
+			require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+			require.Contains(t, errorContext(t, err)["reason"], tc.reason)
+		})
+	}
+	// The file form needs the background import (with the image registry), like a device's image.
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[`+base+`,{"linked_to":1,"device_images":{"db":{"file":"images/db.tar"}}}]`, nil), "", exercise.DefaultLimits())
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveImageFileUnsupported.Err())
+	require.Equal(t, "db", errorContext(t, err)["device"])
+}
+
+func TestExportThenImport_LinkedDeviceImages(t *testing.T) {
+	versions := linkedExportVersions()
+	base := versions[0].Variants[0]
+	require.NotEmpty(t, base.Topology.Devices)
+	device := base.Topology.Devices[0]
+	versions[0].Variants[1].ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: device.ID, Image: "own/image:2"}}
+	require.NoError(t, versions[0].SyncLinkedVariants())
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectExport(t, q, exportExerciseID, "Експорт", versions)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
+	require.NoError(t, err)
+
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]json.RawMessage `json:"variants"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
+	linked := doc.Versions[0].Variants[1]
+	require.Contains(t, linked, "linked_to")
+	require.JSONEq(t, fmt.Sprintf(`{%q:"own/image:2"}`, device.Name), string(linked["device_images"]))
+
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	require.NoError(t, parsed.Versions[0].SyncLinkedVariants())
+	got := parsed.Versions[0].Variants
+	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: got[0].Topology.Devices[0].ID, Image: "own/image:2"}}, got[1].ImageOverrides)
+	require.Equal(t, "own/image:2", got[1].Topology.Devices[0].Image)
+	require.Equal(t, device.Image, got[0].Topology.Devices[0].Image)
+}
+
+// A base whose overridden device shares its name with another device cannot be named in device_images: the linked
+// variant is written whole (without the link), so nothing is lost.
+func TestExportExerciseArchive_LinkedDeviceImageOfAmbiguousNameWrittenWhole(t *testing.T) {
+	versions := linkedExportVersions()
+	devices := versions[0].Variants[0].Topology.Devices
+	require.NotEmpty(t, devices)
+	twin := devices[0]
+	twin.ID = uuid.Must(uuid.NewV7())
+	versions[0].Variants[0].Topology.Devices = append(devices, twin)
+	versions[0].Variants[1].ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: devices[0].ID, Image: "own/image:2"}}
+	require.NoError(t, versions[0].SyncLinkedVariants())
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectExport(t, q, exportExerciseID, "Експорт", versions)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
+	require.NoError(t, err)
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]json.RawMessage `json:"variants"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
+	linked := doc.Versions[0].Variants[1]
+	require.NotContains(t, linked, "linked_to")
+	require.Contains(t, string(linked["topology"]), "own/image:2")
+}
+
+func TestToParsed_DeviceEnvVarCap(t *testing.T) {
+	vars := make([]string, 0, exerciseModel.MaxDeviceEnvVars+1)
+	for i := range exerciseModel.MaxDeviceEnvVars + 1 {
+		vars = append(vars, fmt.Sprintf(`{"name":"V%d","value":"x"}`, i))
+	}
+	variant := func(n int) string {
+		return `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[` + strings.Join(vars[:n], ",") + `]}]}}]`
+	}
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars), nil), "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars+1), nil), "", exercise.DefaultLimits())
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[1].topology.devices[1].env_vars has more than 64")
+	// The server-side origin of a secret is not a key of the document.
+	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[{"name":"A","value":"x","origin":"o"}]}]}}]`, nil), "", exercise.DefaultLimits())
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 }
