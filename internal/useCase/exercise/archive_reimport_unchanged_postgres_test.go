@@ -76,3 +76,34 @@ func TestReimportOfTheSameContentLeavesTheDraftAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, beforeEntity.UpdatedAt, afterEntity.UpdatedAt, "the task is not touched")
 }
+
+// Confirming the same archive twice (a retried request, a second click) never creates the new task twice.
+func TestRepeatedCommitOfANewTaskCreatesItOnce(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	user := userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "twice-import@test.test", importJobT0)
+	user.Role = rbac.RoleSuperAdmin
+	_, err := userRepo.New(db.Queries).Create(ctx, user)
+	require.NoError(t, err)
+	archive, err := exercise.BuildArchiveV1(map[string][]byte{
+		"a/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Only once"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"One"}]}]}]}`),
+	})
+	require.NoError(t, err)
+	sources := newPostgresSources(t, db)
+	upload := uuid.Must(uuid.NewV7())
+	sources.stage(upload, user.ID, archive, mediaModel.UploadPurposeExerciseArchive)
+	worker := postgres.NewUnitOfWorker[exercise.CatalogRepository](postgres.NewUoWFactory(db.Pool))
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: db.Queries, Media: postgresArchiveMedia{newFakeMedia(), db.Queries}, CatalogUoW: worker})
+	uc.SetArchiveImport(exercise.ArchiveImportDependencies{Sources: sources})
+	actor := exercise.Actor{UserID: user.ID, Role: rbac.RoleSuperAdmin}
+	in := exercise.PreviewArchiveInput{UploadID: upload, Targets: []exercise.ImportTarget{{ItemKey: "a", Mode: "new"}}}
+	_, err = uc.PreviewArchiveImport(ctx, actor, in)
+	require.NoError(t, err)
+	first, err := uc.CommitArchiveImport(ctx, actor, exercise.CommitArchiveInput{PreviewArchiveInput: in})
+	require.NoError(t, err)
+	require.Equal(t, 1, first.Created)
+	second, secondErr := uc.CommitArchiveImport(ctx, actor, exercise.CommitArchiveInput{PreviewArchiveInput: in})
+	var count int
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM exercises`).Scan(&count))
+	require.Equal(t, 1, count, "one task, whatever the second answer was (%+v, %v)", second, secondErr)
+}
