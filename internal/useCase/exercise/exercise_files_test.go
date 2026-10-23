@@ -138,7 +138,7 @@ func TestSaveDraft_DedupesSameBytes(t *testing.T) {
 	}, nil).AnyTimes()
 	q.EXPECT().ListFileHashes(gomock.Any(), gomock.Any()).Return([]postgres.ListFileHashesRow{
 		{ID: filesFirstID, ContentHash: filesHash}, {ID: filesSecondID, ContentHash: filesHash},
-	}, nil)
+	}, nil).MinTimes(1) // the save, then the view's ContentHash
 	// The task already holds these bytes as an older file: that one is the canonical id.
 	q.EXPECT().ClaimExerciseFile(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error) {
 		require.Equal(t, filesTaskID, arg.ExerciseID)

@@ -276,6 +276,9 @@ type updateExerciseRequest struct {
 type attachmentDTO struct {
 	FileID uuid.UUID `json:"FileID"`
 	Name   string    `json:"Name"`
+	// ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every
+	// variant and task. Absent when unknown.
+	ContentHash string `json:"ContentHash,omitempty"`
 }
 
 type placeholderDTO struct {
@@ -402,6 +405,10 @@ type envVarDTO struct {
 	Value    string `json:"Value,omitempty"`
 	Secret   bool   `json:"Secret"`
 	HasValue bool   `json:"HasValue"` // response-only: a stored value exists
+	// ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of
+	// this exercise, for comparing variants without the value. The same value has the same hash within the task;
+	// it differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.
+	ValueHash string `json:"ValueHash,omitempty"`
 }
 
 type externalDTO struct {
@@ -995,10 +1002,32 @@ func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
 		Name: v.Name, Description: v.Description, Tags: taskNames(v.Tags),
-		Variants:  variantsToDTO(v.Variants),
+		Variants:  withContentHashes(variantsToDTO(v.Variants), v.EnvValueHashes, v.FileHashes),
 		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
 	}
+}
+
+// withContentHashes sets ValueHash on every env var (envHashes is [variant][device][env], aligned with the view's
+// variants) and ContentHash on every attachment.
+func withContentHashes(variants []variantDTO, envHashes [][][]string, fileHashes map[uuid.UUID]string) []variantDTO {
+	for vi := range variants {
+		for di := range variants[vi].Topology.Devices {
+			device := &variants[vi].Topology.Devices[di]
+			for ei := range device.EnvVars {
+				if vi < len(envHashes) && di < len(envHashes[vi]) && ei < len(envHashes[vi][di]) {
+					device.EnvVars[ei].ValueHash = envHashes[vi][di][ei]
+				}
+			}
+		}
+		for ti := range variants[vi].Tasks {
+			for ai := range variants[vi].Tasks[ti].Attachments {
+				attachment := &variants[vi].Tasks[ti].Attachments[ai]
+				attachment.ContentHash = fileHashes[attachment.FileID]
+			}
+		}
+	}
+	return variants
 }
 
 func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {

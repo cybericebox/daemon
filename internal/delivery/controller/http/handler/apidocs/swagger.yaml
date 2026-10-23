@@ -6269,6 +6269,11 @@ definitions:
     type: object
   exercise.attachmentDTO:
     properties:
+      ContentHash:
+        description: |-
+          ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every
+          variant and task. Absent when unknown.
+        type: string
       FileID:
         type: string
       Name:
@@ -6787,6 +6792,12 @@ definitions:
         description: |-
           Value is write-only for secrets: responses blank it, an empty value on
           save means "keep the stored one".
+        type: string
+      ValueHash:
+        description: |-
+          ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of
+          this exercise, for comparing variants without the value. The same value has the same hash within the task;
+          it differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.
         type: string
     type: object
   exercise.eventRefResponse:

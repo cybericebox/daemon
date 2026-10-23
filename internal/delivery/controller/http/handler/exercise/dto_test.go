@@ -10,6 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
 func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
@@ -228,5 +229,33 @@ func TestVariantDTO_ImageOverridesBothWays(t *testing.T) {
 	encoded, err = json.Marshal(variantToDTO(exerciseModel.Variant{}))
 	if err != nil || strings.Contains(string(encoded), "ImageOverrides") {
 		t.Fatalf("a variant without overrides has no ImageOverrides key: %s %v", encoded, err)
+	}
+}
+
+func TestVersionToResponse_ValueAndContentHashes(t *testing.T) {
+	file := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f001")
+	view := exerciseUseCase.VersionView{
+		Variants: []exerciseModel.Variant{{
+			Tasks: []exerciseModel.Task{{Name: "t", Attachments: []exerciseModel.AttachmentRef{{FileID: file, Name: "a.txt"}}}},
+			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer,
+				EnvVars: []exerciseModel.EnvVar{{Name: "PASS", Secret: true}, {Name: "MODE", Value: "ctf"}}}}},
+		}},
+		EnvValueHashes: [][][]string{{{"aa11", "bb22"}}},
+		FileHashes:     map[uuid.UUID]string{file: "cc33"},
+	}
+	encoded, err := json.Marshal(versionToResponse(view))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"Name":"PASS","Secret":true,"HasValue":true,"ValueHash":"aa11"`, `"ValueHash":"bb22"`, `"FileID":"` + file.String() + `","Name":"a.txt","ContentHash":"cc33"`} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("response misses %s: %s", want, encoded)
+		}
+	}
+	// Without hashes (no key, unknown file) the keys are absent.
+	view.EnvValueHashes, view.FileHashes = nil, nil
+	encoded, _ = json.Marshal(versionToResponse(view))
+	if strings.Contains(string(encoded), "ValueHash") || strings.Contains(string(encoded), "ContentHash") {
+		t.Errorf("unknown hashes must be absent: %s", encoded)
 	}
 }

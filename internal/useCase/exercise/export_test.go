@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/uuid"
+
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
@@ -39,4 +41,9 @@ func SetImportStateRetryDelay(t testing.TB, d time.Duration) {
 	old := importStateRetryDelay
 	importStateRetryDelay = d
 	t.Cleanup(func() { importStateRetryDelay = old })
+}
+
+// EnvValueHashes lets the external tests compute the env value hashes of a use case.
+func EnvValueHashes(u *ExerciseUseCase, exerciseID uuid.UUID, variants []exerciseModel.Variant) [][][]string {
+	return u.envValueHashes(exerciseID, variants)
 }

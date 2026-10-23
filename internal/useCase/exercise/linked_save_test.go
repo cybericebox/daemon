@@ -2,6 +2,8 @@ package exercise_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -359,4 +361,39 @@ func TestSaveDraft_LinkedVariantOwnDeviceImage(t *testing.T) {
 	require.Equal(t, "img:own", got.Topology.Devices[0].Image)
 	require.Equal(t, saveDevice, got.Topology.Devices[0].Name)
 	require.Equal(t, "secret", s.open(t, saveLinkedID, secretOf(got)))
+}
+
+// The editor compares variants by hash: the same secret in two variants (different ciphertexts) has one ValueHash, a
+// keyed HMAC and not the plain sha256 of the value; the value itself is never in the view.
+func TestSaveDraft_ViewHashesEnvValuesWithTheExerciseKey(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	base := saveVariant(saveBaseID, "Нове", "", "ICE{a}", "ICE{short}")
+	base.Topology.Devices[0].EnvVars = append(base.Topology.Devices[0].EnvVars, exerciseModel.EnvVar{Name: "MODE", Value: "ICE{short}"})
+	linked := linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)
+	other := saveVariant(saveThirdID, "Нове", "", "ICE{c}", "another")
+
+	view, err := s.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked, other}})
+	require.NoError(t, err)
+	var written []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(s.written.Variants, &written))
+	require.NotEqual(t, secretOf(written[0]), secretOf(written[1]), "each variant seals its own ciphertext")
+
+	hashes := view.EnvValueHashes
+	require.Len(t, hashes, 3)
+	baseSecret, linkedSecret, otherSecret := hashes[0][0][0], hashes[1][0][0], hashes[2][0][0]
+	require.Len(t, baseSecret, 64)
+	require.Equal(t, baseSecret, linkedSecret, "the same value, the same hash")
+	require.NotEqual(t, baseSecret, otherSecret)
+	plain := sha256.Sum256([]byte("ICE{short}"))
+	require.NotEqual(t, hex.EncodeToString(plain[:]), baseSecret, "never a plain sha256 of the value")
+	require.Equal(t, baseSecret, hashes[0][0][1], "a plain value hashes the same way")
+	for _, variant := range view.Variants {
+		require.Empty(t, variant.Topology.Devices[0].EnvVars[0].Value, "the secret value is never returned")
+	}
+
+	// Another exercise has another key: the same value hashes differently there.
+	anotherID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000c0ff")
+	elsewhere := exercise.EnvValueHashes(s.uc, anotherID, written)
+	require.NotEqual(t, baseSecret, elsewhere[0][0][0])
+	require.Equal(t, baseSecret, exercise.EnvValueHashes(s.uc, saveExerciseID, written)[0][0][0])
 }

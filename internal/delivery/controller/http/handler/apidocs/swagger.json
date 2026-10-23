@@ -35004,6 +35004,10 @@
         "exercise.attachmentDTO": {
             "type": "object",
             "properties": {
+                "ContentHash": {
+                    "description": "ContentHash (response only): the sha256 hex of the file's bytes; the same content has the same hash in every\nvariant and task. Absent when unknown.",
+                    "type": "string"
+                },
                 "FileID": {
                     "type": "string"
                 },
@@ -35729,6 +35733,10 @@
                 },
                 "Value": {
                     "description": "Value is write-only for secrets: responses blank it, an empty value on\nsave means \"keep the stored one\".",
+                    "type": "string"
+                },
+                "ValueHash": {
+                    "description": "ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of\nthis exercise, for comparing variants without the value. The same value has the same hash within the task;\nit differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.",
                     "type": "string"
                 }
             }
