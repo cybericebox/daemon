@@ -3,6 +3,7 @@ package exerciseModel
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 )
 
 func lid(s string) uuid.UUID { return uuid.FromStringOrNil(s) }
@@ -273,5 +275,102 @@ func TestSyncLinkedVariants_KeepsOwnWeight(t *testing.T) {
 func TestVariant_EffectiveWeight(t *testing.T) {
 	for weight, want := range map[int]int{-1: 1, 0: 1, 1: 1, 2: 2, MaxVariantWeight: MaxVariantWeight, MaxVariantWeight + 1: MaxVariantWeight} {
 		assert.Equal(t, want, Variant{Weight: weight}.EffectiveWeight(), "weight %d", weight)
+	}
+}
+
+func TestSyncLinkedVariants_OwnDeviceImages(t *testing.T) {
+	webID, dbID, swID, goneID := lid("00000000-0000-0000-0000-0000000000e1"), lid("00000000-0000-0000-0000-0000000000e2"), lid("00000000-0000-0000-0000-0000000000e3"), lid("00000000-0000-0000-0000-0000000000e4")
+	base := Variant{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "A")}, Topology: Topology{Devices: []Device{
+		{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1.27", EnvVars: []EnvVar{{Name: "MODE", Value: "a"}}},
+		{ID: dbID, Name: "db", Type: DeviceTypeContainer, Image: "redis:7"},
+		{ID: swID, Name: "sw", Type: DeviceTypeUnmanagedSwitch},
+	}}}
+	version := &ExerciseVersion{Variants: []Variant{base, {
+		ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
+		// The base is the source of truth for everything else: a stale topology in the linked variant is replaced.
+		Topology: Topology{Devices: []Device{{ID: dbID, Name: "renamed", Image: "stale"}}},
+		ImageOverrides: []ImageOverride{
+			{DeviceID: dbID, Image: "redis:7.4"},
+			{DeviceID: goneID, Image: "old:1"}, // the base has no such device: dropped
+			{DeviceID: swID, Image: "x:1"},     // a switch has no image: dropped
+			{DeviceID: webID, Image: ""},       // empty: no override
+		},
+	}}}
+	require.NoError(t, version.SyncLinkedVariants())
+	linked := version.Variants[1]
+	assert.Equal(t, []ImageOverride{{DeviceID: dbID, Image: "redis:7.4"}}, linked.ImageOverrides)
+	require.Len(t, linked.Topology.Devices, 3)
+	assert.Equal(t, "nginx:1.27", linked.Topology.Devices[0].Image)
+	assert.Equal(t, "db", linked.Topology.Devices[1].Name, "the device keeps the base's name")
+	assert.Equal(t, "redis:7.4", linked.Topology.Devices[1].Image)
+	assert.Equal(t, "redis:7", version.Variants[0].Topology.Devices[1].Image, "the base keeps its image")
+	assert.Empty(t, linked.Topology.Devices[2].Image)
+
+	// The base changes: other device settings follow it, the own image stays; a removed device drops its override.
+	version.Variants[0].Topology.Devices[1].ResourcePreset = "small"
+	require.NoError(t, version.SyncLinkedVariants())
+	assert.Equal(t, "small", version.Variants[1].Topology.Devices[1].ResourcePreset)
+	assert.Equal(t, "redis:7.4", version.Variants[1].Topology.Devices[1].Image)
+	version.Variants[0].Topology.Devices = version.Variants[0].Topology.Devices[:1]
+	require.NoError(t, version.SyncLinkedVariants())
+	assert.Empty(t, version.Variants[1].ImageOverrides)
+	assert.Equal(t, "nginx:1.27", version.Variants[1].Topology.Devices[0].Image)
+}
+
+func TestSyncLinkedVariants_ImageOverridesIdempotentAndLastWins(t *testing.T) {
+	webID := lid("00000000-0000-0000-0000-0000000000e1")
+	version := &ExerciseVersion{Variants: []Variant{
+		{ID: linkBaseID, Topology: Topology{Devices: []Device{{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1"}}}},
+		{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}, ImageOverrides: []ImageOverride{{DeviceID: webID, Image: "nginx:2"}, {DeviceID: webID, Image: "nginx:3"}}},
+	}}
+	require.NoError(t, version.SyncLinkedVariants())
+	assert.Equal(t, []ImageOverride{{DeviceID: webID, Image: "nginx:3"}}, version.Variants[1].ImageOverrides)
+	first, _ := json.Marshal(version)
+	require.NoError(t, version.SyncLinkedVariants())
+	second, _ := json.Marshal(version)
+	assert.JSONEq(t, string(first), string(second))
+}
+
+func TestSyncLinkedVariants_IndependentVariantHasNoImageOverrides(t *testing.T) {
+	webID := lid("00000000-0000-0000-0000-0000000000e1")
+	version := &ExerciseVersion{Variants: []Variant{
+		{ID: linkBaseID, ImageOverrides: []ImageOverride{{DeviceID: webID, Image: "x:1"}}},
+		// The base is gone: the variant stays as it is (its topology already has the image), without the overrides.
+		{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkThirdID, Valid: true}, ImageOverrides: []ImageOverride{{DeviceID: webID, Image: "x:2"}},
+			Topology: Topology{Devices: []Device{{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "x:2"}}}},
+	}}
+	require.NoError(t, version.SyncLinkedVariants())
+	assert.Nil(t, version.Variants[0].ImageOverrides)
+	assert.Nil(t, version.Variants[1].ImageOverrides)
+	assert.Equal(t, "x:2", version.Variants[1].Topology.Devices[0].Image)
+}
+
+func TestValidateStructure_ImageOverrideReference(t *testing.T) {
+	webID := lid("00000000-0000-0000-0000-0000000000e1")
+	for image, valid := range map[string]bool{
+		"nginx:1.28": true,
+		"ghcr.io/org/app@sha256:" + strings.Repeat("a", 64): true,
+		"platform:web@sha256:" + strings.Repeat("b", 64):    true,
+		PendingArchiveImagePrefix + "images/web.tar":        true,
+		"platform:web":        false,
+		"nginx latest":        false,
+		"http://registry/app": false,
+		"nginx:":              false,
+	} {
+		version := &ExerciseVersion{Variants: []Variant{
+			{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "Перше", "ICE{a}")}, Topology: Topology{Devices: []Device{{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1"}}}},
+			{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}, Tasks: []Task{{ID: linkTaskA, Flag: []string{"ICE{b}"}}}, ImageOverrides: []ImageOverride{{DeviceID: webID, Image: image}}},
+		}}
+		require.NoError(t, version.SyncLinkedVariants())
+		err := version.ValidateStructure()
+		if valid {
+			assert.NoError(t, err, image)
+			continue
+		}
+		require.ErrorIs(t, err, imageRegistryModel.ErrDeviceImageInvalid.Err(), image)
+		var withContext interface{ PublicContext() map[string]any }
+		require.True(t, errors.As(err, &withContext))
+		assert.Equal(t, "web", withContext.PublicContext()["device"])
+		assert.EqualValues(t, 2, withContext.PublicContext()["variant"])
 	}
 }

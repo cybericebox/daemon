@@ -58,9 +58,11 @@ type (
 		// LinkedTo: the 1-based position of the base variant; the variant then holds only its own parts.
 		LinkedTo *int `json:"linked_to,omitempty"`
 		// Weight: how often the variant is given out relative to the others (absent = 1).
-		Weight   int               `json:"weight,omitempty"`
-		Tasks    []archiveTaskV2   `json:"tasks,omitempty"`
-		Topology archiveTopologyV2 `json:"topology"`
+		Weight int `json:"weight,omitempty"`
+		// DeviceImages (a linked variant only): its own image for base devices, by device name.
+		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
+		Tasks        []archiveTaskV2           `json:"tasks,omitempty"`
+		Topology     archiveTopologyV2         `json:"topology"`
 	}
 
 	archiveTaskV2 struct {
@@ -513,20 +515,28 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 			seen[id] = true
 			ids[xi] = id
 		}
-		for xi, variant := range version.Variants {
-			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
-			var value exerciseModel.Variant
-			var err error
-			if variant.LinkedTo != nil {
-				value, err = variant.toLinkedDomain(path, xi, version.Variants, ids, links)
-			} else {
-				value, err = variant.toDomain(path, ids[xi], links)
+		// Unlinked variants first: a linked variant names the devices of its base (possibly a later one) by name.
+		values := make([]exerciseModel.Variant, len(version.Variants))
+		for _, linkedPass := range []bool{false, true} {
+			for xi, variant := range version.Variants {
+				if (variant.LinkedTo != nil) != linkedPass {
+					continue
+				}
+				path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
+				var value exerciseModel.Variant
+				var err error
+				if variant.LinkedTo != nil {
+					value, err = variant.toLinkedDomain(path, xi, version.Variants, values, ids, links)
+				} else {
+					value, err = variant.toDomain(path, ids[xi], links)
+				}
+				if err != nil {
+					return ParsedExerciseArchive{}, err
+				}
+				values[xi] = value
 			}
-			if err != nil {
-				return ParsedExerciseArchive{}, err
-			}
-			mapped.Variants = append(mapped.Variants, value)
 		}
+		mapped.Variants = append(mapped.Variants, values...)
 		parsed.Versions = append(parsed.Versions, mapped)
 	}
 	if err := links.orphan(); err != nil {
@@ -546,6 +556,9 @@ func checkArchiveWeight(path string, weight int) error {
 func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
 	if err := checkArchiveWeight(path, v.Weight); err != nil {
 		return exerciseModel.Variant{}, err
+	}
+	if len(v.DeviceImages) > 0 {
+		return exerciseModel.Variant{}, archiveInvalid(path + ".device_images is only for a linked variant (with linked_to)")
 	}
 	topology, deviceIDs, err := v.Topology.toDomain(path+".topology", links)
 	if err != nil {
@@ -732,7 +745,7 @@ func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseMode
 		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{},
 			Exercise: &archiveExerciseV2{Name: metadata.Name, Description: metadata.Description, Tags: metadata.Tags}}
 		for _, variant := range version.Variants {
-			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths); ok {
+			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths, imagePaths); ok {
 				out.Variants = append(out.Variants, linked)
 				continue
 			}

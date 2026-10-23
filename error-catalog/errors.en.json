@@ -255,6 +255,7 @@
   "22824": "Invalid event for registry credentials",
   "22825": "Enter the registry token",
   "22829": "The image archive cannot be imported",
+  "22831": "The device image is not a valid image reference",
   "22901": "Import targets do not match the archive items",
   "22902": "An exercise cannot receive several items from one archive",
   "22903": "Choose exactly one archive source",

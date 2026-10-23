@@ -209,3 +209,24 @@ func TestSaveDraftRequest_WeightRange(t *testing.T) {
 		}
 	}
 }
+
+func TestVariantDTO_ImageOverridesBothWays(t *testing.T) {
+	base, device := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d101"), uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d1e1")
+	var dto variantDTO
+	raw := `{"LinkedTo":"` + base.String() + `","ImageOverrides":[{"DeviceID":"` + device.String() + `","Image":"nginx:1.28"}],"Tasks":[],"Topology":{}}`
+	if err := json.Unmarshal([]byte(raw), &dto); err != nil {
+		t.Fatal(err)
+	}
+	got := dto.toDomain()
+	if want := []exerciseModel.ImageOverride{{DeviceID: device, Image: "nginx:1.28"}}; !reflect.DeepEqual(got.ImageOverrides, want) {
+		t.Fatalf("request ImageOverrides = %+v, want %+v", got.ImageOverrides, want)
+	}
+	encoded, err := json.Marshal(variantToDTO(got))
+	if err != nil || !strings.Contains(string(encoded), `"ImageOverrides":[{"DeviceID":"`+device.String()+`","Image":"nginx:1.28"}]`) {
+		t.Fatalf("response ImageOverrides missing: %s %v", encoded, err)
+	}
+	encoded, err = json.Marshal(variantToDTO(exerciseModel.Variant{}))
+	if err != nil || strings.Contains(string(encoded), "ImageOverrides") {
+		t.Fatalf("a variant without overrides has no ImageOverrides key: %s %v", encoded, err)
+	}
+}

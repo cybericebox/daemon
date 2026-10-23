@@ -179,6 +179,17 @@ func canonicalImportVariants(variants []exerciseModel.Variant, hashes map[uuid.U
 				device.Image = ref.Digest
 			}
 		}
+		for oi := range variant.ImageOverrides {
+			override := &variant.ImageOverrides[oi]
+			if id, ok := ids[override.DeviceID.String()]; ok {
+				override.DeviceID = uuid.FromStringOrNil(id)
+			}
+			if info, ok := images[override.Image]; ok {
+				override.Image = info.Digest
+			} else if ref, ok := imageRegistryModel.ParsePlatformRef(override.Image); ok {
+				override.Image = ref.Digest
+			}
+		}
 		for ti := range variant.Tasks {
 			task := &variant.Tasks[ti]
 			task.ID = comparisonID("task", ti)

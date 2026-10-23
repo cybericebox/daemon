@@ -36236,6 +36236,18 @@
                 }
             }
         },
+        "exercise.imageOverrideDTO": {
+            "type": "object",
+            "properties": {
+                "DeviceID": {
+                    "type": "string"
+                },
+                "Image": {
+                    "description": "Image: a registry reference (nginx:1.28) or a platform image (platform:\u003cname\u003e@sha256:…); checked on publish.",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.importCommitResponse": {
             "type": "object",
             "properties": {
@@ -36996,6 +37008,13 @@
                 },
                 "ID": {
                     "type": "string"
+                },
+                "ImageOverrides": {
+                    "description": "ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base\ndevice's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or\nempty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is\ndropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the\nkept ones, in the order of the devices; the variant's Topology already shows each overridden Image.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.imageOverrideDTO"
+                    }
                 },
                 "Index": {
                     "type": "integer"

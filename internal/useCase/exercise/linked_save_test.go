@@ -342,3 +342,21 @@ func TestSaveDraft_CopyOfIgnoredForStoredVariant(t *testing.T) {
 
 	require.Empty(t, secretOf(written[1]))
 }
+
+// A linked variant's own image reaches its stored topology (what every lab of the variant deploys); the rest of
+// the device, its secret included, is still the base's.
+func TestSaveDraft_LinkedVariantOwnDeviceImage(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	base := saveVariant(saveBaseID, "Нове", "", "ICE{a}", "secret")
+	linked := linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)
+	linked.ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: saveDeviceID, Image: "img:own"}, {DeviceID: saveThirdID, Image: "gone:1"}}
+
+	written := s.save(t, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked}})
+
+	require.Equal(t, "img", written[0].Topology.Devices[0].Image)
+	got := written[1]
+	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: saveDeviceID, Image: "img:own"}}, got.ImageOverrides)
+	require.Equal(t, "img:own", got.Topology.Devices[0].Image)
+	require.Equal(t, saveDevice, got.Topology.Devices[0].Name)
+	require.Equal(t, "secret", s.open(t, saveLinkedID, secretOf(got)))
+}

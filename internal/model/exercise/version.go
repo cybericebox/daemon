@@ -167,12 +167,22 @@ type Variant struct {
 	Index int32     `json:"index"` // decorative admin-facing number; not an identity
 	Note  string    `json:"note"`  // per-variant admin note (never shown to participants)
 	// LinkedTo is the base variant (same version) this one inherits its content from;
-	// only Flag and Attachments of each task, Note and Index stay its own. Zero = independent.
+	// only Flag and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
 	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
-	Weight   int      `json:"weight,omitempty"`
-	Tasks    []Task   `json:"tasks"`
-	Topology Topology `json:"topology"`
+	Weight int `json:"weight,omitempty"`
+	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by device id.
+	// The device keeps the base's name and everything else, so the descriptions' placeholders stay valid.
+	// SyncLinkedVariants writes them into the rebuilt topology and drops the ones of devices the base no longer has.
+	ImageOverrides []ImageOverride `json:"image_overrides,omitempty"`
+	Tasks          []Task          `json:"tasks"`
+	Topology       Topology        `json:"topology"`
+}
+
+// ImageOverride is a linked variant's own image for one device of its base.
+type ImageOverride struct {
+	DeviceID uuid.UUID `json:"device_id"`
+	Image    string    `json:"image"`
 }
 
 // MaxVariantWeight bounds a variant's weight.
@@ -282,6 +292,9 @@ func (v *ExerciseVersion) ValidateStructure() error {
 			}
 		}
 		if err := variant.Topology.validateStructure(); err != nil {
+			return err
+		}
+		if err := validateImageOverrides(variantIndex, variant); err != nil {
 			return err
 		}
 		if err := variant.Topology.validateFlagEnvTargets(variant.Tasks); err != nil {

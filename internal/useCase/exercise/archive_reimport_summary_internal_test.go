@@ -107,3 +107,31 @@ func TestImportSummaryCountsAWeightChangeAsAChangedVariant(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, summary.Variants.Changed, "an unset weight is weight 1")
 }
+
+func TestImportSummaryCountsAnOwnDeviceImageChange(t *testing.T) {
+	u := &ExerciseUseCase{}
+	digest := "sha256:" + strings.Repeat("c", 64)
+	version := func(own string) exerciseModel.ExerciseVersion {
+		device := freshID()
+		base := exerciseModel.Variant{ID: freshID(), Tasks: []exerciseModel.Task{{Name: "one"}}, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: device, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1"}}}}
+		linked := exerciseModel.Variant{ID: freshID(), LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true}, Tasks: []exerciseModel.Task{{}}}
+		if own != "" {
+			linked.ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: device, Image: own}}
+		}
+		return exerciseModel.ExerciseVersion{Name: "Same", Variants: []exerciseModel.Variant{base, linked}}
+	}
+	summary, err := u.importSummary(context.Background(), ParsedExerciseArchive{}, version("nginx:2"), version("nginx:2"), nil)
+	require.NoError(t, err)
+	require.Zero(t, summary.Variants.Changed, "fresh device ids are not a change")
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, version("nginx:3"), version("nginx:2"), nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Variants.Changed)
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, version(""), version("nginx:2"), nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Variants.Changed, "an own image dropped")
+	// An archive image file and the stored platform image of the same digest are the same image.
+	images := map[string]imageRegistryUseCase.ArchiveImageInspection{"marker": {Digest: digest}}
+	summary, err = u.importSummary(context.Background(), ParsedExerciseArchive{}, version("marker"), version("platform:web@"+digest), images)
+	require.NoError(t, err)
+	require.Zero(t, summary.Variants.Changed)
+}

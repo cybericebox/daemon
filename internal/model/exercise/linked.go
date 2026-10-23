@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 )
 
 // IsLinked reports whether the variant inherits its content from a base
@@ -16,9 +17,11 @@ func (v Variant) IsLinked() bool { return v.LinkedTo.Valid }
 // SyncLinkedVariants rebuilds every linked variant from its base. A link to a
 // variant that is not in the version is dropped (the content stays as an
 // independent variant); a link to itself or to a linked variant is an error.
-// A linked variant keeps only its ID, Index, Note, link and, per task, its own
-// Flag and Attachments (matched by task ID, else by position); everything else
-// is a deep copy of the base. Idempotent.
+// A linked variant keeps only its ID, Index, Note, Weight, link, image overrides
+// and, per task, its own Flag and Attachments (matched by task ID, else by
+// position); everything else is a deep copy of the base, with the overridden
+// device images written in. An independent variant has no image overrides.
+// Idempotent.
 func (v *ExerciseVersion) SyncLinkedVariants() error {
 	positionByID := make(map[uuid.UUID]int, len(v.Variants))
 	for i, variant := range v.Variants {
@@ -45,6 +48,7 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 	for i := range v.Variants {
 		linked := v.Variants[i]
 		if !linked.LinkedTo.Valid {
+			v.Variants[i].ImageOverrides = nil
 			continue
 		}
 		rebuilt, err := deepCopyVariant(v.Variants[positionByID[linked.LinkedTo.UUID]])
@@ -60,9 +64,73 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 			}
 		}
 		rebuilt.ID, rebuilt.Index, rebuilt.Note, rebuilt.LinkedTo, rebuilt.Weight = linked.ID, linked.Index, linked.Note, linked.LinkedTo, linked.Weight
+		rebuilt.ImageOverrides = applyImageOverrides(&rebuilt.Topology, linked.ImageOverrides)
 		v.Variants[i] = rebuilt
 	}
 	return nil
+}
+
+// applyImageOverrides writes the overrides into the topology (a copy of the base's) and returns the ones kept, in
+// the order of the devices: only a container device of the base (by a non-nil id) can take one, an empty image is
+// no override, and when a device is named twice the last one wins.
+func applyImageOverrides(topology *Topology, overrides []ImageOverride) []ImageOverride {
+	if len(overrides) == 0 {
+		return nil
+	}
+	images := make(map[uuid.UUID]string, len(overrides))
+	for _, override := range overrides {
+		if override.DeviceID != uuid.Nil && override.Image != "" {
+			images[override.DeviceID] = override.Image
+		}
+	}
+	var kept []ImageOverride
+	for di := range topology.Devices {
+		device := &topology.Devices[di]
+		image, ok := images[device.ID]
+		if !ok || device.Type != DeviceTypeContainer {
+			continue
+		}
+		delete(images, device.ID) // a repeated device id takes the override once
+		device.Image = image
+		kept = append(kept, ImageOverride{DeviceID: device.ID, Image: image})
+	}
+	return kept
+}
+
+// validateImageOverrides: an overridden image is a valid image reference (platform:<name>@sha256:… or a registry
+// reference), as a device's image must be to run. variantIndex is 0-based.
+func validateImageOverrides(variantIndex int, variant Variant) error {
+	if len(variant.ImageOverrides) == 0 {
+		return nil
+	}
+	names := make(map[uuid.UUID]string, len(variant.Topology.Devices))
+	for _, device := range variant.Topology.Devices {
+		names[device.ID] = device.Name
+	}
+	for _, override := range variant.ImageOverrides {
+		if !ValidImageReference(override.Image) {
+			return imageRegistryModel.ErrDeviceImageInvalid.WithPublicContext("variant", variantIndex+1).
+				WithPublicContext("device", names[override.DeviceID]).Err()
+		}
+	}
+	return nil
+}
+
+// PendingArchiveImagePrefix starts the image of a device whose image file from an archive is not pushed yet (the
+// rest is the file's archive path); the import replaces it with the pushed image's reference.
+const PendingArchiveImagePrefix = "\x00archive-image:"
+
+// ValidImageReference: a platform reference, a registry reference, or an archive image pending its push.
+func ValidImageReference(image string) bool {
+	switch {
+	case strings.HasPrefix(image, PendingArchiveImagePrefix):
+		return len(image) > len(PendingArchiveImagePrefix)
+	case strings.HasPrefix(image, "platform:"):
+		_, ok := imageRegistryModel.ParsePlatformRef(image)
+		return ok
+	}
+	_, err := imageRegistryModel.ParseImageRef(image)
+	return err == nil
 }
 
 // deepCopyVariant copies through JSON, so fields tagged json:"-" are dropped

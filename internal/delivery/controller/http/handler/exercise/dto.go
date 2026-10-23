@@ -467,11 +467,24 @@ type variantDTO struct {
 	LinkedTo *uuid.UUID `json:"LinkedTo,omitempty"`
 	// Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.
 	Weight int `json:"Weight,omitempty" binding:"min=0,max=100"`
+	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base
+	// device's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or
+	// empty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is
+	// dropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the
+	// kept ones, in the order of the devices; the variant's Topology already shows each overridden Image.
+	ImageOverrides []imageOverrideDTO `json:"ImageOverrides,omitempty"`
 	// CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left
 	// blank in the copy takes that variant's value.
 	CopyOf   *uuid.UUID  `json:"CopyOf,omitempty"`
 	Tasks    []taskDTO   `json:"Tasks"`
 	Topology topologyDTO `json:"Topology"`
+}
+
+// imageOverrideDTO is a linked variant's own image for one device of its base.
+type imageOverrideDTO struct {
+	DeviceID uuid.UUID `json:"DeviceID"`
+	// Image: a registry reference (nginx:1.28) or a platform image (platform:<name>@sha256:…); checked on publish.
+	Image string `json:"Image"`
 }
 
 // resourceAmountResponse: CPU in millicores, memory in bytes.
@@ -723,6 +736,9 @@ func (d variantDTO) toDomain() exerciseModel.Variant {
 		tasks = append(tasks, t.toDomain())
 	}
 	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Weight: d.Weight, Tasks: tasks, Topology: d.Topology.toDomain()}
+	for _, override := range d.ImageOverrides {
+		out.ImageOverrides = append(out.ImageOverrides, exerciseModel.ImageOverride{DeviceID: override.DeviceID, Image: override.Image})
+	}
 	if d.ID != nil {
 		out.ID = *d.ID
 	}
@@ -862,6 +878,9 @@ func variantsToDTO(vs []exerciseModel.Variant) []variantDTO {
 
 func variantToDTO(v exerciseModel.Variant) variantDTO {
 	d := variantDTO{Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topologyToDTO(v.Topology)}
+	for _, override := range v.ImageOverrides {
+		d.ImageOverrides = append(d.ImageOverrides, imageOverrideDTO{DeviceID: override.DeviceID, Image: override.Image})
+	}
 	if v.ID != uuid.Nil {
 		id := v.ID
 		d.ID = &id

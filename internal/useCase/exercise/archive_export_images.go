@@ -6,6 +6,8 @@ import (
 	"io"
 	"sort"
 
+	"github.com/gofrs/uuid"
+
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
@@ -42,17 +44,23 @@ type (
 )
 
 // exportImages resolves and places the platform images of the task's devices. It returns the image files and, per
-// manifest digest, the path the document links. A linked variant writes no devices, so its devices place no image.
+// manifest digest, the path the document links. A linked variant written compact places only its own device images.
 func (u *ExerciseUseCase) exportImages(ctx context.Context, versions []exerciseModel.ExerciseVersion) ([]exportedImage, map[string]string, error) {
 	var uses []fileUse
 	firstRef := map[string]string{}    // digest → the reference of its first device
 	firstDevice := map[string]string{} // digest → the name of its first device
 	for vi := range versions {
 		for xi, variant := range versions[vi].Variants {
-			if _, linked := exportLinkedVariantV2(variant, versions[vi].Variants, nil); linked {
-				continue
+			// A linked variant written compact places only its own images (device_images).
+			_, compact := exportLinkedVariantV2(variant, versions[vi].Variants, nil, nil)
+			own := map[uuid.UUID]bool{}
+			for _, override := range variant.ImageOverrides {
+				own[override.DeviceID] = true
 			}
 			for di, device := range variant.Topology.Devices {
+				if compact && !own[device.ID] {
+					continue
+				}
 				ref, ok := imageRegistryModel.ParsePlatformRef(device.Image)
 				if !ok {
 					continue

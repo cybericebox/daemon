@@ -7141,6 +7141,15 @@ definitions:
       Status:
         type: string
     type: object
+  exercise.imageOverrideDTO:
+    properties:
+      DeviceID:
+        type: string
+      Image:
+        description: 'Image: a registry reference (nginx:1.28) or a platform image
+          (platform:<name>@sha256:…); checked on publish.'
+        type: string
+    type: object
   exercise.importCommitResponse:
     properties:
       Created:
@@ -7677,6 +7686,16 @@ definitions:
         type: string
       ID:
         type: string
+      ImageOverrides:
+        description: |-
+          ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base
+          device's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or
+          empty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is
+          dropped, and for a repeated DeviceID the last one wins. Ignored for an independent variant. Response: the
+          kept ones, in the order of the devices; the variant's Topology already shows each overridden Image.
+        items:
+          $ref: '#/definitions/exercise.imageOverrideDTO'
+        type: array
       Index:
         type: integer
       LinkedTo:
