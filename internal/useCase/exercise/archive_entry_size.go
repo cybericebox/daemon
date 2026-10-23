@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"errors"
 	"fmt"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"io"
 	"time"
 
@@ -23,6 +24,15 @@ var (
 	errPasswordRequired = errors.New("password is required for protected archive")
 	errManifestInvalid  = errors.New("invalid manifest.json")
 )
+
+// ArchivePasswordError turns a failure of the zip reader to decrypt (a wrong password) into the typed error the
+// author can act on; any other error passes through unchanged.
+func ArchivePasswordError(err error) error {
+	if err != nil && !isTyped(err) && (errors.Is(err, yzip.ErrPassword) || errors.Is(err, yzip.ErrAuthentication) || errors.Is(err, yzip.ErrDecryption)) {
+		return exerciseModel.ErrArchivePasswordWrong.Err()
+	}
+	return err
+}
 
 // IsArchiveFormatError tells an untyped failure of the archive itself (a broken zip, a wrong password, an invalid
 // manifest.json): its text is the author's to read. Any other untyped failure (storage, database) is internal and

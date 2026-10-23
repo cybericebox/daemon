@@ -261,6 +261,8 @@
   "22904": "In-task import requires one archive item and its fixed target",
   "22905": "Confirm the selected update and draft replacement",
   "22908": "Updates require the immutable UploadID or FileID import route",
+  "22909": "The archive is password-protected: enter its password",
+  "22910": "The password does not open the archive",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",

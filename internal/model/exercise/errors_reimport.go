@@ -24,4 +24,10 @@ var (
 				WithMessage("This archive source already has a different running or completed import").WithDetailCode(7)
 	ErrImportSourceRequired = err.ErrInvalidData.WithObjectCode(model.ExerciseImportObjectCode).
 				WithMessage("Updates require the immutable UploadID or FileID import route").WithDetailCode(8)
+	// The archive is password-protected and no password came: the author is asked for it.
+	ErrArchivePasswordRequired = err.ErrInvalidData.WithObjectCode(model.ExerciseImportObjectCode).
+					WithMessage("The archive is password-protected: enter its password").WithDetailCode(9)
+	// The password does not open the archive.
+	ErrArchivePasswordWrong = err.ErrInvalidData.WithObjectCode(model.ExerciseImportObjectCode).
+				WithMessage("The password does not open the archive").WithDetailCode(10)
 )

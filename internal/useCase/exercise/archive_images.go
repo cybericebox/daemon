@@ -96,7 +96,7 @@ func openZipAt(r io.ReaderAt, size int64, password string, lim exerciseModel.Arc
 		return entries, false, nil
 	}
 	if password == "" {
-		return nil, false, zip.ErrAlgorithm
+		return nil, false, exerciseModel.ErrArchivePasswordRequired.Err()
 	}
 	ybr := newOpenBudgetReaderAt(r, lim.Entries)
 	yr, err := yzip.NewReader(ybr, size)

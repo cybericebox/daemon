@@ -638,6 +638,7 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, ownerEve
 // generically); an untyped failure of the archive itself (a broken zip, a wrong password) stays a plain 400 with its
 // text; any other untyped failure (storage, database) is an internal error whose text stays in the server log.
 func abortArchiveError(ctx *gin.Context, failure error) {
+	failure = exerciseUseCase.ArchivePasswordError(failure)
 	var typed appErr.Error
 	switch {
 	case errors.As(failure, &typed):
