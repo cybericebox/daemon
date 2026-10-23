@@ -63,14 +63,14 @@ type VersionResources struct {
 	Heavy bool
 }
 
-// versionView is the version for the editor: secrets masked, the env value and file hashes, its resources (totals, devices outside the
+// versionView is the version for the editor: secrets masked, the secret groups and file hashes, its resources (totals, devices outside the
 // frame) and the exercise's elevation request.
 func (u *ExerciseUseCase) versionView(ctx context.Context, v exerciseModel.ExerciseVersion) VersionView {
 	view := toVersionView(v)
 	view.Resources = u.versionResources(ctx, v.ExerciseID, v.Variants)
 	view.Elevation = u.elevationView(ctx, v.ExerciseID, "")
 	view.AuthorName = u.authorNames(ctx, v.CreatedBy)[v.CreatedBy.UUID]
-	view.EnvValueHashes = u.envValueHashes(v.ExerciseID, v.Variants)
+	view.SecretGroups = u.secretValueGroups(v.Variants)
 	view.FileHashes = u.attachmentHashes(ctx, v.Variants)
 	return view
 }

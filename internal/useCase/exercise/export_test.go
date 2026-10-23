@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/uuid"
-
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
@@ -43,7 +41,7 @@ func SetImportStateRetryDelay(t testing.TB, d time.Duration) {
 	t.Cleanup(func() { importStateRetryDelay = old })
 }
 
-// EnvValueHashes lets the external tests compute the env value hashes of a use case.
-func EnvValueHashes(u *ExerciseUseCase, exerciseID uuid.UUID, variants []exerciseModel.Variant) [][][]string {
-	return u.envValueHashes(exerciseID, variants)
+// SecretValueGroups lets the external tests group the secrets of stored variants like a read does.
+func SecretValueGroups(u *ExerciseUseCase, variants []exerciseModel.Variant) [][][]int {
+	return u.secretValueGroups(variants)
 }

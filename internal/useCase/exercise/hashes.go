@@ -2,9 +2,6 @@ package exercise
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"slices"
 
 	"github.com/gofrs/uuid"
@@ -13,45 +10,56 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
-// The editor compares variants by hash, never by value: an env var by ValueHash, an attachment by ContentHash.
+// The editor compares variants without values: a secret by its ValueGroup, an attachment by its ContentHash (a plain
+// env var by the value itself, which the editor reads anyway).
+//
+// Why no hash of a secret's value: an author who may save the draft but not read its secrets could store guesses
+// (as plain values or new secrets) and compare their hashes with a stored secret's, many guesses per save. Who reads
+// a secret's plaintext today:
+//   - the draft and version reads never: they are masked (maskSecrets, secret.go:386);
+//   - an export with secrets ships them decrypted in the password-protected zip (decryptExportedSecrets,
+//     secret.go:319, from planExport, archive.go:578), but only for exercises.export or an owner/manager of the
+//     task's event (AuthorizeExport, access.go:397); a catalog author with exercises.write alone may not export;
+//   - a test lab gets them decrypted into the containers (decryptTopologySecrets, deploy.go:280 and :1306); the
+//     author who deploys it controls the image, so may read them there where test labs are allowed to them.
+// Not every reader of the draft can read the plaintext, so the groups are made from where a value came from,
+// never from what it is (EnvVar.Origin): a typed value always starts a group of its own, so equality with a guess
+// is never revealed.
 
-// envValueHashPurpose derives the per-exercise HMAC key from the exercise secrets key. A hash is never a plain sha256
-// of the value: a short secret (a flag) would be brute-forced from it. The key is per exercise, so the same value
-// hashes differently in two tasks, and it changes when the secrets key is rotated.
-const envValueHashPurpose = "exercise-env-value-hash/v1:"
-
-// envValueHashes gives the hash of every env var value, aligned with the variants' devices and env vars
-// ([variant][device][env]): HMAC-SHA256 hex under the exercise's key, of the opened value for a secret. "" when there
-// is no key (EXERCISE_SECRETS_KEY unset), for a secret without a stored value, and for one that does not open.
-func (u *ExerciseUseCase) envValueHashes(exerciseID uuid.UUID, variants []exerciseModel.Variant) [][][]string {
-	if u.cipher == nil {
-		return nil
+// secretValueGroups gives every stored secret of the variants a group, aligned with the devices and env vars
+// ([variant][device][env]; 0 for a plain var or a secret without a stored value). Secrets in one group hold the same
+// value: one origin (kept, inherited by a linked variant, copied, or equal values of one import). A secret stored
+// before origins existed is grouped with the other such secrets by its opened value (none of them can be a value
+// typed since); one that does not open is a group of its own. Groups are numbered 1, 2, … in order of first
+// appearance and mean nothing outside the one read.
+func (u *ExerciseUseCase) secretValueGroups(variants []exerciseModel.Variant) [][][]int {
+	keys := map[string]int{}
+	group := func(key string) int {
+		if id, ok := keys[key]; ok {
+			return id
+		}
+		keys[key] = len(keys) + 1
+		return keys[key]
 	}
-	key := u.cipher.DeriveKeys(envValueHashPurpose + exerciseID.String())[0]
-	hash := func(value []byte) string {
-		mac := hmac.New(sha256.New, key[:])
-		mac.Write(value)
-		return hex.EncodeToString(mac.Sum(nil))
-	}
-	out := make([][][]string, len(variants))
+	out := make([][][]int, len(variants))
 	for vi, variant := range variants {
-		out[vi] = make([][]string, len(variant.Topology.Devices))
+		out[vi] = make([][]int, len(variant.Topology.Devices))
 		for di, device := range variant.Topology.Devices {
-			out[vi][di] = make([]string, len(device.EnvVars))
+			out[vi][di] = make([]int, len(device.EnvVars))
 			for ei, env := range device.EnvVars {
-				if !env.Secret {
-					out[vi][di][ei] = hash([]byte(env.Value))
+				if !env.Secret || env.Value == "" {
 					continue
 				}
-				if env.Value == "" {
-					continue
+				key := "origin:" + env.Origin
+				if env.Origin == "" {
+					key = "unknown:" + freshID().String()
+					if u.cipher != nil {
+						if plain, err := u.cipher.DecryptWithContext(env.Value, envSecretContext(variant.ID, device.Name, env.Name)); err == nil {
+							key = "legacy:" + string(plain)
+						}
+					}
 				}
-				plain, err := u.cipher.DecryptWithContext(env.Value, envSecretContext(variant.ID, device.Name, env.Name))
-				if err != nil {
-					log.Warn().Err(err).Str("variant", variant.ID.String()).Msg("a secret env var does not open; its hash is left out")
-					continue
-				}
-				out[vi][di][ei] = hash(plain)
+				out[vi][di][ei] = group(key)
 			}
 		}
 	}

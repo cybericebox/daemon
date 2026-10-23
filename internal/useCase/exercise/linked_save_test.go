@@ -2,8 +2,6 @@ package exercise_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -291,6 +289,9 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 		require.NoError(t, openErr)
 		require.Equal(t, "base-pass", string(plain))
 	}
+	origin := base.Topology.Devices[0].EnvVars[0].Origin
+	require.NotEmpty(t, origin, "equal imported values share one origin")
+	require.Equal(t, origin, linked.Topology.Devices[0].EnvVars[0].Origin)
 }
 
 // Sources resolve before they are used: C links to B, a new copy of A whose secret is blank.
@@ -363,37 +364,64 @@ func TestSaveDraft_LinkedVariantOwnDeviceImage(t *testing.T) {
 	require.Equal(t, "secret", s.open(t, saveLinkedID, secretOf(got)))
 }
 
-// The editor compares variants by hash: the same secret in two variants (different ciphertexts) has one ValueHash, a
-// keyed HMAC and not the plain sha256 of the value; the value itself is never in the view.
-func TestSaveDraft_ViewHashesEnvValuesWithTheExerciseKey(t *testing.T) {
+// Secrets are grouped by where their value came from, never by the value: a linked variant's inherited secret and a
+// kept one share the base's group, while a value typed anew starts its own group even when it equals another, so a
+// draft author cannot test guesses against a stored secret. No secret value or value hash is in the view.
+func TestSaveDraft_SecretGroupsFollowOriginNotValue(t *testing.T) {
 	s := newLinkedSave(t, nil)
 	base := saveVariant(saveBaseID, "Нове", "", "ICE{a}", "ICE{short}")
-	base.Topology.Devices[0].EnvVars = append(base.Topology.Devices[0].EnvVars, exerciseModel.EnvVar{Name: "MODE", Value: "ICE{short}"})
 	linked := linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)
-	other := saveVariant(saveThirdID, "Нове", "", "ICE{c}", "another")
+	guess := saveVariant(saveThirdID, "Нове", "", "ICE{c}", "ICE{short}") // the same value, typed
 
-	view, err := s.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked, other}})
+	view, err := s.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked, guess}})
 	require.NoError(t, err)
-	var written []exerciseModel.Variant
-	require.NoError(t, json.Unmarshal(s.written.Variants, &written))
-	require.NotEqual(t, secretOf(written[0]), secretOf(written[1]), "each variant seals its own ciphertext")
-
-	hashes := view.EnvValueHashes
-	require.Len(t, hashes, 3)
-	baseSecret, linkedSecret, otherSecret := hashes[0][0][0], hashes[1][0][0], hashes[2][0][0]
-	require.Len(t, baseSecret, 64)
-	require.Equal(t, baseSecret, linkedSecret, "the same value, the same hash")
-	require.NotEqual(t, baseSecret, otherSecret)
-	plain := sha256.Sum256([]byte("ICE{short}"))
-	require.NotEqual(t, hex.EncodeToString(plain[:]), baseSecret, "never a plain sha256 of the value")
-	require.Equal(t, baseSecret, hashes[0][0][1], "a plain value hashes the same way")
+	groups := view.SecretGroups
+	require.Len(t, groups, 3)
+	require.NotZero(t, groups[0][0][0])
+	require.Equal(t, groups[0][0][0], groups[1][0][0], "the linked variant's inherited secret is the base's value")
+	require.NotEqual(t, groups[0][0][0], groups[2][0][0], "an equal value typed anew is never matched")
 	for _, variant := range view.Variants {
-		require.Empty(t, variant.Topology.Devices[0].EnvVars[0].Value, "the secret value is never returned")
+		env := variant.Topology.Devices[0].EnvVars[0]
+		require.Empty(t, env.Value, "the secret value is never returned")
+		require.Empty(t, env.Origin, "the origin stays on the server")
 	}
 
-	// Another exercise has another key: the same value hashes differently there.
-	anotherID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000c0ff")
-	elsewhere := exercise.EnvValueHashes(s.uc, anotherID, written)
-	require.NotEqual(t, baseSecret, elsewhere[0][0][0])
-	require.Equal(t, baseSecret, exercise.EnvValueHashes(s.uc, saveExerciseID, written)[0][0][0])
+	// A later save that keeps the values (blank secrets) keeps the groups: the typed guess still is not matched.
+	var written []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(s.written.Variants, &written))
+	stored := newLinkedSave(t, written)
+	keep := func(v exerciseModel.Variant) exerciseModel.Variant {
+		v.Topology.Devices[0].EnvVars[0].Value = ""
+		return v
+	}
+	again, err := stored.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{
+		keep(saveVariant(saveBaseID, "Нове", "", "ICE{a}", "")), keep(linkTo(saveVariant(saveLinkedID, "", "", "ICE{b}", ""), saveBaseID)),
+		keep(saveVariant(saveThirdID, "Нове", "", "ICE{c}", "")),
+	}})
+	require.NoError(t, err)
+	var rewritten []exerciseModel.Variant
+	require.NoError(t, json.Unmarshal(stored.written.Variants, &rewritten))
+	for i := range written {
+		require.Equal(t, written[i].Topology.Devices[0].EnvVars[0].Origin, rewritten[i].Topology.Devices[0].EnvVars[0].Origin)
+	}
+	require.Equal(t, again.SecretGroups[0][0][0], again.SecretGroups[1][0][0])
+	require.NotEqual(t, again.SecretGroups[0][0][0], again.SecretGroups[2][0][0])
+}
+
+// Secrets stored before origins existed are grouped among themselves by their opened value (no such secret can be
+// a value typed since); a typed one never joins them.
+func TestSecretValueGroups_LegacyByValueOnly(t *testing.T) {
+	s := newLinkedSave(t, nil)
+	legacy := func(id uuid.UUID, plain string) exerciseModel.Variant {
+		v := saveVariant(id, "Нове", "", "ICE{a}", "")
+		v.Topology.Devices[0].EnvVars[0].Value = seal(t, id, plain)
+		return v
+	}
+	typed := legacy(saveThirdID, "same")
+	typed.Topology.Devices[0].EnvVars[0].Origin = "typed-origin"
+	groups := exercise.SecretValueGroups(s.uc, []exerciseModel.Variant{legacy(saveBaseID, "same"), legacy(saveLinkedID, "same"), typed, legacy(saveDraftID, "other")})
+	require.Equal(t, groups[0][0][0], groups[1][0][0])
+	require.NotEqual(t, groups[0][0][0], groups[2][0][0])
+	require.NotEqual(t, groups[0][0][0], groups[3][0][0])
+	require.NotZero(t, groups[3][0][0])
 }

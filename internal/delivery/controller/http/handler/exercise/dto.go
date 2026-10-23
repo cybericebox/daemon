@@ -405,10 +405,11 @@ type envVarDTO struct {
 	Value    string `json:"Value,omitempty"`
 	Secret   bool   `json:"Secret"`
 	HasValue bool   `json:"HasValue"` // response-only: a stored value exists
-	// ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of
-	// this exercise, for comparing variants without the value. The same value has the same hash within the task;
-	// it differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.
-	ValueHash string `json:"ValueHash,omitempty"`
+	// ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold
+	// the same value, for comparing variants. It follows where the value came from (kept, inherited by a linked
+	// variant, copied, equal values of one import), never the value itself: a value typed anew starts a group of
+	// its own even when it equals another. The numbers mean nothing outside one response.
+	ValueGroup int `json:"ValueGroup,omitempty"`
 }
 
 type externalDTO struct {
@@ -438,7 +439,7 @@ type deviceDTO struct {
 	// Resources is refused (400, 20974): a device size is a preset. It is never returned.
 	Resources  *resourcesDTO  `json:"Resources,omitempty"`
 	Interfaces []interfaceDTO `json:"Interfaces,omitempty"`
-	EnvVars    []envVarDTO    `json:"EnvVars,omitempty"`
+	EnvVars    []envVarDTO    `json:"EnvVars,omitempty" binding:"max=64"`
 	External   *externalDTO   `json:"External,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
@@ -460,7 +461,7 @@ type connectionDTO struct {
 type topologyDTO struct {
 	VPN          networkDTO      `json:"VPN"`
 	Internet     networkDTO      `json:"Internet"`
-	Devices      []deviceDTO     `json:"Devices,omitempty"`
+	Devices      []deviceDTO     `json:"Devices,omitempty" binding:"dive"`
 	Connections  []connectionDTO `json:"Connections,omitempty"`
 	VisualRender json.RawMessage `json:"VisualRender,omitempty" swaggertype:"object"`
 }
@@ -1002,21 +1003,21 @@ func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
 		Name: v.Name, Description: v.Description, Tags: taskNames(v.Tags),
-		Variants:  withContentHashes(variantsToDTO(v.Variants), v.EnvValueHashes, v.FileHashes),
+		Variants:  withContentHashes(variantsToDTO(v.Variants), v.SecretGroups, v.FileHashes),
 		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
 	}
 }
 
-// withContentHashes sets ValueHash on every env var (envHashes is [variant][device][env], aligned with the view's
-// variants) and ContentHash on every attachment.
-func withContentHashes(variants []variantDTO, envHashes [][][]string, fileHashes map[uuid.UUID]string) []variantDTO {
+// withContentHashes sets ValueGroup on every stored secret (groups is [variant][device][env], aligned with the
+// view's variants) and ContentHash on every attachment.
+func withContentHashes(variants []variantDTO, groups [][][]int, fileHashes map[uuid.UUID]string) []variantDTO {
 	for vi := range variants {
 		for di := range variants[vi].Topology.Devices {
 			device := &variants[vi].Topology.Devices[di]
 			for ei := range device.EnvVars {
-				if vi < len(envHashes) && di < len(envHashes[vi]) && ei < len(envHashes[vi][di]) {
-					device.EnvVars[ei].ValueHash = envHashes[vi][di][ei]
+				if device.EnvVars[ei].Secret && vi < len(groups) && di < len(groups[vi]) && ei < len(groups[vi][di]) {
+					device.EnvVars[ei].ValueGroup = groups[vi][di][ei]
 				}
 			}
 		}

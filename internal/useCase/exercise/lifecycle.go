@@ -61,6 +61,7 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	// merge fills blanks from the stored draft — merged values are ciphertext
 	// and must never be re-encrypted.
 	submitted := submittedSecretKeys(version.Variants)
+	originTypedSecrets(version.Variants, submitted)
 	mergeSource, err := u.secretMergeSource(ctx, e)
 	if err != nil {
 		return VersionView{}, err

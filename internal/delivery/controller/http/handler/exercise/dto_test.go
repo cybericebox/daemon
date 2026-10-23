@@ -3,6 +3,7 @@ package exercise
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -232,7 +233,7 @@ func TestVariantDTO_ImageOverridesBothWays(t *testing.T) {
 	}
 }
 
-func TestVersionToResponse_ValueAndContentHashes(t *testing.T) {
+func TestVersionToResponse_SecretGroupsAndContentHashes(t *testing.T) {
 	file := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f001")
 	view := exerciseUseCase.VersionView{
 		Variants: []exerciseModel.Variant{{
@@ -240,22 +241,41 @@ func TestVersionToResponse_ValueAndContentHashes(t *testing.T) {
 			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer,
 				EnvVars: []exerciseModel.EnvVar{{Name: "PASS", Secret: true}, {Name: "MODE", Value: "ctf"}}}}},
 		}},
-		EnvValueHashes: [][][]string{{{"aa11", "bb22"}}},
-		FileHashes:     map[uuid.UUID]string{file: "cc33"},
+		SecretGroups: [][][]int{{{3, 7}}},
+		FileHashes:   map[uuid.UUID]string{file: "cc33"},
 	}
 	encoded, err := json.Marshal(versionToResponse(view))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"Name":"PASS","Secret":true,"HasValue":true,"ValueHash":"aa11"`, `"ValueHash":"bb22"`, `"FileID":"` + file.String() + `","Name":"a.txt","ContentHash":"cc33"`} {
+	for _, want := range []string{`"Name":"PASS","Secret":true,"HasValue":true,"ValueGroup":3`, `"FileID":"` + file.String() + `","Name":"a.txt","ContentHash":"cc33"`} {
 		if !strings.Contains(string(encoded), want) {
 			t.Errorf("response misses %s: %s", want, encoded)
 		}
 	}
-	// Without hashes (no key, unknown file) the keys are absent.
-	view.EnvValueHashes, view.FileHashes = nil, nil
+	if strings.Contains(string(encoded), `"ValueGroup":7`) || strings.Contains(string(encoded), "ValueHash") {
+		t.Errorf("a plain var has no group and nothing has a value hash: %s", encoded)
+	}
+	view.SecretGroups, view.FileHashes = nil, nil
 	encoded, _ = json.Marshal(versionToResponse(view))
-	if strings.Contains(string(encoded), "ValueHash") || strings.Contains(string(encoded), "ContentHash") {
-		t.Errorf("unknown hashes must be absent: %s", encoded)
+	if strings.Contains(string(encoded), "ValueGroup") || strings.Contains(string(encoded), "ContentHash") {
+		t.Errorf("unknown groups and hashes must be absent: %s", encoded)
+	}
+}
+
+func TestSaveDraftRequest_EnvVarCap(t *testing.T) {
+	vars := make([]string, 0, 65)
+	for i := range 65 {
+		vars = append(vars, `{"Name":"V`+strconv.Itoa(i)+`"}`)
+	}
+	for count, valid := range map[int]bool{64: true, 65: false} {
+		raw := `{"Variants":[{"Topology":{"Devices":[{"Name":"web","Type":"container","EnvVars":[` + strings.Join(vars[:count], ",") + `]}]}}]}`
+		var req saveDraftRequest
+		if err := json.Unmarshal([]byte(raw), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := binding.Validator.ValidateStruct(req); (err == nil) != valid {
+			t.Errorf("%d env vars: validation error %v, want valid=%v", count, err, valid)
+		}
 	}
 }

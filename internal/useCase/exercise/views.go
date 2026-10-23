@@ -276,11 +276,11 @@ type VersionView struct {
 	Label       string
 
 	Variants []exerciseModel.Variant // secrets masked
-	// EnvValueHashes[variant][device][env] is the HMAC-SHA256 hex of each env var value under the exercise's key
-	// (of the opened value for a secret), "" when unknown; nil when there is no key. FileHashes is the sha256 hex
-	// of each attached file's bytes by file id. The editor compares variants by them, never by value.
-	EnvValueHashes [][][]string
-	FileHashes     map[uuid.UUID]string
+	// SecretGroups[variant][device][env] groups the stored secrets that hold the same value (1, 2, …; 0 for a plain
+	// var or an empty secret), from where each value came from and never from the value (see hashes.go).
+	// FileHashes is the sha256 hex of each attached file's bytes by file id.
+	SecretGroups [][][]int
+	FileHashes   map[uuid.UUID]string
 
 	VariantCount int
 	CreatedAt    time.Time

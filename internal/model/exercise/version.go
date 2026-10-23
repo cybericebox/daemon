@@ -185,6 +185,9 @@ type ImageOverride struct {
 	Image    string    `json:"image"`
 }
 
+// MaxDeviceEnvVars bounds the env vars of one device.
+const MaxDeviceEnvVars = 64
+
 // MaxVariantWeight bounds a variant's weight.
 const MaxVariantWeight = 100
 

@@ -107,10 +107,17 @@ type (
 		SecurityPreset exerciseModel.SecurityPreset     `json:"security_preset,omitempty"`
 		ResourcePreset string                           `json:"resource_preset,omitempty"`
 		Interfaces     []exerciseModel.Interface        `json:"interfaces,omitempty"`
-		EnvVars        []exerciseModel.EnvVar           `json:"env_vars,omitempty"`
+		EnvVars        []archiveEnvVarV2                `json:"env_vars,omitempty"`
 		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
 		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
+	}
+
+	// archiveEnvVarV2 is a device env var as the document writes it (the server-side origin of a secret is not).
+	archiveEnvVarV2 struct {
+		Name   string `json:"name"`
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
 	}
 
 	archiveConnectionV2 struct {
@@ -698,6 +705,9 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 			}
 			image = marker
 		}
+		if len(device.EnvVars) > exerciseModel.MaxDeviceEnvVars {
+			return exerciseModel.Topology{}, nil, archiveInvalid(fmt.Sprintf("%s.env_vars has more than %d variables", devicePath, exerciseModel.MaxDeviceEnvVars))
+		}
 		if _, seen := deviceIDs[device.Name]; seen {
 			deviceIDs[device.Name] = ambiguousDevice
 		} else {
@@ -706,7 +716,7 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 		topology.Devices = append(topology.Devices, exerciseModel.Device{
 			ID: id, Name: device.Name, Type: device.Type, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
-			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
+			Interfaces: device.Interfaces, EnvVars: envVarsToDomain(device.EnvVars),
 			External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
@@ -774,7 +784,7 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
 			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
-			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
+			EnvVars: exportEnvVarsV2(device.EnvVars), External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
 	for _, connection := range variant.Topology.Connections {
@@ -791,6 +801,22 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}
 	return result
+}
+
+func envVarsToDomain(vars []archiveEnvVarV2) []exerciseModel.EnvVar {
+	var out []exerciseModel.EnvVar
+	for _, v := range vars {
+		out = append(out, exerciseModel.EnvVar{Name: v.Name, Value: v.Value, Secret: v.Secret})
+	}
+	return out
+}
+
+func exportEnvVarsV2(vars []exerciseModel.EnvVar) []archiveEnvVarV2 {
+	var out []archiveEnvVarV2
+	for _, v := range vars {
+		out = append(out, archiveEnvVarV2{Name: v.Name, Value: v.Value, Secret: v.Secret})
+	}
+	return out
 }
 
 // exportDeviceImage is the image as the document writes it: the file of its platform image when the export carries

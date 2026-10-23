@@ -35539,6 +35539,7 @@ const docTemplate = `{
             "properties": {
                 "EnvVars": {
                     "type": "array",
+                    "maxItems": 64,
                     "items": {
                         "$ref": "#/definitions/exercise.envVarDTO"
                     }
@@ -35742,9 +35743,9 @@ const docTemplate = `{
                     "description": "Value is write-only for secrets: responses blank it, an empty value on\nsave means \"keep the stored one\".",
                     "type": "string"
                 },
-                "ValueHash": {
-                    "description": "ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of\nthis exercise, for comparing variants without the value. The same value has the same hash within the task;\nit differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.",
-                    "type": "string"
+                "ValueGroup": {
+                    "description": "ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold\nthe same value, for comparing variants. It follows where the value came from (kept, inherited by a linked\nvariant, copied, equal values of one import), never the value itself: a value typed anew starts a group of\nits own even when it equals another. The numbers mean nothing outside one response.",
+                    "type": "integer"
                 }
             }
         },

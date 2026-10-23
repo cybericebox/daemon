@@ -6653,6 +6653,7 @@ definitions:
       EnvVars:
         items:
           $ref: '#/definitions/exercise.envVarDTO'
+        maxItems: 64
         type: array
       External:
         $ref: '#/definitions/exercise.externalDTO'
@@ -6793,12 +6794,13 @@ definitions:
           Value is write-only for secrets: responses blank it, an empty value on
           save means "keep the stored one".
         type: string
-      ValueHash:
+      ValueGroup:
         description: |-
-          ValueHash (response only): HMAC-SHA256 hex of the value (the opened value for a secret) under a server key of
-          this exercise, for comparing variants without the value. The same value has the same hash within the task;
-          it differs across tasks and changes when the server's secrets key is rotated. Absent when unknown.
-        type: string
+          ValueGroup (response only, a secret with a stored value): secrets with one ValueGroup in this response hold
+          the same value, for comparing variants. It follows where the value came from (kept, inherited by a linked
+          variant, copied, equal values of one import), never the value itself: a value typed anew starts a group of
+          its own even when it equals another. The numbers mean nothing outside one response.
+        type: integer
     type: object
   exercise.eventRefResponse:
     properties:

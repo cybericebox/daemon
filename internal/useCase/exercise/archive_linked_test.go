@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -506,4 +507,22 @@ func TestExportExerciseArchive_LinkedDeviceImageOfAmbiguousNameWrittenWhole(t *t
 	linked := doc.Versions[0].Variants[1]
 	require.NotContains(t, linked, "linked_to")
 	require.Contains(t, string(linked["topology"]), "own/image:2")
+}
+
+func TestToParsed_DeviceEnvVarCap(t *testing.T) {
+	vars := make([]string, 0, exerciseModel.MaxDeviceEnvVars+1)
+	for i := range exerciseModel.MaxDeviceEnvVars + 1 {
+		vars = append(vars, fmt.Sprintf(`{"name":"V%d","value":"x"}`, i))
+	}
+	variant := func(n int) string {
+		return `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[` + strings.Join(vars[:n], ",") + `]}]}}]`
+	}
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars), nil), "", exercise.DefaultLimits())
+	require.NoError(t, err)
+	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars+1), nil), "", exercise.DefaultLimits())
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[1].topology.devices[1].env_vars has more than 64")
+	// The server-side origin of a secret is not a key of the document.
+	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[{"name":"A","value":"x","origin":"o"}]}]}}]`, nil), "", exercise.DefaultLimits())
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 }
