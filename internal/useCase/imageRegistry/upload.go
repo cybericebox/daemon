@@ -85,6 +85,8 @@ type (
 const (
 	// pushTokenName names the push token in the refusal's public context.
 	pushTokenName = "push"
+	// pullTokenName names the pull token in the refusal's public context.
+	pullTokenName = "pull"
 	// parallelBlobChecks is how many blob HEADs MissingBlobs runs at once.
 	parallelBlobChecks = 8
 )

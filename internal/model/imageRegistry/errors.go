@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 32
+// ImageRegistryObjectCode — next free detail code: 33
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -112,6 +112,12 @@ var (
 	// image reference. Public context "variant" (1-based position) and "device" (its name).
 	ErrDeviceImageInvalid = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("The device image is not a valid image reference").WithDetailCode(31)
+	// ErrRegistryAccessDenied: the registry answered, but refused the platform token (401/403 on the token or the
+	// repository). Not an outage: retrying cannot help until an admin fixes the token in «Панель платформи». The
+	// public context "token" names which token was refused ("push" or "pull"), never its value; "reason" is
+	// "unauthorized" (the same Reason the availability checks use).
+	ErrRegistryAccessDenied = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("The image registry refused the platform token: check the registry token in the platform panel").WithDetailCode(32)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming
