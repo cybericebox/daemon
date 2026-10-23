@@ -8,7 +8,7 @@ import (
 // Notification errors declared here are listed in the API error catalog
 // (tools/errorcatalog scans errors.go); the older ones live in
 // notification.go and share the same detail-code space.
-// NotificationObjectCode — next free detail code: 27
+// NotificationObjectCode — next free detail code: 29
 var (
 	// ErrInboxRequestNotFound: the item does not exist or the caller is not
 	// one of its recipients (cross-user attempt → clean not-found).
@@ -24,7 +24,7 @@ var (
 				WithMessage("Inbox request is already resolved").WithDetailCode(19)
 )
 
-// Broadcast errors. NotificationObjectCode — next free detail code: 27
+// Broadcast errors. NotificationObjectCode — next free detail code: 29
 var (
 	ErrBroadcastNotFound = err.ErrObjectNotFound.WithObjectCode(model.NotificationObjectCode).
 				WithMessage("Broadcast not found").WithDetailCode(20)
@@ -32,6 +32,19 @@ var (
 				WithMessage("Invalid broadcast").WithDetailCode(21)
 	ErrBroadcastNoRecipients = err.ErrInvalidData.WithObjectCode(model.NotificationObjectCode).
 					WithMessage("The audience has no recipients").WithDetailCode(22)
+)
+
+// Broadcast template errors: a saved broadcast message of one scope (the
+// platform or one Event). Invalid content reuses ErrBroadcastInvalid, whose
+// messages name the field.
+var (
+	// ErrBroadcastTemplateNotFound: no template with this id in the caller's
+	// scope (another Event's template is a plain not-found).
+	ErrBroadcastTemplateNotFound = err.ErrObjectNotFound.WithObjectCode(model.NotificationObjectCode).
+					WithMessage("Broadcast template not found").WithDetailCode(27)
+	// ErrBroadcastTemplateNameTaken: the scope already has a template with this name.
+	ErrBroadcastTemplateNameTaken = err.ErrConflict.WithObjectCode(model.NotificationObjectCode).
+					WithMessage("A broadcast template with this name already exists").WithDetailCode(28)
 )
 
 // Site banner errors.

@@ -9372,6 +9372,64 @@ definitions:
       Subject:
         type: string
     type: object
+  messaging.templateRequest:
+    properties:
+      Channels:
+        items:
+          type: string
+        type: array
+      EmailBody: {}
+      EmailStyling: {}
+      InAppBody:
+        type: string
+      InAppLink:
+        type: string
+      InAppTitle:
+        type: string
+      Name:
+        type: string
+      Preheader:
+        type: string
+      Subject:
+        type: string
+    type: object
+  messaging.templateResponse:
+    properties:
+      Channels:
+        items:
+          type: string
+        type: array
+      CreatedAt:
+        type: string
+      EmailBody: {}
+      EmailStyling: {}
+      ID:
+        type: string
+      InAppBody:
+        type: string
+      InAppLink:
+        type: string
+      InAppTitle:
+        type: string
+      Kind:
+        enum:
+        - custom
+        type: string
+      Name:
+        type: string
+      Preheader:
+        type: string
+      ScopeEventID:
+        type: string
+      Subject:
+        type: string
+      UpdatedAt:
+        type: string
+      UpdatedBy:
+        type: string
+      UpdatedByName:
+        type: string
+    type: object
   pagination.CursorPage-event_eventResponse:
     properties:
       Items:
@@ -17430,6 +17488,149 @@ paths:
       summary: Reset an event notification subscription to the platform default
       tags:
       - events
+  /events/{id}/manage/notification-templates/custom:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/messaging.templateResponse'
+                  type: array
+              type: object
+      summary: Custom templates (saved broadcast messages) of the scope, recently
+        edited first
+      tags:
+      - notification-broadcasts
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: name and message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/messaging.templateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Create a custom template
+      tags:
+      - notification-broadcasts
+  /events/{id}/manage/notification-templates/custom/{templateID}:
+    delete:
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Delete a custom template
+      tags:
+      - notification-broadcasts
+    get:
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Get a custom template
+      tags:
+      - notification-broadcasts
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      - description: name and message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/messaging.templateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Update a custom template
+      tags:
+      - notification-broadcasts
   /events/{id}/manage/notification-templates/email:
     get:
       parameters:
@@ -26235,6 +26436,149 @@ paths:
       summary: Notification dispatch statistics
       tags:
       - notification-stats
+  /notifications/templates/custom:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/messaging.templateResponse'
+                  type: array
+              type: object
+      summary: Custom templates (saved broadcast messages) of the scope, recently
+        edited first
+      tags:
+      - notification-broadcasts
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: name and message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/messaging.templateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Create a custom template
+      tags:
+      - notification-broadcasts
+  /notifications/templates/custom/{templateID}:
+    delete:
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Delete a custom template
+      tags:
+      - notification-broadcasts
+    get:
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Get a custom template
+      tags:
+      - notification-broadcasts
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: template ID
+        in: path
+        name: templateID
+        required: true
+        type: string
+      - description: name and message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/messaging.templateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.templateResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Update a custom template
+      tags:
+      - notification-broadcasts
   /notifications/templates/email:
     get:
       parameters:

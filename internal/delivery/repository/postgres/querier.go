@@ -220,6 +220,7 @@ type Querier interface {
 	// locked, excluded from every participant, scoring and team-management read.
 	CreateModeratorsTeam(ctx context.Context, arg CreateModeratorsTeamParams) error
 	CreateNotificationBroadcast(ctx context.Context, arg CreateNotificationBroadcastParams) (NotificationBroadcast, error)
+	CreateNotificationBroadcastTemplate(ctx context.Context, arg CreateNotificationBroadcastTemplateParams) (uuid.UUID, error)
 	CreatePlatformLabCapacityObservation(ctx context.Context, arg CreatePlatformLabCapacityObservationParams) (PlatformLabCapacityObservation, error)
 	CreateResourceAlarm(ctx context.Context, arg CreateResourceAlarmParams) error
 	CreateResourceChangeRequest(ctx context.Context, arg CreateResourceChangeRequestParams) error
@@ -293,6 +294,7 @@ type Querier interface {
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
+	DeleteNotificationBroadcastTemplate(ctx context.Context, arg DeleteNotificationBroadcastTemplateParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
 	// Withdraws a pending request that has nothing left to ask (the working copy is inside the frame or covered by
 	// approvals); a decided request is history and stays. 0 rows: it was decided or removed meanwhile.
@@ -569,6 +571,7 @@ type Querier interface {
 	GetMediaUpload(ctx context.Context, id uuid.UUID) (MediaUpload, error)
 	GetModeratorsTeam(ctx context.Context, eventID uuid.UUID) (EventTeam, error)
 	GetNotificationBroadcast(ctx context.Context, id uuid.UUID) (GetNotificationBroadcastRow, error)
+	GetNotificationBroadcastTemplate(ctx context.Context, arg GetNotificationBroadcastTemplateParams) (GetNotificationBroadcastTemplateRow, error)
 	GetNotificationSetting(ctx context.Context, arg GetNotificationSettingParams) (NotificationSetting, error)
 	GetOpenResourceAlarm(ctx context.Context, arg GetOpenResourceAlarmParams) (ResourceAlarm, error)
 	GetOwnedExerciseTestDeploy(ctx context.Context, arg GetOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
@@ -1151,6 +1154,9 @@ type Querier interface {
 	ListModeratorsParticipationMembers(ctx context.Context, arg ListModeratorsParticipationMembersParams) ([]ListModeratorsParticipationMembersRow, error)
 	ListModeratorsTeamChallenges(ctx context.Context, eventID uuid.UUID) ([]ListModeratorsTeamChallengesRow, error)
 	ListNewInboxSince(ctx context.Context, arg ListNewInboxSinceParams) ([]ListNewInboxSinceRow, error)
+	// scope_filter: 'platform' = platform templates, otherwise the Event id.
+	// Recently edited first.
+	ListNotificationBroadcastTemplates(ctx context.Context, arg ListNotificationBroadcastTemplatesParams) ([]ListNotificationBroadcastTemplatesRow, error)
 	// scope_filter: '' = every scope, 'platform' = platform broadcasts only,
 	// otherwise the Event id.
 	ListNotificationBroadcasts(ctx context.Context, arg ListNotificationBroadcastsParams) ([]ListNotificationBroadcastsRow, error)
@@ -1862,6 +1868,8 @@ type Querier interface {
 	// endpoint identifies the agent (and its certificate), so it never changes.
 	UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error)
 	UpdateLabBindingReadiness(ctx context.Context, arg UpdateLabBindingReadinessParams) (int64, error)
+	// Only within its own scope: scope_filter is 'platform' or the Event id.
+	UpdateNotificationBroadcastTemplate(ctx context.Context, arg UpdateNotificationBroadcastTemplateParams) (int64, error)
 	UpdatePlatformSMTPProvider(ctx context.Context, arg UpdatePlatformSMTPProviderParams) (MailSmtpConfig, error)
 	UpdateResourceAlarm(ctx context.Context, arg UpdateResourceAlarmParams) (int64, error)
 	UpdateResourceReservation(ctx context.Context, arg UpdateResourceReservationParams) (int64, error)
