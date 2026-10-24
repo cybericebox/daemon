@@ -166,13 +166,13 @@ var livePropTypes = map[string]map[string]string{
 	"chart": {"lines": "lines", "labels": "chart-labels"},
 	"table": {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset",
 		"highlightTop": "highlight-top", "placeColors": "place-colors", "showBars": "boolean", "marker": "place-marker", "placeImages": "place-images",
-		"showLegend": "boolean"},
+		"showLegend": "boolean", "barsAt": "bars-at", "showFlags": "boolean", "showInitials": "boolean"},
 	"ad_table":     {"columns": "text-list"},
 	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean", "rows": "logo-rows"},
 	"solves":       {"rows": "rows", "mode": "solves-mode"},
 	"announcement": {"text": "text", "align": "align"},
 	"qr":           {"url": "url", "value": "qr-value", "caption": "short-text"},
-	"podium":       {"showPoints": "boolean", "variant": "podium-variant", "showRing": "boolean", "highlightTop": "highlight-top", "placeColors": "place-colors", "marker": "place-marker", "placeImages": "place-images"},
+	"podium":       {"showPoints": "boolean", "variant": "podium-variant", "showRing": "boolean", "showFlagsRing": "boolean", "highlightTop": "highlight-top", "placeColors": "place-colors", "marker": "place-marker", "placeImages": "place-images"},
 	"facts":        {"items": "fact-list"},
 	"stages":       {"showDone": "boolean"},
 	"clock":        {"showSeconds": "boolean", "label": "short-text", "align": "align"},
@@ -341,7 +341,7 @@ func (w LiveWidget) validateProps() error {
 				seen[value] = true
 			}
 		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color", "text-size", "align", "timer-digits", "timer-zero", "solves-mode",
-			"highlight-top", "podium-variant", "place-marker", "chart-labels":
+			"highlight-top", "podium-variant", "place-marker", "chart-labels", "bars-at":
 			var value string
 			if json.Unmarshal(raw, &value) != nil || !liveEnumValue(kind, value) {
 				return fmt.Errorf("invalid choice property %q", key)
@@ -548,6 +548,9 @@ func liveEnumValue(kind, value string) bool {
 	case "chart-labels":
 		// Team names at the line ends («chart») or none.
 		return value == "chart" || value == "none"
+	case "bars-at":
+		// The table's points bar: under the name or as a «1600/2100» cell.
+		return value == "name" || value == "points"
 	default:
 		return false
 	}
