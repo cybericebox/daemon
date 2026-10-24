@@ -551,3 +551,39 @@ func TestLivePlaceMarkersLegendAndChartLabels(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveProgressSettings(t *testing.T) {
+	type check struct {
+		kind  string
+		props map[string]json.RawMessage
+	}
+	valid := []check{
+		{"table", map[string]json.RawMessage{"showBars": json.RawMessage(`true`), "barsAt": json.RawMessage(`"points"`), "showFlags": json.RawMessage(`true`), "showInitials": json.RawMessage(`true`)}},
+		{"table", map[string]json.RawMessage{"barsAt": json.RawMessage(`"name"`), "showFlags": json.RawMessage(`false`), "showInitials": json.RawMessage(`false`)}},
+		{"podium", map[string]json.RawMessage{"variant": json.RawMessage(`"cards"`), "showRing": json.RawMessage(`true`), "showFlagsRing": json.RawMessage(`true`)}},
+	}
+	for _, item := range valid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("%s %v rejected: %v", item.kind, item.props, err)
+		}
+	}
+	invalid := []check{
+		{"table", map[string]json.RawMessage{"barsAt": json.RawMessage(`"flags"`)}},
+		{"table", map[string]json.RawMessage{"showFlags": json.RawMessage(`"yes"`)}},
+		{"table", map[string]json.RawMessage{"showInitials": json.RawMessage(`1`)}},
+		{"podium", map[string]json.RawMessage{"showFlagsRing": json.RawMessage(`"yes"`)}},
+		// Each setting belongs to its widget only.
+		{"podium", map[string]json.RawMessage{"showFlags": json.RawMessage(`true`)}},
+		{"table", map[string]json.RawMessage{"showFlagsRing": json.RawMessage(`true`)}},
+		{"chart", map[string]json.RawMessage{"barsAt": json.RawMessage(`"points"`)}},
+	}
+	for _, item := range invalid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("%s %v accepted", item.kind, item.props)
+		}
+	}
+}
