@@ -369,6 +369,9 @@ type Querier interface {
 	FindEventTeamsByLabGroup(ctx context.Context, labGroupName string) ([]FindEventTeamsByLabGroupRow, error)
 	FinishErrorNotification(ctx context.Context, arg FinishErrorNotificationParams) (int64, error)
 	FinishNotificationBroadcast(ctx context.Context, arg FinishNotificationBroadcastParams) error
+	// The organizers fix every regular team of the event at once. Individual,
+	// moderators and already formed teams are left alone, so a repeat is a no-op.
+	FormAllEventTeams(ctx context.Context, arg FormAllEventTeamsParams) ([]uuid.UUID, error)
 	// Closes the roster for good. formed_by NULL means no person did it. Already
 	// formed teams are left alone, so a repeat is a no-op.
 	FormEventTeam(ctx context.Context, arg FormEventTeamParams) (int64, error)

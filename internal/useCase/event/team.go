@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -1135,7 +1136,8 @@ func (u *EventUseCase) TransferTeamCaptaincy(ctx context.Context, eventID, teamI
 		return err
 	}
 	defer unit.Restore()
-	if err = rosterOpen(txCtx, txRepo, eventID, time.Now()); err != nil {
+	rosterEvent, err := openRosterEvent(txCtx, txRepo, eventID, time.Now())
+	if err != nil {
 		return err
 	}
 	if err = requireEventCapability(txCtx, eventFormRepo.New(txRepo), eventID, captainID, eventFormModel.CapabilityTeamManage); err != nil {
@@ -1148,6 +1150,10 @@ func (u *EventUseCase) TransferTeamCaptaincy(ctx context.Context, eventID, teamI
 			return eventTeamModel.ErrEventTeamNotFound.Err()
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+	}
+	// A formed team keeps its captain; only the organizers move the captaincy.
+	if team.Formed(rosterEvent.Lifecycle.FormsTeamsAtStart(time.Now())) {
+		return eventTeamModel.ErrEventTeamFormed.Err()
 	}
 	members := participantRepo.New(txRepo)
 	newCaptain, err := members.Get(txCtx, eventID, newCaptainID)
@@ -1232,6 +1238,10 @@ func (u *EventUseCase) mutateCaptainTeam(ctx context.Context, eventID, teamID, u
 	if err = requireCaptainOfTeam(txCtx, participantRepo.New(txRepo), team, eventID, userID); err != nil {
 		return err
 	}
+	// A formed team is fixed: no new name and no new join link.
+	if team.Formed(event.Lifecycle.FormsTeamsAtStart(time.Now())) {
+		return eventTeamModel.ErrEventTeamFormed.Err()
+	}
 	expectedUpdatedAt := team.UpdatedAt
 	if err = mutate(&team, event, time.Now()); err != nil {
 		return err
@@ -1283,6 +1293,12 @@ func (u *EventUseCase) removeTeamMember(ctx context.Context, eventID, actorID, t
 			return eventTeamModel.ErrEventTeamNotFound.Err()
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+	}
+	// The captain's kick from a formed team is hidden: it answers as if it did not
+	// exist. Removing someone from a formed team will go through the organizers
+	// (BACKLOG); the formed-team branch below is kept for that.
+	if kicked && team.Formed(rosterEvent.Lifecycle.FormsTeamsAtStart(time.Now())) {
+		return eventTeamModel.ErrEventTeamNotFound.Err()
 	}
 	if target.TeamRole != nil && *target.TeamRole == participantModel.TeamRoleCaptain {
 		return eventTeamModel.ErrEventTeamCaptainMustTransfer.Err()
@@ -1468,6 +1484,56 @@ func (u *EventUseCase) FormOwnTeam(ctx context.Context, eventID, captainID uuid.
 // the moderator.
 func (u *EventUseCase) FormManagedTeam(ctx context.Context, eventID, teamID, moderatorID uuid.UUID) error {
 	return u.formTeam(ctx, eventID, teamID, moderatorID, true)
+}
+
+// FormManagedTeams is the moderator's «form every team» (for example right after
+// an import): every regular team that is not formed yet is fixed in one
+// transaction, without the minimum size check. It returns how many it formed.
+func (u *EventUseCase) FormManagedTeams(ctx context.Context, eventID, moderatorID uuid.UUID) (int, error) {
+	if u.uow == nil {
+		return 0, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return 0, err
+	}
+	config, err := eventConfigRepo.New(txRepo).Get(txCtx, eventID)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
+	}
+	if config.Participation == nil || *config.Participation != eventConfigModel.ParticipationTeam {
+		return 0, eventTeamModel.ErrEventTeamParticipationInvalid.Err()
+	}
+	now := time.Now()
+	formed, err := eventTeamRepo.New(txRepo).FormAll(txCtx, eventID, &moderatorID, now)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to form event teams").Err()
+	}
+	for _, teamID := range formed {
+		if err = u.requestLabAccessSyncInTransaction(txCtx, txRepo, teamID, now); err != nil {
+			return 0, err
+		}
+	}
+	if err = unit.Save(); err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to form event teams").Err()
+	}
+	if len(formed) == 0 {
+		return 0, nil
+	}
+	if err = u.publishAvailableChallenges(ctx, eventID); err != nil {
+		return len(formed), err
+	}
+	var errs []error
+	for _, teamID := range formed {
+		if syncErr := u.requestLabAccessSyncAfterReady(ctx, teamID); syncErr != nil {
+			errs = append(errs, syncErr)
+		}
+	}
+	return len(formed), errors.Join(errs...)
 }
 
 func (u *EventUseCase) formTeam(ctx context.Context, eventID, teamID, by uuid.UUID, force bool) error {

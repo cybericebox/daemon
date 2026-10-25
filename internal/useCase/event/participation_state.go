@@ -114,13 +114,12 @@ type ParticipationState struct {
 	JoinTeam   Capability
 	LeaveTeam  Capability
 	// ManageTeam covers the captain's roster actions: rename, kick, transfer
-	// captaincy, disband and reissue the join link.
+	// captaincy and reissue the join link; none of them on a formed team.
 	ManageTeam  Capability
 	EditAnswers Capability
 	Submit      Capability
 	SeeTasks    Capability
-	// RemoveMember is the captain's kick. From a formed team it removes the person
-	// from the event, never to another team.
+	// RemoveMember is the captain's kick, only from a team that is not formed yet.
 	RemoveMember Capability
 	// DisbandTeam is the captain's disband; not for a formed team.
 	DisbandTeam Capability
@@ -258,7 +257,7 @@ func ComputeParticipation(in ParticipationInput) ParticipationState {
 		}
 		return allow()
 	}())
-	state.ManageTeam = roster(func() Capability {
+	captainCap := roster(func() Capability {
 		switch {
 		case !a.HasTeam:
 			return deny(ReasonNoTeam)
@@ -270,12 +269,18 @@ func ComputeParticipation(in ParticipationInput) ParticipationState {
 
 	state.TeamFormed = a.HasTeam && a.TeamFormed
 	state.TeamNeedsConfirmation = state.RosterOpen && approved && teamEvent && a.HasTeam && !a.TeamFormed && l.JoinPolicy == eventModel.JoinPolicyRolling
+	// A formed team is fixed: its captain no longer renames it, kicks, hands over
+	// the captaincy or reissues the join link. Only the organizers change it.
+	state.ManageTeam = captainCap
+	if state.ManageTeam.Allowed && a.TeamFormed {
+		state.ManageTeam = deny(ReasonTeamFormed)
+	}
 	state.RemoveMember = state.ManageTeam
-	state.DisbandTeam = state.ManageTeam
+	state.DisbandTeam = captainCap
 	if state.DisbandTeam.Allowed && a.TeamFormed {
 		state.DisbandTeam = deny(ReasonTeamSwitchLocked)
 	}
-	state.FormTeam = state.ManageTeam
+	state.FormTeam = captainCap
 	if state.FormTeam.Allowed {
 		switch {
 		case a.TeamFormed:

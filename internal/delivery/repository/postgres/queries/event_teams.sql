@@ -242,3 +242,16 @@ SET formed_at  = sqlc.arg(formed_at),
 WHERE id = sqlc.arg(id)
   AND event_id = sqlc.arg(event_id)
   AND formed_at IS NULL;
+
+-- name: FormAllEventTeams :many
+-- The organizers fix every regular team of the event at once. Individual,
+-- moderators and already formed teams are left alone, so a repeat is a no-op.
+UPDATE event_teams
+SET formed_at  = sqlc.arg(formed_at),
+    formed_by  = sqlc.narg(formed_by),
+    updated_at = sqlc.arg(formed_at)
+WHERE event_id = sqlc.arg(event_id)
+  AND formed_at IS NULL
+  AND NOT moderators
+  AND NOT individual
+RETURNING id;
