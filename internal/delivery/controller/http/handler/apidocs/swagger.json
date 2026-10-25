@@ -29716,6 +29716,10 @@
                 "Hidden": {
                     "type": "boolean"
                 },
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication (not expired).",
+                    "type": "boolean"
+                },
                 "InvitationExpired": {
                     "type": "boolean"
                 },
@@ -29815,6 +29819,10 @@
                     "type": "integer"
                 },
                 "Hidden": {
+                    "type": "boolean"
+                },
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication (not expired).",
                     "type": "boolean"
                 },
                 "InvitationExpired": {
@@ -34120,6 +34128,10 @@
         "eventself.joinInfoResponse": {
             "type": "object",
             "properties": {
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication; it cannot be\naccepted before then (InvitationExpired is false).",
+                    "type": "boolean"
+                },
                 "InvitationExpired": {
                     "type": "boolean"
                 },

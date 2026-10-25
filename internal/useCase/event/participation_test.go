@@ -3,6 +3,7 @@ package event_test
 import (
 	"context"
 	"errors"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -853,4 +854,67 @@ func TestJoinEvent_UnpublishedIsRejectedAsNotOpen(t *testing.T) {
 	if !errors.Is(err, participantModel.ErrRegistrationNotOpen.Err()) {
 		t.Fatalf("want ErrRegistrationNotOpen, got %v", err)
 	}
+}
+
+// A fresh invitation of an event published later is not expired: it awaits
+// publication (the organizer saw «Прострочено» until the publish time).
+func TestListParticipants_InvitationAwaitingPublication(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		publishIn        time.Duration
+		joinClosedAtPub  bool
+		awaiting, expire bool
+	}{
+		{name: "not published, join open at publication", publishIn: time.Hour, awaiting: true},
+		{name: "not published, join closed at publication", publishIn: time.Hour, joinClosedAtPub: true, expire: true},
+		{name: "published", publishIn: -time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newFormGateMock(gomock.NewController(t))
+			uc := newUC(q)
+			eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			q.EXPECT().ListEventParticipantsDetailed(gomock.Any(), gomock.Any()).Return([]postgres.ListEventParticipantsDetailedRow{{
+				EventID: eventID, UserID: userID, Status: int16(participantModel.StatusPending), Invited: true, CreatedAt: time.Now(),
+			}}, nil)
+			q.EXPECT().ListLatestRegistrationAnswersForUsers(gomock.Any(), gomock.Any()).Return(nil, nil)
+			publish := time.Now().Add(tc.publishIn)
+			row := postgres.Event{ID: eventID, LifecycleConfigured: true, PublishAt: publish, StartAt: publish.Add(24 * time.Hour)}
+			if tc.joinClosedAtPub {
+				// Joining locks at the start, and the event starts at publication.
+				row.StartAt = publish
+			} else {
+				row.JoinPolicy = 1
+			}
+			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(row, nil)
+			expectParticipantListSides(q, 1)
+			result, err := uc.ListParticipants(context.Background(), event.ListParticipantsFilter{EventID: eventID})
+			require.NoError(t, err)
+			require.Len(t, result.Participants, 1)
+			require.Equal(t, tc.awaiting, result.Participants[0].InvitationAwaitingPublication)
+			require.Equal(t, tc.expire, result.Participants[0].InvitationExpired)
+		})
+	}
+}
+
+// The invitee's join info reports an invitation awaiting publication, not an
+// expired one.
+func TestGetJoinInfo_InvitationAwaitingPublication(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	uc := newUC(q)
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).
+		Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: int16(participantModel.StatusPending), Invited: true}, nil)
+	now := time.Now()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{
+		ID: eventID, LifecycleConfigured: true, JoinPolicy: 1, PublishAt: now.Add(time.Hour), StartAt: now.Add(48 * time.Hour),
+	}, nil).AnyTimes()
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
+		EventID: eventID, Registration: int16(eventConfigModel.RegistrationOpen),
+		Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationIndividual), Valid: true},
+	}, nil).AnyTimes()
+	v, err := uc.GetJoinInfo(context.Background(), eventID, userID)
+	require.NoError(t, err)
+	require.True(t, v.InvitationAwaitingPublication)
+	require.False(t, v.InvitationExpired)
 }

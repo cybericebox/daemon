@@ -363,6 +363,10 @@ type JoinInfoView struct {
 	// InvitationExpired: the registration window (or, for a team invitation,
 	// the roster) closed before the invitation was accepted.
 	InvitationExpired bool
+	// InvitationAwaitingPublication: the invitation is pending, the event is
+	// not published yet and the join period will be open at publication; it
+	// cannot be accepted before then. InvitationExpired is false.
+	InvitationAwaitingPublication bool
 	// TeamID is the caller's current team (internal: not part of join info DTO).
 	TeamID *uuid.UUID
 	// Participation is the computed «what can this viewer do now» block the
@@ -983,10 +987,12 @@ type ParticipantView struct {
 	InvitedTeamName   string
 	InvitationSentAt  *time.Time
 	InvitationExpired bool
-	Status            participantModel.Status
-	CreatedAt         time.Time
-	DecidedAt         *time.Time
-	Answers           map[string]any
+	// InvitationAwaitingPublication: see JoinInfoView.
+	InvitationAwaitingPublication bool
+	Status                        participantModel.Status
+	CreatedAt                     time.Time
+	DecidedAt                     *time.Time
+	Answers                       map[string]any
 	// FieldsMissing is how many required registration fields are unfilled.
 	FieldsMissing int32
 	// LastSeenAt is the last request on the event, LastLabAt the last

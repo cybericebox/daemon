@@ -432,25 +432,28 @@ type updateConfigRequest struct {
 }
 
 type participantResponse struct {
-	UserID            uuid.UUID      `json:"UserID"`
-	Name              string         `json:"Name"`
-	Email             string         `json:"Email"`
-	Pseudonym         *string        `json:"Pseudonym"`
-	DisplayName       string         `json:"DisplayName"`
-	TeamID            *uuid.UUID     `json:"TeamID"`
-	TeamName          string         `json:"TeamName"`
-	Hidden            bool           `json:"Hidden"`
-	Invited           bool           `json:"Invited"`
-	InvitedToTeam     bool           `json:"InvitedToTeam"`
-	InvitedTeamID     *uuid.UUID     `json:"InvitedTeamID"`
-	InvitedTeamName   string         `json:"InvitedTeamName"`
-	InvitationSentAt  *time.Time     `json:"InvitationSentAt"`
-	InvitationExpired bool           `json:"InvitationExpired"`
-	Status            int32          `json:"Status"`
-	CreatedAt         time.Time      `json:"CreatedAt"`
-	DecidedAt         *time.Time     `json:"DecidedAt"`
-	Answers           map[string]any `json:"Answers"`
-	FieldsMissing     int32          `json:"FieldsMissing"`
+	UserID            uuid.UUID  `json:"UserID"`
+	Name              string     `json:"Name"`
+	Email             string     `json:"Email"`
+	Pseudonym         *string    `json:"Pseudonym"`
+	DisplayName       string     `json:"DisplayName"`
+	TeamID            *uuid.UUID `json:"TeamID"`
+	TeamName          string     `json:"TeamName"`
+	Hidden            bool       `json:"Hidden"`
+	Invited           bool       `json:"Invited"`
+	InvitedToTeam     bool       `json:"InvitedToTeam"`
+	InvitedTeamID     *uuid.UUID `json:"InvitedTeamID"`
+	InvitedTeamName   string     `json:"InvitedTeamName"`
+	InvitationSentAt  *time.Time `json:"InvitationSentAt"`
+	InvitationExpired bool       `json:"InvitationExpired"`
+	// InvitationAwaitingPublication: the invitation is pending and the event is not
+	// published yet, but the join period will be open at publication (not expired).
+	InvitationAwaitingPublication bool           `json:"InvitationAwaitingPublication"`
+	Status                        int32          `json:"Status"`
+	CreatedAt                     time.Time      `json:"CreatedAt"`
+	DecidedAt                     *time.Time     `json:"DecidedAt"`
+	Answers                       map[string]any `json:"Answers"`
+	FieldsMissing                 int32          `json:"FieldsMissing"`
 }
 
 type participantCountsResponse struct {
@@ -892,25 +895,26 @@ func parseHintChargeMode(name *string) *eventConfigModel.HintChargeMode {
 
 func toParticipantResponse(v eventUseCase.ParticipantView) participantResponse {
 	return participantResponse{
-		UserID:            v.UserID,
-		Name:              v.Name,
-		Email:             v.Email,
-		Pseudonym:         v.Pseudonym,
-		DisplayName:       v.DisplayName,
-		TeamID:            v.TeamID,
-		TeamName:          v.TeamName,
-		Hidden:            v.Hidden,
-		Invited:           v.Invited,
-		InvitedToTeam:     v.InvitedToTeam,
-		InvitedTeamID:     v.InvitedTeamID,
-		InvitedTeamName:   v.InvitedTeamName,
-		InvitationSentAt:  v.InvitationSentAt,
-		InvitationExpired: v.InvitationExpired,
-		Status:            int32(v.Status),
-		CreatedAt:         v.CreatedAt,
-		DecidedAt:         v.DecidedAt,
-		Answers:           v.Answers,
-		FieldsMissing:     v.FieldsMissing,
+		UserID:                        v.UserID,
+		Name:                          v.Name,
+		Email:                         v.Email,
+		Pseudonym:                     v.Pseudonym,
+		DisplayName:                   v.DisplayName,
+		TeamID:                        v.TeamID,
+		TeamName:                      v.TeamName,
+		Hidden:                        v.Hidden,
+		Invited:                       v.Invited,
+		InvitedToTeam:                 v.InvitedToTeam,
+		InvitedTeamID:                 v.InvitedTeamID,
+		InvitedTeamName:               v.InvitedTeamName,
+		InvitationSentAt:              v.InvitationSentAt,
+		InvitationExpired:             v.InvitationExpired,
+		InvitationAwaitingPublication: v.InvitationAwaitingPublication,
+		Status:                        int32(v.Status),
+		CreatedAt:                     v.CreatedAt,
+		DecidedAt:                     v.DecidedAt,
+		Answers:                       v.Answers,
+		FieldsMissing:                 v.FieldsMissing,
 	}
 }
 

@@ -31,3 +31,10 @@ func TestJoinInfoResponseCarriesParticipationBlock(t *testing.T) {
 		t.Fatalf("a join result carries no participation block: %s", plain)
 	}
 }
+
+func TestJoinInfoResponseCarriesInvitationAwaitingPublication(t *testing.T) {
+	raw, _ := json.Marshal(toJoinInfoResponse(eventUseCase.JoinInfoView{InvitationAwaitingPublication: true}))
+	if !strings.Contains(string(raw), `"InvitationAwaitingPublication":true`) || !strings.Contains(string(raw), `"InvitationExpired":false`) {
+		t.Fatalf("join info must carry the awaiting flag: %s", raw)
+	}
+}
