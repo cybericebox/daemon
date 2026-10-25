@@ -1223,40 +1223,44 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 }
 
 // ResolveDeployedTopology returns one pinned version's variant topology by its
-// stable event-runtime index. It is deliberately owned by the catalog use case:
+// event-runtime index: the variant's position in the version, as the event
+// picks it (team_challenges.variant_index), not the author's Index from the
+// archive, which starts at 1. It is deliberately owned by the catalog use case:
 // encrypted environment values are resolved here and never exposed through an
 // event repository or a participant-facing DTO.
 func (u *ExerciseUseCase) ResolveDeployedTopology(ctx context.Context, versionID uuid.UUID, variantIndex int32) (exerciseModel.Topology, error) {
+	variant, err := u.deployedVariant(ctx, versionID, variantIndex)
+	if err != nil {
+		return exerciseModel.Topology{}, err
+	}
+	return u.decryptTopologySecrets(variant.ID, variant.Topology)
+}
+
+// deployedVariant is the variant at an event-runtime position of a pinned version.
+func (u *ExerciseUseCase) deployedVariant(ctx context.Context, versionID uuid.UUID, variantIndex int32) (exerciseModel.Variant, error) {
 	version, err := u.exercises.GetVersion(ctx, versionID)
 	if err != nil {
-		return exerciseModel.Topology{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+		return exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
-	for _, variant := range version.Variants {
-		if variant.Index == variantIndex {
-			return u.decryptTopologySecrets(variant.ID, variant.Topology)
-		}
+	if variantIndex < 0 || int(variantIndex) >= len(version.Variants) {
+		return exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
-	return exerciseModel.Topology{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+	return version.Variants[variantIndex], nil
 }
 
 // ResolveDeployedFlagLinks lists the flag-linked tasks of one pinned variant, so
 // the event stand engine can inject each team's stored flag into the device.
 // Only names and ids are returned; no flag value leaves the catalog here.
 func (u *ExerciseUseCase) ResolveDeployedFlagLinks(ctx context.Context, versionID uuid.UUID, variantIndex int32) ([]exerciseModel.FlagLink, error) {
-	version, err := u.exercises.GetVersion(ctx, versionID)
+	variant, err := u.deployedVariant(ctx, versionID, variantIndex)
 	if err != nil {
-		return nil, exerciseModel.ErrExerciseVersionNotFound.Err()
+		return nil, err
 	}
-	for _, variant := range version.Variants {
-		if variant.Index == variantIndex {
-			links := variant.FlagLinks()
-			for i := range links {
-				links[i].Candidates = nil
-			}
-			return links, nil
-		}
+	links := variant.FlagLinks()
+	for i := range links {
+		links[i].Candidates = nil
 	}
-	return nil, exerciseModel.ErrExerciseVersionNotFound.Err()
+	return links, nil
 }
 
 // ResolveVersionTopologies exposes the non-secret topology shape for every
