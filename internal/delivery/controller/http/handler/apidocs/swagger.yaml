@@ -1807,6 +1807,13 @@ definitions:
       Teams:
         type: integer
     type: object
+  event.formManagedTeamsResponse:
+    properties:
+      Formed:
+        description: Formed is how many teams this call formed (already formed ones
+          are not counted).
+        type: integer
+    type: object
   event.hintCostRequest:
     properties:
       Cost:
@@ -20626,6 +20633,32 @@ paths:
                   $ref: '#/definitions/event.createManagedTeamsResponse'
               type: object
       summary: Create event teams with members and invitations (moderator)
+      tags:
+      - events
+  /events/{id}/manage/teams/form:
+    post:
+      description: Fixes the roster of every regular team that is not formed yet,
+        without the minimum team size check (for example right after an import). From
+        then on participants cannot change those teams.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.formManagedTeamsResponse'
+              type: object
+      summary: Form every team of the event as a moderator
       tags:
       - events
   /events/{id}/managers:

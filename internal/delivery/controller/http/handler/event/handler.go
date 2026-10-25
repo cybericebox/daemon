@@ -156,6 +156,7 @@ type (
 		UpdateManagedTeam(ctx context.Context, eventID, teamID uuid.UUID, in eventUseCase.UpdateManagedTeamInput) (eventUseCase.TeamView, error)
 		RemoveParticipantFromTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) error
 		FormManagedTeam(ctx context.Context, eventID, teamID, moderatorID uuid.UUID) error
+		FormManagedTeams(ctx context.Context, eventID, moderatorID uuid.UUID) (int, error)
 		DeleteManagedTeam(ctx context.Context, eventID, teamID uuid.UUID) error
 		TransferManagedTeamCaptaincy(ctx context.Context, eventID, teamID, newCaptainID uuid.UUID) error
 		AttachExercise(ctx context.Context, eventID uuid.UUID, in eventUseCase.AttachExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
@@ -368,6 +369,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.GET("teams/:teamID", h.requireRead, h.getTeamProfile)
 		manage.POST("teams", h.requireManage, h.createManagedTeam)
 		manage.POST("teams/batch", h.requireManage, h.createManagedTeams)
+		manage.POST("teams/form", h.requireManage, h.formManagedTeams)
 		manage.PUT("teams/:teamID", h.requireManage, h.updateManagedTeam)
 		manage.DELETE("teams/:teamID", h.requireManage, h.deleteManagedTeam)
 		manage.POST("teams/:teamID/members/:userID", h.requireManage, h.assignParticipantToTeam)

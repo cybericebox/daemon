@@ -30,6 +30,7 @@ type Queries interface {
 	GetEventTeamAdmitted(ctx context.Context, arg postgres.GetEventTeamAdmittedParams) (bool, error)
 	GetEventTeamFormed(ctx context.Context, arg postgres.GetEventTeamFormedParams) (bool, error)
 	FormEventTeam(ctx context.Context, arg postgres.FormEventTeamParams) (int64, error)
+	FormAllEventTeams(ctx context.Context, arg postgres.FormAllEventTeamsParams) ([]uuid.UUID, error)
 	GetEventTeamVisible(ctx context.Context, arg postgres.GetEventTeamVisibleParams) (bool, error)
 	SetEventTeamHidden(ctx context.Context, arg postgres.SetEventTeamHiddenParams) (int64, error)
 	GetEventMinTeamSize(ctx context.Context, eventID uuid.UUID) (int32, error)
@@ -199,6 +200,12 @@ func (r *Repository) Formed(ctx context.Context, eventID, teamID uuid.UUID) (boo
 func (r *Repository) Form(ctx context.Context, eventID, teamID uuid.UUID, by *uuid.UUID, at time.Time) (bool, error) {
 	affected, err := r.q.FormEventTeam(ctx, postgres.FormEventTeamParams{ID: teamID, EventID: eventID, FormedAt: pgtype.Timestamptz{Time: at, Valid: true}, FormedBy: toNullUUID(by)})
 	return affected > 0, err
+}
+
+// FormAll forms every regular team of the event that is not formed yet and
+// returns the teams it formed.
+func (r *Repository) FormAll(ctx context.Context, eventID uuid.UUID, by *uuid.UUID, at time.Time) ([]uuid.UUID, error) {
+	return r.q.FormAllEventTeams(ctx, postgres.FormAllEventTeamsParams{EventID: eventID, FormedAt: pgtype.Timestamptz{Time: at, Valid: true}, FormedBy: toNullUUID(by)})
 }
 
 // Visible evaluates the one results visibility rule (event_team_visible) for a team.

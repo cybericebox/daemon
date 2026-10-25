@@ -1089,6 +1089,16 @@ func TestFormedTeamRemovalLeavesTheEventAndNeverSwitches(t *testing.T) {
 					}
 					return
 				}
+				if formed && name == "kick" {
+					// The captain's kick from a formed team is hidden: it answers 404 and changes nothing.
+					if err := act(uc, eventID, teamID); !errors.Is(err, eventTeamModel.ErrEventTeamNotFound.Err()) {
+						t.Fatalf("kicking from a formed team = %v, want ErrEventTeamNotFound", err)
+					}
+					if unit.saved {
+						t.Fatal("a hidden kick must not commit")
+					}
+					return
+				}
 				q.EXPECT().TryRemoveEventTeamMember(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				q.EXPECT().ClearEventParticipantTeam(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				if formed {
@@ -1137,6 +1147,77 @@ func TestFormedTeamCannotBeDisbandedOrDeletedWithMembers(t *testing.T) {
 				t.Fatal("a refused disband must not commit")
 			}
 		})
+	}
+}
+
+// A formed team is fixed for its captain: no new name, no new join link and no
+// new captain, before the start as well. Only the organizers change it.
+func TestFormedTeamIsFixedForItsCaptain(t *testing.T) {
+	captainID, memberID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	actions := map[string]func(uc *event.EventUseCase, eventID, teamID uuid.UUID) error{
+		"rename": func(uc *event.EventUseCase, eventID, teamID uuid.UUID) error {
+			return uc.RenameTeam(context.Background(), eventID, teamID, captainID, "New Name")
+		},
+		"new join link": func(uc *event.EventUseCase, eventID, teamID uuid.UUID) error {
+			return uc.RegenerateTeamJoinCode(context.Background(), eventID, teamID, captainID, eventTeamModel.JoinCodeExpiryNone)
+		},
+		"transfer captaincy": func(uc *event.EventUseCase, eventID, teamID uuid.UUID) error {
+			return uc.TransferTeamCaptaincy(context.Background(), eventID, teamID, captainID, memberID)
+		},
+	}
+	for name, act := range actions {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := newFormGateMock(ctrl)
+			unit := &testUoW{}
+			uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+			eventID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			now := time.Now()
+			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rollingEventRow(eventID, now), nil).AnyTimes()
+			q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{
+				EventID: eventID, UserID: captainID, Status: int16(participantModel.StatusApproved),
+				TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, TeamRole: pgtype.Int2{Int16: int16(participantModel.TeamRoleCaptain), Valid: true}, CreatedAt: now,
+			}, nil).AnyTimes()
+			q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(formedTeamRow(teamID, eventID, captainID, now, true), nil).AnyTimes()
+			if err := act(uc, eventID, teamID); !errors.Is(err, eventTeamModel.ErrEventTeamFormed.Err()) {
+				t.Fatalf("%s on a formed team = %v, want ErrEventTeamFormed", name, err)
+			}
+			if unit.saved {
+				t.Fatal("a refused change must not commit")
+			}
+		})
+	}
+}
+
+// The organizers fix every team at once (after an import): one transaction, the
+// moderator as the author, and the count of teams it formed.
+func TestFormManagedTeams_FormsEveryTeamAtOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID, moderatorID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	formed := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
+	now := time.Now()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rollingEventRow(eventID, now), nil).AnyTimes()
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
+		EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true},
+		MaxTeamSize: 5, CreatedAt: now, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
+	}, nil).AnyTimes()
+	q.EXPECT().FormAllEventTeams(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.FormAllEventTeamsParams) ([]uuid.UUID, error) {
+		if arg.EventID != eventID || !arg.FormedAt.Valid || !arg.FormedBy.Valid || arg.FormedBy.UUID != moderatorID {
+			t.Fatalf("unexpected formation %+v", arg)
+		}
+		return formed, nil
+	})
+	q.EXPECT().GetEventStandRollout(gomock.Any(), eventID).Return(postgres.EventStandRollout{}, pgx.ErrNoRows).AnyTimes()
+	q.EXPECT().PublishAvailableTeamChallenges(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	got, err := uc.FormManagedTeams(context.Background(), eventID, moderatorID)
+	if err != nil || got != len(formed) {
+		t.Fatalf("FormManagedTeams = %d, %v; want %d, nil", got, err, len(formed))
+	}
+	if !unit.saved {
+		t.Fatal("the formation must commit")
 	}
 }
 

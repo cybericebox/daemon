@@ -62,6 +62,9 @@ func (q *fakeQueries) GetEventTeamFormed(context.Context, postgres.GetEventTeamF
 func (q *fakeQueries) FormEventTeam(context.Context, postgres.FormEventTeamParams) (int64, error) {
 	return 1, nil
 }
+func (q *fakeQueries) FormAllEventTeams(context.Context, postgres.FormAllEventTeamsParams) ([]uuid.UUID, error) {
+	return nil, nil
+}
 func (q *fakeQueries) GetEventTeamAdmitted(context.Context, postgres.GetEventTeamAdmittedParams) (bool, error) {
 	return true, nil
 }
