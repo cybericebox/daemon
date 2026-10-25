@@ -224,6 +224,38 @@ func TestLiveTablePinnedRowsAndStageSubtitle(t *testing.T) {
 	}
 }
 
+func TestLiveChartShowsUpToTwentyLines(t *testing.T) {
+	chart := func(lines string) LiveLayout {
+		layout := widgetLayout("chart", map[string]json.RawMessage{"lines": json.RawMessage(lines)})
+		layout.Widgets[0].W, layout.Widgets[0].H = 8, 6
+		return layout
+	}
+	for _, lines := range []string{"5", "20"} {
+		if err := chart(lines).Validate(); err != nil {
+			t.Fatalf("%s chart lines rejected: %v", lines, err)
+		}
+	}
+	for _, lines := range []string{"4", "21"} {
+		if err := chart(lines).Validate(); err == nil {
+			t.Fatalf("%s chart lines accepted", lines)
+		}
+	}
+}
+
+func TestLiveUrgentColorAndUppercase(t *testing.T) {
+	if err := widgetLayout("timer", map[string]json.RawMessage{"urgentColor": json.RawMessage(`"#e11d48"`)}).Validate(); err != nil {
+		t.Fatalf("timer urgent colour rejected: %v", err)
+	}
+	if err := widgetLayout("timer", map[string]json.RawMessage{"urgentColor": json.RawMessage(`"red; x"`)}).Validate(); err == nil {
+		t.Fatal("an invalid urgent colour was accepted")
+	}
+	layout := DefaultLiveLayout()
+	layout.Screen.Uppercase = true
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("uppercase screen rejected: %v", err)
+	}
+}
+
 func TestLiveSafeArea(t *testing.T) {
 	for _, value := range []float64{0, 2.5, 5} {
 		layout := DefaultLiveLayout()
