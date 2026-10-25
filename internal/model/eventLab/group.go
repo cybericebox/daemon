@@ -78,6 +78,23 @@ func (g *Group) RequestStop(children []Lab, operation uuid.UUID, authorizedRunti
 	return true
 }
 
+// ForgetUndeliveredLifecycle returns a group to its initial running identity
+// when its stop or restart intents never reached an agent (no revision was ever
+// observed): an agent without group lifecycle never stops a group, so such an
+// intent would only block the group's labs. A Deleted group is never touched.
+func (g *Group) ForgetUndeliveredLifecycle(now time.Time) bool {
+	if g.DesiredState == "Deleted" || g.Revision <= 1 || g.ObservedRevision != 0 {
+		return false
+	}
+	g.DesiredState = "Running"
+	g.Revision = 1
+	g.Ready = false
+	g.RetentionUntil = nil
+	g.UpdatedAt = now
+	g.NextAttemptAt = now
+	return true
+}
+
 func groupChildrenStopped(children []Lab) bool {
 	for _, l := range children {
 		if l.DesiredState == "Running" || (l.ActualState != "Stopped" && l.ActualState != "Deleted") || l.HeldCompute() != (Compute{}) || l.AgentUID == "" || l.ObservedRevision != l.Revision || l.Allocation.RuntimeState != "Released" || !l.AccessFenced || (l.SnapshotMode == "required" && l.SnapshotState != "Succeeded") {

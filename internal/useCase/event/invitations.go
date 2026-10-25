@@ -280,8 +280,27 @@ func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventMod
 // invitationExpired applies the invitation validity rule: the registration
 // window must be open (the registration type is irrelevant — invitations work
 // while registration is closed); a team invitation also needs an open roster.
+//
+// An invitation of an event that is not published yet is not expired: it
+// awaits publication (see invitationAwaitingPublication) and cannot be
+// accepted before it.
 func invitationExpired(e eventModel.Event, p participantModel.Participant, now time.Time) bool {
+	if invitationAwaitingPublication(e, now) {
+		return false
+	}
 	return !e.Lifecycle.RegistrationOpen(now) || (p.InvitedToTeam && !e.Lifecycle.RosterOpen(now))
+}
+
+// invitationAwaitingPublication: the event is not published yet, and its join
+// period (registration and roster alike) will be open at publication, so a
+// pending invitation becomes acceptable then. An event without a schedule has
+// no publication moment yet; its invitations await it too.
+func invitationAwaitingPublication(e eventModel.Event, now time.Time) bool {
+	l := e.Lifecycle
+	if l.Status(now) != eventModel.LifecycleNotPublished {
+		return false
+	}
+	return !l.Configured || l.JoinPeriodOpen(l.PublishAt)
 }
 
 // ResendParticipantInvitation re-sends a pending, unexpired invitation.
@@ -410,6 +429,10 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 		return JoinInfoView{}, staffErr
 	} else if staff {
 		return JoinInfoView{}, registerError(ReasonStaff)
+	}
+	if invitationAwaitingPublication(invitedEvent, time.Now()) {
+		// Accepting before publication stays impossible.
+		return JoinInfoView{}, registerError(ReasonNotPublished)
 	}
 	if invitationExpired(invitedEvent, p, time.Now()) {
 		return JoinInfoView{}, participantModel.ErrInvitationExpired.Err()

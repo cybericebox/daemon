@@ -2323,6 +2323,11 @@ definitions:
         type: integer
       Hidden:
         type: boolean
+      InvitationAwaitingPublication:
+        description: |-
+          InvitationAwaitingPublication: the invitation is pending and the event is not
+          published yet, but the join period will be open at publication (not expired).
+        type: boolean
       InvitationExpired:
         type: boolean
       InvitationSentAt:
@@ -2393,6 +2398,11 @@ definitions:
       FieldsMissing:
         type: integer
       Hidden:
+        type: boolean
+      InvitationAwaitingPublication:
+        description: |-
+          InvitationAwaitingPublication: the invitation is pending and the event is not
+          published yet, but the join period will be open at publication (not expired).
         type: boolean
       InvitationExpired:
         type: boolean
@@ -5307,6 +5317,12 @@ definitions:
     type: object
   eventself.joinInfoResponse:
     properties:
+      InvitationAwaitingPublication:
+        description: |-
+          InvitationAwaitingPublication: the invitation is pending and the event is not
+          published yet, but the join period will be open at publication; it cannot be
+          accepted before then (InvitationExpired is false).
+        type: boolean
       InvitationExpired:
         type: boolean
       Invited:

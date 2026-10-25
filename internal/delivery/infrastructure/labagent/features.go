@@ -417,7 +417,10 @@ func (f *Fleet) SnapshotQuotaFor(t exerciseModel.Topology) (int64, bool) {
 }
 
 // LabLifecycleCapabilities reads the selected owner's cached feature report.
-// An unrecorded group or missing report is unknown; this never locates via RPC.
+// A missing report or a failed placement read is unknown; this never locates via
+// RPC. A group with no recorded owner could be on any agent: it is answered for
+// the whole fleet (a capability any agent reports), and only when every agent
+// has reported.
 func (f *Fleet) LabLifecycleCapabilities(ctx context.Context, group string) (infraModel.LifecycleCapabilities, bool) {
 	members := f.Members()
 	var m *Member
@@ -425,8 +428,11 @@ func (f *Fleet) LabLifecycleCapabilities(ctx context.Context, group string) (inf
 		m = members[0]
 	} else if f.store != nil {
 		id, found, err := f.store.Get(ctx, group)
-		if err != nil || !found {
+		if err != nil {
 			return infraModel.LifecycleCapabilities{}, false
+		}
+		if !found {
+			return fleetLifecycleCapabilities(members)
 		}
 		m = f.member(id)
 	}
@@ -438,4 +444,25 @@ func (f *Fleet) LabLifecycleCapabilities(ctx context.Context, group string) (inf
 		return infraModel.LifecycleCapabilities{}, false
 	}
 	return feat.Lifecycle, true
+}
+
+// fleetLifecycleCapabilities is what any of the members can do; unknown when a member has not reported.
+func fleetLifecycleCapabilities(members []*Member) (infraModel.LifecycleCapabilities, bool) {
+	var out infraModel.LifecycleCapabilities
+	if len(members) == 0 {
+		return out, false
+	}
+	for _, m := range members {
+		feat := m.Features.Get()
+		if feat == nil {
+			return infraModel.LifecycleCapabilities{}, false
+		}
+		l := feat.Lifecycle
+		out.PerLabStop = out.PerLabStop || l.PerLabStop
+		out.RequiredSnapshot = out.RequiredSnapshot || l.RequiredSnapshot
+		out.ConfirmedRuntime = out.ConfirmedRuntime || l.ConfirmedRuntime
+		out.RetainedRestart = out.RetainedRestart || l.RetainedRestart
+		out.FullGroupStop = out.FullGroupStop || l.FullGroupStop
+	}
+	return out, true
 }

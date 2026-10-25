@@ -109,11 +109,16 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 		} else if lab.DesiredState == "Stopped" {
 			err = u.reconcileStoppedLab(ctx, lab)
 		}
+		// Persist delay for both failures and accepted but still unacknowledged work.
+		delay := u.labLifecycleRetryMin
+		if errors.Is(err, errLifecycleUnsupported) {
+			// The agent cannot stop it: the lab runs until it is destroyed. Not a
+			// failure; it is only looked at again at the longest interval.
+			err, delay = nil, u.labLifecycleRetryMax
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("lab %s: %w", lab.ID, err))
 		}
-		// Persist delay for both failures and accepted but still unacknowledged work.
-		delay := u.labLifecycleRetryMin
 		if err != nil {
 			previous := lab.NextAttemptAt.Sub(lab.UpdatedAt)
 			if previous >= delay {
@@ -134,6 +139,11 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 	}
 	return errors.Join(errs...)
 }
+
+// errLifecycleUnsupported: the lab's agent does not advertise the command the
+// lab's intent needs. The lab keeps running until destroyed; it is no failure.
+var errLifecycleUnsupported = errors.New("lab lifecycle command unsupported by the agent")
+
 func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabModel.Lab) error {
 	// A lab closed before it was ever sent to the agent has nothing there to stop:
 	// its stop is acknowledged here, or it would be chased forever.
@@ -147,6 +157,9 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 	if lab.AgentUID == "" {
 		birth, err := port.ObserveLab(ctx, lab.Ref)
 		if err != nil {
+			if u.settleGoneGroup(ctx, lab.Ref.Group, lab.AgentGeneration > 0, err) {
+				return nil
+			}
 			return err
 		}
 		adopted, err := u.labs.RecordBirthIdentity(ctx, lab.ID, birth, time.Now().UTC())
@@ -175,6 +188,9 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 	}
 	observation, err := port.ObserveLab(ctx, lab.Ref)
 	if err != nil {
+		if u.settleGoneGroup(ctx, lab.Ref.Group, true, err) {
+			return nil
+		}
 		return err
 	}
 	// Only the repository's strict domain normalization may acknowledge runtime
@@ -191,6 +207,9 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 	}
 	if current.ActualState == "Stopped" && current.ObservedRevision == current.Revision && current.AccessFenced && current.Allocation.RuntimeState == "Released" && current.Allocation.ReleasedAt != nil && current.FailureCode == "" && (current.SnapshotMode == "skip" || current.SnapshotState == "Succeeded") {
 		return nil
+	}
+	if u.labStopUnsupported(ctx, current) {
+		return errLifecycleUnsupported
 	}
 	// Producer stopped intent fences access itself before required capture. ACL
 	// acceptance is never proof of that physical access fence.
@@ -210,6 +229,9 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 	}
 	o, err := port.ObserveLab(ctx, l.Ref)
 	if err != nil {
+		if u.settleGoneGroup(ctx, l.Ref.Group, l.AgentUID != "" && l.AgentGeneration > 0, err) {
+			return nil
+		}
 		return err
 	}
 	if l.AgentUID == "" {
@@ -239,6 +261,9 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 	}
 	if current.AgentUID == "" || !u.groupAllowsDeployment(ctx, current.TeamID, now) {
 		return nil
+	}
+	if u.labRestartUnsupported(ctx, current.Ref.Group) {
+		return errLifecycleUnsupported
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

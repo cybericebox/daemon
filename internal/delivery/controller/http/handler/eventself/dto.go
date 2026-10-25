@@ -587,6 +587,10 @@ type joinInfoResponse struct {
 	InvitedTeamID     *uuid.UUID `json:"InvitedTeamID"`
 	TeamUnavailable   bool       `json:"TeamUnavailable"`
 	InvitationExpired bool       `json:"InvitationExpired"`
+	// InvitationAwaitingPublication: the invitation is pending and the event is not
+	// published yet, but the join period will be open at publication; it cannot be
+	// accepted before then (InvitationExpired is false).
+	InvitationAwaitingPublication bool `json:"InvitationAwaitingPublication"`
 	// Participation is what the caller can do right now and why not; the event
 	// site renders it instead of deriving the rules from dates. Only the
 	// join/info read fills it.
@@ -663,7 +667,7 @@ func participationPhase(s eventModel.LifecycleStatus) string {
 }
 
 func toJoinInfoResponse(v eventUseCase.JoinInfoView) joinInfoResponse {
-	return joinInfoResponse{Status: int32(v.Status), Invited: v.Invited, InvitedTeamName: v.InvitedTeamName, InvitedTeamID: v.InvitedTeamID, TeamUnavailable: v.TeamUnavailable, InvitationExpired: v.InvitationExpired, Participation: toParticipationResponse(v.Participation)}
+	return joinInfoResponse{Status: int32(v.Status), Invited: v.Invited, InvitedTeamName: v.InvitedTeamName, InvitedTeamID: v.InvitedTeamID, TeamUnavailable: v.TeamUnavailable, InvitationExpired: v.InvitationExpired, InvitationAwaitingPublication: v.InvitationAwaitingPublication, Participation: toParticipationResponse(v.Participation)}
 }
 
 type createTeamRequest struct {

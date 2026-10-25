@@ -316,7 +316,9 @@ func TestDeployVariantTest_KeepsLeaseIfPartialGroupCleanupFails(t *testing.T) {
 	}
 }
 
-func TestResolveDeployedTopology_UsesPinnedVariantIndexAndDecryptsSecrets(t *testing.T) {
+// The event runtime index is the variant's position: the archive numbers variants from 1, so the first team (position 0)
+// must get the first variant, not «version not found» (production 2026-10-25, every single-variant lab task).
+func TestResolveDeployedTopology_UsesThePositionNotTheArchiveIndexAndDecryptsSecrets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	cipher, err := secret.New(testKey)
@@ -329,15 +331,21 @@ func TestResolveDeployedTopology_UsesPinnedVariantIndexAndDecryptsSecrets(t *tes
 		t.Fatal(err)
 	}
 	versionID := uuid.Must(uuid.NewV7())
-	variants, err := json.Marshal([]exerciseModel.Variant{{Index: 0}, {ID: variantID, Index: 7, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
+	variants, err := json.Marshal([]exerciseModel.Variant{{ID: variantID, Index: 1, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}, {Index: 2, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "second"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).Times(3)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
-	topo, err := uc.ResolveDeployedTopology(context.Background(), versionID, 7)
+	topo, err := uc.ResolveDeployedTopology(context.Background(), versionID, 0)
 	if err != nil || topo.Devices[0].EnvVars[0].Value != "FLAG{pinned}" {
-		t.Fatalf("topology=%+v err=%v", topo, err)
+		t.Fatalf("position 0: topology=%+v err=%v", topo, err)
+	}
+	if topo, err = uc.ResolveDeployedTopology(context.Background(), versionID, 1); err != nil || topo.Devices[0].Name != "second" {
+		t.Fatalf("position 1 is the second variant (archive Index 2): topology=%+v err=%v", topo, err)
+	}
+	if _, err = uc.ResolveDeployedTopology(context.Background(), versionID, 2); err == nil {
+		t.Fatal("a position past the variants is not found")
 	}
 }
 
@@ -1008,7 +1016,7 @@ func TestResolveDeployedTopology_ASecretSealedForAnotherVariantDoesNotOpen(t *te
 	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: otherVariant, Index: 3, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
-	if _, err := uc.ResolveDeployedTopology(context.Background(), versionID, 3); err == nil {
+	if _, err := uc.ResolveDeployedTopology(context.Background(), versionID, 0); err == nil {
 		t.Fatal("a secret copied under another variant must not decrypt")
 	}
 }

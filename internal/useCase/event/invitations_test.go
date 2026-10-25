@@ -407,3 +407,22 @@ func TestInviteExistingActiveUserWithoutEmailMarksNothing(t *testing.T) {
 	require.True(t, unit.saved)
 	require.Empty(t, userClockMarksOf(q), "no row matched: an active account has no purge clock")
 }
+
+// Accepting stays impossible before publication, even though the invitation is
+// not expired; nothing is saved.
+func TestAcceptParticipantInvitationRejectsBeforePublication(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, SignalPublishers: func(event.IRepository) event.SignalPublisher { return &recordingSignalPublisher{} }})
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
+		EventID: eventID, UserID: userID, Status: 1, Invited: true,
+	}, nil)
+	unpublished := registrationOpenEventRow(eventID)
+	unpublished.PublishAt = time.Now().Add(time.Hour)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(unpublished, nil)
+	_, err := uc.AcceptParticipantInvitation(context.Background(), eventID, userID)
+	require.ErrorIs(t, err, participantModel.ErrRegistrationNotOpen.Err())
+	require.False(t, unit.saved)
+}
