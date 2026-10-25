@@ -139,6 +139,16 @@ func (u *EventUseCase) ReconcileStageLabLifecycle(ctx context.Context, eventID u
 			}
 		}
 		if reason == "" {
+			// The finish moved back into the future: a lab it closed before it ever
+			// reached the agent is prepared again, so it deploys on schedule.
+			expected := l.Revision
+			if l.ReopenUnborn(now) {
+				if ok, err := eventLabRepo.New(q).Update(txCtx, l, expected); err != nil {
+					return err
+				} else if !ok {
+					return fmt.Errorf("reopened lab revision changed")
+				}
+			}
 			continue
 		}
 		expected := l.Revision
