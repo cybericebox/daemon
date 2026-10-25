@@ -318,6 +318,7 @@ POST   /api/events/:id/manage/teams/:teamID/members/:userID | gate: self | layer
 GET    /api/events/:id/manage/teams/:teamID/staff-fields | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/teams/:teamID/staff-fields | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/teams/batch | gate: self | layers: event.requireManage
+POST   /api/events/:id/manage/teams/form | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/theme | gate: self | layers: event.requireManage
 GET    /api/events/:id/managers | gate: events.read | layers: -
 DELETE /api/events/:id/managers/:userID | gate: events.write | layers: -

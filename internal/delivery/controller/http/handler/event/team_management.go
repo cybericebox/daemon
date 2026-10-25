@@ -317,6 +317,36 @@ func (h *Handler) putListColumns(ctx *gin.Context) {
 }
 
 // formManagedTeam godoc
+type formManagedTeamsResponse struct {
+	// Formed is how many teams this call formed (already formed ones are not counted).
+	Formed int `json:"Formed"`
+}
+
+// @Summary Form every team of the event as a moderator
+// @Description Fixes the roster of every regular team that is not formed yet, without the minimum team size check (for example right after an import). From then on participants cannot change those teams.
+// @Tags events
+// @Produce json
+// @Param id path string true "event ID"
+// @Success 200 {object} response.Response{data=formManagedTeamsResponse}
+// @Router /events/{id}/manage/teams/form [post]
+func (h *Handler) formManagedTeams(ctx *gin.Context) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	formed, err := h.useCase.FormManagedTeams(ctx, eventID, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, formManagedTeamsResponse{Formed: formed})
+}
+
 // @Summary Form an event team as a moderator
 // @Description Closes the roster for good without the minimum team size check; for a team that can never reach it. From then on nobody switches teams and the team gets its tasks.
 // @Tags events

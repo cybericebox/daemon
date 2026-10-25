@@ -210,6 +210,46 @@ func (q *Queries) DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams
 	return result.RowsAffected(), nil
 }
 
+const formAllEventTeams = `-- name: FormAllEventTeams :many
+UPDATE event_teams
+SET formed_at  = $1,
+    formed_by  = $2,
+    updated_at = $1
+WHERE event_id = $3
+  AND formed_at IS NULL
+  AND NOT moderators
+  AND NOT individual
+RETURNING id
+`
+
+type FormAllEventTeamsParams struct {
+	FormedAt pgtype.Timestamptz `json:"formed_at"`
+	FormedBy uuid.NullUUID      `json:"formed_by"`
+	EventID  uuid.UUID          `json:"event_id"`
+}
+
+// The organizers fix every regular team of the event at once. Individual,
+// moderators and already formed teams are left alone, so a repeat is a no-op.
+func (q *Queries) FormAllEventTeams(ctx context.Context, arg FormAllEventTeamsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, formAllEventTeams, arg.FormedAt, arg.FormedBy, arg.EventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const formEventTeam = `-- name: FormEventTeam :execrows
 UPDATE event_teams
 SET formed_at  = $1,

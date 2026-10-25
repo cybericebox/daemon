@@ -13648,6 +13648,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/teams/form": {
+            "post": {
+                "description": "Fixes the roster of every regular team that is not formed yet, without the minimum team size check (for example right after an import). From then on participants cannot change those teams.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Form every team of the event as a moderator",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.formManagedTeamsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/teams/{teamID}": {
             "get": {
                 "produces": [
@@ -28906,6 +28947,15 @@ const docTemplate = `{
                     ]
                 },
                 "Teams": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.formManagedTeamsResponse": {
+            "type": "object",
+            "properties": {
+                "Formed": {
+                    "description": "Formed is how many teams this call formed (already formed ones are not counted).",
                     "type": "integer"
                 }
             }
