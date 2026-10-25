@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
@@ -41,18 +40,20 @@ func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
 		byGroup[binding.LabGroupName] = append(byGroup[binding.LabGroupName], index)
 	}
 	for group, indexes := range byGroup {
-		if u.lifecycleControls {
-			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, group)
-			if e != nil {
-				return e
-			}
-			if owned {
-				continue
-			}
+		held, e := u.retentionHoldsGroup(ctx, group)
+		if e != nil {
+			return e
+		}
+		if held {
+			continue
 		}
 		agent := u.groupAgent(ctx, group)
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy withdrawn laboratory group").Err()
+		}
+		// The destroyed group and its labs are settled, so the lifecycle never chases them.
+		if err := u.endLifecyclesWithReservation(ctx, group, time.Now().UTC()); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to settle the lifecycle of a withdrawn laboratory group").Err()
 		}
 		u.releaseTeamUnit(ctx, group, agent)
 		for _, index := range indexes {
@@ -88,18 +89,21 @@ func (u *EventUseCase) CleanupQueuedLabGroups(ctx context.Context) error {
 		}
 	}
 	for _, group := range groups {
-		if u.lifecycleControls {
-			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, group)
-			if e != nil {
-				return e
-			}
-			if owned {
-				continue
-			}
+		held, e := u.retentionHoldsGroup(ctx, group)
+		if e != nil {
+			return e
+		}
+		if held {
+			continue
 		}
 		agent := u.groupAgent(ctx, group)
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy queued laboratory group").Err()
+		}
+		// The rows of a deleted team or event survive it (no foreign key): settle
+		// them with the group, so the lifecycle never chases the gone objects.
+		if err := u.endLifecyclesWithReservation(ctx, group, time.Now().UTC()); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to settle the lifecycle of a queued laboratory group").Err()
 		}
 		u.releaseTeamUnit(ctx, group, agent)
 		affected, markErr := u.labBindings.MarkCleanupRequestDestroyed(ctx, group, time.Now())
