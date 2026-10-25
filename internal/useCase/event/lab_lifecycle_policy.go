@@ -47,6 +47,13 @@ func (u *EventUseCase) labCaps(ctx context.Context, group string) (infraModel.Li
 // client still checks them live before any command), so a failed lookup never
 // destroys or settles anything.
 
+// runtimeUnconfirmed: the group's agent reported no confirmed runtime, so its Labs are certified by their plain readiness
+// (no lifecycle intent, no runtime reports), as before the lifecycle work.
+func (u *EventUseCase) runtimeUnconfirmed(ctx context.Context, group string) bool {
+	caps, known := u.labCaps(ctx, group)
+	return known && !caps.ConfirmedRuntime
+}
+
 // groupStopUnsupported: the group's agent reported no full group stop.
 func (u *EventUseCase) groupStopUnsupported(ctx context.Context, group string) bool {
 	caps, known := u.labCaps(ctx, group)

@@ -604,14 +604,18 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			}
 			continue
 		}
+		managed := u.lifecycleControls && !u.runtimeUnconfirmed(ctx, binding.LabGroupName)
 		if u.lifecycleControls && status.Ready {
-			certified, certificateErr := u.observeInitialManagedLab(ctx, binding, status, now)
-			if certificateErr != nil {
-				errs = append(errs, certificateErr)
-				continue
-			}
-			if !certified {
-				continue
+			// Only the runtime certificate depends on the agent; the team's network access is current before any Lab is ready.
+			if managed {
+				certified, certificateErr := u.observeInitialManagedLab(ctx, binding, status, now)
+				if certificateErr != nil {
+					errs = append(errs, certificateErr)
+					continue
+				}
+				if !certified {
+					continue
+				}
 			}
 			network, networkErr := u.labAccessSyncs.NetworkCurrent(ctx, binding.EventTeamID, now)
 			if networkErr != nil {
@@ -650,7 +654,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				} else if canonical.AgentUID != status.LabUID || status.LabGeneration < canonical.AgentGeneration {
 					continue
 				}
-				if canonical.Revision == 1 && !u.lifecycleControls {
+				if canonical.Revision == 1 && !managed {
 					if _, readyErr := u.labs.RecordInitialReadiness(ctx, canonical.ID, canonical.Ref, status.LabUID, status.LabGeneration, status.Ready, now); readyErr != nil {
 						errs = append(errs, readyErr)
 						continue
@@ -775,9 +779,13 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		if canonical.Ref.Group != lab.Binding.LabGroupName || canonical.Ref.Lab != lab.Binding.LabName || canonical.DesiredState != "Running" || canonical.ClosedAt != nil || canonical.Revision != 1 || canonical.OperationID == uuid.Nil || !canonical.Allocation.ConfiguredRequestsKnown || canonical.Allocation.RuntimeState != "Admitted" {
 			return false, nil
 		}
-		meta.InitialLifecycle = &infraModel.LabInitialLifecycle{OperationID: canonical.OperationID, Revision: canonical.Revision}
-		meta.BeforeCreate = func(ctx context.Context, dispatch infraModel.LabCreateDispatch) error {
-			return u.recordInitialCreateDispatch(ctx, canonical, dispatch)
+		// An agent that reported no confirmed runtime cannot certify a lifecycle intent (the operator would wait for runtime
+		// reports that never come): such a Lab is created without one and certified by its plain readiness.
+		if !u.runtimeUnconfirmed(ctx, lab.Binding.LabGroupName) {
+			meta.InitialLifecycle = &infraModel.LabInitialLifecycle{OperationID: canonical.OperationID, Revision: canonical.Revision}
+			meta.BeforeCreate = func(ctx context.Context, dispatch infraModel.LabCreateDispatch) error {
+				return u.recordInitialCreateDispatch(ctx, canonical, dispatch)
+			}
 		}
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).

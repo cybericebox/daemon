@@ -932,6 +932,10 @@ func (q *Queries) RecordEventTeamLabInitialIdentity(ctx context.Context, arg Rec
 const recordEventTeamLabInitialReadiness = `-- name: RecordEventTeamLabInitialReadiness :execrows
 UPDATE event_team_labs SET runtime_ready=$1,
  actual_state=CASE WHEN $1::boolean THEN 'Running' ELSE 'Unknown' END,
+ observed_revision=CASE WHEN $1::boolean THEN desired_revision ELSE observed_revision END,
+ allocation=CASE WHEN $1::boolean
+  THEN jsonb_set(jsonb_set(allocation,'{RuntimeState}','"Allocated"'),'{ObservedAt}',to_jsonb($3::timestamptz))
+  ELSE allocation END,
  agent_generation=$2,observed_at=$3,updated_at=$3
 WHERE id=$4 AND desired_revision=1 AND desired_state='Running' AND logical_closed_at IS NULL
  AND agent_uid=$5 AND agent_uid<>'' AND agent_generation<=$2
