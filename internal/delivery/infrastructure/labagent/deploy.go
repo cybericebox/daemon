@@ -31,7 +31,7 @@ const (
 )
 
 // errNotFound marks an object the agent does not know.
-var errNotFound = errors.New("not found")
+var errNotFound = infraModel.ErrAgentObjectNotFound
 
 // requestLabels are the labels of every mutating call: the immutable platform-instance label.
 func (c *Client) requestLabels() map[string]string {

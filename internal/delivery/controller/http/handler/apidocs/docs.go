@@ -29723,6 +29723,10 @@ const docTemplate = `{
                 "Hidden": {
                     "type": "boolean"
                 },
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication (not expired).",
+                    "type": "boolean"
+                },
                 "InvitationExpired": {
                     "type": "boolean"
                 },
@@ -29822,6 +29826,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Hidden": {
+                    "type": "boolean"
+                },
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication (not expired).",
                     "type": "boolean"
                 },
                 "InvitationExpired": {
@@ -34127,6 +34135,10 @@ const docTemplate = `{
         "eventself.joinInfoResponse": {
             "type": "object",
             "properties": {
+                "InvitationAwaitingPublication": {
+                    "description": "InvitationAwaitingPublication: the invitation is pending and the event is not\npublished yet, but the join period will be open at publication; it cannot be\naccepted before then (InvitationExpired is false).",
+                    "type": "boolean"
+                },
                 "InvitationExpired": {
                     "type": "boolean"
                 },

@@ -30,3 +30,7 @@ func AsTerminating(err error) (*TerminatingError, bool) {
 // ErrGroupNotReady: the lab group is not there yet (or its policy is being created by another writer). A wait:
 // the caller keeps its work queued and tries again later, and nothing is recorded as a fault.
 var ErrGroupNotReady = errors.New("lab group is not ready")
+
+// ErrAgentObjectNotFound: no agent knows the object (a lab group or a lab). A fact, not an outage: an agent that could
+// not be asked answers with its own error instead.
+var ErrAgentObjectNotFound = errors.New("not found")

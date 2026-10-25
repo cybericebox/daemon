@@ -24,6 +24,7 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
+	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
@@ -141,7 +142,7 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	awaiting := e.InfrastructureAllowed && u.awaitingReservation(ctx, eventID)
 	if e.InfrastructureAllowed {
 		if u.laboratoriesUsable(ctx) {
-			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, now, schedule.NotDue, awaiting); err != nil {
+			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, config.TaskRevealMode, now, schedule.NotDue, awaiting); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -559,11 +560,15 @@ type topologyKey struct {
 // deployAndObserveStandLabs deploys each pending Lab once and then observes
 // it until the agent reports it ready or failed. It returns the teams whose
 // Labs became ready, so their access policy is re-derived.
-func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID, awaitingReservation bool) (map[uuid.UUID]struct{}, error) {
+func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, reveal eventConfigModel.TaskRevealMode, now time.Time, notDue []uuid.UUID, awaitingReservation bool) (map[uuid.UUID]struct{}, error) {
 	ready := map[uuid.UUID]struct{}{}
 	pending, err := u.labBindings.ListPending(ctx, e.ID, notDue)
 	if err != nil {
 		return ready, model.ErrPlatform.WithError(err).WithMessage("Failed to list pending stand labs").Err()
+	}
+	fair := fairDeployGroups(reveal)
+	if fair {
+		pending = deployGroupOrder(pending)
 	}
 	topologies := map[topologyKey]exerciseModel.Topology{}
 	pulls := map[topologyKey]standImages{}
@@ -577,7 +582,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				continue
 			}
 			budget--
-			held, deployErr := u.deployStandLab(ctx, e, lab, topologies, pulls, now)
+			held, deployErr := u.deployStandLab(ctx, e, lab, fair, topologies, pulls, now)
 			if held {
 				// waiting for transient image trouble deploys nothing: the slot goes to the next Lab
 				budget++
@@ -684,7 +689,7 @@ func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel
 
 // deployStandLab deploys one pending Lab. held is true when the Lab waits for transient image trouble
 // (nothing was tried), so the caller does not count it against the pass's deploy budget.
-func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) (held bool, err error) {
+func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, fair bool, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) (held bool, err error) {
 	if u.topologies == nil {
 		return false, model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
 	}
@@ -760,7 +765,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	if u.lifecycleControls && !u.groupAllowsDeployment(ctx, lab.Binding.EventTeamID, now) {
 		return false, nil
 	}
-	meta := standLabMeta(e, lab)
+	meta := standLabMeta(e, lab, fair)
 	meta.PullCredentials = pulled.Credentials
 	if u.allocationAccounting || u.lifecycleControls {
 		canonical, err := u.labs.Get(ctx, lab.Binding.LabID.UUID)
@@ -799,11 +804,45 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	return false, nil
 }
 
+// fairDeployGroups: the fair reveal («all ready») reveals a task when its lab is
+// ready for every eligible team, so the same task of all teams forms one deploy
+// group. «As ready» shows each lab to its team as soon as it is ready: every lab
+// is its own deploy group.
+func fairDeployGroups(reveal eventConfigModel.TaskRevealMode) bool {
+	return reveal != eventConfigModel.RevealAsReady
+}
+
+// deployGroupOrder hands the scheduler the members of a deploy group together:
+// the labs still to deploy come first, grouped by event exercise (all teams' lab
+// of the exercise back to back, the exercises in the order they first appear),
+// then the labs to observe. Only the order of submission changes; which group
+// the scheduler runs first stays its decision.
+func deployGroupOrder(pending []labBindingRepo.PendingLab) []labBindingRepo.PendingLab {
+	byExercise := map[uuid.UUID][]labBindingRepo.PendingLab{}
+	var exercises []uuid.UUID
+	var observed []labBindingRepo.PendingLab
+	for _, lab := range pending {
+		if lab.Binding.DeployedAt != nil {
+			observed = append(observed, lab)
+			continue
+		}
+		if _, seen := byExercise[lab.EventExerciseID]; !seen {
+			exercises = append(exercises, lab.EventExerciseID)
+		}
+		byExercise[lab.EventExerciseID] = append(byExercise[lab.EventExerciseID], lab)
+	}
+	out := make([]labBindingRepo.PendingLab, 0, len(pending))
+	for _, id := range exercises {
+		out = append(out, byExercise[id]...)
+	}
+	return append(out, observed...)
+}
+
 // standLabMeta tells the infrastructure what a team's Lab is: labels to select it by event, team
-// and exercise (the Lab is shared by the tasks of the exercise), and, for an event that locks its rosters at
-// the start, the exercise as its deploy group, so the same exercise comes up for every team in one go. A rolling event has no such moment: its
-// Labs are independent.
-func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.LabMeta {
+// and exercise (the Lab is shared by the tasks of the exercise), and, with the fair reveal, the exercise
+// as its deploy group, so the scheduler dispatches the same exercise of every team together. With «as
+// ready» the Labs are independent.
+func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab, fair bool) infraModel.LabMeta {
 	binding := lab.Binding
 	meta := infraModel.LabMeta{
 		Labels: map[string]string{
@@ -822,7 +861,7 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.
 		Reservation:      teamReservation(e.ID, binding.EventTeamID),
 		GroupReservation: teamReservation(e.ID, binding.EventTeamID),
 	}
-	if e.Lifecycle.JoinPolicy == eventModel.JoinPolicyLockedAtStart {
+	if fair {
 		meta.DeployGroup = lab.EventExerciseID.String()
 	}
 	return meta

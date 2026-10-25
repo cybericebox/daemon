@@ -289,7 +289,9 @@ func (u *EventUseCase) joinInfo(ctx context.Context, eventID, userID uuid.UUID) 
 		if eventErr != nil {
 			return JoinInfoView{}, model.ErrPlatform.WithError(eventErr).WithMessage("Failed to get event").Err()
 		}
-		view.InvitationExpired = invitationExpired(e, p, time.Now())
+		now := time.Now()
+		view.InvitationExpired = invitationExpired(e, p, now)
+		view.InvitationAwaitingPublication = invitationAwaitingPublication(e, now)
 	}
 	if p.Status == participantModel.StatusPending && p.InvitedToTeam {
 		if p.InvitedTeamID == nil {
@@ -571,10 +573,11 @@ func (u *EventUseCase) participantViews(ctx context.Context, eventID uuid.UUID, 
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list participant answers").Err()
 	}
-	registrationOpen, rosterOpen := true, true
+	registrationOpen, rosterOpen, awaitingPublication := true, true, false
 	if e, eventErr := u.events.GetByID(ctx, eventID); eventErr == nil {
 		now := time.Now()
 		registrationOpen, rosterOpen = e.Lifecycle.RegistrationOpen(now), e.Lifecycle.RosterOpen(now)
+		awaitingPublication = invitationAwaitingPublication(e, now)
 	} else if !repositoryTools.IsObjectNotFoundError(eventErr) {
 		return nil, model.ErrPlatform.WithError(eventErr).WithMessage("Failed to get event").Err()
 	}
@@ -591,7 +594,9 @@ func (u *EventUseCase) participantViews(ctx context.Context, eventID uuid.UUID, 
 		participant.FieldsMissing = r.FieldsMissing
 		participant.LastSeenAt, participant.LastLabAt = r.LastSeenAt, r.LastLabAt
 		if r.Participant.Invited && r.Participant.Status == participantModel.StatusPending {
-			participant.InvitationExpired = !registrationOpen || (r.Participant.InvitedToTeam && !rosterOpen)
+			// Same rule as invitationExpired: before publication an invitation awaits it.
+			participant.InvitationAwaitingPublication = awaitingPublication
+			participant.InvitationExpired = !awaitingPublication && (!registrationOpen || (r.Participant.InvitedToTeam && !rosterOpen))
 		}
 		items = append(items, participant)
 	}

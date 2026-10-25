@@ -7,7 +7,6 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
@@ -59,15 +58,13 @@ func (u *EventUseCase) SweepOrphanLabGroupsAt(ctx context.Context, now time.Time
 	var stands, tests []infraModel.LabGroupInfo
 	kept := 0
 	for _, g := range groups {
-		if u.lifecycleControls {
-			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, g.Name)
-			if e != nil {
-				return e
-			}
-			if owned {
-				kept++
-				continue
-			}
+		owned, e := u.retentionHoldsGroup(ctx, g.Name)
+		if e != nil {
+			return e
+		}
+		if owned {
+			kept++
+			continue
 		}
 		switch {
 		case g.CreatedAt.IsZero() || now.Sub(g.CreatedAt) < u.labSweepGrace:
@@ -98,6 +95,11 @@ func (u *EventUseCase) SweepOrphanLabGroupsAt(ctx context.Context, now time.Time
 			continue
 		}
 		deleted++
+		if g := d.group; g.Labels[infraModel.LabelKind] == infraModel.KindStand {
+			if err := u.endLifecyclesWithReservation(ctx, g.Name, now.UTC()); err != nil {
+				log.Warn().Err(err).Str("group", g.Name).Msg("Lab group sweep: failed to settle the lifecycle of a deleted orphan group")
+			}
+		}
 		log.Info().Str("group", d.group.Name).Str("reason", d.reason).Time("created", d.group.CreatedAt).Msg("Lab group sweep: deleted an orphan group")
 	}
 	// An idle pass (the usual one at a short interval) is silent; kept groups alone are a debug fact.

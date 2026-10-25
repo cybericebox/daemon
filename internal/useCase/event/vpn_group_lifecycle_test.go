@@ -5,6 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/gofrs/uuid"
@@ -31,6 +32,15 @@ type vpnLifecycleInfra struct {
 	Infrastructure
 	observation eventLabModel.GroupObservation
 	stops       int
+	starts      int
+	capsOff     bool
+}
+
+func (i *vpnLifecycleInfra) LabLifecycleCapabilities(context.Context, string) (infraModel.LifecycleCapabilities, bool) {
+	if i.capsOff {
+		return infraModel.LifecycleCapabilities{}, true
+	}
+	return infraModel.LifecycleCapabilities{PerLabStop: true, RequiredSnapshot: true, ConfirmedRuntime: true, RetainedRestart: true, FullGroupStop: true}, true
 }
 
 func (i *vpnLifecycleInfra) ObserveLabGroup(context.Context, string) (eventLabModel.GroupObservation, error) {
@@ -41,6 +51,7 @@ func (i *vpnLifecycleInfra) StopLabGroup(context.Context, eventLabModel.GroupTar
 	return nil
 }
 func (i *vpnLifecycleInfra) StartLabGroup(context.Context, eventLabModel.GroupTarget) error {
+	i.starts++
 	return nil
 }
 

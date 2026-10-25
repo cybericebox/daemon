@@ -201,6 +201,9 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 	var errs []error
 	for _, snapshot := range groups {
 		observation, observeErr := port.ObserveLabGroup(ctx, snapshot.Name)
+		if observeErr != nil && u.settleGoneGroup(ctx, snapshot.Name, snapshot.AgentUID != "" && snapshot.AgentGeneration > 0, observeErr) {
+			continue
+		}
 		if observeErr != nil {
 			_ = eventLabGroupRepo.New(u.repo).Schedule(ctx, snapshot, now.Add(u.labLifecycleRetryMin))
 			errs = append(errs, observeErr)
@@ -236,12 +239,18 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 				return
 			}
 			g.PendingStarts = pending
+			// Without an advertised full group stop the group is never stopped: it runs
+			// until it is destroyed, and no stop or restart is ever dispatched for it.
+			stoppable := !u.groupStopUnsupported(ctx, g.Name)
+			if !stoppable {
+				g.ForgetUndeliveredLifecycle(now)
+			}
 			authorized, err := u.groupRuntimeAuthorized(txCtx, q, g, children, now)
 			if err != nil {
 				errs = append(errs, err)
 				return
 			}
-			if !authorized && pending == 0 {
+			if !authorized && pending == 0 && stoppable {
 				// Receipt-bound recovery can make an overreserved original group
 				// stoppable; it cannot authorize runtime or credit any resources.
 				if err := u.recoverGroupIdentityForStop(txCtx, q, &g, observation, children, time.Now().UTC()); err != nil {
@@ -272,7 +281,9 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 			// admitted next-stage start cannot be followed by a stale stop dispatch.
 			commandCtx, cancel := context.WithTimeout(txCtx, 30*time.Second)
 			defer cancel()
-			if g.DesiredState == "Stopped" && (g.ActualState != "Stopped" || g.ObservedRevision != g.Revision || g.HeldCompute() != (eventLabModel.Compute{})) {
+			if !stoppable && g.DesiredState != "Deleted" {
+				// Nothing to command: the group keeps running until it is destroyed.
+			} else if g.DesiredState == "Stopped" && (g.ActualState != "Stopped" || g.ObservedRevision != g.Revision || g.HeldCompute() != (eventLabModel.Compute{})) {
 				err = port.StopLabGroup(commandCtx, g.Target())
 			} else if g.DesiredState == "Running" && g.Revision > 1 && !g.AllowsChildren(now) {
 				err = port.StartLabGroup(commandCtx, g.Target())
