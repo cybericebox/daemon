@@ -695,7 +695,7 @@ func TestStandEngine_QueuedLabsLaunchClassDetailAndDeviceActions(t *testing.T) {
 		if meta.Labels[infraModel.LabelEvent] != f.eventID.String() || meta.Labels[infraModel.LabelKind] != infraModel.KindStand || meta.GroupLabels[infraModel.LabelTeam] != meta.Labels[infraModel.LabelTeam] {
 			t.Fatalf("lab %s meta = %+v", lab, meta)
 		}
-		// The fixture locks the rosters at the start: the task is the deploy group of every team's lab.
+		// The fixture reveals tasks when all are ready (fair): the task is the deploy group of every team's lab.
 		if meta.DeployGroup != meta.Labels[infraModel.LabelTask] {
 			t.Fatalf("lab %s deploy group = %q, want its task", lab, meta.DeployGroup)
 		}
@@ -704,8 +704,8 @@ func TestStandEngine_QueuedLabsLaunchClassDetailAndDeviceActions(t *testing.T) {
 	if len(tasks) != 1 {
 		t.Fatalf("the same task of every team must share one deploy group, got %v", tasks)
 	}
-	// A rolling event has no common start: its labs are independent.
-	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET join_policy = 1 WHERE id = $1`, f.eventID); err != nil {
+	// A task revealed to each team as soon as its own lab is ready («as ready»): its labs are independent.
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE event_configs SET task_reveal_mode = 'as_ready' WHERE event_id = $1`, f.eventID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.db.Pool.Exec(ctx, `UPDATE lab_bindings SET deployed_at = NULL, readiness = 0 WHERE event_team_id = $1`, f.redID); err != nil {
@@ -717,10 +717,10 @@ func TestStandEngine_QueuedLabsLaunchClassDetailAndDeviceActions(t *testing.T) {
 	f.pass(t)
 	for lab, meta := range f.agent.metas {
 		if meta.DeployGroup != "" {
-			t.Fatalf("rolling event lab %s must be independent, got %q", lab, meta.DeployGroup)
+			t.Fatalf("as ready lab %s must be independent, got %q", lab, meta.DeployGroup)
 		}
 	}
-	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET join_policy = 0 WHERE id = $1`, f.eventID); err != nil {
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE event_configs SET task_reveal_mode = 'all_ready' WHERE event_id = $1`, f.eventID); err != nil {
 		t.Fatal(err)
 	}
 
