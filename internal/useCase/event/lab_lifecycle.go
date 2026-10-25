@@ -135,6 +135,11 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 	return errors.Join(errs...)
 }
 func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabModel.Lab) error {
+	// A lab closed before it was ever sent to the agent has nothing there to stop:
+	// its stop is acknowledged here, or it would be chased forever.
+	if lab.Unborn() {
+		return u.settleUnbornStop(ctx, lab.ID)
+	}
 	port, ok := u.infra.(LabLifecycleInfrastructure)
 	if !ok {
 		return infraUnavailable()
@@ -238,4 +243,31 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return port.StartLab(commandCtx, eventLabModel.Target{Ref: current.Ref, ExpectedUID: current.AgentUID, OperationID: current.OperationID, Revision: current.Revision})
+}
+
+// settleUnbornStop acknowledges the stop of a lab that never reached the agent,
+// re-read under its row lock: a reopen and a new close may have happened since
+// the dirty list was read.
+func (u *EventUseCase) settleUnbornStop(ctx context.Context, labID uuid.UUID) error {
+	if u.uow == nil {
+		return fmt.Errorf("lab lifecycle transaction unavailable")
+	}
+	txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	labs := eventLabRepo.New(q)
+	l, err := labs.Lock(txCtx, labID)
+	if err != nil {
+		return err
+	}
+	expected := l.Revision
+	if !l.SettleUnbornStop(time.Now().UTC()) {
+		return nil
+	}
+	if _, err = labs.Update(txCtx, l, expected); err != nil {
+		return err
+	}
+	return unit.Save()
 }
