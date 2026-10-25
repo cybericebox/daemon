@@ -605,14 +605,17 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			continue
 		}
 		managed := u.lifecycleControls && !u.runtimeUnconfirmed(ctx, binding.LabGroupName)
-		if managed && status.Ready {
-			certified, certificateErr := u.observeInitialManagedLab(ctx, binding, status, now)
-			if certificateErr != nil {
-				errs = append(errs, certificateErr)
-				continue
-			}
-			if !certified {
-				continue
+		if u.lifecycleControls && status.Ready {
+			// Only the runtime certificate depends on the agent; the team's network access is current before any Lab is ready.
+			if managed {
+				certified, certificateErr := u.observeInitialManagedLab(ctx, binding, status, now)
+				if certificateErr != nil {
+					errs = append(errs, certificateErr)
+					continue
+				}
+				if !certified {
+					continue
+				}
 			}
 			network, networkErr := u.labAccessSyncs.NetworkCurrent(ctx, binding.EventTeamID, now)
 			if networkErr != nil {
