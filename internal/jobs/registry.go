@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 
 	"github.com/cybericebox/daemon/internal/jobs/accountinactivity"
 	"github.com/cybericebox/daemon/internal/jobs/agentmaintenance"
@@ -171,11 +170,19 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 		river.NewPeriodicJob(river.PeriodicInterval(RegistryCheckInterval), func() (river.JobArgs, *river.InsertOpts) {
 			return jobsModel.RegistryCheckArgs{}, standPassInsertOpts()
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
-		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.IdempotencyGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
-		river.NewPeriodicJob(river.PeriodicInterval(5*time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.ResultChangeGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
-		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.EventScoringPopulationArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
-		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.EventFormDeliveryArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
-		river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.SignalProcessingArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.IdempotencyGCArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(5*time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.ResultChangeGCArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.EventScoringPopulationArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.EventFormDeliveryArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.SignalProcessingArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(10*time.Second), func() (river.JobArgs, *river.InsertOpts) {
 			return jobsModel.EventStandsArgs{}, standPassInsertOpts()
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
@@ -224,7 +231,7 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 			// net (a lost job, a restart before the insert) and retries the labs whose agent deletion failed.
 			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabCleanupArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
-			river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabAccessSyncArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabAccessSyncArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
 			// Orphan lab groups (a deleted event or team, an expired test lab): one pass at a time, never retried.
 			river.NewPeriodicJob(river.PeriodicInterval(wr.labSweepInterval), func() (river.JobArgs, *river.InsertOpts) {
 				return jobsModel.LabGroupSweepArgs{}, standPassInsertOpts()
@@ -239,14 +246,6 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 // (the next tick re-derives everything anyway). Shared by the stand, Event
 // mail and data retention passes (unique by args, i.e. per job kind).
 func standPassInsertOpts() *river.InsertOpts {
-	return &river.InsertOpts{
-		MaxAttempts: 1,
-		UniqueOpts: river.UniqueOpts{
-			ByArgs: true,
-			ByState: []rivertype.JobState{
-				rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
-				rivertype.JobStateRetryable, rivertype.JobStateScheduled,
-			},
-		},
-	}
+	opts := jobsModel.PassInsertOpts()
+	return &opts
 }
