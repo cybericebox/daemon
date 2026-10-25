@@ -88,6 +88,8 @@ type LiveScreen struct {
 	// SafeArea is the margin around the canvas, in % of each side, for TVs
 	// that crop the picture edges (overscan): 0, 2.5 or 5.
 	SafeArea float64 `json:"safeArea,omitempty"`
+	// Uppercase shows every text of the screen in capitals.
+	Uppercase bool `json:"uppercase,omitempty"`
 }
 
 type LiveGrid struct {
@@ -162,7 +164,7 @@ var liveCommonProps = map[string]string{"textSize": "text-size", "showCaption": 
 var livePropTypes = map[string]map[string]string{
 	"title": {"subtitle": "text", "subtitleStage": "boolean", "showLogo": "boolean", "align": "align"},
 	"timer": {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size",
-		"digits": "timer-digits", "atZero": "timer-zero", "zeroText": "short-text", "lastMinutes": "last-minutes", "align": "align"},
+		"digits": "timer-digits", "atZero": "timer-zero", "zeroText": "short-text", "lastMinutes": "last-minutes", "urgentColor": "live-color", "align": "align"},
 	"chart": {"lines": "lines", "labels": "chart-labels"},
 	"table": {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset",
 		"highlightTop": "highlight-top", "placeColors": "place-colors", "showBars": "boolean", "marker": "place-marker", "placeImages": "place-images",
@@ -320,7 +322,7 @@ func (w LiveWidget) validateProps() error {
 			}
 		case "lines", "rows", "seconds":
 			var value int
-			if json.Unmarshal(raw, &value) != nil || value < 1 || value > 60 || kind == "lines" && (value < 5 || value > 10) {
+			if json.Unmarshal(raw, &value) != nil || value < 1 || value > 60 || kind == "lines" && (value < 5 || value > 20) {
 				return fmt.Errorf("invalid number property %q", key)
 			}
 		case "pin-top", "table-columns", "table-offset", "logo-rows", "last-minutes", "limit":
