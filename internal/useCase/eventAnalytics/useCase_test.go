@@ -43,6 +43,12 @@ type fakeStore struct {
 	saved     []eventAnalyticsModel.VPNSession
 	setCursor []eventAnalyticsRepo.VPNCursor
 	vpnFinal  *time.Time
+
+	usageReads []int
+	usageAfter []eventAnalyticsRepo.VPNCursor
+	usageNext  eventAnalyticsRepo.VPNCursor
+	usageFinal *time.Time
+	failUsage  bool
 }
 
 func (s *fakeStore) RollupCandidates(context.Context, time.Time, int32) ([]eventAnalyticsRepo.RollupCandidate, error) {
@@ -84,6 +90,24 @@ func (s *fakeStore) SetVPNCursor(_ context.Context, _ uuid.UUID, cursor eventAna
 	if finalizedAt != nil {
 		s.vpnFinal = finalizedAt
 	}
+	return nil
+}
+func (s *fakeStore) RollupLabUsage(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32,
+) (eventAnalyticsRepo.VPNCursor, int, error) {
+	if s.failUsage {
+		return after, 0, errors.New("usage boom")
+	}
+	s.usageAfter = append(s.usageAfter, after)
+	if len(s.usageReads) == 0 {
+		return after, 0, nil
+	}
+	read := s.usageReads[0]
+	s.usageReads = s.usageReads[1:]
+	return s.usageNext, read, nil
+}
+func (s *fakeStore) FinishLabUsageRollup(_ context.Context, _ uuid.UUID, at time.Time) error {
+	s.usageFinal = &at
 	return nil
 }
 func (s *fakeStore) Overview(_ context.Context, _ uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error) {
@@ -351,5 +375,53 @@ func TestRefreshEventAnalytics_VPNSessions(t *testing.T) {
 	}
 	if len(store.setCursor) != 2 || store.setCursor[0] != cursor || store.setCursor[1] != cursor || store.vpnFinal == nil {
 		t.Fatalf("cursor moves then closes: %+v final=%v", store.setCursor, store.vpnFinal)
+	}
+}
+
+// The lab usage rollup reads batches from its own cursor until caught up, and
+// closes once caught up after the event is final; a running event stays open.
+func TestRefreshEventAnalytics_LabUsage(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	longAgo := now.Add(-time.Hour)
+	start := eventAnalyticsRepo.VPNCursor{
+		ReceivedAt: now.Add(-3 * time.Hour), ID: uuid.Must(uuid.NewV7()),
+	}
+	next := eventAnalyticsRepo.VPNCursor{
+		ReceivedAt: now.Add(-2 * time.Hour), ID: uuid.Must(uuid.NewV7()),
+	}
+	store := &fakeStore{
+		candidates: []eventAnalyticsRepo.RollupCandidate{{
+			EventID: eventID, FinishedAt: &longAgo, InfrastructureAllowed: true,
+			BucketsFinalized: true, VPNFinalized: true, LabUsageCursor: start,
+		}},
+		usageReads: []int{5000, 3}, // a full batch, then a short one
+		usageNext:  next,
+	}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.usageAfter) != 2 || store.usageAfter[0] != start || store.usageAfter[1] != next ||
+		store.usageFinal == nil {
+		t.Fatalf("reads %+v final=%v", store.usageAfter, store.usageFinal)
+	}
+
+	running := &fakeStore{candidates: []eventAnalyticsRepo.RollupCandidate{{
+		EventID: eventID, InfrastructureAllowed: true, BucketsFinalized: true, VPNFinalized: true,
+	}}}
+	uc = newUC(running, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if running.usageFinal != nil {
+		t.Fatal("a running event's lab usage rollup stays open")
+	}
+
+	failing := &fakeStore{failUsage: true, candidates: store.candidates}
+	uc = newUC(failing, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
+		t.Fatal("a failing lab usage rollup fails the pass")
 	}
 }

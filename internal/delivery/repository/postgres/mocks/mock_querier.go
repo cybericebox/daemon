@@ -3229,6 +3229,20 @@ func (mr *MockQuerierMockRecorder) FinishErrorNotification(ctx, arg any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishErrorNotification", reflect.TypeOf((*MockQuerier)(nil).FinishErrorNotification), ctx, arg)
 }
 
+// FinishEventLabUsageRollup mocks base method.
+func (m *MockQuerier) FinishEventLabUsageRollup(ctx context.Context, arg postgres.FinishEventLabUsageRollupParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishEventLabUsageRollup", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FinishEventLabUsageRollup indicates an expected call of FinishEventLabUsageRollup.
+func (mr *MockQuerierMockRecorder) FinishEventLabUsageRollup(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishEventLabUsageRollup", reflect.TypeOf((*MockQuerier)(nil).FinishEventLabUsageRollup), ctx, arg)
+}
+
 // FinishNotificationBroadcast mocks base method.
 func (m *MockQuerier) FinishNotificationBroadcast(ctx context.Context, arg postgres.FinishNotificationBroadcastParams) error {
 	m.ctrl.T.Helper()
@@ -11399,6 +11413,21 @@ func (mr *MockQuerierMockRecorder) PurgePlatformLabCapacityObservations(ctx, arg
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgePlatformLabCapacityObservations", reflect.TypeOf((*MockQuerier)(nil).PurgePlatformLabCapacityObservations), ctx, arg)
 }
 
+// PurgeRolledUpEventLabObservations mocks base method.
+func (m *MockQuerier) PurgeRolledUpEventLabObservations(ctx context.Context, arg postgres.PurgeRolledUpEventLabObservationsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeRolledUpEventLabObservations", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeRolledUpEventLabObservations indicates an expected call of PurgeRolledUpEventLabObservations.
+func (mr *MockQuerierMockRecorder) PurgeRolledUpEventLabObservations(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeRolledUpEventLabObservations", reflect.TypeOf((*MockQuerier)(nil).PurgeRolledUpEventLabObservations), ctx, arg)
+}
+
 // PurgeUnconfirmedAccounts mocks base method.
 func (m *MockQuerier) PurgeUnconfirmedAccounts(ctx context.Context, arg postgres.PurgeUnconfirmedAccountsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -12085,6 +12114,21 @@ func (m *MockQuerier) RollbackInAppTemplate(ctx context.Context, arg postgres.Ro
 func (mr *MockQuerierMockRecorder) RollbackInAppTemplate(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RollbackInAppTemplate", reflect.TypeOf((*MockQuerier)(nil).RollbackInAppTemplate), ctx, arg)
+}
+
+// RollupEventLabUsage mocks base method.
+func (m *MockQuerier) RollupEventLabUsage(ctx context.Context, arg postgres.RollupEventLabUsageParams) (postgres.RollupEventLabUsageRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RollupEventLabUsage", ctx, arg)
+	ret0, _ := ret[0].(postgres.RollupEventLabUsageRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RollupEventLabUsage indicates an expected call of RollupEventLabUsage.
+func (mr *MockQuerierMockRecorder) RollupEventLabUsage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RollupEventLabUsage", reflect.TypeOf((*MockQuerier)(nil).RollupEventLabUsage), ctx, arg)
 }
 
 // SaveClusterReservation mocks base method.

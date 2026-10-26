@@ -31,6 +31,10 @@ type Queries interface {
 	UpsertEventVPNSession(context.Context, postgres.UpsertEventVPNSessionParams) error
 	DeleteEventVPNSessions(context.Context, postgres.DeleteEventVPNSessionsParams) error
 	SetEventVPNCursor(context.Context, postgres.SetEventVPNCursorParams) error
+	RollupEventLabUsage(
+		context.Context, postgres.RollupEventLabUsageParams,
+	) (postgres.RollupEventLabUsageRow, error)
+	FinishEventLabUsageRollup(context.Context, postgres.FinishEventLabUsageRollupParams) error
 	GetEventAnalyticsOverview(context.Context, postgres.GetEventAnalyticsOverviewParams) (postgres.GetEventAnalyticsOverviewRow, error)
 	ListEventActivitySeries(context.Context, postgres.ListEventActivitySeriesParams) ([]postgres.ListEventActivitySeriesRow, error)
 	GetEventAnalyticsRollupState(context.Context, uuid.UUID) (postgres.GetEventAnalyticsRollupStateRow, error)
@@ -52,10 +56,13 @@ type (
 		// Revision is the current results revision.
 		Revision int64
 		// BucketsRevision is the results revision of the last rebuild.
-		BucketsRevision  int64
-		BucketsFinalized bool
-		VPNFinalized     bool
-		VPNCursor        VPNCursor
+		BucketsRevision   int64
+		BucketsFinalized  bool
+		VPNFinalized      bool
+		VPNCursor         VPNCursor
+		LabUsageFinalized bool
+		// LabUsageCursor is the last observation the lab usage rollup folded in.
+		LabUsageCursor VPNCursor
 	}
 
 	// VPNCursor is the last observation the VPN rollup read (arrival order);
@@ -115,6 +122,7 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 			EventID: row.ID, StartAt: row.StartAt, InfrastructureAllowed: row.InfrastructureAllowed, Revision: row.Revision,
 			BucketsRevision:  row.BucketsRevision,
 			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnFinalizedAt.Valid,
+			LabUsageFinalized: row.LabUsageFinalizedAt.Valid,
 		}
 		if row.HasFinish {
 			finish := row.FinishedAt
@@ -122,6 +130,11 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		}
 		if row.VpnCursorReceivedAt.Valid && row.VpnCursorID.Valid {
 			c.VPNCursor = VPNCursor{ReceivedAt: row.VpnCursorReceivedAt.Time, ID: row.VpnCursorID.UUID}
+		}
+		if row.LabUsageCursorReceivedAt.Valid && row.LabUsageCursorID.Valid {
+			c.LabUsageCursor = VPNCursor{
+				ReceivedAt: row.LabUsageCursorReceivedAt.Time, ID: row.LabUsageCursorID.UUID,
+			}
 		}
 		out = append(out, c)
 	}
@@ -224,6 +237,35 @@ func (r *Repository) SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor
 		params.CursorID = uuid.NullUUID{UUID: cursor.ID, Valid: true}
 	}
 	return r.q.SetEventVPNCursor(ctx, params)
+}
+
+// RollupLabUsage folds up to batchSize observations after the cursor into the
+// per-device minute buckets and moves the stored cursor past them, atomically.
+// It returns the cursor after the last observation and how many it read
+// (fewer than batchSize: caught up).
+func (r *Repository) RollupLabUsage(
+	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32,
+) (VPNCursor, int, error) {
+	if after.ReceivedAt.IsZero() {
+		after.ReceivedAt = cursorStart
+	}
+	row, err := r.q.RollupEventLabUsage(ctx, postgres.RollupEventLabUsageParams{
+		EventID: eventID, AfterReceivedAt: after.ReceivedAt,
+		AfterID: after.ID, BatchSize: batchSize,
+	})
+	if err != nil {
+		return after, 0, err
+	}
+	return VPNCursor{ReceivedAt: row.CursorReceivedAt, ID: row.CursorID}, int(row.Observations), nil
+}
+
+// FinishLabUsageRollup closes the lab usage rollup of an event.
+func (r *Repository) FinishLabUsageRollup(
+	ctx context.Context, eventID uuid.UUID, finalizedAt time.Time,
+) error {
+	return r.q.FinishEventLabUsageRollup(ctx, postgres.FinishEventLabUsageRollupParams{
+		EventID: eventID, FinalizedAt: timestamptz(&finalizedAt),
+	})
 }
 
 // Overview reads the §6.1 counters; active counts actions since activeSince.

@@ -551,6 +551,45 @@ func (q *Queries) PurgePlatformLabCapacityObservations(ctx context.Context, arg 
 	return result.RowsAffected(), nil
 }
 
+const purgeRolledUpEventLabObservations = `-- name: PurgeRolledUpEventLabObservations :execrows
+DELETE FROM event_lab_observations
+WHERE id IN (SELECT o.id
+             FROM event_lab_observations o
+             JOIN events e ON e.id = o.event_id
+             JOIN event_analytics_rollups r ON r.event_id = o.event_id
+             WHERE o.received_at < $1
+               AND r.lab_usage_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
+               AND (NOT e.infrastructure_allowed
+                    OR (r.vpn_cursor_id IS NOT NULL
+                        AND (o.received_at, o.id) <= (r.vpn_cursor_received_at, r.vpn_cursor_id)))
+               AND EXISTS (SELECT 1
+                           FROM event_lab_observations n
+                           WHERE n.event_id = o.event_id
+                             AND n.event_team_id = o.event_team_id
+                             AND n.lab_group_name = o.lab_group_name
+                             AND (n.observed_at, n.id) > (o.observed_at, o.id))
+             LIMIT $2
+             FOR UPDATE OF o SKIP LOCKED)
+`
+
+type PurgeRolledUpEventLabObservationsParams struct {
+	ReceivedBefore time.Time `json:"received_before"`
+	BatchSize      int32     `json:"batch_size"`
+}
+
+// Raw lab snapshots are large, so they go a day after arrival once every
+// rollup that reads them (VPN sessions, lab usage) has passed them. The
+// latest snapshot of each lab group stays for the latest-state readers.
+// Events without infrastructure have no VPN rollup to wait for.
+func (q *Queries) PurgeRolledUpEventLabObservations(ctx context.Context, arg PurgeRolledUpEventLabObservationsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeRolledUpEventLabObservations, arg.ReceivedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeUnconfirmedAccounts = `-- name: PurgeUnconfirmedAccounts :one
 SELECT purge_unconfirmed_accounts($1::timestamptz, $2::timestamptz, $3::integer)::bigint AS purged
 `

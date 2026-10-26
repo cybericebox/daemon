@@ -336,6 +336,8 @@ type ListPlatformLabObservationsRow struct {
 	Moderators    bool      `json:"moderators"`
 }
 
+// Raw snapshots are removed a day after arrival once rolled up (retention
+// PurgeRolledUpEventLabObservations), so older history is not listed here.
 func (q *Queries) ListPlatformLabObservations(ctx context.Context, arg ListPlatformLabObservationsParams) ([]ListPlatformLabObservationsRow, error) {
 	rows, err := q.db.Query(ctx, listPlatformLabObservations,
 		arg.EventID,

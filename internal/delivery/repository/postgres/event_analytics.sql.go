@@ -29,6 +29,23 @@ func (q *Queries) DeleteEventVPNSessions(ctx context.Context, arg DeleteEventVPN
 	return err
 }
 
+const finishEventLabUsageRollup = `-- name: FinishEventLabUsageRollup :exec
+INSERT INTO event_analytics_rollups (event_id, lab_usage_finalized_at)
+VALUES ($1, $2)
+ON CONFLICT (event_id) DO UPDATE
+    SET lab_usage_finalized_at = EXCLUDED.lab_usage_finalized_at
+`
+
+type FinishEventLabUsageRollupParams struct {
+	EventID     uuid.UUID          `json:"event_id"`
+	FinalizedAt pgtype.Timestamptz `json:"finalized_at"`
+}
+
+func (q *Queries) FinishEventLabUsageRollup(ctx context.Context, arg FinishEventLabUsageRollupParams) error {
+	_, err := q.db.Exec(ctx, finishEventLabUsageRollup, arg.EventID, arg.FinalizedAt)
+	return err
+}
+
 const getEventAnalyticsOverview = `-- name: GetEventAnalyticsOverview :one
 WITH teams AS (
     SELECT t.id,
@@ -313,7 +330,10 @@ SELECT e.id,
        s.buckets_finalized_at,
        s.vpn_finalized_at,
        s.vpn_cursor_received_at,
-       s.vpn_cursor_id
+       s.vpn_cursor_id,
+       s.lab_usage_finalized_at,
+       s.lab_usage_cursor_received_at,
+       s.lab_usage_cursor_id
 FROM events e
 LEFT JOIN event_result_revisions r ON r.event_id = e.id
 LEFT JOIN event_analytics_rollups s ON s.event_id = e.id
@@ -322,7 +342,8 @@ WHERE e.lifecycle_configured
   AND (s.event_id IS NULL
     OR s.buckets_finalized_at IS NULL
     OR s.buckets_revision <> COALESCE(r.revision, 0)
-    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL))
+    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL)
+    OR (e.infrastructure_allowed AND s.lab_usage_finalized_at IS NULL))
 ORDER BY (LEAST(e.manual_finished_at, e.finish_at) IS NULL
     OR LEAST(e.manual_finished_at, e.finish_at) > $1::timestamptz) DESC,
          e.start_at DESC, e.id
@@ -335,24 +356,27 @@ type ListEventAnalyticsRollupCandidatesParams struct {
 }
 
 type ListEventAnalyticsRollupCandidatesRow struct {
-	ID                    uuid.UUID          `json:"id"`
-	StartAt               time.Time          `json:"start_at"`
-	HasFinish             bool               `json:"has_finish"`
-	FinishedAt            time.Time          `json:"finished_at"`
-	InfrastructureAllowed bool               `json:"infrastructure_allowed"`
-	Revision              int64              `json:"revision"`
-	BucketsRevision       int64              `json:"buckets_revision"`
-	BucketsFinalizedAt    pgtype.Timestamptz `json:"buckets_finalized_at"`
-	VpnFinalizedAt        pgtype.Timestamptz `json:"vpn_finalized_at"`
-	VpnCursorReceivedAt   pgtype.Timestamptz `json:"vpn_cursor_received_at"`
-	VpnCursorID           uuid.NullUUID      `json:"vpn_cursor_id"`
+	ID                       uuid.UUID          `json:"id"`
+	StartAt                  time.Time          `json:"start_at"`
+	HasFinish                bool               `json:"has_finish"`
+	FinishedAt               time.Time          `json:"finished_at"`
+	InfrastructureAllowed    bool               `json:"infrastructure_allowed"`
+	Revision                 int64              `json:"revision"`
+	BucketsRevision          int64              `json:"buckets_revision"`
+	BucketsFinalizedAt       pgtype.Timestamptz `json:"buckets_finalized_at"`
+	VpnFinalizedAt           pgtype.Timestamptz `json:"vpn_finalized_at"`
+	VpnCursorReceivedAt      pgtype.Timestamptz `json:"vpn_cursor_received_at"`
+	VpnCursorID              uuid.NullUUID      `json:"vpn_cursor_id"`
+	LabUsageFinalizedAt      pgtype.Timestamptz `json:"lab_usage_finalized_at"`
+	LabUsageCursorReceivedAt pgtype.Timestamptz `json:"lab_usage_cursor_received_at"`
+	LabUsageCursorID         uuid.NullUUID      `json:"lab_usage_cursor_id"`
 }
 
 // Event analytics (docs/EVENT-ANALYTICS.md): the rollup job's statements and
 // the reads of the analytics API. The moderators team is never counted.
 // Events the rollup job still has work for: started, and without finalized
-// buckets (or with results changed since), or with a VPN rollup still open
-// (infrastructure events). Running events come first.
+// buckets (or with results changed since), or with a VPN or lab usage rollup
+// still open (infrastructure events). Running events come first.
 func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg ListEventAnalyticsRollupCandidatesParams) ([]ListEventAnalyticsRollupCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listEventAnalyticsRollupCandidates, arg.Now, arg.RowLimit)
 	if err != nil {
@@ -374,6 +398,9 @@ func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg Li
 			&i.VpnFinalizedAt,
 			&i.VpnCursorReceivedAt,
 			&i.VpnCursorID,
+			&i.LabUsageFinalizedAt,
+			&i.LabUsageCursorReceivedAt,
+			&i.LabUsageCursorID,
 		); err != nil {
 			return nil, err
 		}
@@ -586,6 +613,99 @@ WHERE b.event_id = $1
 func (q *Queries) RefreshEventActivityBuckets(ctx context.Context, eventID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, refreshEventActivityBuckets, eventID)
 	return err
+}
+
+const rollupEventLabUsage = `-- name: RollupEventLabUsage :one
+WITH batch AS (
+    SELECT o.id, o.received_at, o.event_team_id, o.lab_group_name, o.observed_at, o.payload
+    FROM event_lab_observations o
+    WHERE o.event_id = $3
+      AND (o.received_at, o.id) > ($1::timestamptz, $2::uuid)
+    ORDER BY o.received_at, o.id
+    LIMIT $4
+), last AS (
+    SELECT b.received_at, b.id FROM batch b ORDER BY b.received_at DESC, b.id DESC LIMIT 1
+), devices AS (
+    SELECT b.event_team_id                                                                   AS team_id,
+           b.lab_group_name,
+           COALESCE(lab ->> 'name', '')                                                      AS lab_name,
+           COALESCE(dev ->> 'name', '')                                                      AS device_name,
+           date_trunc('minute', b.observed_at)                                               AS bucket_at,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'cpuMillicores', '')::bigint END AS cpu,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'memoryBytes', '')::bigint END   AS memory,
+           COALESCE(NULLIF(dev ->> 'restartCount', '')::bigint, 0)                           AS restarts
+    FROM batch b
+    CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(b.payload -> 'labs') = 'array' THEN b.payload -> 'labs' ELSE '[]'::jsonb END) lab
+    CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(lab -> 'status' -> 'devices') = 'array' THEN lab -> 'status' -> 'devices' ELSE '[]'::jsonb END) dev
+), fresh AS (
+    SELECT team_id, lab_group_name, lab_name, device_name, bucket_at,
+           count(*)::integer                  AS samples,
+           count(cpu)::integer                AS cpu_samples,
+           COALESCE(sum(cpu), 0)::bigint      AS cpu_sum,
+           max(cpu)                           AS cpu_max,
+           max(memory)                        AS memory_max,
+           max(restarts)                      AS restart_max
+    FROM devices
+    GROUP BY team_id, lab_group_name, lab_name, device_name, bucket_at
+), upserted AS (
+    INSERT INTO event_lab_usage_minutes (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at,
+                                         samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max)
+    SELECT $3, team_id, lab_group_name, lab_name, device_name, bucket_at,
+           samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max
+    FROM fresh
+    ON CONFLICT (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at) DO UPDATE
+        SET samples     = event_lab_usage_minutes.samples + EXCLUDED.samples,
+            cpu_samples = event_lab_usage_minutes.cpu_samples + EXCLUDED.cpu_samples,
+            cpu_sum     = event_lab_usage_minutes.cpu_sum + EXCLUDED.cpu_sum,
+            cpu_max     = GREATEST(event_lab_usage_minutes.cpu_max, EXCLUDED.cpu_max),
+            memory_max  = GREATEST(event_lab_usage_minutes.memory_max, EXCLUDED.memory_max),
+            restart_max = GREATEST(event_lab_usage_minutes.restart_max, EXCLUDED.restart_max)
+    RETURNING 1
+), moved AS (
+    INSERT INTO event_analytics_rollups (event_id, lab_usage_cursor_received_at, lab_usage_cursor_id)
+    SELECT $3, l.received_at, l.id FROM last l
+    ON CONFLICT (event_id) DO UPDATE
+        SET lab_usage_cursor_received_at = EXCLUDED.lab_usage_cursor_received_at,
+            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM batch)::bigint                 AS observations,
+       COALESCE((SELECT l.received_at FROM last l), $1::timestamptz)::timestamptz AS cursor_received_at,
+       COALESCE((SELECT l.id FROM last l), $2::uuid)::uuid AS cursor_id
+`
+
+type RollupEventLabUsageParams struct {
+	AfterReceivedAt time.Time `json:"after_received_at"`
+	AfterID         uuid.UUID `json:"after_id"`
+	EventID         uuid.UUID `json:"event_id"`
+	BatchSize       int32     `json:"batch_size"`
+}
+
+type RollupEventLabUsageRow struct {
+	Observations     int64     `json:"observations"`
+	CursorReceivedAt time.Time `json:"cursor_received_at"`
+	CursorID         uuid.UUID `json:"cursor_id"`
+}
+
+// Folds up to batch_size observations after the cursor, in arrival order, into
+// the per-device minute buckets and moves the cursor past them, in one
+// statement: a failure leaves both untouched, so a re-run never counts an
+// observation twice. A minute spanning two batches merges: counts and sums
+// add up, maxima take the larger. Returns how many observations it read
+// (fewer than batch_size: caught up) and the cursor after the last one (the
+// given cursor when it read none).
+func (q *Queries) RollupEventLabUsage(ctx context.Context, arg RollupEventLabUsageParams) (RollupEventLabUsageRow, error) {
+	row := q.db.QueryRow(ctx, rollupEventLabUsage,
+		arg.AfterReceivedAt,
+		arg.AfterID,
+		arg.EventID,
+		arg.BatchSize,
+	)
+	var i RollupEventLabUsageRow
+	err := row.Scan(&i.Observations, &i.CursorReceivedAt, &i.CursorID)
+	return i, err
 }
 
 const setEventVPNCursor = `-- name: SetEventVPNCursor :exec

@@ -60,6 +60,8 @@ FROM event_lab_observations
 WHERE id = sqlc.arg(id);
 
 -- name: ListPlatformLabObservations :many
+-- Raw snapshots are removed a day after arrival once rolled up (retention
+-- PurgeRolledUpEventLabObservations), so older history is not listed here.
 SELECT o.id, o.event_id, o.event_team_id, o.lab_group_name, o.agent_id, o.sequence,
        o.observed_at, o.received_at, o.schema_version, o.snapshot, o.payload,
        e.name AS event_name,

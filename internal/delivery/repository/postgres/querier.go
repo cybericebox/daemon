@@ -368,6 +368,7 @@ type Querier interface {
 	// current state must already be there when an event becomes active.
 	FindEventTeamsByLabGroup(ctx context.Context, labGroupName string) ([]FindEventTeamsByLabGroupRow, error)
 	FinishErrorNotification(ctx context.Context, arg FinishErrorNotificationParams) (int64, error)
+	FinishEventLabUsageRollup(ctx context.Context, arg FinishEventLabUsageRollupParams) error
 	FinishNotificationBroadcast(ctx context.Context, arg FinishNotificationBroadcastParams) error
 	// The organizers fix every regular team of the event at once. Individual,
 	// moderators and already formed teams are left alone, so a repeat is a no-op.
@@ -795,8 +796,8 @@ type Querier interface {
 	// Event analytics (docs/EVENT-ANALYTICS.md): the rollup job's statements and
 	// the reads of the analytics API. The moderators team is never counted.
 	// Events the rollup job still has work for: started, and without finalized
-	// buckets (or with results changed since), or with a VPN rollup still open
-	// (infrastructure events). Running events come first.
+	// buckets (or with results changed since), or with a VPN or lab usage rollup
+	// still open (infrastructure events). Running events come first.
 	ListEventAnalyticsRollupCandidates(ctx context.Context, arg ListEventAnalyticsRollupCandidatesParams) ([]ListEventAnalyticsRollupCandidatesRow, error)
 	// Every score change (solves and hint penalties) of the given teams, oldest
 	// first: the running total is the sum of Points, as on the scoreboard.
@@ -979,12 +980,13 @@ type Querier interface {
 	// Every event manager (read or write access) and every active platform
 	// administrator receives stand failures, once each.
 	ListEventStandRecipients(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
-	// Resource usage per team from the lab telemetry. A device is one container
-	// of one lab; its peak is over the observations in the period, and a team's
-	// figure is the sum of its devices' peaks (observations can be partial, so a
-	// sum inside one observation would understate). Restarts are the highest
-	// restart count seen per device. Devices without a usage reading count only
-	// toward devices and restarts.
+	// Resource usage per team from the lab telemetry (the minute buckets of
+	// event_lab_usage_minutes). A device is one container of one lab; its peak is
+	// over the buckets in the period, and a team's figure is the sum of its
+	// devices' peaks (observations can be partial, so a sum inside one
+	// observation would understate). Restarts are the highest restart count seen
+	// per device. Devices without a usage reading count only toward devices and
+	// restarts.
 	ListEventStandResources(ctx context.Context, arg ListEventStandResourcesParams) ([]ListEventStandResourcesRow, error)
 	// Event analytics, «Стенди» (docs/EVENT-ANALYTICS.md §6.5). The moderators
 	// team is never counted.
@@ -1309,6 +1311,8 @@ type Querier interface {
 	// Active events by default; include_recent also lists everything the runner
 	// touched since recent_since, whatever the event state.
 	ListPlatformLabMonitoringCurrent(ctx context.Context, arg ListPlatformLabMonitoringCurrentParams) ([]ListPlatformLabMonitoringCurrentRow, error)
+	// Raw snapshots are removed a day after arrival once rolled up (retention
+	// PurgeRolledUpEventLabObservations), so older history is not listed here.
 	ListPlatformLabObservations(ctx context.Context, arg ListPlatformLabObservationsParams) ([]ListPlatformLabObservationsRow, error)
 	// Top failure reasons. The stored SMTP error is normalized inside the query so
 	// equal problems group together and nothing personal leaves the database:
@@ -1641,6 +1645,11 @@ type Querier interface {
 	// which hold the recipient address and transport errors.
 	PurgeNotificationDispatches(ctx context.Context, arg PurgeNotificationDispatchesParams) (int64, error)
 	PurgePlatformLabCapacityObservations(ctx context.Context, arg PurgePlatformLabCapacityObservationsParams) (int64, error)
+	// Raw lab snapshots are large, so they go a day after arrival once every
+	// rollup that reads them (VPN sessions, lab usage) has passed them. The
+	// latest snapshot of each lab group stays for the latest-state readers.
+	// Events without infrastructure have no VPN rollup to wait for.
+	PurgeRolledUpEventLabObservations(ctx context.Context, arg PurgeRolledUpEventLabObservationsParams) (int64, error)
 	// Accounts whose registration was never finished (invited or self sign-up)
 	// whose creation and last (re)sent invitation are both before
 	// created_before; see purge_unconfirmed_accounts (migration 0100).
@@ -1663,6 +1672,8 @@ type Querier interface {
 	RecordEventTeamLabInitialIdentity(ctx context.Context, arg RecordEventTeamLabInitialIdentityParams) (int64, error)
 	// Initial deployment has no lifecycle operation status yet. Adopt current
 	// readiness only for the original Running revision and matching live identity.
+	// A ready Lab of an agent without runtime reports is observed at its revision
+	// and allocated as it runs: the readiness is the only certificate it has.
 	RecordEventTeamLabInitialReadiness(ctx context.Context, arg RecordEventTeamLabInitialReadinessParams) (int64, error)
 	// Deliberate narrow write: only physical observation fields, exactly fenced.
 	RecordEventTeamLabObservation(ctx context.Context, arg RecordEventTeamLabObservationParams) (int64, error)
@@ -1740,6 +1751,14 @@ type Querier interface {
 	RevokeUserSessionsExcept(ctx context.Context, arg RevokeUserSessionsExceptParams) ([]RevokeUserSessionsExceptRow, error)
 	RollbackEmailTemplate(ctx context.Context, arg RollbackEmailTemplateParams) (NotificationEmailTemplate, error)
 	RollbackInAppTemplate(ctx context.Context, arg RollbackInAppTemplateParams) (NotificationInAppTemplate, error)
+	// Folds up to batch_size observations after the cursor, in arrival order, into
+	// the per-device minute buckets and moves the cursor past them, in one
+	// statement: a failure leaves both untouched, so a re-run never counts an
+	// observation twice. A minute spanning two batches merges: counts and sums
+	// add up, maxima take the larger. Returns how many observations it read
+	// (fewer than batch_size: caught up) and the cursor after the last one (the
+	// given cursor when it read none).
+	RollupEventLabUsage(ctx context.Context, arg RollupEventLabUsageParams) (RollupEventLabUsageRow, error)
 	// Cluster reservations: the parts of the backend's reservations as the agents hold them, and the agent of each
 	// unit of a calendar reservation. See migration 0186. The desired state is written whole under the calendar lock
 	// (SaveClusterReservation); the agent's confirmation (MarkClusterReservationSynced) and the observed status

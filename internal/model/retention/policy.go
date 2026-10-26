@@ -25,6 +25,10 @@ const (
 	DefaultSignalHistory            = 365 * day
 	DefaultEventAnalyticsAfterEnd   = 365 * day
 	DefaultBatchSize                = 1000
+	// RolledUpLabTelemetry is how long a raw lab snapshot stays once the
+	// rollups (VPN sessions, lab usage) have consumed it. Fixed, not policy:
+	// the rollups keep what the analytics needs.
+	RolledUpLabTelemetry = day
 )
 
 type (
@@ -67,8 +71,11 @@ type (
 
 	// Cutoffs are the instants before which data is past its period.
 	Cutoffs struct {
-		SessionsExpiredBefore   time.Time
-		LabObservedBefore       time.Time
+		SessionsExpiredBefore time.Time
+		LabObservedBefore     time.Time
+		// LabRolledUpBefore: raw lab snapshots received before it are removed
+		// once rolled up (the latest of each lab group stays).
+		LabRolledUpBefore       time.Time
 		DispatchesCreatedBefore time.Time
 		EventsEndedBefore       time.Time
 		// InactiveSince: accounts last seen before it get the warning.
@@ -132,6 +139,7 @@ func (p Policy) Cutoffs(now time.Time) Cutoffs {
 	return Cutoffs{
 		SessionsExpiredBefore:          now.Add(-p.SessionAfterExpiry),
 		LabObservedBefore:              now.Add(-p.LabTelemetry),
+		LabRolledUpBefore:              now.Add(-RolledUpLabTelemetry),
 		DispatchesCreatedBefore:        now.Add(-p.DeliveryLog),
 		EventsEndedBefore:              now.Add(-p.FormAnswersAfterEventEnd),
 		InactiveSince:                  now.Add(-p.InactiveAccount),
