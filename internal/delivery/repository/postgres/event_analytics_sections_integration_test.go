@@ -56,6 +56,7 @@ VALUES ($1, $2, $3, 'group', 'agent', $4, $5, $5, 1, false, $6)`, uuid.Must(uuid
 	}
 	observe(1, anStart.Add(time.Minute), `{"labs":[{"name":"web","status":{"devices":[{"name":"app","usageAvailable":true,"cpuMillicores":"200","memoryBytes":"1000","restartCount":0},{"name":"db","usageAvailable":false,"restartCount":1}]}}]}`)
 	observe(2, anStart.Add(2*time.Minute), `{"labs":[{"name":"web","status":{"devices":[{"name":"app","usageAvailable":true,"cpuMillicores":"350","memoryBytes":"900","restartCount":2}]}}]}`)
+	rollupAll(t, repo, f.event)
 	resources, err := repo.StandResources(ctx, f.event, period)
 	require.NoError(t, err)
 	require.Len(t, resources, 1)

@@ -20,6 +20,31 @@ WHERE id IN (SELECT o.id
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE SKIP LOCKED);
 
+-- name: PurgeRolledUpEventLabObservations :execrows
+-- Raw lab snapshots are large, so they go a day after arrival once every
+-- rollup that reads them (VPN sessions, lab usage) has passed them. The
+-- latest snapshot of each lab group stays for the latest-state readers.
+-- Events without infrastructure have no VPN rollup to wait for.
+DELETE FROM event_lab_observations
+WHERE id IN (SELECT o.id
+             FROM event_lab_observations o
+             JOIN events e ON e.id = o.event_id
+             JOIN event_analytics_rollups r ON r.event_id = o.event_id
+             WHERE o.received_at < sqlc.arg(received_before)
+               AND r.lab_usage_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
+               AND (NOT e.infrastructure_allowed
+                    OR (r.vpn_cursor_id IS NOT NULL
+                        AND (o.received_at, o.id) <= (r.vpn_cursor_received_at, r.vpn_cursor_id)))
+               AND EXISTS (SELECT 1
+                           FROM event_lab_observations n
+                           WHERE n.event_id = o.event_id
+                             AND n.event_team_id = o.event_team_id
+                             AND n.lab_group_name = o.lab_group_name
+                             AND (n.observed_at, n.id) > (o.observed_at, o.id))
+             LIMIT sqlc.arg(batch_size)
+             FOR UPDATE OF o SKIP LOCKED);
+
 -- name: PurgePlatformLabCapacityObservations :execrows
 DELETE FROM platform_lab_capacity_observations
 WHERE id IN (SELECT o.id

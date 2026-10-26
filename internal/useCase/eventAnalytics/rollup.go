@@ -20,11 +20,15 @@ const (
 	// vpnBatchesPerEvent times per event and pass.
 	vpnBatchSize       = 2000
 	vpnBatchesPerEvent = 10
+	// The lab usage rollup works the same way; its batches are larger because
+	// the statement aggregates in the database.
+	labUsageBatchSize       = 5000
+	labUsageBatchesPerEvent = 10
 )
 
 // RefreshEventAnalytics is one pass of the analytics rollup job (§5): for
 // every started event with work left it rebuilds the 5-minute buckets and
-// folds new telemetry into VPN sessions (D5). An event is finalized after its
+// folds new telemetry into VPN sessions (D5) and per-device lab usage. An event is finalized after its
 // finish (plus a grace period) and then left alone, unless its results
 // change again. Every step is idempotent; a failing event does not stop the
 // others, and past events are backfilled the same way.
@@ -35,7 +39,7 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list events for analytics").Err()
 	}
 	var errs []error
-	var buckets, vpn int
+	var buckets, vpn, labUsage int
 	for _, c := range candidates {
 		if ctx.Err() != nil {
 			errs = append(errs, ctx.Err())
@@ -55,9 +59,17 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 				vpn++
 			}
 		}
+		if c.InfrastructureAllowed && !c.LabUsageFinalized {
+			if err = u.refreshLabUsage(ctx, c, started); err != nil {
+				errs = append(errs, err)
+			} else {
+				labUsage++
+			}
+		}
 	}
 	err = errors.Join(errs...)
 	log.Debug().Err(err).Int("events", len(candidates)).Int("buckets", buckets).Int("vpn", vpn).
+		Int("lab_usage", labUsage).
 		Dur("took", u.now().Sub(started)).Msg("event analytics: rollup pass")
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event analytics").Err()
@@ -115,6 +127,29 @@ func (u *EventAnalyticsUseCase) refreshVPNSessions(ctx context.Context, c eventA
 	}
 	if caughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
 		return u.store.SetVPNCursor(ctx, c.EventID, cursor, &now)
+	}
+	return nil
+}
+
+// refreshLabUsage folds the observations after the event's cursor into the
+// per-device minute buckets, batch by batch. The store saves the buckets and
+// moves the cursor in one statement, so a failure loses and double-counts
+// nothing. Once caught up after the event is final, the rollup closes.
+func (u *EventAnalyticsUseCase) refreshLabUsage(
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, now time.Time,
+) error {
+	cursor := c.LabUsageCursor
+	caughtUp := false
+	for i := 0; i < labUsageBatchesPerEvent && !caughtUp; i++ {
+		next, read, err := u.store.RollupLabUsage(ctx, c.EventID, cursor, labUsageBatchSize)
+		if err != nil {
+			return err
+		}
+		caughtUp = read < labUsageBatchSize
+		cursor = next
+	}
+	if caughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
+		return u.store.FinishLabUsageRollup(ctx, c.EventID, now)
 	}
 	return nil
 }

@@ -1,7 +1,7 @@
 // Package eventAnalytics is the event analytics application layer
 // (docs/EVENT-ANALYTICS.md): the access rules of §7 for the analytics API,
 // the report reads behind a short shared cache, and the rollup job that
-// keeps the 5-minute buckets and VPN sessions up to date.
+// keeps the 5-minute buckets, VPN sessions and lab usage up to date.
 package eventAnalytics
 
 import (
@@ -33,6 +33,8 @@ type (
 		OpenVPNSessions(ctx context.Context, eventID uuid.UUID, endedAfter time.Time) ([]eventAnalyticsModel.VPNSession, error)
 		SaveVPNSessions(ctx context.Context, eventID uuid.UUID, changed []eventAnalyticsModel.VPNSession, absorbed []uuid.UUID) error
 		SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor eventAnalyticsRepo.VPNCursor, finalizedAt *time.Time) error
+		RollupLabUsage(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32) (eventAnalyticsRepo.VPNCursor, int, error)
+		FinishLabUsageRollup(ctx context.Context, eventID uuid.UUID, finalizedAt time.Time) error
 		Overview(ctx context.Context, eventID uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error)
 		Series(ctx context.Context, eventID uuid.UUID, period eventAnalyticsModel.Period) ([]eventAnalyticsRepo.SeriesPoint, error)
 		RollupState(ctx context.Context, eventID uuid.UUID) (eventAnalyticsRepo.RollupState, error)
