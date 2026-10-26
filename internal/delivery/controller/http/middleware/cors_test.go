@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -112,6 +113,32 @@ func TestHandle_Preflight(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Max-Age"); got == "" {
 		t.Fatalf("Access-Control-Max-Age must be set on preflight")
+	}
+}
+
+// TestHandle_PreflightAllowsFrontendRequestHeaders: every non-safelisted request header a frontend sends from
+// the browser must be allowed, or the browser blocks the request before it reaches the API (khctf 2026-10-26:
+// flag submissions carry Idempotency-Key and every one of them was blocked).
+func TestHandle_PreflightAllowsFrontendRequestHeaders(t *testing.T) {
+	for _, header := range []string{"Content-Type", "Idempotency-Key", "X-Live-Screen-Token"} {
+		r := newRouter("example.test")
+		req := httptest.NewRequest(http.MethodOptions, "/api/auth/sign-out", nil)
+		req.Header.Set("Origin", "https://event-tag-1.example.test")
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		req.Header.Set("Access-Control-Request-Headers", strings.ToLower(header))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		allowed := false
+		for _, name := range strings.Split(w.Header().Get("Access-Control-Allow-Headers"), ",") {
+			if strings.EqualFold(strings.TrimSpace(name), header) {
+				allowed = true
+			}
+		}
+		if !allowed {
+			t.Fatalf("preflight does not allow %q: Access-Control-Allow-Headers = %q",
+				header, w.Header().Get("Access-Control-Allow-Headers"))
+		}
 	}
 }
 
