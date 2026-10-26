@@ -115,6 +115,7 @@ func setCORSHeaders(ctx *gin.Context, origin string) {
 func setPreflightHeaders(ctx *gin.Context) {
 	ctx.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 	// X-Live-Screen-Token: the live screen sends its link token as a header, not in the URL.
-	ctx.Header("Access-Control-Allow-Headers", "Content-Type, X-Live-Screen-Token")
+	// Idempotency-Key: a flag submission carries it, so a retried request is answered once.
+	ctx.Header("Access-Control-Allow-Headers", "Content-Type, X-Live-Screen-Token, Idempotency-Key")
 	ctx.Header("Access-Control-Max-Age", strconv.Itoa(int(preflightMaxAge.Seconds())))
 }
