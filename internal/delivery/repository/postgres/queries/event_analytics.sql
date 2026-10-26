@@ -3,8 +3,8 @@
 
 -- name: ListEventAnalyticsRollupCandidates :many
 -- Events the rollup job still has work for: started, and without finalized
--- buckets (or with results changed since), or with a VPN rollup still open
--- (infrastructure events). Running events come first.
+-- buckets (or with results changed since), or with a VPN or lab usage rollup
+-- still open (infrastructure events). Running events come first.
 SELECT e.id,
        e.start_at,
        (LEAST(e.manual_finished_at, e.finish_at) IS NOT NULL)::boolean AS has_finish,
@@ -15,7 +15,10 @@ SELECT e.id,
        s.buckets_finalized_at,
        s.vpn_finalized_at,
        s.vpn_cursor_received_at,
-       s.vpn_cursor_id
+       s.vpn_cursor_id,
+       s.lab_usage_finalized_at,
+       s.lab_usage_cursor_received_at,
+       s.lab_usage_cursor_id
 FROM events e
 LEFT JOIN event_result_revisions r ON r.event_id = e.id
 LEFT JOIN event_analytics_rollups s ON s.event_id = e.id
@@ -24,7 +27,8 @@ WHERE e.lifecycle_configured
   AND (s.event_id IS NULL
     OR s.buckets_finalized_at IS NULL
     OR s.buckets_revision <> COALESCE(r.revision, 0)
-    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL))
+    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL)
+    OR (e.infrastructure_allowed AND s.lab_usage_finalized_at IS NULL))
 ORDER BY (LEAST(e.manual_finished_at, e.finish_at) IS NULL
     OR LEAST(e.manual_finished_at, e.finish_at) > sqlc.arg(now)::timestamptz) DESC,
          e.start_at DESC, e.id
@@ -142,6 +146,79 @@ ON CONFLICT (event_id) DO UPDATE
     SET vpn_cursor_received_at = EXCLUDED.vpn_cursor_received_at,
         vpn_cursor_id          = EXCLUDED.vpn_cursor_id,
         vpn_finalized_at       = EXCLUDED.vpn_finalized_at;
+
+-- name: RollupEventLabUsage :one
+-- Folds up to batch_size observations after the cursor, in arrival order, into
+-- the per-device minute buckets and moves the cursor past them, in one
+-- statement: a failure leaves both untouched, so a re-run never counts an
+-- observation twice. A minute spanning two batches merges: counts and sums
+-- add up, maxima take the larger. Returns how many observations it read
+-- (fewer than batch_size: caught up) and the cursor after the last one (the
+-- given cursor when it read none).
+WITH batch AS (
+    SELECT o.id, o.received_at, o.event_team_id, o.lab_group_name, o.observed_at, o.payload
+    FROM event_lab_observations o
+    WHERE o.event_id = sqlc.arg(event_id)
+      AND (o.received_at, o.id) > (sqlc.arg(after_received_at)::timestamptz, sqlc.arg(after_id)::uuid)
+    ORDER BY o.received_at, o.id
+    LIMIT sqlc.arg(batch_size)
+), last AS (
+    SELECT b.received_at, b.id FROM batch b ORDER BY b.received_at DESC, b.id DESC LIMIT 1
+), devices AS (
+    SELECT b.event_team_id                                                                   AS team_id,
+           b.lab_group_name,
+           COALESCE(lab ->> 'name', '')                                                      AS lab_name,
+           COALESCE(dev ->> 'name', '')                                                      AS device_name,
+           date_trunc('minute', b.observed_at)                                               AS bucket_at,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'cpuMillicores', '')::bigint END AS cpu,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'memoryBytes', '')::bigint END   AS memory,
+           COALESCE(NULLIF(dev ->> 'restartCount', '')::bigint, 0)                           AS restarts
+    FROM batch b
+    CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(b.payload -> 'labs') = 'array' THEN b.payload -> 'labs' ELSE '[]'::jsonb END) lab
+    CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(lab -> 'status' -> 'devices') = 'array' THEN lab -> 'status' -> 'devices' ELSE '[]'::jsonb END) dev
+), fresh AS (
+    SELECT team_id, lab_group_name, lab_name, device_name, bucket_at,
+           count(*)::integer                  AS samples,
+           count(cpu)::integer                AS cpu_samples,
+           COALESCE(sum(cpu), 0)::bigint      AS cpu_sum,
+           max(cpu)                           AS cpu_max,
+           max(memory)                        AS memory_max,
+           max(restarts)                      AS restart_max
+    FROM devices
+    GROUP BY team_id, lab_group_name, lab_name, device_name, bucket_at
+), upserted AS (
+    INSERT INTO event_lab_usage_minutes (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at,
+                                         samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max)
+    SELECT sqlc.arg(event_id), team_id, lab_group_name, lab_name, device_name, bucket_at,
+           samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max
+    FROM fresh
+    ON CONFLICT (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at) DO UPDATE
+        SET samples     = event_lab_usage_minutes.samples + EXCLUDED.samples,
+            cpu_samples = event_lab_usage_minutes.cpu_samples + EXCLUDED.cpu_samples,
+            cpu_sum     = event_lab_usage_minutes.cpu_sum + EXCLUDED.cpu_sum,
+            cpu_max     = GREATEST(event_lab_usage_minutes.cpu_max, EXCLUDED.cpu_max),
+            memory_max  = GREATEST(event_lab_usage_minutes.memory_max, EXCLUDED.memory_max),
+            restart_max = GREATEST(event_lab_usage_minutes.restart_max, EXCLUDED.restart_max)
+    RETURNING 1
+), moved AS (
+    INSERT INTO event_analytics_rollups (event_id, lab_usage_cursor_received_at, lab_usage_cursor_id)
+    SELECT sqlc.arg(event_id), l.received_at, l.id FROM last l
+    ON CONFLICT (event_id) DO UPDATE
+        SET lab_usage_cursor_received_at = EXCLUDED.lab_usage_cursor_received_at,
+            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM batch)::bigint                 AS observations,
+       COALESCE((SELECT l.received_at FROM last l), sqlc.arg(after_received_at)::timestamptz)::timestamptz AS cursor_received_at,
+       COALESCE((SELECT l.id FROM last l), sqlc.arg(after_id)::uuid)::uuid AS cursor_id;
+
+-- name: FinishEventLabUsageRollup :exec
+INSERT INTO event_analytics_rollups (event_id, lab_usage_finalized_at)
+VALUES (sqlc.arg(event_id), sqlc.arg(finalized_at))
+ON CONFLICT (event_id) DO UPDATE
+    SET lab_usage_finalized_at = EXCLUDED.lab_usage_finalized_at;
 
 -- name: GetEventAnalyticsOverview :one
 -- The overview counters (§6.1). Registered excludes pending invitations;

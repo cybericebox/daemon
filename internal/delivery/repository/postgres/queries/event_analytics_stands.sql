@@ -36,45 +36,31 @@ WHERE x.event_id = sqlc.arg(event_id)
 ORDER BY x.at, x.id;
 
 -- name: ListEventStandResources :many
--- Resource usage per team from the lab telemetry. A device is one container
--- of one lab; its peak is over the observations in the period, and a team's
--- figure is the sum of its devices' peaks (observations can be partial, so a
--- sum inside one observation would understate). Restarts are the highest
--- restart count seen per device. Devices without a usage reading count only
--- toward devices and restarts.
-WITH obs AS (
-    SELECT o.event_team_id, o.payload
-    FROM event_lab_observations o
-    JOIN event_teams t ON t.id = o.event_team_id AND NOT t.moderators
-    WHERE o.event_id = sqlc.arg(event_id)
-      AND o.observed_at >= sqlc.arg(from_at)::timestamptz
-      AND o.observed_at < sqlc.arg(to_at)::timestamptz
-), devices AS (
-    SELECT obs.event_team_id,
-           COALESCE(lab ->> 'name', '')                                                       AS lab_name,
-           COALESCE(dev ->> 'name', '')                                                       AS device_name,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'cpuMillicores', '')::bigint END AS cpu,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'memoryBytes', '')::bigint END   AS memory,
-           COALESCE(NULLIF(dev ->> 'restartCount', '')::bigint, 0)                            AS restarts
-    FROM obs
-    CROSS JOIN LATERAL jsonb_array_elements(
-            CASE WHEN jsonb_typeof(obs.payload -> 'labs') = 'array' THEN obs.payload -> 'labs' ELSE '[]'::jsonb END) lab
-    CROSS JOIN LATERAL jsonb_array_elements(
-            CASE WHEN jsonb_typeof(lab -> 'status' -> 'devices') = 'array' THEN lab -> 'status' -> 'devices' ELSE '[]'::jsonb END) dev
-), per_device AS (
-    SELECT event_team_id, lab_name, device_name,
-           max(cpu) AS peak_cpu, max(memory) AS peak_memory, max(restarts) AS restarts
-    FROM devices
-    GROUP BY event_team_id, lab_name, device_name
+-- Resource usage per team from the lab telemetry (the minute buckets of
+-- event_lab_usage_minutes). A device is one container of one lab; its peak is
+-- over the buckets in the period, and a team's figure is the sum of its
+-- devices' peaks (observations can be partial, so a sum inside one
+-- observation would understate). Restarts are the highest restart count seen
+-- per device. Devices without a usage reading count only toward devices and
+-- restarts.
+WITH per_device AS (
+    SELECT u.team_id, u.lab_name, u.device_name,
+           max(u.cpu_max) AS peak_cpu, max(u.memory_max) AS peak_memory, max(u.restart_max) AS restarts
+    FROM event_lab_usage_minutes u
+    JOIN event_teams t ON t.id = u.team_id AND NOT t.moderators
+    WHERE u.event_id = sqlc.arg(event_id)
+      AND u.bucket_at >= date_trunc('minute', sqlc.arg(from_at)::timestamptz)
+      AND u.bucket_at < sqlc.arg(to_at)::timestamptz
+    GROUP BY u.team_id, u.lab_name, u.device_name
 )
-SELECT event_team_id                            AS team_id,
+SELECT team_id,
        count(*)::bigint                         AS devices,
        COALESCE(sum(peak_cpu), 0)::bigint       AS peak_cpu_millicores,
        COALESCE(sum(peak_memory), 0)::bigint    AS peak_memory_bytes,
        COALESCE(sum(restarts), 0)::bigint       AS restarts,
        count(*) FILTER (WHERE restarts > 0)::bigint AS restarted_devices
 FROM per_device
-GROUP BY event_team_id;
+GROUP BY team_id;
 
 -- name: ListEventVPNUsage :many
 -- VPN usage per team over the sessions overlapping the period. Users are the

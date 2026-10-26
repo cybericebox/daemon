@@ -934,18 +934,18 @@ UPDATE event_team_labs SET runtime_ready=$1,
  actual_state=CASE WHEN $1::boolean THEN 'Running' ELSE 'Unknown' END,
  observed_revision=CASE WHEN $1::boolean THEN desired_revision ELSE observed_revision END,
  allocation=CASE WHEN $1::boolean
-  THEN jsonb_set(jsonb_set(allocation,'{RuntimeState}','"Allocated"'),'{ObservedAt}',to_jsonb($3::timestamptz))
+  THEN jsonb_set(jsonb_set(allocation,'{RuntimeState}','"Allocated"'),'{ObservedAt}',to_jsonb($2::timestamptz))
   ELSE allocation END,
- agent_generation=$2,observed_at=$3,updated_at=$3
+ agent_generation=$3,observed_at=$2,updated_at=$2
 WHERE id=$4 AND desired_revision=1 AND desired_state='Running' AND logical_closed_at IS NULL
- AND agent_uid=$5 AND agent_uid<>'' AND agent_generation<=$2
+ AND agent_uid=$5 AND agent_uid<>'' AND agent_generation<=$3
  AND lab_group_name=$6 AND lab_name=$7
 `
 
 type RecordEventTeamLabInitialReadinessParams struct {
 	RuntimeReady    bool               `json:"runtime_ready"`
-	AgentGeneration int64              `json:"agent_generation"`
 	Now             pgtype.Timestamptz `json:"now"`
+	AgentGeneration int64              `json:"agent_generation"`
 	ID              uuid.UUID          `json:"id"`
 	AgentUid        string             `json:"agent_uid"`
 	LabGroupName    string             `json:"lab_group_name"`
@@ -954,11 +954,13 @@ type RecordEventTeamLabInitialReadinessParams struct {
 
 // Initial deployment has no lifecycle operation status yet. Adopt current
 // readiness only for the original Running revision and matching live identity.
+// A ready Lab of an agent without runtime reports is observed at its revision
+// and allocated as it runs: the readiness is the only certificate it has.
 func (q *Queries) RecordEventTeamLabInitialReadiness(ctx context.Context, arg RecordEventTeamLabInitialReadinessParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recordEventTeamLabInitialReadiness,
 		arg.RuntimeReady,
-		arg.AgentGeneration,
 		arg.Now,
+		arg.AgentGeneration,
 		arg.ID,
 		arg.AgentUid,
 		arg.LabGroupName,

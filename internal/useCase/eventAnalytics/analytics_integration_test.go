@@ -90,10 +90,12 @@ VALUES ($1, $2, $3, 'group', 'agent', $4, $5, $5, 1, false, $6)`, uuid.Must(uuid
 			t.Fatalf("pass %d: %v", pass, err)
 		}
 	}
-	var finalized, vpnFinalized bool
-	if err = db.Pool.QueryRow(ctx, `SELECT buckets_finalized_at IS NOT NULL, vpn_finalized_at IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).
-		Scan(&finalized, &vpnFinalized); err != nil || !finalized || !vpnFinalized {
-		t.Fatalf("rollup state: buckets=%v vpn=%v err=%v", finalized, vpnFinalized, err)
+	var finalized, vpnFinalized, usageFinalized bool
+	err = db.Pool.QueryRow(ctx, `SELECT buckets_finalized_at IS NOT NULL, vpn_finalized_at IS NOT NULL, lab_usage_finalized_at IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).
+		Scan(&finalized, &vpnFinalized, &usageFinalized)
+	if err != nil || !finalized || !vpnFinalized || !usageFinalized {
+		t.Fatalf("rollup state: buckets=%v vpn=%v lab usage=%v err=%v",
+			finalized, vpnFinalized, usageFinalized, err)
 	}
 	var sessions int
 	var rx int64

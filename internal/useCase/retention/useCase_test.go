@@ -51,6 +51,11 @@ func (s *fakeStore) PurgeExpiredSessions(_ context.Context, before time.Time, _ 
 func (s *fakeStore) PurgeEventLabObservations(_ context.Context, before time.Time, _ int32) (int64, error) {
 	return s.purge("lab", before)
 }
+func (s *fakeStore) PurgeRolledUpEventLabObservations(
+	_ context.Context, before time.Time, _ int32,
+) (int64, error) {
+	return s.purge("lab_rolled_up", before)
+}
 func (s *fakeStore) PurgePlatformLabCapacityObservations(_ context.Context, before time.Time, _ int32) (int64, error) {
 	return s.purge("capacity", before)
 }
@@ -257,7 +262,7 @@ func TestEnforceDataRetention_DrainsBatchesWithPolicyCutoffs(t *testing.T) {
 	}
 	want := retentionModel.DefaultPolicy().Cutoffs(now)
 	for name, cutoff := range map[string]time.Time{
-		"sessions": want.SessionsExpiredBefore, "lab": want.LabObservedBefore, "capacity": want.LabObservedBefore,
+		"sessions": want.SessionsExpiredBefore, "lab": want.LabObservedBefore, "lab_rolled_up": want.LabRolledUpBefore, "capacity": want.LabObservedBefore,
 		"dispatches": want.DispatchesCreatedBefore, "signals": want.SignalsCreatedBefore, "analytics": want.AnalyticsEventsEndedBefore, "answers": want.EventsEndedBefore, "deleted": now,
 		"invitations": want.InvitationsExpiredBefore, "pending": want.PendingAccountsCreatedBefore,
 		"answer_files": want.EventsEndedBefore, "unused_answer_files": want.UnusedAnswerFilesCreatedBefore,
@@ -275,7 +280,7 @@ func TestEnforceDataRetention_FailingStepDoesNotStopTheOthers(t *testing.T) {
 	if err := uc.EnforceDataRetention(context.Background()); err == nil {
 		t.Fatal("a failing purge must fail the run")
 	}
-	for _, name := range []string{"sessions", "capacity", "dispatches", "signals", "analytics", "answers", "answer_files", "deleted", "invitations", "pending"} {
+	for _, name := range []string{"sessions", "lab_rolled_up", "capacity", "dispatches", "signals", "analytics", "answers", "answer_files", "deleted", "invitations", "pending"} {
 		if _, ran := store.cutoffs[name]; !ran {
 			t.Errorf("%s purge did not run after the failure", name)
 		}

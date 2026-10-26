@@ -18,6 +18,7 @@ import (
 type Queries interface {
 	PurgeExpiredSessions(context.Context, postgres.PurgeExpiredSessionsParams) (int64, error)
 	PurgeEventLabObservations(context.Context, postgres.PurgeEventLabObservationsParams) (int64, error)
+	PurgeRolledUpEventLabObservations(context.Context, postgres.PurgeRolledUpEventLabObservationsParams) (int64, error)
 	PurgePlatformLabCapacityObservations(context.Context, postgres.PurgePlatformLabCapacityObservationsParams) (int64, error)
 	PurgeNotificationDispatches(context.Context, postgres.PurgeNotificationDispatchesParams) (int64, error)
 	PurgeFinishedSignals(context.Context, postgres.PurgeFinishedSignalsParams) (int64, error)
@@ -48,6 +49,18 @@ func (r *Repository) PurgeExpiredSessions(ctx context.Context, expiredBefore tim
 
 func (r *Repository) PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error) {
 	return r.q.PurgeEventLabObservations(ctx, postgres.PurgeEventLabObservationsParams{ObservedBefore: observedBefore, BatchSize: batchSize})
+}
+
+// PurgeRolledUpEventLabObservations removes raw lab snapshots received before
+// receivedBefore that the rollups have consumed, keeping the latest one of
+// every lab group.
+func (r *Repository) PurgeRolledUpEventLabObservations(
+	ctx context.Context, receivedBefore time.Time, batchSize int32,
+) (int64, error) {
+	params := postgres.PurgeRolledUpEventLabObservationsParams{
+		ReceivedBefore: receivedBefore, BatchSize: batchSize,
+	}
+	return r.q.PurgeRolledUpEventLabObservations(ctx, params)
 }
 
 func (r *Repository) PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error) {
