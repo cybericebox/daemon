@@ -87,20 +87,6 @@ func (mr *MockQuerierMockRecorder) AddFileReference(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddFileReference", reflect.TypeOf((*MockQuerier)(nil).AddFileReference), ctx, arg)
 }
 
-// AddLabTelemetryErasureIPs mocks base method.
-func (m *MockQuerier) AddLabTelemetryErasureIPs(ctx context.Context, arg postgres.AddLabTelemetryErasureIPsParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddLabTelemetryErasureIPs", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddLabTelemetryErasureIPs indicates an expected call of AddLabTelemetryErasureIPs.
-func (mr *MockQuerierMockRecorder) AddLabTelemetryErasureIPs(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLabTelemetryErasureIPs", reflect.TypeOf((*MockQuerier)(nil).AddLabTelemetryErasureIPs), ctx, arg)
-}
-
 // AdvanceEventResultRevision mocks base method.
 func (m *MockQuerier) AdvanceEventResultRevision(ctx context.Context, arg postgres.AdvanceEventResultRevisionParams) (postgres.AdvanceEventResultRevisionRow, error) {
 	m.ctrl.T.Helper()
@@ -383,19 +369,19 @@ func (mr *MockQuerierMockRecorder) ClearReturnedInactivityWarnings(ctx any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearReturnedInactivityWarnings", reflect.TypeOf((*MockQuerier)(nil).ClearReturnedInactivityWarnings), ctx)
 }
 
-// CollectLabClientIPs mocks base method.
-func (m *MockQuerier) CollectLabClientIPs(ctx context.Context, arg postgres.CollectLabClientIPsParams) ([]string, error) {
+// CollectLabClientIPWindows mocks base method.
+func (m *MockQuerier) CollectLabClientIPWindows(ctx context.Context, arg postgres.CollectLabClientIPWindowsParams) ([]postgres.CollectLabClientIPWindowsRow, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectLabClientIPs", ctx, arg)
-	ret0, _ := ret[0].([]string)
+	ret := m.ctrl.Call(m, "CollectLabClientIPWindows", ctx, arg)
+	ret0, _ := ret[0].([]postgres.CollectLabClientIPWindowsRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CollectLabClientIPs indicates an expected call of CollectLabClientIPs.
-func (mr *MockQuerierMockRecorder) CollectLabClientIPs(ctx, arg any) *gomock.Call {
+// CollectLabClientIPWindows indicates an expected call of CollectLabClientIPWindows.
+func (mr *MockQuerierMockRecorder) CollectLabClientIPWindows(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectLabClientIPs", reflect.TypeOf((*MockQuerier)(nil).CollectLabClientIPs), ctx, arg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectLabClientIPWindows", reflect.TypeOf((*MockQuerier)(nil).CollectLabClientIPWindows), ctx, arg)
 }
 
 // CompleteEventFormDelivery mocks base method.
@@ -2634,6 +2620,20 @@ func (m *MockQuerier) DeleteIntegrityDismissal(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) DeleteIntegrityDismissal(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteIntegrityDismissal", reflect.TypeOf((*MockQuerier)(nil).DeleteIntegrityDismissal), ctx, arg)
+}
+
+// DeleteLabArchiveChunk mocks base method.
+func (m *MockQuerier) DeleteLabArchiveChunk(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLabArchiveChunk", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteLabArchiveChunk indicates an expected call of DeleteLabArchiveChunk.
+func (mr *MockQuerierMockRecorder) DeleteLabArchiveChunk(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabArchiveChunk", reflect.TypeOf((*MockQuerier)(nil).DeleteLabArchiveChunk), ctx, id)
 }
 
 // DeleteLabBindingsForChallenges mocks base method.
@@ -13220,6 +13220,20 @@ func (m *MockQuerier) SetInfrastructureAgentRetiredKeys(ctx context.Context, arg
 func (mr *MockQuerierMockRecorder) SetInfrastructureAgentRetiredKeys(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentRetiredKeys", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentRetiredKeys), ctx, arg)
+}
+
+// SetLabTelemetryErasureWindows mocks base method.
+func (m *MockQuerier) SetLabTelemetryErasureWindows(ctx context.Context, arg postgres.SetLabTelemetryErasureWindowsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLabTelemetryErasureWindows", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetLabTelemetryErasureWindows indicates an expected call of SetLabTelemetryErasureWindows.
+func (mr *MockQuerierMockRecorder) SetLabTelemetryErasureWindows(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabTelemetryErasureWindows", reflect.TypeOf((*MockQuerier)(nil).SetLabTelemetryErasureWindows), ctx, arg)
 }
 
 // SetPlatformMailFooter mocks base method.

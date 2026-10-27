@@ -397,7 +397,7 @@ SELECT purge_unconfirmed_accounts(sqlc.arg(created_before)::timestamptz, sqlc.ar
 
 -- name: ListLabTelemetryErasures :many
 -- Accounts erased from the lab telemetry that have not settled yet, a page at a time by (queued_at, user_id).
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows
 FROM lab_telemetry_erasures
 WHERE (queued_at, user_id) > (sqlc.arg(after_queued_at)::timestamptz, sqlc.arg(after_user_id)::uuid)
 ORDER BY queued_at, user_id
@@ -451,30 +451,35 @@ WITH person AS (
         SET queued_at = now(),
             event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x),
             erase_ip = lab_telemetry_erasures.erase_ip OR EXCLUDED.erase_ip
-    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows
 )
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips FROM queued;
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows FROM queued;
 
 -- name: ScrubRawLabObservations :execrows
--- Rewrites up to batch_size raw observations of the events that still carry the client name. The IPs go only from
--- rows that name the client (by its name or pseudonym): an address another client got later is left alone.
+-- Rewrites up to batch_size raw observations of the events that still carry the client name or an IP window of the
+-- client (see lab_apply_ip_windows): the name becomes the pseudonym, the IPs go inside the windows. names are the
+-- person's names (the real one and the pseudonym).
 UPDATE event_lab_observations
-SET payload = lab_blank_ips(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb, sqlc.arg(ips)::text[])
+SET payload = lab_apply_ip_windows(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb,
+                                   event_team_id, lab_group_name, observed_at, sqlc.arg(windows)::jsonb,
+                                   ARRAY [sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text])
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
              WHERE o.event_id = ANY (sqlc.arg(event_ids)::uuid[])
                AND (o.payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
-                    OR (o.payload::text LIKE '%' || sqlc.arg(pseudonym)::text || '%'
-                        AND lab_payload_has_ip(o.payload, sqlc.arg(ips)::text[])))
+                    OR lab_apply_ip_windows(o.payload, o.event_team_id, o.lab_group_name, o.observed_at, sqlc.arg(windows)::jsonb,
+                                            ARRAY [sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text]) <> o.payload)
              LIMIT sqlc.arg(batch_size));
 
 -- name: ScrubLabMonitoringCurrent :execrows
 UPDATE lab_monitoring_current
-SET payload = lab_blank_ips(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb, sqlc.arg(ips)::text[])
+SET payload = lab_apply_ip_windows(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb,
+                                   event_team_id, lab_group_name, observed_at, sqlc.arg(windows)::jsonb,
+                                   ARRAY [sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text])
 WHERE event_id = ANY (sqlc.arg(event_ids)::uuid[])
   AND (payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
-       OR (payload::text LIKE '%' || sqlc.arg(pseudonym)::text || '%'
-           AND lab_payload_has_ip(payload, sqlc.arg(ips)::text[])));
+       OR lab_apply_ip_windows(payload, event_team_id, lab_group_name, observed_at, sqlc.arg(windows)::jsonb,
+                               ARRAY [sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text]) <> payload);
 
 -- name: RenameErasedLabClient :exec
 -- Gives the rollups' rows that were built from telemetry still carrying the client name the pseudonym. A row whose
@@ -523,29 +528,29 @@ SELECT id, codec, data FROM event_lab_observation_archives WHERE id = sqlc.arg(i
 UPDATE event_lab_observation_archives SET data = sqlc.arg(data)
 WHERE id = sqlc.arg(id) AND data = sqlc.arg(old_data);
 
--- name: CollectLabClientIPs :many
--- The IPs the live telemetry (raw rows and current state) of the events gives the client, under its real name or
--- its pseudonym. Erasure on request collects them before blanking, together with those found in the archive.
-SELECT DISTINCT x.ip::text AS ip
-FROM (SELECT c -> 'status' ->> 'assignedIp' AS ip, c ->> 'name' AS name
+-- name: CollectLabClientIPWindows :many
+-- When, in which lab group, the live telemetry (raw rows and current state) of the events gave which IP to the client
+-- (under its real name or its pseudonym): the first and the last observation.
+SELECT x.team_id::uuid AS team_id, x.lab_group_name::text AS lab_group_name, x.ip::text AS ip,
+       min(x.observed_at)::timestamptz AS first_at, max(x.observed_at)::timestamptz AS last_at
+FROM (SELECT o.event_team_id AS team_id, o.lab_group_name, o.observed_at, c -> 'status' ->> 'assignedIp' AS ip, c ->> 'name' AS name
       FROM event_lab_observations o
       CROSS JOIN LATERAL jsonb_array_elements(
               CASE WHEN jsonb_typeof(o.payload -> 'clients') = 'array' THEN o.payload -> 'clients' ELSE '[]'::jsonb END) c
       WHERE o.event_id = ANY (sqlc.arg(event_ids)::uuid[])
         AND (o.payload::text LIKE '%' || sqlc.arg(client_name)::text || '%' OR o.payload::text LIKE '%' || sqlc.arg(pseudonym)::text || '%')
       UNION ALL
-      SELECT c -> 'status' ->> 'assignedIp', c ->> 'name'
+      SELECT m.event_team_id, m.lab_group_name, m.observed_at, c -> 'status' ->> 'assignedIp', c ->> 'name'
       FROM lab_monitoring_current m
       CROSS JOIN LATERAL jsonb_array_elements(
               CASE WHEN jsonb_typeof(m.payload -> 'clients') = 'array' THEN m.payload -> 'clients' ELSE '[]'::jsonb END) c
       WHERE m.event_id = ANY (sqlc.arg(event_ids)::uuid[])) x
 WHERE x.name IN (sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)
-  AND COALESCE(x.ip, '') <> '';
+  AND COALESCE(x.ip, '') <> ''
+GROUP BY x.team_id, x.lab_group_name, x.ip;
 
--- name: AddLabTelemetryErasureIPs :exec
-UPDATE lab_telemetry_erasures
-SET ips = ARRAY(SELECT DISTINCT x FROM unnest(ips || sqlc.arg(ips)::text[]) x)
-WHERE user_id = sqlc.arg(user_id);
+-- name: SetLabTelemetryErasureWindows :exec
+UPDATE lab_telemetry_erasures SET ip_windows = sqlc.arg(windows)::jsonb WHERE user_id = sqlc.arg(user_id);
 
 -- name: ListLateLabObservations :many
 -- Raw rows of one event that no archive chunk holds although the archive cursor is past them (committed late), older
@@ -584,3 +589,8 @@ ON CONFLICT DO NOTHING;
 -- name: CountStaleLabObservations :one
 -- Raw rows past the period that are still there.
 SELECT count(*) FROM event_lab_observations WHERE observed_at < sqlc.arg(observed_before)::timestamptz;
+
+-- name: DeleteLabArchiveChunk :exec
+-- Drops an archive chunk that cannot be read (its rows go with it from event_lab_archived_rows, so the raw rows it held
+-- count as unarchived again).
+DELETE FROM event_lab_observation_archives WHERE id = sqlc.arg(id);

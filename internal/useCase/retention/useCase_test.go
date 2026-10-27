@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
@@ -96,13 +97,16 @@ func (s *fakeStore) ScrubLabMonitoringCurrent(context.Context, retentionRepo.Lab
 func (s *fakeStore) RenameErasedLabClient(context.Context, retentionRepo.LabTelemetryErasure) error {
 	return nil
 }
-func (s *fakeStore) CollectLabClientIPs(context.Context, retentionRepo.LabTelemetryErasure) ([]string, error) {
+func (s *fakeStore) CollectLabClientIPWindows(context.Context, retentionRepo.LabTelemetryErasure) ([]eventAnalyticsModel.LabIPWindow, error) {
 	return nil, nil
 }
-func (s *fakeStore) AddLabTelemetryErasureIPs(context.Context, uuid.UUID, []string) error { return nil }
+func (s *fakeStore) SetLabTelemetryErasureWindows(context.Context, uuid.UUID, []eventAnalyticsModel.LabIPWindow) error {
+	return nil
+}
 func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
 	return nil, nil
 }
+func (s *fakeStore) DeleteLabArchiveChunk(context.Context, uuid.UUID) error { return nil }
 func (s *fakeStore) LabArchiveChunk(context.Context, uuid.UUID) (retentionRepo.LabArchiveChunk, error) {
 	return retentionRepo.LabArchiveChunk{}, nil
 }

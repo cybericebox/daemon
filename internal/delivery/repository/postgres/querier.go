@@ -18,7 +18,6 @@ type Querier interface {
 	// An email image is owned by its draft as soon as it is uploaded. Inserting
 	// one link avoids a read/replace race when uploads finish concurrently.
 	AddFileReference(ctx context.Context, arg AddFileReferenceParams) error
-	AddLabTelemetryErasureIPs(ctx context.Context, arg AddLabTelemetryErasureIPsParams) error
 	AdvanceEventResultRevision(ctx context.Context, arg AdvanceEventResultRevisionParams) (AdvanceEventResultRevisionRow, error)
 	// A chunk is accepted only as the next one in order; zero rows means the client is out of step (it reads the
 	// status and continues from chunks_received). Every accepted chunk moves the expiry forward.
@@ -62,9 +61,9 @@ type Querier interface {
 	// A warned user who signed in again is active: forget the warning so the
 	// deletion never fires and a later inactivity period warns afresh.
 	ClearReturnedInactivityWarnings(ctx context.Context) (int64, error)
-	// The IPs the live telemetry (raw rows and current state) of the events gives the client, under its real name or
-	// its pseudonym. Erasure on request collects them before blanking, together with those found in the archive.
-	CollectLabClientIPs(ctx context.Context, arg CollectLabClientIPsParams) ([]string, error)
+	// When, in which lab group, the live telemetry (raw rows and current state) of the events gave which IP to the client
+	// (under its real name or its pseudonym): the first and the last observation.
+	CollectLabClientIPWindows(ctx context.Context, arg CollectLabClientIPWindowsParams) ([]CollectLabClientIPWindowsRow, error)
 	CompleteEventFormDelivery(ctx context.Context, arg CompleteEventFormDeliveryParams) (int64, error)
 	CompleteRequestIdempotency(ctx context.Context, arg CompleteRequestIdempotencyParams) (int64, error)
 	CompleteSignalHookExecution(ctx context.Context, arg CompleteSignalHookExecutionParams) (int64, error)
@@ -298,6 +297,9 @@ type Querier interface {
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
+	// Drops an archive chunk that cannot be read (its rows go with it from event_lab_archived_rows, so the raw rows it held
+	// count as unarchived again).
+	DeleteLabArchiveChunk(ctx context.Context, id uuid.UUID) error
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
 	// Closes the entries chosen as settled, by (user_id, queued_at): an entry queued again meanwhile (a new time) stays.
@@ -1901,8 +1903,9 @@ type Querier interface {
 	// Narrow retry write; never copies physical state over a concurrent observation.
 	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
 	ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMonitoringCurrentParams) (int64, error)
-	// Rewrites up to batch_size raw observations of the events that still carry the client name. The IPs go only from
-	// rows that name the client (by its name or pseudonym): an address another client got later is left alone.
+	// Rewrites up to batch_size raw observations of the events that still carry the client name or an IP window of the
+	// client (see lab_apply_ip_windows): the name becomes the pseudonym, the IPs go inside the windows. names are the
+	// person's names (the real one and the pseudonym).
 	ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error)
 	SelectEventStageRetainedLab(ctx context.Context, arg SelectEventStageRetainedLabParams) error
 	SetDispatchStatus(ctx context.Context, arg SetDispatchStatusParams) error
@@ -1957,6 +1960,7 @@ type Querier interface {
 	SetInfrastructureAgentMaxDevice(ctx context.Context, arg SetInfrastructureAgentMaxDeviceParams) (int64, error)
 	// The retired keys that are still waiting for RemoveAccessKey.
 	SetInfrastructureAgentRetiredKeys(ctx context.Context, arg SetInfrastructureAgentRetiredKeysParams) (int64, error)
+	SetLabTelemetryErasureWindows(ctx context.Context, arg SetLabTelemetryErasureWindowsParams) error
 	// The platform footer (a Lexical document; NULL = the built-in default) lives
 	// on the platform identity row; saving it leaves the sender fields as they are
 	// (creating the row when none exists) and retires the older text footer.
