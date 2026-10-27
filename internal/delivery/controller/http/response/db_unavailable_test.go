@@ -109,7 +109,7 @@ func TestWithErrorHandlerDoesNotHideAFaultBehindACancellation(t *testing.T) {
 
 // «Failed to get lab status»: the agent call was cut by the client that left, a gRPC Canceled status.
 func TestWithErrorHandlerAnswers499ToAGRPCCancelledCall(t *testing.T) {
-	cancelled := fmt.Errorf("get lab group: %w", status.Error(codes.Canceled, "context canceled"))
+	cancelled := model.ErrPlatform.WithError(fmt.Errorf("get lab group: %w", status.Error(codes.Canceled, "context canceled"))).WithMessage("Failed to get lab status").Err()
 	rec, _ := serveStoredError(cancelled, true)
 	if rec.Code != 499 {
 		t.Fatalf("status=%d", rec.Code)
