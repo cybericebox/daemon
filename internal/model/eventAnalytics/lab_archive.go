@@ -168,7 +168,9 @@ func ScrubLabArchive(codec string, data []byte, erasures map[string]LabArchiveEr
 }
 
 // LabArchiveClientIPs lists the IPs a chunk gives to the named VPN clients (their assigned IPs in the rows that
-// mention them), so erasure on request can remove them wherever else they appear.
+// mention them), so erasure on request can remove them wherever else they appear. It fails closed: a row that
+// mentions one of the names but cannot be read is an error (the erasure would be incomplete), while a row that
+// mentions none is not looked at. Rows are read tolerantly: one odd client does not hide the others.
 func LabArchiveClientIPs(codec string, data []byte, names []string) ([]string, error) {
 	found := map[string]struct{}{}
 	err := LabArchiveLines(codec, data, func(line []byte) error {
@@ -184,18 +186,27 @@ func LabArchiveClientIPs(codec string, data []byte, names []string) ([]string, e
 		}
 		var row struct {
 			Payload struct {
-				Clients []struct {
-					Name   string `json:"name"`
-					Status struct {
-						AssignedIP string `json:"assignedIp"`
-					} `json:"status"`
-				} `json:"clients"`
+				Clients []json.RawMessage `json:"clients"`
 			} `json:"payload"`
 		}
 		if err := json.Unmarshal(line, &row); err != nil {
-			return nil //nolint:nilerr // a row that cannot be read gives no IP
+			return fmt.Errorf("lab archive: a row that names an erased client cannot be read: %w", err)
 		}
-		for _, c := range row.Payload.Clients {
+		for _, raw := range row.Payload.Clients {
+			var c struct {
+				Name   string `json:"name"`
+				Status struct {
+					AssignedIP string `json:"assignedIp"`
+				} `json:"status"`
+			}
+			if err := json.Unmarshal(raw, &c); err != nil {
+				for _, n := range names {
+					if bytes.Contains(raw, []byte(n)) {
+						return fmt.Errorf("lab archive: a client entry that names an erased client cannot be read: %w", err)
+					}
+				}
+				continue
+			}
 			if c.Status.AssignedIP == "" {
 				continue
 			}
