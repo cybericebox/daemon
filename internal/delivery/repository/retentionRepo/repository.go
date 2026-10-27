@@ -25,6 +25,10 @@ type Queries interface {
 	PurgeEventActivity(context.Context, postgres.PurgeEventActivityParams) (int64, error)
 	PurgeEventStandTransitions(context.Context, postgres.PurgeEventStandTransitionsParams) (int64, error)
 	PurgeEventVPNSessions(context.Context, postgres.PurgeEventVPNSessionsParams) (int64, error)
+	ListLabTelemetryErasures(context.Context, int32) ([]postgres.ListLabTelemetryErasuresRow, error)
+	ListLabArchiveChunksForScrub(context.Context, postgres.ListLabArchiveChunksForScrubParams) ([]postgres.ListLabArchiveChunksForScrubRow, error)
+	UpdateLabArchiveChunkData(context.Context, postgres.UpdateLabArchiveChunkDataParams) error
+	DeleteLabTelemetryErasures(context.Context, []uuid.UUID) error
 	PurgeEventLabUsageMinutes(context.Context, postgres.PurgeEventLabUsageMinutesParams) (int64, error)
 	PurgeEventLabMinutes(context.Context, postgres.PurgeEventLabMinutesParams) (int64, error)
 	PurgeEventVPNClientMinutes(context.Context, postgres.PurgeEventVPNClientMinutesParams) (int64, error)
@@ -214,4 +218,56 @@ func (r *Repository) PurgeExpiredTemporalCodes(ctx context.Context, expiredBefor
 // same statement. It returns how many accounts it removed.
 func (r *Repository) PurgeUnconfirmedAccounts(ctx context.Context, createdBefore, now time.Time, batchSize int32) (int64, error) {
 	return r.q.PurgeUnconfirmedAccounts(ctx, postgres.PurgeUnconfirmedAccountsParams{CreatedBefore: createdBefore, NowAt: now, BatchSize: batchSize})
+}
+
+// LabTelemetryErasure is a deleted account whose archived lab telemetry is still to be scrubbed.
+type LabTelemetryErasure struct {
+	UserID     uuid.UUID
+	ClientName string
+	EventIDs   []uuid.UUID
+}
+
+// LabArchiveChunk is an archive chunk to scrub.
+type LabArchiveChunk struct {
+	ID    uuid.UUID
+	Codec string
+	Data  []byte
+}
+
+// LabTelemetryErasures lists up to batchSize queued accounts, oldest first.
+func (r *Repository) LabTelemetryErasures(ctx context.Context, batchSize int32) ([]LabTelemetryErasure, error) {
+	rows, err := r.q.ListLabTelemetryErasures(ctx, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LabTelemetryErasure, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, LabTelemetryErasure{UserID: row.UserID, ClientName: row.ClientName, EventIDs: row.EventIds})
+	}
+	return out, nil
+}
+
+// LabArchiveChunksForScrub pages through an event's archive chunks by id.
+func (r *Repository) LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]LabArchiveChunk, error) {
+	rows, err := r.q.ListLabArchiveChunksForScrub(ctx, postgres.ListLabArchiveChunksForScrubParams{
+		EventID: eventID, AfterID: afterID, PageSize: pageSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LabArchiveChunk, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, LabArchiveChunk{ID: row.ID, Codec: row.Codec, Data: row.Data})
+	}
+	return out, nil
+}
+
+// SaveScrubbedLabArchiveChunk replaces the data of a chunk.
+func (r *Repository) SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error {
+	return r.q.UpdateLabArchiveChunkData(ctx, postgres.UpdateLabArchiveChunkDataParams{ID: id, Data: data})
+}
+
+// DeleteLabTelemetryErasures removes scrubbed accounts from the queue.
+func (r *Repository) DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error {
+	return r.q.DeleteLabTelemetryErasures(ctx, userIDs)
 }

@@ -11,7 +11,9 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
@@ -27,6 +29,10 @@ type (
 		PurgeExpiredSessions(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
+		LabTelemetryErasures(ctx context.Context, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
+		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
+		SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error
+		DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error
 		PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error)
 		PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeNotificationDispatches(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
@@ -145,6 +151,11 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 	deletedAccounts := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgeDeletedAccounts(ctx, started, batch)
 	})
+	// The archived raw telemetry of the accounts just purged: their VPN client names and IPs go.
+	scrubbedChunks, err := u.scrubLabArchives(ctx, batch)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	// After deleted accounts: the references their answer files leave behind
 	// are released in the same run.
 	answerFiles := step(func(ctx context.Context) (int64, error) {
@@ -178,6 +189,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		Int64("form_answers", formAnswers).
 		Int64("answer_files", answerFiles).
 		Int64("deleted_accounts_purged", deletedAccounts).
+		Int64("lab_archive_chunks_scrubbed", scrubbedChunks).
 		Int64("expired_invitations", invitations).
 		Int64("unconfirmed_accounts", unconfirmedAccounts).
 		Int64("expired_temporal_codes", temporalCodes).
@@ -187,6 +199,77 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to enforce data retention").Err()
 	}
 	return nil
+}
+
+// labScrubPageSize archive chunks are unpacked at a time.
+const labScrubPageSize = 5
+
+// scrubLabArchives rewrites the archive chunks that mention deleted accounts (queued by the account purge): the
+// VPN client names and the assigned IPs are removed, then the accounts leave the queue. A chunk without the
+// names is not touched and a failed run leaves the queue as it was, so a re-run is harmless. Returns the chunks
+// it rewrote.
+func (u *RetentionUseCase) scrubLabArchives(ctx context.Context, batch int32) (int64, error) {
+	var rewritten int64
+	for {
+		erasures, err := u.store.LabTelemetryErasures(ctx, batch)
+		if err != nil {
+			return rewritten, err
+		}
+		if len(erasures) == 0 {
+			return rewritten, nil
+		}
+		names := make([]string, 0, len(erasures))
+		ids := make([]uuid.UUID, 0, len(erasures))
+		events := map[uuid.UUID]struct{}{}
+		for _, e := range erasures {
+			names = append(names, e.ClientName)
+			ids = append(ids, e.UserID)
+			for _, id := range e.EventIDs {
+				events[id] = struct{}{}
+			}
+		}
+		for eventID := range events {
+			n, err := u.scrubEventArchive(ctx, eventID, names)
+			rewritten += n
+			if err != nil {
+				return rewritten, err
+			}
+		}
+		if err = u.store.DeleteLabTelemetryErasures(ctx, ids); err != nil {
+			return rewritten, err
+		}
+		if len(erasures) < int(batch) {
+			return rewritten, ctx.Err()
+		}
+	}
+}
+
+func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.UUID, names []string) (int64, error) {
+	var rewritten int64
+	after := uuid.Nil
+	for {
+		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
+		if err != nil {
+			return rewritten, err
+		}
+		for _, chunk := range chunks {
+			after = chunk.ID
+			data, changed, err := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, names)
+			if err != nil {
+				return rewritten, err
+			}
+			if !changed {
+				continue
+			}
+			if err = u.store.SaveScrubbedLabArchiveChunk(ctx, chunk.ID, data); err != nil {
+				return rewritten, err
+			}
+			rewritten++
+		}
+		if len(chunks) < labScrubPageSize {
+			return rewritten, nil
+		}
+	}
 }
 
 // EnforceAccountInactivity warns the owners of accounts inactive for the

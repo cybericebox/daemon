@@ -2605,6 +2605,20 @@ func (mr *MockQuerierMockRecorder) DeleteLabGroupPlacement(ctx, labGroupName any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabGroupPlacement", reflect.TypeOf((*MockQuerier)(nil).DeleteLabGroupPlacement), ctx, labGroupName)
 }
 
+// DeleteLabTelemetryErasures mocks base method.
+func (m *MockQuerier) DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLabTelemetryErasures", ctx, userIds)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteLabTelemetryErasures indicates an expected call of DeleteLabTelemetryErasures.
+func (mr *MockQuerierMockRecorder) DeleteLabTelemetryErasures(ctx, userIds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabTelemetryErasures", reflect.TypeOf((*MockQuerier)(nil).DeleteLabTelemetryErasures), ctx, userIds)
+}
+
 // DeleteMediaUpload mocks base method.
 func (m *MockQuerier) DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
@@ -8786,6 +8800,21 @@ func (mr *MockQuerierMockRecorder) ListInvitationExpiryCandidates(ctx, nowAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListInvitationExpiryCandidates", reflect.TypeOf((*MockQuerier)(nil).ListInvitationExpiryCandidates), ctx, nowAt)
 }
 
+// ListLabArchiveChunksForScrub mocks base method.
+func (m *MockQuerier) ListLabArchiveChunksForScrub(ctx context.Context, arg postgres.ListLabArchiveChunksForScrubParams) ([]postgres.ListLabArchiveChunksForScrubRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLabArchiveChunksForScrub", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListLabArchiveChunksForScrubRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLabArchiveChunksForScrub indicates an expected call of ListLabArchiveChunksForScrub.
+func (mr *MockQuerierMockRecorder) ListLabArchiveChunksForScrub(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabArchiveChunksForScrub", reflect.TypeOf((*MockQuerier)(nil).ListLabArchiveChunksForScrub), ctx, arg)
+}
+
 // ListLabBindingChallenges mocks base method.
 func (m *MockQuerier) ListLabBindingChallenges(ctx context.Context, arg postgres.ListLabBindingChallengesParams) ([]uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -8799,6 +8828,21 @@ func (m *MockQuerier) ListLabBindingChallenges(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) ListLabBindingChallenges(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabBindingChallenges", reflect.TypeOf((*MockQuerier)(nil).ListLabBindingChallenges), ctx, arg)
+}
+
+// ListLabTelemetryErasures mocks base method.
+func (m *MockQuerier) ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]postgres.ListLabTelemetryErasuresRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLabTelemetryErasures", ctx, batchSize)
+	ret0, _ := ret[0].([]postgres.ListLabTelemetryErasuresRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLabTelemetryErasures indicates an expected call of ListLabTelemetryErasures.
+func (mr *MockQuerierMockRecorder) ListLabTelemetryErasures(ctx, batchSize any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabTelemetryErasures", reflect.TypeOf((*MockQuerier)(nil).ListLabTelemetryErasures), ctx, batchSize)
 }
 
 // ListLabTrafficCoverage mocks base method.
@@ -13711,6 +13755,20 @@ func (m *MockQuerier) UpdateInfrastructureAgent(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) UpdateInfrastructureAgent(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).UpdateInfrastructureAgent), ctx, arg)
+}
+
+// UpdateLabArchiveChunkData mocks base method.
+func (m *MockQuerier) UpdateLabArchiveChunkData(ctx context.Context, arg postgres.UpdateLabArchiveChunkDataParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateLabArchiveChunkData", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateLabArchiveChunkData indicates an expected call of UpdateLabArchiveChunkData.
+func (mr *MockQuerierMockRecorder) UpdateLabArchiveChunkData(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLabArchiveChunkData", reflect.TypeOf((*MockQuerier)(nil).UpdateLabArchiveChunkData), ctx, arg)
 }
 
 // UpdateLabBindingReadiness mocks base method.

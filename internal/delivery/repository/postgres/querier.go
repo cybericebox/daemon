@@ -293,6 +293,7 @@ type Querier interface {
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
+	DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteNotificationBroadcastTemplate(ctx context.Context, arg DeleteNotificationBroadcastTemplateParams) (int64, error)
@@ -1173,8 +1174,12 @@ type Querier interface {
 	// Pending, not yet announced invitations of started events; the use case
 	// applies the exact expiry rule of the event lifecycle.
 	ListInvitationExpiryCandidates(ctx context.Context, nowAt time.Time) ([]ListInvitationExpiryCandidatesRow, error)
+	// The archive chunks of an event after the given id, a page at a time.
+	ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabArchiveChunksForScrubParams) ([]ListLabArchiveChunksForScrubRow, error)
 	// The challenges that share one Lab of a team.
 	ListLabBindingChallenges(ctx context.Context, arg ListLabBindingChallengesParams) ([]uuid.UUID, error)
+	// Deleted accounts whose archived telemetry is still to be scrubbed.
+	ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]ListLabTelemetryErasuresRow, error)
 	// Spans of a team that overlap [since, until].
 	ListLabTrafficCoverage(ctx context.Context, arg ListLabTrafficCoverageParams) ([]ListLabTrafficCoverageRow, error)
 	ListLatestEventLabObservations(ctx context.Context, eventID uuid.UUID) ([]EventLabObservation, error)
@@ -2013,6 +2018,7 @@ type Querier interface {
 	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 	// endpoint identifies the agent (and its certificate), so it never changes.
 	UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error)
+	UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) error
 	UpdateLabBindingReadiness(ctx context.Context, arg UpdateLabBindingReadinessParams) (int64, error)
 	// Only within its own scope: scope_filter is 'platform' or the Event id.
 	UpdateNotificationBroadcastTemplate(ctx context.Context, arg UpdateNotificationBroadcastTemplateParams) (int64, error)

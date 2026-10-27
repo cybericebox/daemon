@@ -30,6 +30,15 @@ func (q *Queries) ClearReturnedInactivityWarnings(ctx context.Context) (int64, e
 	return result.RowsAffected(), nil
 }
 
+const deleteLabTelemetryErasures = `-- name: DeleteLabTelemetryErasures :exec
+DELETE FROM lab_telemetry_erasures WHERE user_id = ANY ($1::uuid[])
+`
+
+func (q *Queries) DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteLabTelemetryErasures, userIds)
+	return err
+}
+
 const listInactiveAccountsToDelete = `-- name: ListInactiveAccountsToDelete :many
 SELECT u.id, u.inactivity_warned_at::timestamptz AS warned_at
 FROM users u
@@ -105,6 +114,82 @@ func (q *Queries) ListInactiveAccountsToWarn(ctx context.Context, arg ListInacti
 	for rows.Next() {
 		var i ListInactiveAccountsToWarnRow
 		if err := rows.Scan(&i.ID, &i.FirstName, &i.LastSeen); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLabArchiveChunksForScrub = `-- name: ListLabArchiveChunksForScrub :many
+SELECT id, codec, data
+FROM event_lab_observation_archives
+WHERE event_id = $1
+  AND id > $2::uuid
+ORDER BY id
+LIMIT $3
+`
+
+type ListLabArchiveChunksForScrubParams struct {
+	EventID  uuid.UUID `json:"event_id"`
+	AfterID  uuid.UUID `json:"after_id"`
+	PageSize int32     `json:"page_size"`
+}
+
+type ListLabArchiveChunksForScrubRow struct {
+	ID    uuid.UUID `json:"id"`
+	Codec string    `json:"codec"`
+	Data  []byte    `json:"data"`
+}
+
+// The archive chunks of an event after the given id, a page at a time.
+func (q *Queries) ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabArchiveChunksForScrubParams) ([]ListLabArchiveChunksForScrubRow, error) {
+	rows, err := q.db.Query(ctx, listLabArchiveChunksForScrub, arg.EventID, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLabArchiveChunksForScrubRow{}
+	for rows.Next() {
+		var i ListLabArchiveChunksForScrubRow
+		if err := rows.Scan(&i.ID, &i.Codec, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLabTelemetryErasures = `-- name: ListLabTelemetryErasures :many
+SELECT user_id, client_name, event_ids
+FROM lab_telemetry_erasures
+ORDER BY queued_at, user_id
+LIMIT $1
+`
+
+type ListLabTelemetryErasuresRow struct {
+	UserID     uuid.UUID   `json:"user_id"`
+	ClientName string      `json:"client_name"`
+	EventIds   []uuid.UUID `json:"event_ids"`
+}
+
+// Deleted accounts whose archived telemetry is still to be scrubbed.
+func (q *Queries) ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]ListLabTelemetryErasuresRow, error) {
+	rows, err := q.db.Query(ctx, listLabTelemetryErasures, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLabTelemetryErasuresRow{}
+	for rows.Next() {
+		var i ListLabTelemetryErasuresRow
+		if err := rows.Scan(&i.UserID, &i.ClientName, &i.EventIds); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -194,6 +279,30 @@ WITH batch AS (
     UPDATE event_activity SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
 ), vpn_sessions AS (
     UPDATE event_vpn_sessions SET user_id = NULL, client_name = '' WHERE user_id IN (SELECT id FROM batch)
+), lab_erasures AS (
+    -- The archived raw telemetry is rewritten later (it needs the chunk unpacked): queue the account with the
+    -- events it took part in. The sub-selects see the rows as they are before this statement renames them.
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, event_ids)
+    SELECT b.id, lab_client_name(b.id),
+           ARRAY(SELECT x.event_id
+                 FROM (SELECT p.event_id FROM event_participants p WHERE p.user_id = b.id
+                       UNION
+                       SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = lab_client_name(b.id)
+                       UNION
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = b.id) x)
+    FROM batch b
+    ON CONFLICT (user_id) DO NOTHING
+), lab_client_minutes AS (
+    -- Traffic per minute stays for the team's figures; the client becomes an unrelated name per row.
+    UPDATE event_vpn_client_minutes
+    SET client_name = 'deleted-' || gen_random_uuid()::text
+    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+), lab_transitions AS (
+    UPDATE event_lab_transitions SET client_name = NULL
+    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+), lab_client_states AS (
+    DELETE FROM event_lab_journal_states
+    WHERE kind = 'client' AND name IN (SELECT lab_client_name(id) FROM batch)
 ), lab_touches AS (
     -- Lab access counters keep what happened to the task, not who did it.
     UPDATE event_lab_touches SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
@@ -766,4 +875,18 @@ func (q *Queries) PurgeUnconfirmedAccounts(ctx context.Context, arg PurgeUnconfi
 	var purged int64
 	err := row.Scan(&purged)
 	return purged, err
+}
+
+const updateLabArchiveChunkData = `-- name: UpdateLabArchiveChunkData :exec
+UPDATE event_lab_observation_archives SET data = $1 WHERE id = $2
+`
+
+type UpdateLabArchiveChunkDataParams struct {
+	Data []byte    `json:"data"`
+	ID   uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) error {
+	_, err := q.db.Exec(ctx, updateLabArchiveChunkData, arg.Data, arg.ID)
+	return err
 }
