@@ -32,6 +32,7 @@ type (
 		EventAnalyticsAccess(ctx context.Context, eventID uuid.UUID, viewer rbac.Claims) (eventAnalyticsModel.Access, error)
 		TasksUseCase
 		StandsUseCase
+		LabTelemetryUseCase
 		UsageUseCase
 		IntegrityUseCase
 		ReportUseCase
@@ -53,6 +54,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		analytics.GET("overview/export.csv", h.requireExport, h.exportOverview)
 		h.initTasks(router)
 		h.initStands(router)
+		h.initLabTelemetry(router)
 		h.initUsage(router)
 		h.initIntegrity(router)
 		h.initReport(router)

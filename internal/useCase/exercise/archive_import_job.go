@@ -105,8 +105,8 @@ type (
 		Created     int
 		Updated     int
 		// Unchanged counts the updates skipped because the archive brought nothing new.
-		Unchanged   int
-		Error       *exerciseModel.ImportJobError
+		Unchanged int
+		Error     *exerciseModel.ImportJobError
 	}
 )
 

@@ -23,6 +23,9 @@ type Queries interface {
 	IntegrityQueries
 	ReportQueries
 	ParticipantQueries
+	ArchiveQueries
+	JournalQueries
+	LabTelemetryQueries
 	ListEventAnalyticsRollupCandidates(context.Context, postgres.ListEventAnalyticsRollupCandidatesParams) ([]postgres.ListEventAnalyticsRollupCandidatesRow, error)
 	RefreshEventActivityBuckets(context.Context, uuid.UUID) error
 	MarkEventActivityBucketsRefreshed(context.Context, postgres.MarkEventActivityBucketsRefreshedParams) error
@@ -63,6 +66,18 @@ type (
 		LabUsageFinalized bool
 		// LabUsageCursor is the last observation the lab usage rollup folded in.
 		LabUsageCursor VPNCursor
+		// LabJournalCursor is the last observation the transitions journal read.
+		LabJournalCursor VPNCursor
+		// LabHeld: a recompute of the lab telemetry is running; the lab
+		// usage rollup and the journal leave the event alone.
+		LabHeld bool
+		// NotStarted: the event is listed only for its archive; buckets and
+		// the rollups do not apply to it yet.
+		NotStarted bool
+		// ArchiveOpen: raw observations of closed hours are not archived yet.
+		ArchiveOpen bool
+		// ArchiveCursor is the last observation the archive holds.
+		ArchiveCursor VPNCursor
 	}
 
 	// VPNCursor is the last observation the VPN rollup read (arrival order);
@@ -112,7 +127,9 @@ type (
 var cursorStart = time.Unix(0, 0).UTC()
 
 func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit int32) ([]RollupCandidate, error) {
-	rows, err := r.q.ListEventAnalyticsRollupCandidates(ctx, postgres.ListEventAnalyticsRollupCandidatesParams{Now: now, RowLimit: limit})
+	rows, err := r.q.ListEventAnalyticsRollupCandidates(ctx, postgres.ListEventAnalyticsRollupCandidatesParams{
+		Now: now, ArchiveBefore: eventAnalyticsModel.LabArchiveClosedBefore(now), RowLimit: limit,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +138,9 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		c := RollupCandidate{
 			EventID: row.ID, StartAt: row.StartAt, InfrastructureAllowed: row.InfrastructureAllowed, Revision: row.Revision,
 			BucketsRevision:  row.BucketsRevision,
-			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnFinalizedAt.Valid,
-			LabUsageFinalized: row.LabUsageFinalizedAt.Valid,
+			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnClosed,
+			LabUsageFinalized: row.LabUsageClosed,
+			NotStarted:        row.NotStarted, LabHeld: row.LabHeld, ArchiveOpen: row.ArchiveOpen,
 		}
 		if row.HasFinish {
 			finish := row.FinishedAt
@@ -134,6 +152,16 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		if row.LabUsageCursorReceivedAt.Valid && row.LabUsageCursorID.Valid {
 			c.LabUsageCursor = VPNCursor{
 				ReceivedAt: row.LabUsageCursorReceivedAt.Time, ID: row.LabUsageCursorID.UUID,
+			}
+		}
+		if row.LabJournalCursorReceivedAt.Valid && row.LabJournalCursorID.Valid {
+			c.LabJournalCursor = VPNCursor{
+				ReceivedAt: row.LabJournalCursorReceivedAt.Time, ID: row.LabJournalCursorID.UUID,
+			}
+		}
+		if row.LabArchiveCursorReceivedAt.Valid && row.LabArchiveCursorID.Valid {
+			c.ArchiveCursor = VPNCursor{
+				ReceivedAt: row.LabArchiveCursorReceivedAt.Time, ID: row.LabArchiveCursorID.UUID,
 			}
 		}
 		out = append(out, c)
@@ -244,14 +272,14 @@ func (r *Repository) SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor
 // It returns the cursor after the last observation and how many it read
 // (fewer than batchSize: caught up).
 func (r *Repository) RollupLabUsage(
-	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32,
+	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32, ignoreHold bool,
 ) (VPNCursor, int, error) {
 	if after.ReceivedAt.IsZero() {
 		after.ReceivedAt = cursorStart
 	}
 	row, err := r.q.RollupEventLabUsage(ctx, postgres.RollupEventLabUsageParams{
 		EventID: eventID, AfterReceivedAt: after.ReceivedAt,
-		AfterID: after.ID, BatchSize: batchSize,
+		AfterID: after.ID, BatchSize: batchSize, IgnoreHold: ignoreHold,
 	})
 	if err != nil {
 		return after, 0, err

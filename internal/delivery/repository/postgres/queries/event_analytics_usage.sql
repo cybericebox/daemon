@@ -60,7 +60,7 @@ ORDER BY x.user_id, x.started_at DESC;
 -- state (not from the rolled-up sessions, which lag by up to a minute).
 SELECT m.event_team_id                                                                   AS team_id,
        COALESCE(c ->> 'name', '')::text                                                   AS client_name,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix')::bigint, 0)::bigint AS handshake_unix,
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0)::bigint AS handshake_unix,
        m.updated_at
 FROM lab_monitoring_current m
 CROSS JOIN LATERAL jsonb_array_elements(

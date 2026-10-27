@@ -36,6 +36,7 @@ func TestSettingsFields_MatchTheSpec(t *testing.T) {
 		{Key: "FormAnswersAfterEventEnd", Kind: d, Min: daySeconds, Max: 1825 * daySeconds, InPrivacyPolicy: true},
 		{Key: "EventAnalyticsAfterEnd", Kind: d, Min: daySeconds, Max: 1825 * daySeconds, InPrivacyPolicy: true},
 		{Key: "LabTelemetry", Kind: d, Min: daySeconds, Max: 1825 * daySeconds, InPrivacyPolicy: true},
+		{Key: "LabTelemetryParticipants", Kind: d, Min: daySeconds, Max: 1825 * daySeconds, InPrivacyPolicy: true},
 		{Key: "UnusedAnswerFile", Kind: d, Min: daySeconds, Max: 30 * daySeconds},
 	}
 	if !reflect.DeepEqual(retentionModel.SettingsFields, want) {
@@ -70,6 +71,7 @@ func TestPolicy_WithValues_SetsEveryPeriodAndKeepsBatchSize(t *testing.T) {
 	v := p.Values()
 	v["DeliveryLog"] = 10 * daySeconds
 	v["LabTelemetry"] = 11 * daySeconds
+	v["LabTelemetryParticipants"] = 5 * daySeconds
 	v["UnusedAnswerFile"] = 2 * daySeconds
 	got, err := p.WithValues(v)
 	if err != nil {
@@ -95,6 +97,17 @@ func TestPolicy_WithValues_Refuses(t *testing.T) {
 	}
 	if field := publicField(t, err); field != "InactivityGrace" {
 		t.Fatalf("grace error field: %v", field)
+	}
+
+	longer := p.Values()
+	longer["LabTelemetry"] = 30 * daySeconds
+	longer["LabTelemetryParticipants"] = 31 * daySeconds
+	_, err = p.WithValues(longer)
+	if !errors.Is(err, platformSettingsModel.ErrRetentionParticipantsNotShorter.Err()) {
+		t.Fatalf("participants period longer than the telemetry period: %v", err)
+	}
+	if field := publicField(t, err); field != "LabTelemetryParticipants" {
+		t.Fatalf("participants error field: %v", field)
 	}
 
 	zero := p.Values()

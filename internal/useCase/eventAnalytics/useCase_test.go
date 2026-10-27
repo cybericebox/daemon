@@ -49,6 +49,28 @@ type fakeStore struct {
 	usageNext  eventAnalyticsRepo.VPNCursor
 	usageFinal *time.Time
 	failUsage  bool
+
+	journalReads []int
+	journalCalls []eventAnalyticsRepo.VPNCursor
+	journalNext  eventAnalyticsRepo.VPNCursor
+
+	readTeam       uuid.UUID
+	readPeriod     eventAnalyticsModel.Period
+	readKinds      []string
+	deviceMinutes  []eventAnalyticsRepo.DeviceMinute
+	labTransitions []eventAnalyticsRepo.LabTransition
+
+	dataFrom, coveredFrom *time.Time
+	holds                 []*time.Time
+	resets                int
+	chunks                []eventAnalyticsRepo.LabArchiveChunk
+	restored              []uuid.UUID
+	tagged                map[string][]uuid.UUID
+
+	archiveChunks []int
+	archiveCalls  []eventAnalyticsRepo.VPNCursor
+	archiveNext   eventAnalyticsRepo.VPNCursor
+	failArchive   bool
 }
 
 func (s *fakeStore) RollupCandidates(context.Context, time.Time, int32) ([]eventAnalyticsRepo.RollupCandidate, error) {
@@ -93,7 +115,7 @@ func (s *fakeStore) SetVPNCursor(_ context.Context, _ uuid.UUID, cursor eventAna
 	return nil
 }
 func (s *fakeStore) RollupLabUsage(
-	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32,
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ bool,
 ) (eventAnalyticsRepo.VPNCursor, int, error) {
 	if s.failUsage {
 		return after, 0, errors.New("usage boom")
@@ -109,6 +131,78 @@ func (s *fakeStore) RollupLabUsage(
 func (s *fakeStore) FinishLabUsageRollup(_ context.Context, _ uuid.UUID, at time.Time) error {
 	s.usageFinal = &at
 	return nil
+}
+func (s *fakeStore) LabJournal(context.Context, uuid.UUID, func() uuid.UUID) (*eventAnalyticsModel.LabJournal, error) {
+	return eventAnalyticsModel.NewLabJournal(nil, func() uuid.UUID { return uuid.Must(uuid.NewV7()) }), nil
+}
+func (s *fakeStore) RollupLabJournal(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ *eventAnalyticsModel.LabJournal, _ bool,
+) (eventAnalyticsRepo.VPNCursor, int, error) {
+	s.journalCalls = append(s.journalCalls, after)
+	if len(s.journalReads) == 0 {
+		return after, 0, nil
+	}
+	read := s.journalReads[0]
+	s.journalReads = s.journalReads[1:]
+	return s.journalNext, read, nil
+}
+func (s *fakeStore) TeamDeviceMinutes(
+	_ context.Context, _, team uuid.UUID, p eventAnalyticsModel.Period, _ int32,
+) ([]eventAnalyticsRepo.DeviceMinute, error) {
+	s.readTeam, s.readPeriod = team, p
+	return s.deviceMinutes, nil
+}
+func (s *fakeStore) TeamLabMinutes(context.Context, uuid.UUID, uuid.UUID, eventAnalyticsModel.Period, int32) ([]eventAnalyticsRepo.LabMinute, error) {
+	return nil, nil
+}
+func (s *fakeStore) TeamClientMinutes(context.Context, uuid.UUID, uuid.UUID, eventAnalyticsModel.Period, int32) ([]eventAnalyticsRepo.ClientMinute, error) {
+	return nil, nil
+}
+func (s *fakeStore) TeamLabTransitions(
+	_ context.Context, _, team uuid.UUID, p eventAnalyticsModel.Period, kinds []string, _ int32,
+) ([]eventAnalyticsRepo.LabTransition, error) {
+	s.readTeam, s.readPeriod, s.readKinds = team, p, kinds
+	return s.labTransitions, nil
+}
+func (s *fakeStore) LabTelemetryCoverage(context.Context, uuid.UUID) (*time.Time, *time.Time, error) {
+	return s.dataFrom, s.coveredFrom, nil
+}
+func (s *fakeStore) HoldLabTelemetry(_ context.Context, _ uuid.UUID, until *time.Time) error {
+	s.holds = append(s.holds, until)
+	return nil
+}
+func (s *fakeStore) ResetLabTelemetry(context.Context, uuid.UUID) error { s.resets++; return nil }
+func (s *fakeStore) LabArchiveChunks(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32,
+) ([]eventAnalyticsRepo.LabArchiveChunk, error) {
+	var out []eventAnalyticsRepo.LabArchiveChunk
+	for _, c := range s.chunks {
+		if c.Last.ReceivedAt.After(after.ReceivedAt) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+func (s *fakeStore) RestoreLabArchive(_ context.Context, c eventAnalyticsRepo.LabArchiveChunk) (int64, error) {
+	s.restored = append(s.restored, c.ID)
+	return int64(c.RowCount), nil
+}
+func (s *fakeStore) EventIDsByTag(_ context.Context, tag string) ([]uuid.UUID, error) {
+	return s.tagged[tag], nil
+}
+func (s *fakeStore) ArchiveLabObservations(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ time.Time, _ uuid.UUID,
+) (eventAnalyticsRepo.VPNCursor, int, error) {
+	if s.failArchive {
+		return after, 0, errors.New("archive boom")
+	}
+	s.archiveCalls = append(s.archiveCalls, after)
+	if len(s.archiveChunks) == 0 {
+		return after, 0, nil
+	}
+	rows := s.archiveChunks[0]
+	s.archiveChunks = s.archiveChunks[1:]
+	return s.archiveNext, rows, nil
 }
 func (s *fakeStore) Overview(_ context.Context, _ uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error) {
 	s.mu.Lock()
@@ -157,8 +251,9 @@ func newUC(store *fakeStore, event eventModel.Event, members fakeMemberships, cl
 	n := byte(0)
 	return eventAnalytics.New(eventAnalytics.Dependencies{
 		Store: store, Events: fakeEvents{event}, Configs: fakeConfigs{config}, Memberships: members,
-		Now:   func() time.Time { return *clock },
-		NewID: func() uuid.UUID { n++; return uuid.UUID{15: n} },
+		Now:             func() time.Time { return *clock },
+		NewID:           func() uuid.UUID { n++; return uuid.UUID{15: n} },
+		RecomputeSettle: time.Nanosecond,
 	})
 }
 
@@ -423,5 +518,186 @@ func TestRefreshEventAnalytics_LabUsage(t *testing.T) {
 	uc = newUC(failing, runningEvent(), nil, &clock)
 	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
 		t.Fatal("a failing lab usage rollup fails the pass")
+	}
+}
+
+// The archive runs chunk by chunk from its own cursor while closed hours
+// have rows, also for an event that has not started; a failure fails the pass.
+func TestRefreshEventAnalytics_Archive(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	start := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-3 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	next := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-2 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	store := &fakeStore{
+		candidates: []eventAnalyticsRepo.RollupCandidate{{
+			EventID: eventID, NotStarted: true, ArchiveOpen: true, ArchiveCursor: start,
+		}},
+		archiveChunks: []int{4000, 120}, // a full chunk, then the rest (its next call finds nothing)
+		archiveNext:   next,
+	}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.archiveCalls) != 3 || store.archiveCalls[0] != start || store.archiveCalls[1] != next {
+		t.Fatalf("archive calls %+v", store.archiveCalls)
+	}
+	if len(store.refreshed) != 0 {
+		t.Fatal("an event that has not started gets no rollups")
+	}
+
+	failing := &fakeStore{failArchive: true, candidates: store.candidates}
+	uc = newUC(failing, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
+		t.Fatal("a failing archive fails the pass")
+	}
+}
+
+// The lab usage rollup closes only when the transitions journal caught up too;
+// the journal reads from its own cursor.
+func TestRefreshEventAnalytics_LabJournal(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	longAgo := now.Add(-time.Hour)
+	start := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-3 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	next := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-2 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	candidates := []eventAnalyticsRepo.RollupCandidate{{
+		EventID: eventID, FinishedAt: &longAgo, InfrastructureAllowed: true,
+		BucketsFinalized: true, VPNFinalized: true, LabJournalCursor: start,
+	}}
+
+	// 1000 = a full journal batch: more to read, so the rollup stays open this pass.
+	store := &fakeStore{candidates: candidates, journalReads: []int{1000}, journalNext: next}
+	uc := newUC(store, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.journalCalls) != 2 || store.journalCalls[0] != start || store.journalCalls[1] != next {
+		t.Fatalf("journal reads %+v", store.journalCalls)
+	}
+	if store.usageFinal == nil {
+		t.Fatal("the second journal read caught up: the rollup closes")
+	}
+
+	behind := &fakeStore{candidates: candidates, journalReads: []int{1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000}, journalNext: next}
+	uc = newUC(behind, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if behind.usageFinal != nil {
+		t.Fatal("a journal still behind keeps the rollup open")
+	}
+}
+
+// A recompute holds the event, resets its rollups, restores the archive in
+// order, rolls everything up again and releases the hold.
+func TestRecomputeLabTelemetry(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	chunk := func(hours int) eventAnalyticsRepo.LabArchiveChunk {
+		return eventAnalyticsRepo.LabArchiveChunk{
+			ID: uuid.Must(uuid.NewV7()), RowCount: 100,
+			Last: eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(time.Duration(-hours) * time.Hour), ID: uuid.Must(uuid.NewV7())},
+		}
+	}
+	store := &fakeStore{
+		chunks:     []eventAnalyticsRepo.LabArchiveChunk{chunk(5), chunk(4), chunk(3)},
+		usageReads: []int{5000, 40}, usageNext: eventAnalyticsRepo.VPNCursor{ReceivedAt: now, ID: uuid.Must(uuid.NewV7())},
+		journalReads: []int{1000, 7}, journalNext: eventAnalyticsRepo.VPNCursor{ReceivedAt: now, ID: uuid.Must(uuid.NewV7())},
+	}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	res, err := uc.RecomputeLabTelemetry(context.Background(), eventID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ArchiveChunks != 3 || res.RestoredRows != 300 || res.UsageObservations != 5040 || res.JournalObservations != 1007 {
+		t.Fatalf("result %+v", res)
+	}
+	if len(store.holds) < 6 {
+		t.Fatalf("the hold is renewed in every loop: %d calls", len(store.holds))
+	}
+	if store.resets != 1 || len(store.restored) != 3 {
+		t.Fatalf("resets=%d restored=%d", store.resets, len(store.restored))
+	}
+	if n := len(store.holds); n < 2 || store.holds[0] == nil || store.holds[n-1] != nil {
+		t.Fatalf("the event is held first and released last: %v", store.holds)
+	}
+}
+
+func TestResolveEvent(t *testing.T) {
+	clock := now
+	one, a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	store := &fakeStore{tagged: map[string][]uuid.UUID{"khctf": {one}, "dup": {a, b}}}
+	uc := newUC(store, runningEvent(), nil, &clock)
+	ctx := context.Background()
+	if id, err := uc.ResolveEvent(ctx, one.String()); err != nil || id != one {
+		t.Fatalf("an id passes through: %v %v", id, err)
+	}
+	if id, err := uc.ResolveEvent(ctx, "khctf"); err != nil || id != one {
+		t.Fatalf("a tag resolves: %v %v", id, err)
+	}
+	if _, err := uc.ResolveEvent(ctx, "dup"); err == nil {
+		t.Fatal("an ambiguous tag is refused")
+	}
+	if _, err := uc.ResolveEvent(ctx, "none"); err == nil {
+		t.Fatal("an unknown tag is refused")
+	}
+}
+
+// The lab telemetry reads go to the store for the team and the aligned period;
+// an event without infrastructure has nothing to show.
+func TestGetEventLabTelemetry(t *testing.T) {
+	clock := now
+	team := uuid.Must(uuid.NewV7())
+	event := runningEvent()
+	event.InfrastructureAllowed = true
+	store := &fakeStore{deviceMinutes: []eventAnalyticsRepo.DeviceMinute{{DeviceName: "app"}}}
+	uc := newUC(store, event, nil, &clock)
+
+	v, err := uc.GetEventLabTelemetry(context.Background(), event.ID, team, nil, nil)
+	if err != nil || !v.Available || len(v.Devices) != 1 || store.readTeam != team {
+		t.Fatalf("view=%+v team=%v err=%v", v, store.readTeam, err)
+	}
+	if !v.Period.From.Equal(event.Lifecycle.StartAt.Truncate(5 * time.Minute)) {
+		t.Fatalf("the period defaults to the event: %+v", v.Period)
+	}
+
+	tv, err := uc.GetEventLabTransitions(context.Background(), event.ID, team, nil, nil, []string{"lab_ready"})
+	if err != nil || !tv.Available || len(store.readKinds) != 1 {
+		t.Fatalf("transitions=%+v kinds=%v err=%v", tv, store.readKinds, err)
+	}
+
+	noInfra := runningEvent()
+	plain := newUC(&fakeStore{}, noInfra, nil, &clock)
+	if v, err = plain.GetEventLabTelemetry(context.Background(), noInfra.ID, team, nil, nil); err != nil || v.Available {
+		t.Fatalf("an event without infrastructure shows nothing: %+v %v", v, err)
+	}
+}
+
+// A recompute refuses an event whose rollups reach back further than the archive and the raw rows, unless forced;
+// the refusal changes nothing.
+func TestRecomputeLabTelemetry_RefusesWhatCannotBeRebuilt(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	dataFrom, coveredFrom := now.Add(-100*24*time.Hour), now.Add(-10*24*time.Hour)
+	store := &fakeStore{dataFrom: &dataFrom, coveredFrom: &coveredFrom}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	if _, err := uc.RecomputeLabTelemetry(context.Background(), eventID, false); err == nil || store.resets != 0 || len(store.holds) != 0 {
+		t.Fatalf("must refuse and change nothing: err=%v resets=%d holds=%d", err, store.resets, len(store.holds))
+	}
+	if _, err := uc.RecomputeLabTelemetry(context.Background(), eventID, true); err != nil || store.resets != 1 {
+		t.Fatalf("force goes ahead: err=%v resets=%d", err, store.resets)
+	}
+
+	covered := &fakeStore{dataFrom: &coveredFrom, coveredFrom: &dataFrom}
+	if _, err := newUC(covered, runningEvent(), nil, &clock).RecomputeLabTelemetry(context.Background(), eventID, false); err != nil {
+		t.Fatalf("sources reach back far enough: %v", err)
+	}
+	none := &fakeStore{dataFrom: &dataFrom}
+	if _, err := newUC(none, runningEvent(), nil, &clock).RecomputeLabTelemetry(context.Background(), eventID, false); err == nil {
+		t.Fatal("data and no sources at all must be refused")
 	}
 }

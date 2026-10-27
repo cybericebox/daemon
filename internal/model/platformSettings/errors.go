@@ -29,6 +29,10 @@ var (
 	// inactivity period itself.
 	ErrRetentionGraceNotShorter = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
 					WithMessage("The deletion grace must be shorter than the inactivity period").WithDetailCode(5)
+	// ErrRetentionParticipantsNotShorter: the period for the lab data of participants may not be longer than the period
+	// for the lab data of teams and containers.
+	ErrRetentionParticipantsNotShorter = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
+						WithMessage("The participants' lab data period may not be longer than the lab telemetry period").WithDetailCode(11)
 	// ErrArchiveEntryOverUnpacked: the archive limits allow one file larger than all files together. Declared here, not
 	// in exerciseModel: ExerciseObjectCode has no detail code under 100 left, and 100+ would spill into the next
 	// object's full codes.

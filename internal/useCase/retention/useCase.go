@@ -11,7 +11,9 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
@@ -27,6 +29,24 @@ type (
 		PurgeExpiredSessions(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
+		LabTelemetryErasures(ctx context.Context, after retentionRepo.LabTelemetryErasure, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
+		SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]retentionRepo.LabTelemetryErasure, error)
+		LabTelemetryErasuresQueuedBefore(ctx context.Context, before time.Time) (int64, error)
+		DeleteLabTelemetryErasures(ctx context.Context, entries []retentionRepo.LabTelemetryErasure) error
+		QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, error)
+		ScrubRawLabObservations(ctx context.Context, e retentionRepo.LabTelemetryErasure, batchSize int32) (int64, error)
+		ScrubLabMonitoringCurrent(ctx context.Context, e retentionRepo.LabTelemetryErasure) (int64, error)
+		RenameErasedLabClient(ctx context.Context, e retentionRepo.LabTelemetryErasure) error
+		CollectLabClientIPWindows(ctx context.Context, e retentionRepo.LabTelemetryErasure) ([]eventAnalyticsModel.LabIPWindow, error)
+		SetLabTelemetryErasureWindows(ctx context.Context, userID uuid.UUID, windows []eventAnalyticsModel.LabIPWindow) error
+		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
+		DeleteLabArchiveChunk(ctx context.Context, id uuid.UUID) error
+		LabArchiveChunk(ctx context.Context, id uuid.UUID) (retentionRepo.LabArchiveChunk, error)
+		SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, oldData, data []byte) (bool, error)
+		LateLabObservations(ctx context.Context, receivedBefore time.Time, limit int32) (uuid.UUID, []retentionRepo.LateLabObservation, error)
+		SaveLateLabArchive(ctx context.Context, eventID uuid.UUID, rows []retentionRepo.LateLabObservation, codec string, data []byte) error
+		StaleLabObservations(ctx context.Context, before time.Time) (int64, error)
+		PurgeEventLabTelemetry(ctx context.Context, closedBefore, participantsBefore time.Time, batchSize int32) (int64, error)
 		PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeNotificationDispatches(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
 		PurgeFinishedSignals(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
@@ -117,10 +137,19 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeExpiredSessions(ctx, cut.SessionsExpiredBefore, batch)
 	})
 	labObservations := step(func(ctx context.Context) (int64, error) {
-		return u.store.PurgeEventLabObservations(ctx, cut.LabObservedBefore, batch)
+		// The raw rows hold clients and IPs: the participants period.
+		return u.store.PurgeEventLabObservations(ctx, cut.LabParticipantsBefore, batch)
 	})
+	// Rows committed behind the archive cursor are archived in a chunk of their own before anything is deleted.
+	if _, lerr := u.archiveLateLabObservations(ctx, cut.LabRolledUpBefore); lerr != nil {
+		errs = append(errs, lerr)
+	}
 	rolledUpObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgeRolledUpEventLabObservations(ctx, cut.LabRolledUpBefore, batch)
+	})
+	// The rollups, journal and archive derived from them wait for the event's access to close.
+	labTelemetry := step(func(ctx context.Context) (int64, error) {
+		return u.store.PurgeEventLabTelemetry(ctx, cut.LabObservedBefore, cut.LabParticipantsBefore, batch)
 	})
 	capacityObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgePlatformLabCapacityObservations(ctx, cut.LabObservedBefore, batch)
@@ -140,6 +169,11 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 	deletedAccounts := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgeDeletedAccounts(ctx, started, batch)
 	})
+	// The archived raw telemetry of the accounts just purged: their VPN client names and IPs go.
+	scrubbedChunks, err := u.scrubLabTelemetry(ctx, batch)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	// After deleted accounts: the references their answer files leave behind
 	// are released in the same run.
 	answerFiles := step(func(ctx context.Context) (int64, error) {
@@ -160,11 +194,20 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeExpiredTemporalCodes(ctx, started, batch)
 	})
 
+	// Raw rows past their period that are still there (their event is not archived, or the archive keeps failing)
+	// hold personal data beyond the period: say so.
+	if stale, serr := u.store.StaleLabObservations(ctx, cut.LabParticipantsBefore.Add(-24*time.Hour)); serr != nil {
+		errs = append(errs, serr)
+	} else if stale > 0 {
+		log.Error().Int64("rows", stale).Msg("data retention: raw lab observations are kept past their period, they are not archived")
+	}
+
 	err = errors.Join(errs...)
 	log.Info().Err(err).
 		Int64("sessions", sessions).
 		Int64("lab_observations", labObservations).
 		Int64("lab_observations_rolled_up", rolledUpObservations).
+		Int64("lab_telemetry", labTelemetry).
 		Int64("lab_capacity_observations", capacityObservations).
 		Int64("notification_dispatches", dispatches).
 		Int64("signals", signals).
@@ -172,6 +215,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		Int64("form_answers", formAnswers).
 		Int64("answer_files", answerFiles).
 		Int64("deleted_accounts_purged", deletedAccounts).
+		Int64("lab_archive_chunks_scrubbed", scrubbedChunks).
 		Int64("expired_invitations", invitations).
 		Int64("unconfirmed_accounts", unconfirmedAccounts).
 		Int64("expired_temporal_codes", temporalCodes).
@@ -181,6 +225,328 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to enforce data retention").Err()
 	}
 	return nil
+}
+
+// labLateBatch is how many late rows go into one chunk.
+const labLateBatch = 1000
+
+// archiveLateLabObservations puts the raw rows that were committed behind the archive cursor, and so are in no
+// chunk, into chunks of their own; raw rows are deleted only when a chunk holds them. Returns the rows archived.
+func (u *RetentionUseCase) archiveLateLabObservations(ctx context.Context, receivedBefore time.Time) (int, error) {
+	total := 0
+	for round := 0; round < 50; round++ {
+		eventID, rows, err := u.store.LateLabObservations(ctx, receivedBefore, labLateBatch)
+		if err != nil {
+			return total, err
+		}
+		if len(rows) == 0 {
+			return total, nil
+		}
+		lines := make([]string, 0, len(rows))
+		for _, row := range rows {
+			lines = append(lines, row.Line)
+		}
+		data, err := eventAnalyticsModel.CompressLabArchive(lines)
+		if err != nil {
+			return total, err
+		}
+		if err = u.store.SaveLateLabArchive(ctx, eventID, rows, eventAnalyticsModel.LabArchiveCodecZstdNDJSON, data); err != nil {
+			return total, err
+		}
+		total += len(rows)
+	}
+	return total, nil
+}
+
+// labScrubPageSize archive chunks are unpacked at a time.
+const labScrubPageSize = 5
+
+const (
+	// labErasureSettleAfter is how long an erased person stays queued: the lab drops a deleted account's VPN client
+	// within minutes and the archive follows the raw rows by about an hour, so after a day nothing can bring the
+	// real name back.
+	labErasureSettleAfter = 24 * time.Hour
+	// labErasureForceAfter closes an entry whatever the archive says (an event that is never archived), after
+	// reporting it: the link between the person and the pseudonym must not live on.
+	labErasureForceAfter = 7 * 24 * time.Hour
+)
+
+// scrubLabTelemetry removes the link to erased people from the lab telemetry that still carries it: the raw
+// observations and the current state (rewritten at once when the account is purged, and again here for what
+// arrived since), the rollup rows built from them and every archive chunk of the events they took part in. The VPN
+// client name becomes the person's pseudonym everywhere; IPs and counters stay. Every step is idempotent. Entries
+// close a day after they were queued, once the archive passed the raw rows of that day; the set to close is fixed
+// before the pass so a chunk archived meanwhile cannot slip past it. The queue is read page by page whole.
+// Returns the archive chunks it rewrote.
+func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (int64, error) {
+	started := u.now()
+	settled, err := u.store.SettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter), started.Add(-labErasureForceAfter))
+	if err != nil {
+		return 0, err
+	}
+	var total scrubResult
+	eventsOf := map[uuid.UUID][]uuid.UUID{}
+	var after retentionRepo.LabTelemetryErasure
+	for {
+		page, err := u.store.LabTelemetryErasures(ctx, after, batch)
+		if err != nil {
+			return total.rewritten, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, e := range page {
+			eventsOf[e.UserID] = e.EventIDs
+		}
+		res, err := u.scrubErasures(ctx, page, batch)
+		total.merge(res)
+		if err != nil {
+			return total.rewritten, err
+		}
+		after = page[len(page)-1]
+		if len(page) < int(batch) {
+			break
+		}
+	}
+	if total.failed > 0 {
+		// A chunk that could not be scrubbed may still hold a name: only the entries past the forced age close.
+		forced := settled[:0:0]
+		for _, e := range settled {
+			if e.QueuedAt.Before(started.Add(-labErasureForceAfter)) {
+				forced = append(forced, e)
+			}
+		}
+		settled = forced
+		// Past the forced age the entry closes whatever is left, so a chunk that cannot be read at all is dropped
+		// first: it could not be cleaned, and keeping it would keep the name for good.
+		for _, e := range forced {
+			for _, eventID := range eventsOf[e.UserID] {
+				for _, chunkID := range total.corrupt[eventID] {
+					if derr := u.store.DeleteLabArchiveChunk(ctx, chunkID); derr != nil {
+						return total.rewritten, derr
+					}
+					log.Error().Str("chunk_id", chunkID.String()).Str("event_id", eventID.String()).
+						Msg("data retention: an archive chunk that cannot be read was dropped so an erasure can close")
+				}
+				delete(total.corrupt, eventID)
+			}
+		}
+	}
+	if len(settled) > 0 {
+		if err = u.store.DeleteLabTelemetryErasures(ctx, settled); err != nil {
+			return total.rewritten, err
+		}
+	}
+	if stale, cerr := u.store.LabTelemetryErasuresQueuedBefore(ctx, started.Add(-labErasureSettleAfter)); cerr != nil {
+		return total.rewritten, cerr
+	} else if stale > 0 {
+		log.Error().Int64("entries", stale).Msg("data retention: lab telemetry erasures not settled after a day")
+	}
+	return total.rewritten, nil
+}
+
+// scrubResult counts what a scrub did to the archive chunks.
+type scrubResult struct {
+	rewritten, failed int64
+	// corrupt are the chunks that cannot be read at all, by event.
+	corrupt map[uuid.UUID][]uuid.UUID
+}
+
+func (r *scrubResult) addCorrupt(eventID, chunkID uuid.UUID) {
+	if r.corrupt == nil {
+		r.corrupt = map[uuid.UUID][]uuid.UUID{}
+	}
+	r.corrupt[eventID] = append(r.corrupt[eventID], chunkID)
+}
+
+func (r *scrubResult) merge(o scrubResult) {
+	r.rewritten += o.rewritten
+	r.failed += o.failed
+	for event, chunks := range o.corrupt {
+		for _, c := range chunks {
+			r.addCorrupt(event, c)
+		}
+	}
+}
+
+// scrubErasures rewrites the live data of a page of erased people and every archive chunk of their events. For an
+// erasure on request it first collects the person's IPs (live data and archive) and keeps them in the entry, so
+// they can be removed wherever they appear, not only where the client lists them.
+func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRepo.LabTelemetryErasure, batch int32) (scrubResult, error) {
+	var res scrubResult
+	for i := range page {
+		if page[i].EraseIP {
+			// A chunk whose IPs could not be read counts as a failure: the entry stays open.
+			windows, err := u.collectIPs(ctx, page[i], &res)
+			if err != nil {
+				return res, err
+			}
+			page[i].Windows = windows
+		}
+	}
+	erasures := map[string]eventAnalyticsModel.LabArchiveErasure{}
+	events := map[uuid.UUID]struct{}{}
+	for _, e := range page {
+		if err := u.scrubLive(ctx, e, batch); err != nil {
+			return res, err
+		}
+		erasures[e.ClientName] = eventAnalyticsModel.LabArchiveErasure{Pseudonym: e.Pseudonym, Windows: e.Windows}
+		for _, id := range e.EventIDs {
+			events[id] = struct{}{}
+		}
+	}
+	for eventID := range events {
+		r, err := u.scrubEventArchive(ctx, eventID, erasures)
+		res.merge(r)
+		if err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+// collectIPs gathers when the erased client held which IP in which lab group, from the live telemetry and the archive
+// of its events, merges it into the entry's stored windows and returns the whole list. The count is the archive chunks
+// that could not be read: the erasure is incomplete then and the entry stays open.
+func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTelemetryErasure, res *scrubResult) ([]eventAnalyticsModel.LabIPWindow, error) {
+	found, err := u.store.CollectLabClientIPWindows(ctx, e)
+	if err != nil {
+		return nil, err
+	}
+	names := []string{e.ClientName, e.Pseudonym}
+	for _, eventID := range e.EventIDs {
+		after := uuid.Nil
+		for {
+			chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
+			if err != nil {
+				return nil, err
+			}
+			for _, chunk := range chunks {
+				after = chunk.ID
+				windows, err := eventAnalyticsModel.LabArchiveClientIPWindows(chunk.Codec, chunk.Data, names)
+				if err != nil {
+					res.failed++
+					res.addCorrupt(eventID, chunk.ID)
+					log.Error().Err(err).Str("chunk_id", chunk.ID.String()).Msg("data retention: an archive chunk cannot be read for the IPs of an erased client, the erasure stays open")
+					continue
+				}
+				found = append(found, windows...)
+			}
+			if len(chunks) < labScrubPageSize {
+				break
+			}
+		}
+	}
+	all := eventAnalyticsModel.MergeLabIPWindows(e.Windows, found)
+	if len(found) > 0 {
+		if err = u.store.SetLabTelemetryErasureWindows(ctx, e.UserID, all); err != nil {
+			return nil, err
+		}
+	}
+	return all, nil
+}
+
+// scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.
+func (u *RetentionUseCase) scrubLive(ctx context.Context, e retentionRepo.LabTelemetryErasure, batch int32) error {
+	if len(e.EventIDs) > 0 {
+		if _, err := drain(ctx, batch, func(ctx context.Context) (int64, error) {
+			return u.store.ScrubRawLabObservations(ctx, e, batch)
+		}); err != nil {
+			return err
+		}
+		if _, err := u.store.ScrubLabMonitoringCurrent(ctx, e); err != nil {
+			return err
+		}
+	}
+	return u.store.RenameErasedLabClient(ctx, e)
+}
+
+func (u *RetentionUseCase) scrubEventArchive(
+	ctx context.Context, eventID uuid.UUID, erasures map[string]eventAnalyticsModel.LabArchiveErasure,
+) (scrubResult, error) {
+	var res scrubResult
+	after := uuid.Nil
+	for {
+		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
+		if err != nil {
+			return res, err
+		}
+		for _, chunk := range chunks {
+			after = chunk.ID
+			changed, corrupt, cerr := u.scrubChunk(ctx, chunk, erasures)
+			if cerr != nil {
+				if corrupt {
+					res.addCorrupt(eventID, chunk.ID)
+				}
+				// One bad chunk does not stop the others; the entry stays open until it is fixed (or forced closed).
+				res.failed++
+				log.Error().Err(cerr).Str("chunk_id", chunk.ID.String()).Msg("data retention: an archive chunk cannot be scrubbed")
+				continue
+			}
+			if changed {
+				res.rewritten++
+			}
+		}
+		if len(chunks) < labScrubPageSize {
+			return res, nil
+		}
+	}
+}
+
+// labScrubAttempts is how often a chunk changed by someone else meanwhile is read and scrubbed again.
+const labScrubAttempts = 5
+
+// scrubChunk rewrites one chunk; the write goes through only if the chunk still is what was read, otherwise it is
+// read again (another scrub, for other names, changed it). corrupt says the chunk cannot be read at all.
+func (u *RetentionUseCase) scrubChunk(
+	ctx context.Context, chunk retentionRepo.LabArchiveChunk, erasures map[string]eventAnalyticsModel.LabArchiveErasure,
+) (changed, corrupt bool, err error) {
+	for attempt := 0; attempt < labScrubAttempts; attempt++ {
+		data, did, serr := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, erasures)
+		if serr != nil {
+			return false, true, serr // the chunk itself is unreadable
+		}
+		if !did {
+			return false, false, nil
+		}
+		saved, werr := u.store.SaveScrubbedLabArchiveChunk(ctx, chunk.ID, chunk.Data, data)
+		if werr != nil {
+			return false, false, werr
+		}
+		if saved {
+			return true, false, nil
+		}
+		if chunk, werr = u.store.LabArchiveChunk(ctx, chunk.ID); werr != nil {
+			return false, false, werr
+		}
+	}
+	return false, false, errors.New("the chunk keeps changing under the scrub")
+}
+
+// EraseLabTelemetryOf erases one person from the lab telemetry on request (an objection), whether or not the
+// account exists: the VPN client name becomes a random pseudonym in every table, raw rows, current state and
+// archive included; IPs and counters stay. The person's VPN client keeps its name while it lives, so what the labs
+// report under it until the entry settles (a day) is rewritten by the retention job; run it after the access ended
+// to be done for good. Returns the entry and the archive chunks rewritten.
+func (u *RetentionUseCase) EraseLabTelemetryOf(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, int64, error) {
+	entry, err := u.store.QueueLabTelemetryErasure(ctx, userID)
+	if err != nil {
+		return entry, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to queue the erasure").Err()
+	}
+	batch := retentionModel.DefaultBatchSize
+	if u.policies != nil {
+		if policy, perr := u.policies.RetentionPolicy(ctx); perr == nil {
+			batch = int(policy.BatchSize)
+		}
+	}
+	res, err := u.scrubErasures(ctx, []retentionRepo.LabTelemetryErasure{entry}, int32(batch)) //nolint:gosec // a batch size
+	if err != nil {
+		return entry, res.rewritten, model.ErrPlatform.WithError(err).WithMessage("Failed to erase the person from the lab telemetry").Err()
+	}
+	if res.failed > 0 {
+		return entry, res.rewritten, model.ErrPlatform.WithMessage("Some archive chunks could not be scrubbed, see the log; run it again once they are fixed").Err()
+	}
+	return entry, res.rewritten, nil
 }
 
 // EnforceAccountInactivity warns the owners of accounts inactive for the

@@ -4,31 +4,69 @@
 -- name: ListEventAnalyticsRollupCandidates :many
 -- Events the rollup job still has work for: started, and without finalized
 -- buckets (or with results changed since), or with a VPN or lab usage rollup
--- still open (infrastructure events). Running events come first.
+-- still open (infrastructure events), or with raw observations not archived
+-- yet (archive_before: only closed hours are archived; started or not).
+-- Running events come first. A closed VPN or lab usage rollup is open again
+-- while observations arrived after its cursor (a pass that closed it before
+-- the telemetry existed, or rows that arrived late); vpn_closed /
+-- lab_usage_closed already account for that (the lab usage rollup covers the
+-- minute buckets and the transitions journal). not_started marks an event listed
+-- only for its archive: buckets and the rollups do not apply to it yet.
 SELECT e.id,
        e.start_at,
        (LEAST(e.manual_finished_at, e.finish_at) IS NOT NULL)::boolean AS has_finish,
        COALESCE(LEAST(e.manual_finished_at, e.finish_at), e.start_at)::timestamptz AS finished_at,
        e.infrastructure_allowed,
+       (NOT (e.lifecycle_configured AND e.start_at <= sqlc.arg(now)::timestamptz))::boolean AS not_started,
        COALESCE(r.revision, 0)::bigint                       AS revision,
        COALESCE(s.buckets_revision, 0)::bigint                AS buckets_revision,
        s.buckets_finalized_at,
-       s.vpn_finalized_at,
+       (s.vpn_finalized_at IS NOT NULL AND NOT pending.vpn)::boolean AS vpn_closed,
        s.vpn_cursor_received_at,
        s.vpn_cursor_id,
-       s.lab_usage_finalized_at,
+       (s.lab_usage_finalized_at IS NOT NULL AND NOT pending.lab_usage)::boolean AS lab_usage_closed,
        s.lab_usage_cursor_received_at,
-       s.lab_usage_cursor_id
+       s.lab_usage_cursor_id,
+       s.lab_journal_cursor_received_at,
+       s.lab_journal_cursor_id,
+       (s.lab_telemetry_hold_until IS NOT NULL AND s.lab_telemetry_hold_until > sqlc.arg(now)::timestamptz)::boolean AS lab_held,
+       pending.archive::boolean                              AS archive_open,
+       s.lab_archive_cursor_received_at,
+       s.lab_archive_cursor_id
 FROM events e
 LEFT JOIN event_result_revisions r ON r.event_id = e.id
 LEFT JOIN event_analytics_rollups s ON s.event_id = e.id
-WHERE e.lifecycle_configured
-  AND e.start_at <= sqlc.arg(now)::timestamptz
-  AND (s.event_id IS NULL
-    OR s.buckets_finalized_at IS NULL
-    OR s.buckets_revision <> COALESCE(r.revision, 0)
-    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL)
-    OR (e.infrastructure_allowed AND s.lab_usage_finalized_at IS NULL))
+CROSS JOIN LATERAL (
+    SELECT e.infrastructure_allowed AND EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS vpn,
+           e.infrastructure_allowed AND (EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+               OR EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_journal_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_journal_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))) AS lab_usage,
+           EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND o.received_at < sqlc.arg(archive_before)::timestamptz
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_archive_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_archive_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS archive
+) pending
+WHERE pending.archive
+   OR (e.lifecycle_configured
+       AND e.start_at <= sqlc.arg(now)::timestamptz
+       AND (s.event_id IS NULL
+         OR s.buckets_finalized_at IS NULL
+         OR s.buckets_revision <> COALESCE(r.revision, 0)
+         OR (e.infrastructure_allowed AND (s.vpn_finalized_at IS NULL OR pending.vpn))
+         OR (e.infrastructure_allowed AND (s.lab_usage_finalized_at IS NULL OR pending.lab_usage))))
 ORDER BY (LEAST(e.manual_finished_at, e.finish_at) IS NULL
     OR LEAST(e.manual_finished_at, e.finish_at) > sqlc.arg(now)::timestamptz) DESC,
          e.start_at DESC, e.id
@@ -105,9 +143,9 @@ SELECT b.id                                                                     
        b.event_team_id                                                               AS team_id,
        b.observed_at,
        COALESCE(c ->> 'name', '')::text                                              AS client_name,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix')::bigint, 0)::bigint AS handshake_unix,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'rxBytes')::bigint, 0)::bigint   AS rx_bytes,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'txBytes')::bigint, 0)::bigint   AS tx_bytes
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0)::bigint AS handshake_unix,
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes'), 0)::bigint   AS rx_bytes,
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes'), 0)::bigint   AS tx_bytes
 FROM batch b
 LEFT JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(b.payload -> 'clients') = 'array' THEN b.payload -> 'clients' ELSE '[]'::jsonb END) c ON true
@@ -149,35 +187,51 @@ ON CONFLICT (event_id) DO UPDATE
 
 -- name: RollupEventLabUsage :one
 -- Folds up to batch_size observations after the cursor, in arrival order, into
--- the per-device minute buckets and moves the cursor past them, in one
--- statement: a failure leaves both untouched, so a re-run never counts an
--- observation twice. A minute spanning two batches merges: counts and sums
--- add up, maxima take the larger. Returns how many observations it read
--- (fewer than batch_size: caught up) and the cursor after the last one (the
--- given cursor when it read none).
+-- the minute buckets (per device, per lab, per VPN client) and moves the
+-- cursor past them, in one statement: a failure leaves both untouched, so a
+-- re-run never counts an observation twice. A minute spanning two batches
+-- merges: counts and sums add up, maxima take the larger, "last" values the
+-- newer one. The traffic of a client is the growth of its counters between
+-- consecutive samples (continuing from the last sample stored before the
+-- batch); a counter that went down is a reset and counts the new value; the
+-- first sample of a client has no baseline and counts 0. A client is
+-- connected when its last handshake is at most 3 minutes older than the
+-- sample. Returns how many observations it read (fewer than batch_size:
+-- caught up) and the cursor after the last one (the given cursor when it
+-- read none).
 WITH batch AS (
     SELECT o.id, o.received_at, o.event_team_id, o.lab_group_name, o.observed_at, o.payload
     FROM event_lab_observations o
     WHERE o.event_id = sqlc.arg(event_id)
       AND (o.received_at, o.id) > (sqlc.arg(after_received_at)::timestamptz, sqlc.arg(after_id)::uuid)
+      AND (sqlc.arg(ignore_hold)::boolean
+           OR NOT EXISTS (SELECT 1 FROM event_analytics_rollups h
+                          WHERE h.event_id = o.event_id AND h.lab_telemetry_hold_until > now()))
     ORDER BY o.received_at, o.id
     LIMIT sqlc.arg(batch_size)
 ), last AS (
     SELECT b.received_at, b.id FROM batch b ORDER BY b.received_at DESC, b.id DESC LIMIT 1
-), devices AS (
-    SELECT b.event_team_id                                                                   AS team_id,
-           b.lab_group_name,
-           COALESCE(lab ->> 'name', '')                                                      AS lab_name,
-           COALESCE(dev ->> 'name', '')                                                      AS device_name,
-           date_trunc('minute', b.observed_at)                                               AS bucket_at,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'cpuMillicores', '')::bigint END AS cpu,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'memoryBytes', '')::bigint END   AS memory,
-           COALESCE(NULLIF(dev ->> 'restartCount', '')::bigint, 0)                           AS restarts
+), lab_rows AS (
+    SELECT b.id, b.event_team_id AS team_id, b.lab_group_name, b.observed_at, lab
     FROM batch b
     CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(b.payload -> 'labs') = 'array' THEN b.payload -> 'labs' ELSE '[]'::jsonb END) lab
+), devices AS (
+    SELECT l.team_id,
+           l.lab_group_name,
+           COALESCE(l.lab ->> 'name', '')                                                    AS lab_name,
+           COALESCE(dev ->> 'name', '')                                                      AS device_name,
+           date_trunc('minute', l.observed_at)                                               AS bucket_at,
+           l.observed_at,
+           l.id,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN lab_telemetry_number(dev ->> 'cpuMillicores') END AS cpu,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN lab_telemetry_number(dev ->> 'memoryBytes') END   AS memory,
+           COALESCE(lab_telemetry_number(dev ->> 'restartCount'), 0)                           AS restarts,
+           COALESCE(dev ->> 'ready' = 'true', false)                                         AS ready,
+           NULLIF(dev ->> 'podPhase', '')                                                    AS pod_phase
+    FROM lab_rows l
     CROSS JOIN LATERAL jsonb_array_elements(
-            CASE WHEN jsonb_typeof(lab -> 'status' -> 'devices') = 'array' THEN lab -> 'status' -> 'devices' ELSE '[]'::jsonb END) dev
+            CASE WHEN jsonb_typeof(l.lab -> 'status' -> 'devices') = 'array' THEN l.lab -> 'status' -> 'devices' ELSE '[]'::jsonb END) dev
 ), fresh AS (
     SELECT team_id, lab_group_name, lab_name, device_name, bucket_at,
            count(*)::integer                  AS samples,
@@ -185,29 +239,126 @@ WITH batch AS (
            COALESCE(sum(cpu), 0)::bigint      AS cpu_sum,
            max(cpu)                           AS cpu_max,
            max(memory)                        AS memory_max,
-           max(restarts)                      AS restart_max
+           max(restarts)                      AS restart_max,
+           COALESCE(sum(memory), 0)::bigint   AS memory_sum,
+           count(memory)::integer             AS memory_samples,
+           (count(*) FILTER (WHERE ready))::integer AS ready_samples,
+           (array_agg(pod_phase ORDER BY observed_at DESC, id DESC) FILTER (WHERE pod_phase IS NOT NULL))[1] AS last_pod_phase,
+           max(observed_at) FILTER (WHERE pod_phase IS NOT NULL) AS last_phase_at
     FROM devices
     GROUP BY team_id, lab_group_name, lab_name, device_name, bucket_at
 ), upserted AS (
     INSERT INTO event_lab_usage_minutes (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at,
-                                         samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max)
+                                         samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max,
+                                         memory_sum, memory_samples, ready_samples, last_pod_phase, last_phase_at)
     SELECT sqlc.arg(event_id), team_id, lab_group_name, lab_name, device_name, bucket_at,
-           samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max
+           samples, cpu_samples, cpu_sum, cpu_max, memory_max, restart_max,
+           memory_sum, memory_samples, ready_samples, last_pod_phase, last_phase_at
     FROM fresh
     ON CONFLICT (event_id, team_id, lab_group_name, lab_name, device_name, bucket_at) DO UPDATE
-        SET samples     = event_lab_usage_minutes.samples + EXCLUDED.samples,
-            cpu_samples = event_lab_usage_minutes.cpu_samples + EXCLUDED.cpu_samples,
-            cpu_sum     = event_lab_usage_minutes.cpu_sum + EXCLUDED.cpu_sum,
-            cpu_max     = GREATEST(event_lab_usage_minutes.cpu_max, EXCLUDED.cpu_max),
-            memory_max  = GREATEST(event_lab_usage_minutes.memory_max, EXCLUDED.memory_max),
-            restart_max = GREATEST(event_lab_usage_minutes.restart_max, EXCLUDED.restart_max)
+        SET samples        = event_lab_usage_minutes.samples + EXCLUDED.samples,
+            cpu_samples    = event_lab_usage_minutes.cpu_samples + EXCLUDED.cpu_samples,
+            cpu_sum        = event_lab_usage_minutes.cpu_sum + EXCLUDED.cpu_sum,
+            cpu_max        = GREATEST(event_lab_usage_minutes.cpu_max, EXCLUDED.cpu_max),
+            memory_max     = GREATEST(event_lab_usage_minutes.memory_max, EXCLUDED.memory_max),
+            restart_max    = GREATEST(event_lab_usage_minutes.restart_max, EXCLUDED.restart_max),
+            memory_sum     = event_lab_usage_minutes.memory_sum + EXCLUDED.memory_sum,
+            memory_samples = event_lab_usage_minutes.memory_samples + EXCLUDED.memory_samples,
+            ready_samples  = event_lab_usage_minutes.ready_samples + EXCLUDED.ready_samples,
+            last_pod_phase = CASE WHEN EXCLUDED.last_phase_at IS NOT NULL
+                                       AND (event_lab_usage_minutes.last_phase_at IS NULL
+                                            OR EXCLUDED.last_phase_at >= event_lab_usage_minutes.last_phase_at)
+                                  THEN EXCLUDED.last_pod_phase ELSE event_lab_usage_minutes.last_pod_phase END,
+            last_phase_at  = GREATEST(event_lab_usage_minutes.last_phase_at, EXCLUDED.last_phase_at)
+    RETURNING 1
+), fresh_labs AS (
+    SELECT l.team_id, l.lab_group_name, COALESCE(l.lab ->> 'name', '') AS lab_name,
+           date_trunc('minute', l.observed_at)                          AS bucket_at,
+           count(*)::integer                                            AS samples,
+           (count(*) FILTER (WHERE l.lab -> 'status' ->> 'ready' = 'true'))::integer    AS ready_samples,
+           (count(*) FILTER (WHERE l.lab -> 'status' ->> 'vpnReady' = 'true'))::integer AS vpn_ready_samples
+    FROM lab_rows l
+    GROUP BY l.team_id, l.lab_group_name, COALESCE(l.lab ->> 'name', ''), date_trunc('minute', l.observed_at)
+), upserted_labs AS (
+    INSERT INTO event_lab_minutes (event_id, team_id, lab_group_name, lab_name, bucket_at,
+                                   samples, ready_samples, vpn_ready_samples)
+    SELECT sqlc.arg(event_id), team_id, lab_group_name, lab_name, bucket_at, samples, ready_samples, vpn_ready_samples
+    FROM fresh_labs
+    ON CONFLICT (event_id, team_id, lab_group_name, lab_name, bucket_at) DO UPDATE
+        SET samples           = event_lab_minutes.samples + EXCLUDED.samples,
+            ready_samples     = event_lab_minutes.ready_samples + EXCLUDED.ready_samples,
+            vpn_ready_samples = event_lab_minutes.vpn_ready_samples + EXCLUDED.vpn_ready_samples
+    RETURNING 1
+), client_samples AS (
+    SELECT b.id, b.event_team_id AS team_id, b.lab_group_name, b.observed_at,
+           COALESCE(c ->> 'name', '')                                                       AS client_name,
+           lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes')                         AS rx,
+           lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes')                         AS tx,
+           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0) AS handshake
+    FROM batch b
+    CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(b.payload -> 'clients') = 'array' THEN b.payload -> 'clients' ELSE '[]'::jsonb END) c
+    WHERE COALESCE(c ->> 'name', '') <> ''
+      AND lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes') IS NOT NULL
+      AND lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes') IS NOT NULL
+), previous AS (
+    SELECT DISTINCT ON (m.team_id, m.lab_group_name, m.client_name)
+           m.team_id, m.lab_group_name, m.client_name, m.last_rx, m.last_tx, m.last_observed_at
+    FROM event_vpn_client_minutes m
+    WHERE m.event_id = sqlc.arg(event_id)
+      AND (m.team_id, m.lab_group_name, m.client_name) IN (SELECT cs.team_id, cs.lab_group_name, cs.client_name FROM client_samples cs)
+    ORDER BY m.team_id, m.lab_group_name, m.client_name, m.last_observed_at DESC
+), client_steps AS (
+    SELECT cs.*,
+           COALESCE(lag(cs.rx) OVER w, p.last_rx) AS prev_rx,
+           COALESCE(lag(cs.tx) OVER w, p.last_tx) AS prev_tx
+    FROM client_samples cs
+    LEFT JOIN previous p ON p.team_id = cs.team_id AND p.lab_group_name = cs.lab_group_name AND p.client_name = cs.client_name
+    -- A sample older than the newest one stored cannot be told from a counter reset: it is left out.
+    WHERE p.last_observed_at IS NULL OR cs.observed_at > p.last_observed_at
+    WINDOW w AS (PARTITION BY cs.team_id, cs.lab_group_name, cs.client_name ORDER BY cs.observed_at, cs.id)
+), client_deltas AS (
+    SELECT team_id, lab_group_name, client_name, observed_at, id, rx, tx,
+           date_trunc('minute', observed_at) AS bucket_at,
+           CASE WHEN prev_rx IS NULL THEN 0 WHEN rx >= prev_rx THEN rx - prev_rx ELSE rx END AS rx_delta,
+           CASE WHEN prev_tx IS NULL THEN 0 WHEN tx >= prev_tx THEN tx - prev_tx ELSE tx END AS tx_delta,
+           (handshake BETWEEN 1 AND 4102444800 AND observed_at - to_timestamp(handshake) <= interval '3 minutes') AS connected
+    FROM client_steps
+), fresh_clients AS (
+    SELECT team_id, lab_group_name, client_name, bucket_at,
+           count(*)::integer                                  AS samples,
+           (count(*) FILTER (WHERE connected))::integer       AS connected_samples,
+           COALESCE(sum(rx_delta), 0)::bigint                 AS rx_bytes,
+           COALESCE(sum(tx_delta), 0)::bigint                 AS tx_bytes,
+           (array_agg(rx ORDER BY observed_at DESC, id DESC))[1] AS last_rx,
+           (array_agg(tx ORDER BY observed_at DESC, id DESC))[1] AS last_tx,
+           max(observed_at)                                   AS last_observed_at
+    FROM client_deltas
+    GROUP BY team_id, lab_group_name, client_name, bucket_at
+), upserted_clients AS (
+    INSERT INTO event_vpn_client_minutes (event_id, team_id, lab_group_name, client_name, bucket_at,
+                                          samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at)
+    SELECT sqlc.arg(event_id), team_id, lab_group_name, client_name, bucket_at,
+           samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at
+    FROM fresh_clients
+    ON CONFLICT (event_id, team_id, lab_group_name, client_name, bucket_at) DO UPDATE
+        SET samples           = event_vpn_client_minutes.samples + EXCLUDED.samples,
+            connected_samples = event_vpn_client_minutes.connected_samples + EXCLUDED.connected_samples,
+            rx_bytes          = event_vpn_client_minutes.rx_bytes + EXCLUDED.rx_bytes,
+            tx_bytes          = event_vpn_client_minutes.tx_bytes + EXCLUDED.tx_bytes,
+            last_rx           = CASE WHEN EXCLUDED.last_observed_at >= event_vpn_client_minutes.last_observed_at
+                                     THEN EXCLUDED.last_rx ELSE event_vpn_client_minutes.last_rx END,
+            last_tx           = CASE WHEN EXCLUDED.last_observed_at >= event_vpn_client_minutes.last_observed_at
+                                     THEN EXCLUDED.last_tx ELSE event_vpn_client_minutes.last_tx END,
+            last_observed_at  = GREATEST(event_vpn_client_minutes.last_observed_at, EXCLUDED.last_observed_at)
     RETURNING 1
 ), moved AS (
     INSERT INTO event_analytics_rollups (event_id, lab_usage_cursor_received_at, lab_usage_cursor_id)
     SELECT sqlc.arg(event_id), l.received_at, l.id FROM last l
     ON CONFLICT (event_id) DO UPDATE
         SET lab_usage_cursor_received_at = EXCLUDED.lab_usage_cursor_received_at,
-            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id
+            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id,
+            lab_usage_finalized_at       = NULL
     RETURNING 1
 )
 SELECT (SELECT count(*) FROM batch)::bigint                 AS observations,

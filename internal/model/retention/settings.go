@@ -19,6 +19,7 @@ var SettingsFields = []platformSettingsModel.FieldSpec{
 	period("FormAnswersAfterEventEnd", day, 1825*day, true),
 	period("EventAnalyticsAfterEnd", day, 1825*day, true),
 	period("LabTelemetry", day, 1825*day, true),
+	period("LabTelemetryParticipants", day, 1825*day, true),
 	period("UnusedAnswerFile", day, 30*day, false),
 }
 
@@ -43,6 +44,7 @@ func periodsOf(p *Policy) map[string]*time.Duration {
 		"FormAnswersAfterEventEnd": &p.FormAnswersAfterEventEnd,
 		"EventAnalyticsAfterEnd":   &p.EventAnalyticsAfterEnd,
 		"LabTelemetry":             &p.LabTelemetry,
+		"LabTelemetryParticipants": &p.LabTelemetryParticipants,
 		"UnusedAnswerFile":         &p.UnusedAnswerFile,
 	}
 }
@@ -68,6 +70,9 @@ func (p Policy) WithValues(v platformSettingsModel.Values) (Policy, error) {
 	}
 	if p.InactivityGrace >= p.InactiveAccount {
 		return Policy{}, platformSettingsModel.ErrRetentionGraceNotShorter.WithPublicContext("field", "InactivityGrace").Err()
+	}
+	if p.LabTelemetryParticipants > p.LabTelemetry {
+		return Policy{}, platformSettingsModel.ErrRetentionParticipantsNotShorter.WithPublicContext("field", "LabTelemetryParticipants").Err()
 	}
 	return p, nil
 }

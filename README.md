@@ -366,7 +366,8 @@ The `RETENTION_*` periods (all but `RETENTION_BATCH_SIZE`) are defaults: periods
 | `LIMIT_ERROR_STREAMS_PER_USER` | `3` | Open error-journal streams per super admin. |
 | `LIMIT_LIVE_SCREEN_PER_MINUTE` | `600` | Requests per minute of one screen link, shared by every screen opened with it; unknown tokens share one such budget. |
 | `RETENTION_SESSION_AFTER_EXPIRY` | `2160h` | Sessions after expiry. |
-| `RETENTION_LAB_TELEMETRY` | `2160h` | Lab telemetry. |
+| `RETENTION_LAB_TELEMETRY` | `8760h` | Lab telemetry: platform capacity by age; the container, lab and team minute rollups and the journal without clients, after the event's finish (rolling for an event with no end). |
+| `RETENTION_LAB_TELEMETRY_PARTICIPANTS` | `2160h` | Lab data about participants: VPN client traffic and connections, client transitions and states, and the raw archive (clients and IPs). After the event's finish (rolling for an event with no end); not longer than `RETENTION_LAB_TELEMETRY`. |
 | `RETENTION_DELIVERY_LOG` | `4320h` | Mail delivery log. |
 | `RETENTION_FORM_ANSWERS_AFTER_EVENT_END` | `8760h` | Form answers after an event ends. |
 | `RETENTION_INACTIVE_ACCOUNT` | `26280h` | Inactive accounts. |

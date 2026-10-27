@@ -14,7 +14,8 @@ const day = 24 * time.Hour
 // Policy defaults, equal to the published Privacy Policy.
 const (
 	DefaultSessionAfterExpiry       = 90 * day
-	DefaultLabTelemetry             = 90 * day
+	DefaultLabTelemetry             = 365 * day
+	DefaultLabTelemetryParticipants = 90 * day
 	DefaultDeliveryLog              = 180 * day
 	DefaultFormAnswersAfterEventEnd = 365 * day
 	DefaultInactiveAccount          = 3 * 365 * day
@@ -36,8 +37,13 @@ type (
 	Policy struct {
 		// SessionAfterExpiry keeps an expired session record (IP, user agent).
 		SessionAfterExpiry time.Duration
-		// LabTelemetry keeps lab observations (event and platform capacity).
+		// LabTelemetry keeps lab observations (event and platform capacity),
+		// and the lab telemetry rollups, journal and raw archive of an event
+		// after its access closes (rolling for an event with no end).
 		LabTelemetry time.Duration
+		// LabTelemetryParticipants keeps the lab data that is about people: VPN client traffic and connections, the
+		// client transitions and states, and the raw archive (it holds clients and IPs). Not longer than LabTelemetry.
+		LabTelemetryParticipants time.Duration
 		// DeliveryLog keeps the email and notification delivery journal.
 		DeliveryLog time.Duration
 		// FormAnswersAfterEventEnd keeps registration form answers after the
@@ -73,6 +79,8 @@ type (
 	Cutoffs struct {
 		SessionsExpiredBefore time.Time
 		LabObservedBefore     time.Time
+		// LabParticipantsBefore: lab data about participants (clients, raw rows, archive) older than it is removed.
+		LabParticipantsBefore time.Time
 		// LabRolledUpBefore: raw lab snapshots received before it are removed
 		// once rolled up (the latest of each lab group stays).
 		LabRolledUpBefore       time.Time
@@ -103,6 +111,7 @@ func DefaultPolicy() Policy {
 	return Policy{
 		SessionAfterExpiry:       DefaultSessionAfterExpiry,
 		LabTelemetry:             DefaultLabTelemetry,
+		LabTelemetryParticipants: DefaultLabTelemetryParticipants,
 		DeliveryLog:              DefaultDeliveryLog,
 		FormAnswersAfterEventEnd: DefaultFormAnswersAfterEventEnd,
 		InactiveAccount:          DefaultInactiveAccount,
@@ -119,7 +128,7 @@ func DefaultPolicy() Policy {
 // Validate rejects a policy that would purge everything at once.
 func (p Policy) Validate() error {
 	for _, period := range []time.Duration{
-		p.SessionAfterExpiry, p.LabTelemetry, p.DeliveryLog,
+		p.SessionAfterExpiry, p.LabTelemetry, p.LabTelemetryParticipants, p.DeliveryLog,
 		p.FormAnswersAfterEventEnd, p.InactiveAccount, p.InactivityGrace,
 		p.ExpiredInvitation, p.PendingAccount, p.UnusedAnswerFile, p.SignalHistory,
 		p.EventAnalyticsAfterEnd,
@@ -127,6 +136,9 @@ func (p Policy) Validate() error {
 		if period < day {
 			return errors.New("retention: every period must be at least 24h")
 		}
+	}
+	if p.LabTelemetryParticipants > p.LabTelemetry {
+		return errors.New("retention: the participants' lab data period must not exceed the lab telemetry period")
 	}
 	if p.BatchSize < 1 {
 		return errors.New("retention: batch size must be at least 1")
@@ -139,6 +151,7 @@ func (p Policy) Cutoffs(now time.Time) Cutoffs {
 	return Cutoffs{
 		SessionsExpiredBefore:          now.Add(-p.SessionAfterExpiry),
 		LabObservedBefore:              now.Add(-p.LabTelemetry),
+		LabParticipantsBefore:          now.Add(-p.LabTelemetryParticipants),
 		LabRolledUpBefore:              now.Add(-RolledUpLabTelemetry),
 		DispatchesCreatedBefore:        now.Add(-p.DeliveryLog),
 		EventsEndedBefore:              now.Add(-p.FormAnswersAfterEventEnd),

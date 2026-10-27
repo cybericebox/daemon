@@ -897,6 +897,16 @@ type LabMonitoringCurrent struct {
 	Payload      []byte    `json:"payload"`
 }
 
+type LabTelemetryErasure struct {
+	UserID     uuid.UUID   `json:"user_id"`
+	ClientName string      `json:"client_name"`
+	Pseudonym  string      `json:"pseudonym"`
+	EventIds   []uuid.UUID `json:"event_ids"`
+	QueuedAt   time.Time   `json:"queued_at"`
+	EraseIp    bool        `json:"erase_ip"`
+	IpWindows  []byte      `json:"ip_windows"`
+}
+
 type MailIdentity struct {
 	ID             uuid.UUID     `json:"id"`
 	ScopeEventID   uuid.NullUUID `json:"scope_event_id"`

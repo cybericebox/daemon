@@ -93,7 +93,7 @@ func rollupAll(
 	t.Helper()
 	var cursor eventAnalyticsRepo.VPNCursor
 	for range 100 {
-		next, read, err := repo.RollupLabUsage(context.Background(), event, cursor, 2)
+		next, read, err := repo.RollupLabUsage(context.Background(), event, cursor, 2, false)
 		require.NoError(t, err)
 		cursor = next
 		if read < 2 {
@@ -185,7 +185,7 @@ VALUES ($1, $2, $3, $4, 'agent', $5, $6, $6, 1, false, $7)`, uuid.Must(uuid.NewV
 	require.Equal(t, rawResources(t, db, f.event, sub), got)
 
 	// Idempotent: nothing left to read, nothing changes.
-	again, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2)
+	again, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2, false)
 	require.NoError(t, err)
 	require.Zero(t, read)
 	require.Equal(t, cursor, again)
@@ -282,6 +282,36 @@ VALUES ($1, $2, $3, $4, 'agent', $5, $6, $6, 1, false, '{"labs":[]}')`, id, f.ev
 		at,
 		id,
 	)
+	// The journal has not passed them yet either.
+	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	rtExec(
+		t,
+		db,
+		`UPDATE event_analytics_rollups SET lab_journal_cursor_received_at = $2, lab_journal_cursor_id = $3 WHERE event_id = $1`,
+		f.event,
+		at,
+		id,
+	)
+
+	// All rollups passed, but the archive has not: raw rows are never deleted before they are archived.
+	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	archive := eventAnalyticsRepo.New(db.Queries)
+	var archived int
+	for cursor := (eventAnalyticsRepo.VPNCursor{}); ; {
+		next, rows, aerr := archive.ArchiveLabObservations(ctx, f.event, cursor, now, uuid.Must(uuid.NewV7()))
+		require.NoError(t, aerr)
+		if rows == 0 {
+			break
+		}
+		archived += rows
+		cursor = next
+	}
+	require.Equal(t, 6, archived)
 	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, n)

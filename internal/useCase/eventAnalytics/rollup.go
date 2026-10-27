@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
@@ -24,6 +25,12 @@ const (
 	// the statement aggregates in the database.
 	labUsageBatchSize       = 5000
 	labUsageBatchesPerEvent = 10
+	// The transitions journal parses the payloads in the application, so its
+	// batches are smaller.
+	labJournalBatchSize       = 1000
+	labJournalBatchesPerEvent = 10
+	// The archive compresses one chunk of raw rows per step.
+	labArchiveChunksPerEvent = 6
 )
 
 // RefreshEventAnalytics is one pass of the analytics rollup job (§5): for
@@ -39,11 +46,22 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list events for analytics").Err()
 	}
 	var errs []error
-	var buckets, vpn, labUsage int
+	archiveBefore := eventAnalyticsModel.LabArchiveClosedBefore(started)
+	var buckets, vpn, labUsage, archived int
 	for _, c := range candidates {
 		if ctx.Err() != nil {
 			errs = append(errs, ctx.Err())
 			break
+		}
+		if c.ArchiveOpen {
+			n, aerr := u.archiveLabObservations(ctx, c, archiveBefore)
+			archived += n
+			if aerr != nil {
+				errs = append(errs, aerr)
+			}
+		}
+		if c.NotStarted {
+			continue
 		}
 		if !c.BucketsFinalized || c.BucketsRevision != c.Revision {
 			if err = u.refreshBuckets(ctx, c, started); err != nil {
@@ -59,7 +77,7 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 				vpn++
 			}
 		}
-		if c.InfrastructureAllowed && !c.LabUsageFinalized {
+		if c.InfrastructureAllowed && !c.LabUsageFinalized && !c.LabHeld {
 			if err = u.refreshLabUsage(ctx, c, started); err != nil {
 				errs = append(errs, err)
 			} else {
@@ -69,7 +87,7 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 	}
 	err = errors.Join(errs...)
 	log.Debug().Err(err).Int("events", len(candidates)).Int("buckets", buckets).Int("vpn", vpn).
-		Int("lab_usage", labUsage).
+		Int("lab_usage", labUsage).Int("archived_rows", archived).
 		Dur("took", u.now().Sub(started)).Msg("event analytics: rollup pass")
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event analytics").Err()
@@ -131,25 +149,79 @@ func (u *EventAnalyticsUseCase) refreshVPNSessions(ctx context.Context, c eventA
 	return nil
 }
 
-// refreshLabUsage folds the observations after the event's cursor into the
-// per-device minute buckets, batch by batch. The store saves the buckets and
-// moves the cursor in one statement, so a failure loses and double-counts
-// nothing. Once caught up after the event is final, the rollup closes.
+// refreshLabUsage folds the observations after the event's cursors into the
+// minute buckets and the transitions journal, batch by batch. The store saves
+// the buckets (or the transitions and states) and moves the cursor in one
+// statement, so a failure loses and double-counts nothing. Once both caught up
+// after the event is final, the rollup closes.
 func (u *EventAnalyticsUseCase) refreshLabUsage(
 	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, now time.Time,
 ) error {
 	cursor := c.LabUsageCursor
 	caughtUp := false
 	for i := 0; i < labUsageBatchesPerEvent && !caughtUp; i++ {
-		next, read, err := u.store.RollupLabUsage(ctx, c.EventID, cursor, labUsageBatchSize)
+		next, read, err := u.store.RollupLabUsage(ctx, c.EventID, cursor, labUsageBatchSize, false)
 		if err != nil {
 			return err
 		}
 		caughtUp = read < labUsageBatchSize
 		cursor = next
 	}
-	if caughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
+	journalCaughtUp, err := u.refreshLabJournal(ctx, c, now)
+	if err != nil {
+		return err
+	}
+	if caughtUp && journalCaughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
 		return u.store.FinishLabUsageRollup(ctx, c.EventID, now)
 	}
 	return nil
+}
+
+// refreshLabJournal feeds the observations after the journal cursor to the
+// event's transitions journal and reports whether it caught up.
+func (u *EventAnalyticsUseCase) refreshLabJournal(
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, now time.Time,
+) (bool, error) {
+	journal, err := u.store.LabJournal(ctx, c.EventID, u.newID)
+	if err != nil {
+		return false, err
+	}
+	// An event that is over and was never journaled (it predates the journal) shows only its last snapshots: they
+	// set the states but do not make up transitions.
+	journal.Quiet = c.LabJournalCursor.ID == uuid.Nil && c.FinishedAt != nil && c.FinishedAt.Before(now)
+	cursor := c.LabJournalCursor
+	for i := 0; i < labJournalBatchesPerEvent; i++ {
+		next, read, err := u.store.RollupLabJournal(ctx, c.EventID, cursor, labJournalBatchSize, journal, false)
+		if err != nil {
+			return false, err
+		}
+		cursor = next
+		if read < labJournalBatchSize {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// archiveLabObservations compresses the event's raw observations of closed
+// hours into the archive, chunk by chunk. The store saves the chunk and moves
+// the archive cursor in one statement, so a failure loses and duplicates
+// nothing; the retention job deletes raw rows only behind this cursor.
+func (u *EventAnalyticsUseCase) archiveLabObservations(
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, closedBefore time.Time,
+) (int, error) {
+	cursor := c.ArchiveCursor
+	total := 0
+	for i := 0; i < labArchiveChunksPerEvent; i++ {
+		next, rows, err := u.store.ArchiveLabObservations(ctx, c.EventID, cursor, closedBefore, u.newID())
+		if err != nil {
+			return total, err
+		}
+		if rows == 0 {
+			break
+		}
+		total += rows
+		cursor = next
+	}
+	return total, nil
 }
