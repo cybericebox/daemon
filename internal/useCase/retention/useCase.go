@@ -220,46 +220,41 @@ const labErasureSettleAfter = 24 * time.Hour
 func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (int64, error) {
 	started := u.now()
 	erasures, err := u.store.LabTelemetryErasures(ctx, batch)
-	if err != nil {
+	if err != nil || len(erasures) == 0 {
 		return 0, err
 	}
-	if len(erasures) > 0 {
-		var rewritten int64
-		pseudonyms := map[string]string{}
-		ids := make([]uuid.UUID, 0, len(erasures))
-		events := map[uuid.UUID]struct{}{}
-		createdAfter := started
-		for _, e := range erasures {
-			if err = u.scrubLive(ctx, e, batch); err != nil {
-				return rewritten, err
-			}
-			pseudonyms[e.ClientName] = e.Pseudonym
-			ids = append(ids, e.UserID)
-			for _, id := range e.EventIDs {
-				events[id] = struct{}{}
-			}
-			if e.ArchivesScrubbedAt == nil {
-				createdAfter = time.Time{}
-			} else if e.ArchivesScrubbedAt.Before(createdAfter) {
-				createdAfter = *e.ArchivesScrubbedAt
-			}
+	pseudonyms := map[string]string{}
+	ids := make([]uuid.UUID, 0, len(erasures))
+	events := map[uuid.UUID]struct{}{}
+	createdAfter := started
+	for _, e := range erasures {
+		if err = u.scrubLive(ctx, e, batch); err != nil {
+			return 0, err
 		}
-		for eventID := range events {
-			n, err := u.scrubEventArchive(ctx, eventID, createdAfter, pseudonyms)
-			rewritten += n
-			if err != nil {
-				return rewritten, err
-			}
+		pseudonyms[e.ClientName] = e.Pseudonym
+		ids = append(ids, e.UserID)
+		for _, id := range e.EventIDs {
+			events[id] = struct{}{}
 		}
-		if err = u.store.MarkLabTelemetryErasuresScrubbed(ctx, ids, started); err != nil {
-			return rewritten, err
+		if e.ArchivesScrubbedAt == nil {
+			createdAfter = time.Time{}
+		} else if e.ArchivesScrubbedAt.Before(createdAfter) {
+			createdAfter = *e.ArchivesScrubbedAt
 		}
-		if _, err = u.store.DeleteSettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter)); err != nil {
-			return rewritten, err
-		}
-		return rewritten, nil
 	}
-	return 0, nil
+	var rewritten int64
+	for eventID := range events {
+		n, serr := u.scrubEventArchive(ctx, eventID, createdAfter, pseudonyms)
+		rewritten += n
+		if serr != nil {
+			return rewritten, serr
+		}
+	}
+	if err = u.store.MarkLabTelemetryErasuresScrubbed(ctx, ids, started); err != nil {
+		return rewritten, err
+	}
+	_, err = u.store.DeleteSettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter))
+	return rewritten, err
 }
 
 // scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.

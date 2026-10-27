@@ -48,8 +48,8 @@ func TestEventLabArchive_RoundTrip(t *testing.T) {
 	hour := anStart
 	want := map[uuid.UUID]string{}
 	seq := 0
-	for h := 0; h < 3; h++ {
-		for i := 0; i < 30; i++ {
+	for h := range 3 {
+		for i := range 30 {
 			for _, group := range []string{"group-b", "group-a"} {
 				seq++
 				id := uuid.Must(uuid.NewV7())
