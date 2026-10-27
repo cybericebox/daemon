@@ -450,7 +450,10 @@ type Querier interface {
 	GetEventLabPendingStarts(ctx context.Context, eventTeamID uuid.UUID) (int32, error)
 	GetEventLabRevealBarrier(ctx context.Context, arg GetEventLabRevealBarrierParams) (EventLabRevealBarrier, error)
 	// Where the event's derived lab telemetry starts and where the sources a recompute can rebuild it from (the archive
-	// and the raw rows) start, in unix seconds; -1: there is none. Data older than its sources cannot be rebuilt.
+	// and the raw rows) start, in unix seconds; -1: there is none. Data older than its sources cannot be rebuilt. Minutes are
+	// compared by their bucket and transitions by the platform time of the observation they came from (received_at),
+	// not by the agent time in `at`: a pod queued long before the first observation is no gap. The sources are floored to
+	// the minute like the buckets, so the first observation at 09:28:03 does not leave a gap to the bucket of 09:28:00.
 	GetEventLabTelemetryCoverage(ctx context.Context, eventID uuid.UUID) (GetEventLabTelemetryCoverageRow, error)
 	GetEventListColumns(ctx context.Context, arg GetEventListColumnsParams) (EventListColumn, error)
 	GetEventLiveScreen(ctx context.Context, arg GetEventLiveScreenParams) (EventLiveScreen, error)
