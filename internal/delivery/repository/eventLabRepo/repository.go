@@ -343,6 +343,30 @@ func (r *Repository) LockSourceChange(ctx context.Context, eventID, exerciseID u
 	return terminal, nil
 }
 
+// LockSetLabs takes the locks of LockSourceChange and returns the canonical Labs
+// of one event exercise, locked, in id order.
+func (r *Repository) LockSetLabs(ctx context.Context, eventID, exerciseID uuid.UUID) ([]eventLabModel.Lab, error) {
+	if _, err := r.q.LockEventForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	if _, err := r.q.LockEventTeamsForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	rows, err := r.q.LockEventTeamLabsForSourceChange(ctx, postgres.LockEventTeamLabsForSourceChangeParams{EventID: eventID, EventExerciseID: exerciseID})
+	if err != nil {
+		return nil, err
+	}
+	labs := make([]eventLabModel.Lab, 0, len(rows))
+	for _, row := range rows {
+		lab, err := ToDomain(row)
+		if err != nil {
+			return nil, err
+		}
+		labs = append(labs, lab)
+	}
+	return labs, nil
+}
+
 func (r *Repository) RecordInitialReadiness(ctx context.Context, id uuid.UUID, ref eventLabModel.Ref, uid string, generation int64, ready bool, now time.Time) (bool, error) {
 	n, err := r.q.RecordEventTeamLabInitialReadiness(ctx, postgres.RecordEventTeamLabInitialReadinessParams{ID: id, LabGroupName: ref.Group, LabName: ref.Lab, AgentUid: uid, AgentGeneration: generation, RuntimeReady: ready, Now: timestamp(&now)})
 	return n == 1, err

@@ -833,6 +833,11 @@ func (u *EventUseCase) DetachEventExercise(ctx context.Context, eventID, eventEx
 	if err != nil {
 		return err
 	}
+	// The stands of a set that leaves the event go with it: no Lab keeps pointing at a missing or detached set.
+	closedLabs, err := u.closeSetLabsInTransaction(txCtx, txRepo, eventID, link.ID, time.Now())
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to close laboratories of the detached set").Err()
+	}
 	challenges := eventChallengeRepo.New(txRepo)
 	if keep {
 		if _, err = attachments.Detach(txCtx, eventID, link.ID, by, time.Now()); err != nil {
@@ -862,6 +867,10 @@ func (u *EventUseCase) DetachEventExercise(ctx context.Context, eventID, eventEx
 	}
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to detach event exercise").Err()
+	}
+	u.deleteClosedSetLabs(ctx, closedLabs)
+	if len(closedLabs) > 0 {
+		u.wakeLabLifecycle(ctx)
 	}
 	if u.supportsLabAccessPolicy() {
 		return u.RequestEventLabAccessSyncs(ctx, eventID)
