@@ -120,3 +120,91 @@ func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) 
 		return fn(o)
 	})
 }
+
+// LabArchiveErasedClient replaces the name of a deleted participant's VPN
+// client in a scrubbed archive.
+const LabArchiveErasedClient = "p-deleted"
+
+// ScrubLabArchive rewrites an archive chunk without the given VPN clients: their
+// names become LabArchiveErasedClient everywhere in the payloads and the IPs
+// the platform assigned to them are blanked. It reports whether anything
+// changed; a chunk that does not mention them comes back untouched, so a
+// repeated scrub is a no-op.
+func ScrubLabArchive(codec string, data []byte, clients []string) ([]byte, bool, error) {
+	var lines []string
+	changed := false
+	err := LabArchiveLines(codec, data, func(line []byte) error {
+		mentioned := false
+		for _, c := range clients {
+			if bytes.Contains(line, []byte(c)) {
+				mentioned = true
+				break
+			}
+		}
+		if !mentioned {
+			lines = append(lines, string(line))
+			return nil
+		}
+		scrubbed, err := scrubLabArchiveLine(line, clients)
+		if err != nil {
+			return err
+		}
+		changed = true
+		lines = append(lines, string(scrubbed))
+		return nil
+	})
+	if err != nil || !changed {
+		return data, false, err
+	}
+	packed, err := CompressLabArchive(lines)
+	if err != nil {
+		return nil, false, err
+	}
+	return packed, true, nil
+}
+
+func scrubLabArchiveLine(line []byte, clients []string) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	var row map[string]any
+	if err := dec.Decode(&row); err != nil {
+		return nil, fmt.Errorf("lab archive: decode line: %w", err)
+	}
+	erased := map[string]bool{}
+	for _, c := range clients {
+		erased[c] = true
+	}
+	var ips []string
+	if payload, ok := row["payload"].(map[string]any); ok {
+		list, _ := payload["clients"].([]any)
+		for _, item := range list {
+			client, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, _ := client["name"].(string); !erased[name] {
+				continue
+			}
+			if status, ok := client["status"].(map[string]any); ok {
+				if ip, _ := status["assignedIp"].(string); ip != "" {
+					ips = append(ips, ip)
+					status["assignedIp"] = ""
+				}
+			}
+		}
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(row); err != nil {
+		return nil, err
+	}
+	out := bytes.TrimSpace(buf.Bytes())
+	for _, ip := range ips {
+		out = bytes.ReplaceAll(out, []byte(`"`+ip+`"`), []byte(`""`))
+	}
+	for _, c := range clients {
+		out = bytes.ReplaceAll(out, []byte(c), []byte(LabArchiveErasedClient))
+	}
+	return out, nil
+}

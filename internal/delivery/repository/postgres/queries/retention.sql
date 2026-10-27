@@ -281,6 +281,30 @@ WITH batch AS (
     UPDATE event_activity SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
 ), vpn_sessions AS (
     UPDATE event_vpn_sessions SET user_id = NULL, client_name = '' WHERE user_id IN (SELECT id FROM batch)
+), lab_erasures AS (
+    -- The archived raw telemetry is rewritten later (it needs the chunk unpacked): queue the account with the
+    -- events it took part in. The sub-selects see the rows as they are before this statement renames them.
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, event_ids)
+    SELECT b.id, lab_client_name(b.id),
+           ARRAY(SELECT x.event_id
+                 FROM (SELECT p.event_id FROM event_participants p WHERE p.user_id = b.id
+                       UNION
+                       SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = lab_client_name(b.id)
+                       UNION
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = b.id) x)
+    FROM batch b
+    ON CONFLICT (user_id) DO NOTHING
+), lab_client_minutes AS (
+    -- Traffic per minute stays for the team's figures; the client becomes an unrelated name per row.
+    UPDATE event_vpn_client_minutes
+    SET client_name = 'deleted-' || gen_random_uuid()::text
+    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+), lab_transitions AS (
+    UPDATE event_lab_transitions SET client_name = NULL
+    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+), lab_client_states AS (
+    DELETE FROM event_lab_journal_states
+    WHERE kind = 'client' AND name IN (SELECT lab_client_name(id) FROM batch)
 ), lab_touches AS (
     -- Lab access counters keep what happened to the task, not who did it.
     UPDATE event_lab_touches SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
@@ -372,3 +396,25 @@ WHERE (event_id, user_id) IN (
 -- whose creation and last (re)sent invitation are both before
 -- created_before; see purge_unconfirmed_accounts (migration 0100).
 SELECT purge_unconfirmed_accounts(sqlc.arg(created_before)::timestamptz, sqlc.arg(now_at)::timestamptz, sqlc.arg(batch_size)::integer)::bigint AS purged;
+
+-- name: ListLabTelemetryErasures :many
+-- Deleted accounts whose archived telemetry is still to be scrubbed.
+SELECT user_id, client_name, event_ids
+FROM lab_telemetry_erasures
+ORDER BY queued_at, user_id
+LIMIT sqlc.arg(batch_size);
+
+-- name: ListLabArchiveChunksForScrub :many
+-- The archive chunks of an event after the given id, a page at a time.
+SELECT id, codec, data
+FROM event_lab_observation_archives
+WHERE event_id = sqlc.arg(event_id)
+  AND id > sqlc.arg(after_id)::uuid
+ORDER BY id
+LIMIT sqlc.arg(page_size);
+
+-- name: UpdateLabArchiveChunkData :exec
+UPDATE event_lab_observation_archives SET data = sqlc.arg(data) WHERE id = sqlc.arg(id);
+
+-- name: DeleteLabTelemetryErasures :exec
+DELETE FROM lab_telemetry_erasures WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);

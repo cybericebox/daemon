@@ -8,6 +8,8 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
+
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
@@ -56,6 +58,14 @@ func (s *fakeStore) PurgeRolledUpEventLabObservations(
 ) (int64, error) {
 	return s.purge("lab_rolled_up", before)
 }
+func (s *fakeStore) LabTelemetryErasures(context.Context, int32) ([]retentionRepo.LabTelemetryErasure, error) {
+	return nil, nil
+}
+func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
+	return nil, nil
+}
+func (s *fakeStore) SaveScrubbedLabArchiveChunk(context.Context, uuid.UUID, []byte) error { return nil }
+func (s *fakeStore) DeleteLabTelemetryErasures(context.Context, []uuid.UUID) error        { return nil }
 func (s *fakeStore) PurgeEventLabTelemetry(_ context.Context, before time.Time, _ int32) (int64, error) {
 	return s.purge("lab_telemetry", before)
 }
