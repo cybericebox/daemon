@@ -8021,6 +8021,51 @@ func (mr *MockQuerierMockRecorder) ListEventTeamLabGroups(ctx, eventID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamLabGroups", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamLabGroups), ctx, eventID)
 }
 
+// ListEventTeamLabMinutes mocks base method.
+func (m *MockQuerier) ListEventTeamLabMinutes(ctx context.Context, arg postgres.ListEventTeamLabMinutesParams) ([]postgres.ListEventTeamLabMinutesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventTeamLabMinutes", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventTeamLabMinutesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventTeamLabMinutes indicates an expected call of ListEventTeamLabMinutes.
+func (mr *MockQuerierMockRecorder) ListEventTeamLabMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamLabMinutes", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamLabMinutes), ctx, arg)
+}
+
+// ListEventTeamLabTransitions mocks base method.
+func (m *MockQuerier) ListEventTeamLabTransitions(ctx context.Context, arg postgres.ListEventTeamLabTransitionsParams) ([]postgres.ListEventTeamLabTransitionsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventTeamLabTransitions", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventTeamLabTransitionsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventTeamLabTransitions indicates an expected call of ListEventTeamLabTransitions.
+func (mr *MockQuerierMockRecorder) ListEventTeamLabTransitions(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamLabTransitions", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamLabTransitions), ctx, arg)
+}
+
+// ListEventTeamLabUsageMinutes mocks base method.
+func (m *MockQuerier) ListEventTeamLabUsageMinutes(ctx context.Context, arg postgres.ListEventTeamLabUsageMinutesParams) ([]postgres.ListEventTeamLabUsageMinutesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventTeamLabUsageMinutes", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventTeamLabUsageMinutesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventTeamLabUsageMinutes indicates an expected call of ListEventTeamLabUsageMinutes.
+func (mr *MockQuerierMockRecorder) ListEventTeamLabUsageMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamLabUsageMinutes", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamLabUsageMinutes), ctx, arg)
+}
+
 // ListEventTeamMembers mocks base method.
 func (m *MockQuerier) ListEventTeamMembers(ctx context.Context, arg postgres.ListEventTeamMembersParams) ([]postgres.ListEventTeamMembersRow, error) {
 	m.ctrl.T.Helper()
@@ -8034,6 +8079,21 @@ func (m *MockQuerier) ListEventTeamMembers(ctx context.Context, arg postgres.Lis
 func (mr *MockQuerierMockRecorder) ListEventTeamMembers(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamMembers", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamMembers), ctx, arg)
+}
+
+// ListEventTeamVPNClientMinutes mocks base method.
+func (m *MockQuerier) ListEventTeamVPNClientMinutes(ctx context.Context, arg postgres.ListEventTeamVPNClientMinutesParams) ([]postgres.ListEventTeamVPNClientMinutesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventTeamVPNClientMinutes", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventTeamVPNClientMinutesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventTeamVPNClientMinutes indicates an expected call of ListEventTeamVPNClientMinutes.
+func (mr *MockQuerierMockRecorder) ListEventTeamVPNClientMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTeamVPNClientMinutes", reflect.TypeOf((*MockQuerier)(nil).ListEventTeamVPNClientMinutes), ctx, arg)
 }
 
 // ListEventTeams mocks base method.

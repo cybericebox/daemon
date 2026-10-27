@@ -23,6 +23,7 @@ type (
 	Store interface {
 		ParticipantStore
 		StandStore
+		LabTelemetryStore
 		UsageStore
 		IntegrityStore
 		ReportStore

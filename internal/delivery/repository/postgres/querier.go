@@ -1026,7 +1026,23 @@ type Querier interface {
 	ListEventTeamFill(ctx context.Context, eventID uuid.UUID) ([]ListEventTeamFillRow, error)
 	// Every team LabGroup the event may own (VPN-only groups included).
 	ListEventTeamLabGroups(ctx context.Context, eventID uuid.UUID) ([]string, error)
+	ListEventTeamLabMinutes(ctx context.Context, arg ListEventTeamLabMinutesParams) ([]ListEventTeamLabMinutesRow, error)
+	// The transitions journal of a team in a time range (agent time), oldest
+	// first; kinds narrows to some kinds, empty means all. For lab_ready it also
+	// gives the platform's own time of marking that lab ready (the first
+	// lab_bindings readiness change to Ready at or after 30 s before what the
+	// agent saw), so the lag between the agent seeing Ready and the platform
+	// acting on it can be read: platform_ready_at - at.
+	ListEventTeamLabTransitions(ctx context.Context, arg ListEventTeamLabTransitionsParams) ([]ListEventTeamLabTransitionsRow, error)
+	// Reads of the lab telemetry rollups for the event analytics API: one team,
+	// one time range. The moderators team is never listed.
+	// Per device and minute: samples, CPU (millicores) and memory (bytes) with
+	// averages from the sums, restarts, ready samples, last pod phase.
+	ListEventTeamLabUsageMinutes(ctx context.Context, arg ListEventTeamLabUsageMinutesParams) ([]ListEventTeamLabUsageMinutesRow, error)
 	ListEventTeamMembers(ctx context.Context, arg ListEventTeamMembersParams) ([]ListEventTeamMembersRow, error)
+	// Per VPN client (participant) and minute: traffic of the minute and the
+	// samples that saw the peer connected.
+	ListEventTeamVPNClientMinutes(ctx context.Context, arg ListEventTeamVPNClientMinutesParams) ([]ListEventTeamVPNClientMinutesRow, error)
 	// search '' means no text filter; admission_filter < 0 means any admission,
 	// 1 only admitted teams and 0 only teams that are not admitted; field_filters
 	// is a JSON array of answer filters on extra_fields (event_answer_matches).

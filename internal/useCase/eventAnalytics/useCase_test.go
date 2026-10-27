@@ -54,6 +54,12 @@ type fakeStore struct {
 	journalCalls []eventAnalyticsRepo.VPNCursor
 	journalNext  eventAnalyticsRepo.VPNCursor
 
+	readTeam       uuid.UUID
+	readPeriod     eventAnalyticsModel.Period
+	readKinds      []string
+	deviceMinutes  []eventAnalyticsRepo.DeviceMinute
+	labTransitions []eventAnalyticsRepo.LabTransition
+
 	holds    []*time.Time
 	resets   int
 	chunks   []eventAnalyticsRepo.LabArchiveChunk
@@ -138,6 +144,24 @@ func (s *fakeStore) RollupLabJournal(
 	read := s.journalReads[0]
 	s.journalReads = s.journalReads[1:]
 	return s.journalNext, read, nil
+}
+func (s *fakeStore) TeamDeviceMinutes(
+	_ context.Context, _, team uuid.UUID, p eventAnalyticsModel.Period, _ int32,
+) ([]eventAnalyticsRepo.DeviceMinute, error) {
+	s.readTeam, s.readPeriod = team, p
+	return s.deviceMinutes, nil
+}
+func (s *fakeStore) TeamLabMinutes(context.Context, uuid.UUID, uuid.UUID, eventAnalyticsModel.Period, int32) ([]eventAnalyticsRepo.LabMinute, error) {
+	return nil, nil
+}
+func (s *fakeStore) TeamClientMinutes(context.Context, uuid.UUID, uuid.UUID, eventAnalyticsModel.Period, int32) ([]eventAnalyticsRepo.ClientMinute, error) {
+	return nil, nil
+}
+func (s *fakeStore) TeamLabTransitions(
+	_ context.Context, _, team uuid.UUID, p eventAnalyticsModel.Period, kinds []string, _ int32,
+) ([]eventAnalyticsRepo.LabTransition, error) {
+	s.readTeam, s.readPeriod, s.readKinds = team, p, kinds
+	return s.labTransitions, nil
 }
 func (s *fakeStore) HoldLabTelemetry(_ context.Context, _ uuid.UUID, until *time.Time) error {
 	s.holds = append(s.holds, until)
@@ -611,5 +635,35 @@ func TestResolveEvent(t *testing.T) {
 	}
 	if _, err := uc.ResolveEvent(ctx, "none"); err == nil {
 		t.Fatal("an unknown tag is refused")
+	}
+}
+
+// The lab telemetry reads go to the store for the team and the aligned period;
+// an event without infrastructure has nothing to show.
+func TestGetEventLabTelemetry(t *testing.T) {
+	clock := now
+	team := uuid.Must(uuid.NewV7())
+	event := runningEvent()
+	event.InfrastructureAllowed = true
+	store := &fakeStore{deviceMinutes: []eventAnalyticsRepo.DeviceMinute{{DeviceName: "app"}}}
+	uc := newUC(store, event, nil, &clock)
+
+	v, err := uc.GetEventLabTelemetry(context.Background(), event.ID, team, nil, nil)
+	if err != nil || !v.Available || len(v.Devices) != 1 || store.readTeam != team {
+		t.Fatalf("view=%+v team=%v err=%v", v, store.readTeam, err)
+	}
+	if !v.Period.From.Equal(event.Lifecycle.StartAt.Truncate(5 * time.Minute)) {
+		t.Fatalf("the period defaults to the event: %+v", v.Period)
+	}
+
+	tv, err := uc.GetEventLabTransitions(context.Background(), event.ID, team, nil, nil, []string{"lab_ready"})
+	if err != nil || !tv.Available || len(store.readKinds) != 1 {
+		t.Fatalf("transitions=%+v kinds=%v err=%v", tv, store.readKinds, err)
+	}
+
+	noInfra := runningEvent()
+	plain := newUC(&fakeStore{}, noInfra, nil, &clock)
+	if v, err = plain.GetEventLabTelemetry(context.Background(), noInfra.ID, team, nil, nil); err != nil || v.Available {
+		t.Fatalf("an event without infrastructure shows nothing: %+v %v", v, err)
 	}
 }

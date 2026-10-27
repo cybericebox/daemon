@@ -3465,6 +3465,23 @@ definitions:
       Verdict:
         type: string
     type: object
+  eventAnalytics.clientMinuteResponse:
+    properties:
+      At:
+        type: string
+      ClientName:
+        type: string
+      ConnectedSamples:
+        type: integer
+      LabGroupName:
+        type: string
+      RxBytes:
+        type: integer
+      Samples:
+        type: integer
+      TxBytes:
+        type: integer
+    type: object
   eventAnalytics.commsSnapshotResponse:
     properties:
       EmailFailed:
@@ -3516,6 +3533,33 @@ definitions:
         items:
           $ref: '#/definitions/eventAnalytics.commsTypeResponse'
         type: array
+    type: object
+  eventAnalytics.deviceMinuteResponse:
+    properties:
+      At:
+        type: string
+      CPUAvgMillicores:
+        type: integer
+      CPUMaxMillicores:
+        type: integer
+      DeviceName:
+        type: string
+      LabGroupName:
+        type: string
+      LabName:
+        type: string
+      LastPodPhase:
+        type: string
+      MemoryAvgBytes:
+        type: integer
+      MemoryMaxBytes:
+        type: integer
+      ReadySamples:
+        type: integer
+      Restarts:
+        type: integer
+      Samples:
+        type: integer
     type: object
   eventAnalytics.dismissRequest:
     properties:
@@ -3934,6 +3978,82 @@ definitions:
         type: object
       FollowGapSeconds:
         type: integer
+    type: object
+  eventAnalytics.labMinuteResponse:
+    properties:
+      At:
+        type: string
+      LabGroupName:
+        type: string
+      LabName:
+        type: string
+      ReadySamples:
+        type: integer
+      Samples:
+        type: integer
+      VPNReadySamples:
+        type: integer
+    type: object
+  eventAnalytics.labTelemetryResponse:
+    properties:
+      Available:
+        type: boolean
+      Clients:
+        items:
+          $ref: '#/definitions/eventAnalytics.clientMinuteResponse'
+        type: array
+      Devices:
+        items:
+          $ref: '#/definitions/eventAnalytics.deviceMinuteResponse'
+        type: array
+      Labs:
+        items:
+          $ref: '#/definitions/eventAnalytics.labMinuteResponse'
+        type: array
+      Period:
+        $ref: '#/definitions/eventAnalytics.periodResponse'
+      Truncated:
+        type: boolean
+    type: object
+  eventAnalytics.labTransitionResponse:
+    properties:
+      At:
+        type: string
+      ClientName:
+        type: string
+      Detail:
+        type: string
+      DeviceName:
+        type: string
+      ID:
+        type: string
+      Kind:
+        type: string
+      LabGroupName:
+        type: string
+      LabName:
+        type: string
+      PlatformLagMillis:
+        type: integer
+      PlatformReadyAt:
+        type: string
+      ReceivedAt:
+        type: string
+      ReportLagMillis:
+        type: integer
+    type: object
+  eventAnalytics.labTransitionsResponse:
+    properties:
+      Available:
+        type: boolean
+      Period:
+        $ref: '#/definitions/eventAnalytics.periodResponse'
+      Transitions:
+        items:
+          $ref: '#/definitions/eventAnalytics.labTransitionResponse'
+        type: array
+      Truncated:
+        type: boolean
     type: object
   eventAnalytics.leaderResponse:
     properties:
@@ -14140,6 +14260,91 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Mark a flagged solve as reviewed
+      tags:
+      - event-analytics
+  /events/{id}/manage/analytics/lab-telemetry:
+    get:
+      description: 'Per minute: device CPU and memory averages and peaks, ready samples,
+        restarts and last pod phase; lab ready and VPN ready samples; each VPN client''s
+        traffic and connected samples. Empty (Available=false) for an event without
+        infrastructure. The period defaults to the event.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: team ID
+        in: query
+        name: team_id
+        required: true
+        type: string
+      - description: period start (RFC 3339)
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventAnalytics.labTelemetryResponse'
+              type: object
+      summary: 'Minute rollups of a team''s labs: devices, labs, VPN clients'
+      tags:
+      - event-analytics
+  /events/{id}/manage/analytics/lab-telemetry/transitions:
+    get:
+      description: 'State changes seen in the lab telemetry, oldest first: lab_ready,
+        lab_not_ready, device_ready, device_restart, pod_scheduled, pod_started, vpn_boot_changed,
+        policy_applied, client_connected, client_disconnected. For lab_ready also
+        when the platform marked the lab ready. Empty (Available=false) for an event
+        without infrastructure.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: team ID
+        in: query
+        name: team_id
+        required: true
+        type: string
+      - description: period start (RFC 3339)
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339)
+        in: query
+        name: to
+        type: string
+      - description: comma-separated kinds; all when empty
+        in: query
+        name: kinds
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventAnalytics.labTransitionsResponse'
+              type: object
+      summary: Transitions journal of a team's labs
       tags:
       - event-analytics
   /events/{id}/manage/analytics/overview:

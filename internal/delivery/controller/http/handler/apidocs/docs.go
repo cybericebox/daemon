@@ -3783,6 +3783,132 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/analytics/lab-telemetry": {
+            "get": {
+                "description": "Per minute: device CPU and memory averages and peaks, ready samples, restarts and last pod phase; lab ready and VPN ready samples; each VPN client's traffic and connected samples. Empty (Available=false) for an event without infrastructure. The period defaults to the event.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-analytics"
+                ],
+                "summary": "Minute rollups of a team's labs: devices, labs, VPN clients",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "team ID",
+                        "name": "team_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "period start (RFC 3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "period end, exclusive (RFC 3339)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventAnalytics.labTelemetryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/analytics/lab-telemetry/transitions": {
+            "get": {
+                "description": "State changes seen in the lab telemetry, oldest first: lab_ready, lab_not_ready, device_ready, device_restart, pod_scheduled, pod_started, vpn_boot_changed, policy_applied, client_connected, client_disconnected. For lab_ready also when the platform marked the lab ready. Empty (Available=false) for an event without infrastructure.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-analytics"
+                ],
+                "summary": "Transitions journal of a team's labs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "team ID",
+                        "name": "team_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "period start (RFC 3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "period end, exclusive (RFC 3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "comma-separated kinds; all when empty",
+                        "name": "kinds",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventAnalytics.labTransitionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/analytics/overview": {
             "get": {
                 "description": "§6.1 «Огляд». Without from/to the period is the event's own window (start to finish, or to now while it runs). The series has a point per 5 minutes; values are cached for a few seconds.",
@@ -31387,6 +31513,32 @@ const docTemplate = `{
                 }
             }
         },
+        "eventAnalytics.clientMinuteResponse": {
+            "type": "object",
+            "properties": {
+                "At": {
+                    "type": "string"
+                },
+                "ClientName": {
+                    "type": "string"
+                },
+                "ConnectedSamples": {
+                    "type": "integer"
+                },
+                "LabGroupName": {
+                    "type": "string"
+                },
+                "RxBytes": {
+                    "type": "integer"
+                },
+                "Samples": {
+                    "type": "integer"
+                },
+                "TxBytes": {
+                    "type": "integer"
+                }
+            }
+        },
         "eventAnalytics.commsSnapshotResponse": {
             "type": "object",
             "properties": {
@@ -31464,6 +31616,47 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/eventAnalytics.commsTypeResponse"
                     }
+                }
+            }
+        },
+        "eventAnalytics.deviceMinuteResponse": {
+            "type": "object",
+            "properties": {
+                "At": {
+                    "type": "string"
+                },
+                "CPUAvgMillicores": {
+                    "type": "integer"
+                },
+                "CPUMaxMillicores": {
+                    "type": "integer"
+                },
+                "DeviceName": {
+                    "type": "string"
+                },
+                "LabGroupName": {
+                    "type": "string"
+                },
+                "LabName": {
+                    "type": "string"
+                },
+                "LastPodPhase": {
+                    "type": "string"
+                },
+                "MemoryAvgBytes": {
+                    "type": "integer"
+                },
+                "MemoryMaxBytes": {
+                    "type": "integer"
+                },
+                "ReadySamples": {
+                    "type": "integer"
+                },
+                "Restarts": {
+                    "type": "integer"
+                },
+                "Samples": {
+                    "type": "integer"
                 }
             }
         },
@@ -32084,6 +32277,122 @@ const docTemplate = `{
                 },
                 "FollowGapSeconds": {
                     "type": "integer"
+                }
+            }
+        },
+        "eventAnalytics.labMinuteResponse": {
+            "type": "object",
+            "properties": {
+                "At": {
+                    "type": "string"
+                },
+                "LabGroupName": {
+                    "type": "string"
+                },
+                "LabName": {
+                    "type": "string"
+                },
+                "ReadySamples": {
+                    "type": "integer"
+                },
+                "Samples": {
+                    "type": "integer"
+                },
+                "VPNReadySamples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "eventAnalytics.labTelemetryResponse": {
+            "type": "object",
+            "properties": {
+                "Available": {
+                    "type": "boolean"
+                },
+                "Clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventAnalytics.clientMinuteResponse"
+                    }
+                },
+                "Devices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventAnalytics.deviceMinuteResponse"
+                    }
+                },
+                "Labs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventAnalytics.labMinuteResponse"
+                    }
+                },
+                "Period": {
+                    "$ref": "#/definitions/eventAnalytics.periodResponse"
+                },
+                "Truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "eventAnalytics.labTransitionResponse": {
+            "type": "object",
+            "properties": {
+                "At": {
+                    "type": "string"
+                },
+                "ClientName": {
+                    "type": "string"
+                },
+                "Detail": {
+                    "type": "string"
+                },
+                "DeviceName": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "type": "string"
+                },
+                "LabGroupName": {
+                    "type": "string"
+                },
+                "LabName": {
+                    "type": "string"
+                },
+                "PlatformLagMillis": {
+                    "type": "integer"
+                },
+                "PlatformReadyAt": {
+                    "type": "string"
+                },
+                "ReceivedAt": {
+                    "type": "string"
+                },
+                "ReportLagMillis": {
+                    "type": "integer"
+                }
+            }
+        },
+        "eventAnalytics.labTransitionsResponse": {
+            "type": "object",
+            "properties": {
+                "Available": {
+                    "type": "boolean"
+                },
+                "Period": {
+                    "$ref": "#/definitions/eventAnalytics.periodResponse"
+                },
+                "Transitions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventAnalytics.labTransitionResponse"
+                    }
+                },
+                "Truncated": {
+                    "type": "boolean"
                 }
             }
         },
