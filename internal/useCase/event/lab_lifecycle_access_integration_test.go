@@ -2,6 +2,7 @@ package event_test
 
 import (
 	"context"
+	"errors"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/useCase/event"
@@ -152,5 +153,48 @@ func TestRuntimeReadRecordsTheReadinessOfAReadyPlainLab(t *testing.T) {
 	}
 	if got.Lab == nil || got.Lab.RuntimeState != "ready" || !got.Status.Ready {
 		t.Fatalf("a ready plain lab stayed unrecorded: %+v", got)
+	}
+}
+
+// The participant is told the state of the stand, and never gets addresses of a runtime that is not current.
+func TestOwnRuntimeStateTellsReadyRestartingUnavailableAndFailed(t *testing.T) {
+	f, set, user, _ := prepareLifecycle(t)
+	ctx := context.Background()
+	read := func() event.ChallengeRuntimeView {
+		got, err := f.uc.GetOwnChallengeRuntime(ctx, f.eventID, user, set.challenges[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := read(); got.State != event.StandStateReady || !got.Status.Ready {
+		t.Fatalf("ready lab: %+v", got)
+	}
+
+	// The agent reports the lab not ready (a device restarts): restarting, no addresses.
+	var key string
+	if err := f.db.Pool.QueryRow(ctx, `SELECT lab_group_name||'/'||lab_name FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=$2`, f.blueID, set.challenges[0]).Scan(&key); err != nil {
+		t.Fatal(err)
+	}
+	f.agent.mu.Lock()
+	delete(f.agent.ready, key)
+	f.agent.mu.Unlock()
+	if got := read(); got.State != event.StandStateRestarting || got.Status.Ready || len(got.Status.Access) != 0 {
+		t.Fatalf("restarting lab: %+v", got)
+	}
+
+	// The agent cannot be asked: temporarily unavailable, not an error page.
+	f.agent.labStatusErr = errors.New("connection refused")
+	if got := read(); got.State != event.StandStateUnavailable || len(got.Status.Access) != 0 {
+		t.Fatalf("unreachable agent: %+v", got)
+	}
+	f.agent.labStatusErr = nil
+
+	// A failed binding is reported as failed.
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE lab_bindings SET readiness=2, failure_reason='boom' WHERE event_team_id=$1 AND event_challenge_id=$2`, f.blueID, set.challenges[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.State != event.StandStateFailed {
+		t.Fatalf("failed binding: %+v", got)
 	}
 }

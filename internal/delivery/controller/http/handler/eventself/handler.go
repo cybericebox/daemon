@@ -738,6 +738,7 @@ func (h *Handler) labStatus(ctx *gin.Context) {
 	}
 	out := toLabStatusResponse(v.Status)
 	out.Lab = labview.ParticipantLab(v.Lab)
+	out.State = v.State
 	response.AbortWithData(ctx, out)
 }
 

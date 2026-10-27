@@ -44,6 +44,7 @@ type standAgent struct {
 	stopCalls           []eventLabModel.StopRequest
 	observations        map[eventLabModel.Ref]eventLabModel.Observation
 	stopErr, statusErr  error
+	labStatusErr        error
 	stopErrs            map[eventLabModel.Ref]error
 	mu                  sync.Mutex
 	deployed            []string
@@ -132,6 +133,9 @@ func (a *standAgent) DeployLab(ctx context.Context, group, lab string, meta infr
 func (a *standAgent) LabStatus(_ context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.labStatusErr != nil {
+		return exerciseModel.LabDeployStatus{}, a.labStatusErr
+	}
 	switch key := group + "/" + lab; {
 	case a.queued[key] != nil:
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseQueued, Queue: a.queued[key]}, nil

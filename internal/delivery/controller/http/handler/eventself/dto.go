@@ -324,6 +324,8 @@ func toParticipantFormAnswerResponse(v eventUseCase.ParticipantFormAnswerView) p
 }
 
 type labStatusResponse struct {
+	// State: ready | starting | restarting | unavailable | failed | closed. Access holds addresses only when ready.
+	State        string                          `json:"State"`
 	Lab          *labview.ParticipantLabResponse `json:"Lab"`
 	Phase        string                          `json:"Phase"`
 	Ready        bool                            `json:"Ready"`
