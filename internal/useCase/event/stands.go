@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -576,6 +577,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 	if fair {
 		pending = deployGroupOrder(pending)
 	}
+	statuses := u.fetchLabStatuses(ctx, pending)
 	topologies := map[topologyKey]exerciseModel.Topology{}
 	pulls := map[topologyKey]standImages{}
 	budget := u.standDeployBudget
@@ -598,7 +600,8 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			}
 			continue
 		}
-		status, statusErr := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
+		observed := statuses[binding.ID]
+		status, statusErr := observed.status, observed.err
 		if statusErr != nil {
 			// A transient agent error is retried next pass; a Lab that stays
 			// unreadable past the deploy timeout fails like a stuck one.
@@ -708,6 +711,48 @@ func (u *EventUseCase) retryFailedStandLabs(ctx context.Context, e eventModel.Ev
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// labStatusConcurrency bounds the agent status calls of one pass. Asking for the status of every deployed Lab one
+// after another took ~10 Labs a minute on a busy agent (lt1029); the answers are independent, so they are read
+// in parallel and applied in order.
+const labStatusConcurrency = 16
+
+type observedLabStatus struct {
+	status exerciseModel.LabDeployStatus
+	err    error
+}
+
+// fetchLabStatuses reads the agent status of every pending Lab that was already deployed, in parallel with a
+// bound, keyed by binding id. Lab not deployed yet have no entry.
+func (u *EventUseCase) fetchLabStatuses(ctx context.Context, pending []labBindingRepo.PendingLab) map[uuid.UUID]observedLabStatus {
+	var observe []labBindingRepo.PendingLab
+	for _, lab := range pending {
+		if lab.Binding.DeployedAt != nil {
+			observe = append(observe, lab)
+		}
+	}
+	out := make(map[uuid.UUID]observedLabStatus, len(observe))
+	if len(observe) == 0 {
+		return out
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, labStatusConcurrency)
+	for _, lab := range observe {
+		slots <- struct{}{}
+		wg.Add(1)
+		go func(binding labBindingModel.Binding) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			status, err := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
+			mu.Lock()
+			out[binding.ID] = observedLabStatus{status: status, err: err}
+			mu.Unlock()
+		}(lab.Binding)
+	}
+	wg.Wait()
+	return out
 }
 
 // failStandLab fails the pending Lab of a team's stand and tells the error journal about a failed lab deploy. The
@@ -954,28 +999,56 @@ func fairDeployGroups(reveal eventConfigModel.TaskRevealMode) bool {
 	return reveal != eventConfigModel.RevealAsReady
 }
 
-// deployGroupOrder hands the scheduler the members of a deploy group together:
-// the labs still to deploy come first, grouped by event exercise (all teams' lab
-// of the exercise back to back, the exercises in the order they first appear),
-// then the labs to observe. Only the order of submission changes; which group
-// the scheduler runs first stays its decision.
+// lateTeamWave is how much later than the oldest pending Lab a team's first Lab must have been prepared for the
+// team to count as having become ready after the first wave.
+const lateTeamWave = time.Minute
+
+// deployGroupOrder hands the scheduler the members of a deploy group together: the labs still to deploy come
+// first, grouped by event exercise (all teams' lab of the exercise back to back, the exercises in the order they
+// first appear), then the labs to observe. A team that became ready after the first wave (its first Lab was
+// prepared lateTeamWave after the oldest pending one) forms its own wave and goes before the rest: it never
+// waits behind the first wave's remaining Labs. Only the order of submission changes; which group the scheduler
+// runs first stays its decision.
 func deployGroupOrder(pending []labBindingRepo.PendingLab) []labBindingRepo.PendingLab {
-	byExercise := map[uuid.UUID][]labBindingRepo.PendingLab{}
-	var exercises []uuid.UUID
+	var oldest time.Time
+	firstOfTeam := map[uuid.UUID]time.Time{}
+	for _, lab := range pending {
+		at := lab.Binding.CreatedAt
+		if oldest.IsZero() || at.Before(oldest) {
+			oldest = at
+		}
+		if first, seen := firstOfTeam[lab.Binding.EventTeamID]; !seen || at.Before(first) {
+			firstOfTeam[lab.Binding.EventTeamID] = at
+		}
+	}
+	late := func(lab labBindingRepo.PendingLab) bool {
+		return firstOfTeam[lab.Binding.EventTeamID].Sub(oldest) >= lateTeamWave
+	}
+	var waves [2][]labBindingRepo.PendingLab // 0: teams that became ready late, 1: the first wave
 	var observed []labBindingRepo.PendingLab
 	for _, lab := range pending {
-		if lab.Binding.DeployedAt != nil {
+		switch {
+		case lab.Binding.DeployedAt != nil:
 			observed = append(observed, lab)
-			continue
+		case late(lab):
+			waves[0] = append(waves[0], lab)
+		default:
+			waves[1] = append(waves[1], lab)
 		}
-		if _, seen := byExercise[lab.EventExerciseID]; !seen {
-			exercises = append(exercises, lab.EventExerciseID)
-		}
-		byExercise[lab.EventExerciseID] = append(byExercise[lab.EventExerciseID], lab)
 	}
 	out := make([]labBindingRepo.PendingLab, 0, len(pending))
-	for _, id := range exercises {
-		out = append(out, byExercise[id]...)
+	for _, wave := range waves {
+		byExercise := map[uuid.UUID][]labBindingRepo.PendingLab{}
+		var exercises []uuid.UUID
+		for _, lab := range wave {
+			if _, seen := byExercise[lab.EventExerciseID]; !seen {
+				exercises = append(exercises, lab.EventExerciseID)
+			}
+			byExercise[lab.EventExerciseID] = append(byExercise[lab.EventExerciseID], lab)
+		}
+		for _, id := range exercises {
+			out = append(out, byExercise[id]...)
+		}
 	}
 	return append(out, observed...)
 }

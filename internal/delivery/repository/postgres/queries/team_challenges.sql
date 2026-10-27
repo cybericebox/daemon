@@ -198,7 +198,13 @@ WHERE tc.event_id = sqlc.arg(event_id)
    WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id AND lb.readiness=1
     AND l.desired_state='Running' AND l.logical_closed_at IS NULL AND l.actual_state='Running' AND l.runtime_ready
     AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision
-    AND (cfg.task_reveal_mode='as_ready' OR (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)))))
+    AND (cfg.task_reveal_mode='as_ready'
+     OR (cfg.task_reveal_mode='all_ready' AND (
+        (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)
+        -- A team outside the cohort (admitted after the cohort was fixed at the start) never waits for the others:
+        -- it gets each task as soon as its own Lab is ready. The moderators team is not a participant and waits.
+        OR (barrier.event_exercise_id IS NOT NULL AND NOT tc.event_team_id = ANY(barrier.eligible_team_ids)
+            AND NOT EXISTS(SELECT 1 FROM event_teams own WHERE own.id=tc.event_team_id AND own.moderators))))))))
 RETURNING tc.event_team_id;
 
 -- name: ListTeamChallengesForRefresh :many
