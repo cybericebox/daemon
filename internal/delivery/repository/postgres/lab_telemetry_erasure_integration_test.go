@@ -249,7 +249,7 @@ func TestLabTelemetryErasure_NoClockFilterForcedCloseAndNoLasingLink(t *testing.
 		text := archiveText(t, db, id)
 		require.NotContains(t, text, gone)
 		require.Contains(t, text, entry.Pseudonym)
-		require.Contains(t, text, "10.8.0.7", "the IPs stay")
+		require.NotContains(t, text, "10.8.0.7", "erasure on request removes the IP")
 	}
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%' || $1 || '%'`, gone))
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "an unarchived raw row keeps it open")
@@ -267,19 +267,27 @@ func TestLabTelemetryErasure_NoClockFilterForcedCloseAndNoLasingLink(t *testing.
 	require.NotContains(t, archiveText(t, db, future), gone)
 }
 
-// An objection: one person is erased on request, without the account being deleted; asking again keeps the same
-// pseudonym.
+// An objection: one person is erased on request, without the account being deleted. Unlike an account deletion it
+// removes the person's assigned IP too (raw rows, current state, archive); the others keep theirs. Asking again keeps
+// the same pseudonym, and a person already pseudonymized by an account deletion loses the IP on the objection.
 func TestLabTelemetryErasureOnRequest(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
 	f := anSeed(t, db, "laberasereq")
 	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
 	gone := labBindingModel.ParticipantClientName(f.user)
+	other := labBindingModel.ParticipantClientName(uuid.Must(uuid.NewV7()))
 	at := anStart.Add(time.Hour)
+	both := func(a, ipA, b, ipB string) string {
+		return `{"clients":[{"name":"` + a + `","status":{"assignedIp":"` + ipA + `"}},{"name":"` + b + `","status":{"assignedIp":"` + ipB + `"}}]}`
+	}
 	rtExec(t, db, `INSERT INTO event_vpn_client_minutes (event_id, team_id, lab_group_name, client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at)
 VALUES ($1, $2, 'g', $3, $4, 1, 1, 10, 1, 10, 1, $4)`, f.event, f.team, gone, at)
-	telemetryObservation(t, db, f.event, f.team, 1, at, erasurePayload(gone, "10.8.0.7"))
+	telemetryObservation(t, db, f.event, f.team, 1, at, both(gone, "10.8.0.7", other, "10.8.0.9"))
+	rtExec(t, db, `INSERT INTO lab_monitoring_current (event_id, event_team_id, lab_group_name, agent_id, sequence, observed_at, updated_at, payload)
+VALUES ($1, $2, 'grp', 'agent', 1, $3, $3, $4)`, f.event, f.team, at, both(gone, "10.8.0.7", other, "10.8.0.9"))
 	chunk := erasureArchiveChunk(t, db, f.event, f.team, at, at, gone, "10.8.0.7")
+	otherChunk := erasureArchiveChunk(t, db, f.event, f.team, at, at, other, "10.8.0.9")
 
 	uc := retention.New(retention.Dependencies{Store: retentionRepo.New(db.Queries), Now: func() time.Time { return anStart }})
 	entry, rewritten, err := uc.EraseLabTelemetryOf(ctx, f.user)
@@ -288,13 +296,58 @@ VALUES ($1, $2, 'g', $3, $4, 1, 1, 10, 1, 10, 1, $4)`, f.event, f.team, gone, at
 	require.True(t, strings.HasPrefix(entry.Pseudonym, "deleted-"))
 	require.NotContains(t, entry.Pseudonym, strings.TrimPrefix(gone, "p-"), "not derived from the user id")
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_vpn_client_minutes WHERE client_name = $1 AND rx_bytes = 10`, entry.Pseudonym))
-	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%' || $1 || '%'`, gone))
+
+	for _, query := range []string{
+		`SELECT payload::text FROM event_lab_observations WHERE event_id = $1`,
+		`SELECT payload::text FROM lab_monitoring_current WHERE event_id = $1`,
+	} {
+		var text string
+		require.NoError(t, db.Pool.QueryRow(ctx, query, f.event).Scan(&text))
+		require.NotContains(t, text, gone)
+		require.Contains(t, text, entry.Pseudonym)
+		require.NotContains(t, text, "10.8.0.7", "the person's IP goes on request")
+		require.Contains(t, text, other)
+		require.Contains(t, text, "10.8.0.9", "the others keep theirs")
+	}
 	require.NotContains(t, archiveText(t, db, chunk), gone)
-	require.Contains(t, archiveText(t, db, chunk), "10.8.0.7")
+	require.NotContains(t, archiveText(t, db, chunk), "10.8.0.7")
+	require.Contains(t, archiveText(t, db, otherChunk), "10.8.0.9")
 
 	again, _, err := uc.EraseLabTelemetryOf(ctx, f.user)
 	require.NoError(t, err)
 	require.Equal(t, entry.Pseudonym, again.Pseudonym)
+}
+
+// A person pseudonymized by an account deletion (IPs kept) loses the IP when the objection arrives later.
+func TestLabTelemetryErasureOnRequestAfterAccountDeletion(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "laberasereq2")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	gone := labBindingModel.ParticipantClientName(f.user)
+	at := anStart.Add(time.Hour)
+	telemetryObservation(t, db, f.event, f.team, 1, at, erasurePayload(gone, "10.8.0.7"))
+	chunk := erasureArchiveChunk(t, db, f.event, f.team, at, at, gone, "10.8.0.7")
+
+	users := userRepo.New(db.Queries)
+	u, err := users.GetByID(ctx, f.user)
+	require.NoError(t, err)
+	expected := u.UpdatedAt
+	require.NoError(t, u.SoftDelete(anStart))
+	_, err = users.Update(ctx, u, expected)
+	require.NoError(t, err)
+	store := retentionRepo.New(db.Queries)
+	_, err = store.PurgeDeletedAccounts(ctx, anStart, 10)
+	require.NoError(t, err)
+
+	uc := retention.New(retention.Dependencies{Store: store, Policies: fixedPolicy{}, Now: func() time.Time { return time.Now().UTC() }})
+	require.NoError(t, uc.EnforceDataRetention(ctx))
+	require.Contains(t, archiveText(t, db, chunk), "10.8.0.7", "an account deletion keeps the IPs")
+
+	_, _, err = uc.EraseLabTelemetryOf(ctx, f.user)
+	require.NoError(t, err)
+	require.NotContains(t, archiveText(t, db, chunk), "10.8.0.7")
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%10.8.0.7%'`))
 }
 
 // Queuing a person again keeps the pseudonym, adds the events found this time to the known ones, and an entry

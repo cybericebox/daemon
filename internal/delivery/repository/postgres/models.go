@@ -903,6 +903,7 @@ type LabTelemetryErasure struct {
 	Pseudonym  string      `json:"pseudonym"`
 	EventIds   []uuid.UUID `json:"event_ids"`
 	QueuedAt   time.Time   `json:"queued_at"`
+	EraseIp    bool        `json:"erase_ip"`
 }
 
 type MailIdentity struct {

@@ -245,6 +245,8 @@ type LabTelemetryErasure struct {
 	Pseudonym  string
 	EventIDs   []uuid.UUID
 	QueuedAt   time.Time
+	// EraseIP: the IP assigned to the client goes too (erasure on request); an account deletion leaves the IPs.
+	EraseIP bool
 }
 
 // LabArchiveChunk is an archive chunk to scrub.
@@ -265,7 +267,7 @@ func (r *Repository) LabTelemetryErasures(ctx context.Context, after LabTelemetr
 	out := make([]LabTelemetryErasure, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, LabTelemetryErasure{
-			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt,
+			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp,
 		})
 	}
 	return out, nil
@@ -317,21 +319,21 @@ func (r *Repository) QueueLabTelemetryErasure(ctx context.Context, userID uuid.U
 		return LabTelemetryErasure{}, err
 	}
 	return LabTelemetryErasure{
-		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt,
+		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp,
 	}, nil
 }
 
 // ScrubRawLabObservations rewrites up to batchSize raw observations of the events that carry the client name.
 func (r *Repository) ScrubRawLabObservations(ctx context.Context, e LabTelemetryErasure, batchSize int32) (int64, error) {
 	return r.q.ScrubRawLabObservations(ctx, postgres.ScrubRawLabObservationsParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize,
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize, EraseIp: e.EraseIP,
 	})
 }
 
 // ScrubLabMonitoringCurrent rewrites the current state of the events that carries the client name.
 func (r *Repository) ScrubLabMonitoringCurrent(ctx context.Context, e LabTelemetryErasure) (int64, error) {
 	return r.q.ScrubLabMonitoringCurrent(ctx, postgres.ScrubLabMonitoringCurrentParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs,
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, EraseIp: e.EraseIP,
 	})
 }
 

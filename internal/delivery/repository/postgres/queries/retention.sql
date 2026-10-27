@@ -417,7 +417,7 @@ SELECT purge_unconfirmed_accounts(sqlc.arg(created_before)::timestamptz, sqlc.ar
 
 -- name: ListLabTelemetryErasures :many
 -- Accounts erased from the lab telemetry that have not settled yet, a page at a time by (queued_at, user_id).
-SELECT user_id, client_name, pseudonym, event_ids, queued_at
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip
 FROM lab_telemetry_erasures
 WHERE (queued_at, user_id) > (sqlc.arg(after_queued_at)::timestamptz, sqlc.arg(after_user_id)::uuid)
 ORDER BY queued_at, user_id
@@ -457,19 +457,21 @@ WHERE e.user_id = settled.user_id AND e.queued_at = settled.queued_at;
 WITH person AS (
     SELECT sqlc.arg(user_id)::uuid AS id, lab_client_name(sqlc.arg(user_id)::uuid) AS client_name
 ), queued AS (
-    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids, erase_ip)
     SELECT p.id, p.client_name, 'deleted-' || gen_random_uuid()::text,
            ARRAY(SELECT x.event_id
                  FROM (SELECT pa.event_id FROM event_participants pa WHERE pa.user_id = p.id
                        UNION
                        SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = p.client_name
                        UNION
-                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x)
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x),
+           true
     FROM person p
     ON CONFLICT (user_id) DO UPDATE
         SET queued_at = now(),
-            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x)
-    RETURNING user_id, client_name, pseudonym, event_ids, queued_at
+            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x),
+            erase_ip = lab_telemetry_erasures.erase_ip OR EXCLUDED.erase_ip
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip
 ), minutes AS (
     UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym
     FROM queued q WHERE m.client_name = q.client_name
@@ -481,32 +483,44 @@ WITH person AS (
     FROM queued q WHERE s.kind = 'client' AND s.name = q.client_name
 ), raw AS (
     UPDATE event_lab_observations o
-    SET payload = replace(o.payload::text, q.client_name, q.pseudonym)::jsonb
+    SET payload = CASE WHEN q.erase_ip
+                       THEN lab_blank_client_ip(replace(o.payload::text, q.client_name, q.pseudonym)::jsonb, q.pseudonym)
+                       ELSE replace(o.payload::text, q.client_name, q.pseudonym)::jsonb END
     FROM queued q
-    WHERE o.event_id = ANY (q.event_ids) AND o.payload::text LIKE '%' || q.client_name || '%'
+    WHERE o.event_id = ANY (q.event_ids)
+      AND (o.payload::text LIKE '%' || q.client_name || '%' OR (q.erase_ip AND lab_client_has_ip(o.payload, q.pseudonym)))
 ), current AS (
     UPDATE lab_monitoring_current c
-    SET payload = replace(c.payload::text, q.client_name, q.pseudonym)::jsonb
+    SET payload = CASE WHEN q.erase_ip
+                       THEN lab_blank_client_ip(replace(c.payload::text, q.client_name, q.pseudonym)::jsonb, q.pseudonym)
+                       ELSE replace(c.payload::text, q.client_name, q.pseudonym)::jsonb END
     FROM queued q
-    WHERE c.event_id = ANY (q.event_ids) AND c.payload::text LIKE '%' || q.client_name || '%'
+    WHERE c.event_id = ANY (q.event_ids)
+      AND (c.payload::text LIKE '%' || q.client_name || '%' OR (q.erase_ip AND lab_client_has_ip(c.payload, q.pseudonym)))
 )
-SELECT user_id, client_name, pseudonym, event_ids, queued_at FROM queued;
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip FROM queued;
 
 -- name: ScrubRawLabObservations :execrows
 -- Rewrites up to batch_size raw observations of the events that still carry the client name.
 UPDATE event_lab_observations
-SET payload = replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb
+SET payload = CASE WHEN sqlc.arg(erase_ip)::boolean
+                   THEN lab_blank_client_ip(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb, sqlc.arg(pseudonym)::text)
+                   ELSE replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb END
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
              WHERE o.event_id = ANY (sqlc.arg(event_ids)::uuid[])
-               AND o.payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
+               AND (o.payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
+                    OR (sqlc.arg(erase_ip)::boolean AND lab_client_has_ip(o.payload, sqlc.arg(pseudonym)::text)))
              LIMIT sqlc.arg(batch_size));
 
 -- name: ScrubLabMonitoringCurrent :execrows
 UPDATE lab_monitoring_current
-SET payload = replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb
+SET payload = CASE WHEN sqlc.arg(erase_ip)::boolean
+                   THEN lab_blank_client_ip(replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb, sqlc.arg(pseudonym)::text)
+                   ELSE replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb END
 WHERE event_id = ANY (sqlc.arg(event_ids)::uuid[])
-  AND payload::text LIKE '%' || sqlc.arg(client_name)::text || '%';
+  AND (payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
+       OR (sqlc.arg(erase_ip)::boolean AND lab_client_has_ip(payload, sqlc.arg(pseudonym)::text)));
 
 -- name: RenameErasedLabClient :exec
 -- Gives the rollups' rows that were built from telemetry still carrying the client name the pseudonym. A row whose
