@@ -175,3 +175,48 @@ VALUES ($1, $2, 'lab', $3, 1, 0, 1, $4)`, f.event, f.team, f.challenge, m0.Add(9
 	require.Len(t, only, 1)
 	require.Nil(t, only[0].PlatformReadyAt)
 }
+
+// One bad value in a payload (negative, fractional, text, beyond bigint) must not stop the rollups: the batch
+// passes, the cursor moves on and the good observations are counted.
+func TestEventLabTelemetry_PoisonedPayloadDoesNotStopTheRollups(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventAnalyticsRepo.New(db.Queries)
+	f := anSeed(t, db, "labpoison")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	m0 := anStart.Add(time.Hour).UTC()
+	poison := func(rx, tx, memory, cpu, restarts, handshake string) string {
+		return fmt.Sprintf(`{"labs":[{"name":"web","status":{"ready":true,"devices":[{"name":"app","ready":true,"podPhase":"Running",`+
+			`"cpuMillicores":%s,"memoryBytes":%s,"restartCount":%s,"usageAvailable":true}]}}],`+
+			`"clients":[{"name":"p-a","status":{"statistics":{"rxBytes":%s,"txBytes":%s,"lastHandshakeUnix":%s}}}]}`,
+			cpu, memory, restarts, rx, tx, handshake)
+	}
+	telemetryObservation(t, db, f.event, f.team, 1, m0.Add(1*time.Second), poison(`"-5"`, `"abc"`, `"99999999999999999999"`, `"1.5"`, `"-1"`, `"1e10"`))
+	telemetryObservation(t, db, f.event, f.team, 2, m0.Add(2*time.Second), poison(`-7`, `1.5`, `-1`, `"x"`, `null`, `99999999999999999999`))
+	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(3*time.Second), poison(`"100"`, `"10"`, `"2000"`, `"30"`, `"0"`, fmt.Sprint(m0.Unix())))
+	telemetryObservation(t, db, f.event, f.team, 4, m0.Add(4*time.Second), `{"labs":"nope","clients":[1,"x",{"name":7}]}`)
+
+	cursor, read, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
+	require.NoError(t, err)
+	require.Equal(t, 4, read)
+	require.False(t, cursor.ID == uuid.Nil, "the cursor moved past the bad observations")
+
+	var samples, memorySum, cpuSum int64
+	require.NoError(t, db.Pool.QueryRow(ctx,
+		`SELECT sum(samples), sum(memory_sum), sum(cpu_sum) FROM event_lab_usage_minutes WHERE event_id = $1`, f.event).
+		Scan(&samples, &memorySum, &cpuSum))
+	require.EqualValues(t, 3, samples)
+	require.EqualValues(t, 2000, memorySum, "only the good value counts")
+	require.EqualValues(t, 30, cpuSum)
+
+	vpn, _, vpnRead, err := repo.VPNSamples(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
+	require.NoError(t, err)
+	require.Equal(t, 4, vpnRead)
+	require.Len(t, vpn, 1, "only the good handshake makes a sample")
+
+	journal, err := repo.LabJournal(ctx, f.event, func() uuid.UUID { return uuid.Must(uuid.NewV7()) })
+	require.NoError(t, err)
+	_, journalRead, err := repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal)
+	require.NoError(t, err)
+	require.Equal(t, 4, journalRead)
+}
