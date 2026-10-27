@@ -50,12 +50,13 @@ SELECT id FROM events WHERE tag = sqlc.arg(tag) ORDER BY created_at, id;
 -- Where the event's derived lab telemetry starts and where the sources a recompute can rebuild it from (the archive
 -- and the raw rows) start, in unix seconds; -1: there is none. Data older than its sources cannot be rebuilt. Minutes are
 -- compared by their bucket and transitions by the platform time of the observation they came from (received_at),
--- not by the agent time in `at`: a pod queued long before the first observation is no gap.
+-- not by the agent time in `at`: a pod queued long before the first observation is no gap. The sources are floored to
+-- the minute like the buckets, so the first observation at 09:28:03 does not leave a gap to the bucket of 09:28:00.
 SELECT COALESCE(extract(epoch FROM LEAST(
            (SELECT min(m.bucket_at) FROM event_lab_usage_minutes m WHERE m.event_id = sqlc.arg(event_id)),
            (SELECT min(m.bucket_at) FROM event_lab_minutes m WHERE m.event_id = sqlc.arg(event_id)),
            (SELECT min(m.bucket_at) FROM event_vpn_client_minutes m WHERE m.event_id = sqlc.arg(event_id)),
            (SELECT min(t.received_at) FROM event_lab_transitions t WHERE t.event_id = sqlc.arg(event_id))))::bigint, -1)::bigint AS data_from,
-       COALESCE(extract(epoch FROM LEAST(
+       COALESCE(extract(epoch FROM date_trunc('minute', LEAST(
            (SELECT min(a.first_received_at) FROM event_lab_observation_archives a WHERE a.event_id = sqlc.arg(event_id)),
-           (SELECT min(o.received_at) FROM event_lab_observations o WHERE o.event_id = sqlc.arg(event_id))))::bigint, -1)::bigint AS covered_from;
+           (SELECT min(o.received_at) FROM event_lab_observations o WHERE o.event_id = sqlc.arg(event_id)))))::bigint, -1)::bigint AS covered_from;

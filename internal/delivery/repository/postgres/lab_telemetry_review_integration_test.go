@@ -362,7 +362,7 @@ func TestEventLabTelemetry_CoverageComparesObservationTimeNotAgentTime(t *testin
 	repo := eventAnalyticsRepo.New(db.Queries)
 	f := anSeed(t, db, "labcoverage")
 	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
-	first := anStart.Add(3 * time.Hour).UTC()
+	first := anStart.Add(3*time.Hour + 3*time.Second).UTC() // like 09:28:03 on khctf
 	telemetryObservation(t, db, f.event, f.team, 1, first, telemetryPayload(true, "Running", 10, 1000, "p-a", first, 1, 1))
 	archiveUpTo(t, repo, f.event, first.Add(2*time.Hour))
 	rtExec(t, db, `DELETE FROM event_lab_observations WHERE event_id = $1`, f.event) // only the archive is left
@@ -377,7 +377,10 @@ VALUES ($1, $2, 'grp', 'web', $3, 1, 1, 1)`, f.event, f.team, first.Truncate(tim
 	require.NoError(t, err)
 	require.NotNil(t, dataFrom)
 	require.NotNil(t, coveredFrom)
-	require.False(t, dataFrom.Before(coveredFrom.Add(-2*time.Minute)), "data %s covered from %s: no gap", dataFrom, coveredFrom)
+	require.False(t, dataFrom.Before(*coveredFrom), "data %s covered from %s: no gap", dataFrom, coveredFrom)
+
+	// The edge: the first observation a few seconds into the minute, its bucket at the start of the minute.
+	require.Equal(t, first.Truncate(time.Minute), coveredFrom.UTC(), "the sources are floored to the minute like the buckets")
 
 	// Minutes older than the sources are a real gap.
 	rtExec(t, db, `INSERT INTO event_lab_minutes (event_id, team_id, lab_group_name, lab_name, bucket_at, samples, ready_samples, vpn_ready_samples)
