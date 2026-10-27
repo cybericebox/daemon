@@ -14,7 +14,7 @@ const day = 24 * time.Hour
 // Policy defaults, equal to the published Privacy Policy.
 const (
 	DefaultSessionAfterExpiry       = 90 * day
-	DefaultLabTelemetry             = 90 * day
+	DefaultLabTelemetry             = 365 * day
 	DefaultDeliveryLog              = 180 * day
 	DefaultFormAnswersAfterEventEnd = 365 * day
 	DefaultInactiveAccount          = 3 * 365 * day
@@ -36,7 +36,9 @@ type (
 	Policy struct {
 		// SessionAfterExpiry keeps an expired session record (IP, user agent).
 		SessionAfterExpiry time.Duration
-		// LabTelemetry keeps lab observations (event and platform capacity).
+		// LabTelemetry keeps lab observations (event and platform capacity),
+		// and the lab telemetry rollups, journal and raw archive of an event
+		// after its access closes (rolling for an event with no end).
 		LabTelemetry time.Duration
 		// DeliveryLog keeps the email and notification delivery journal.
 		DeliveryLog time.Duration

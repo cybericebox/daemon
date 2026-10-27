@@ -57,6 +57,68 @@ WHERE id IN (SELECT o.id
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE OF o SKIP LOCKED);
 
+-- Derived lab telemetry (minute tables, transitions journal and its states, raw
+-- archive) is kept for the telemetry period after the event's access closes:
+-- the withdrawal if set, else the finish (manual or scheduled). An event with
+-- no end (permanent, not finished) has nothing closed: its rows go by their
+-- own time (the minute, the transition, the end of the archived hour), a
+-- rolling window. closed_before is the cutoff (now minus the period) for both.
+
+-- name: PurgeEventLabUsageMinutes :execrows
+DELETE FROM event_lab_usage_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_lab_usage_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               LIMIT sqlc.arg(batch_size)
+               FOR UPDATE OF m SKIP LOCKED);
+
+-- name: PurgeEventLabMinutes :execrows
+DELETE FROM event_lab_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_lab_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               LIMIT sqlc.arg(batch_size)
+               FOR UPDATE OF m SKIP LOCKED);
+
+-- name: PurgeEventVPNClientMinutes :execrows
+DELETE FROM event_vpn_client_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_vpn_client_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               LIMIT sqlc.arg(batch_size)
+               FOR UPDATE OF m SKIP LOCKED);
+
+-- name: PurgeEventLabTransitions :execrows
+DELETE FROM event_lab_transitions
+WHERE id IN (SELECT t.id
+             FROM event_lab_transitions t
+             JOIN events e ON e.id = t.event_id
+             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), t.at) < sqlc.arg(closed_before)::timestamptz
+             LIMIT sqlc.arg(batch_size)
+             FOR UPDATE OF t SKIP LOCKED);
+
+-- name: PurgeEventLabJournalStates :execrows
+-- The remembered states have no time of their own: they go with a closed event only.
+DELETE FROM event_lab_journal_states
+WHERE ctid IN (SELECT s.ctid
+               FROM event_lab_journal_states s
+               JOIN events e ON e.id = s.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at)) < sqlc.arg(closed_before)::timestamptz
+               LIMIT sqlc.arg(batch_size)
+               FOR UPDATE OF s SKIP LOCKED);
+
+-- name: PurgeEventLabObservationArchives :execrows
+DELETE FROM event_lab_observation_archives
+WHERE id IN (SELECT a.id
+             FROM event_lab_observation_archives a
+             JOIN events e ON e.id = a.event_id
+             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), a.period_end) < sqlc.arg(closed_before)::timestamptz
+             LIMIT sqlc.arg(batch_size)
+             FOR UPDATE OF a SKIP LOCKED);
+
 -- name: PurgePlatformLabCapacityObservations :execrows
 DELETE FROM platform_lab_capacity_observations
 WHERE id IN (SELECT o.id

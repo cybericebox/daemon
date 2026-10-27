@@ -1648,14 +1648,27 @@ type Querier interface {
 	// finish (the earlier of the scheduled and the manual finish); an event that
 	// has not ended keeps its answers.
 	PurgeEventFormAnswers(ctx context.Context, arg PurgeEventFormAnswersParams) (int64, error)
+	// The remembered states have no time of their own: they go with a closed event only.
+	PurgeEventLabJournalStates(ctx context.Context, arg PurgeEventLabJournalStatesParams) (int64, error)
+	PurgeEventLabMinutes(ctx context.Context, arg PurgeEventLabMinutesParams) (int64, error)
+	PurgeEventLabObservationArchives(ctx context.Context, arg PurgeEventLabObservationArchivesParams) (int64, error)
 	// Raw rows past the telemetry period; only archived ones (see
 	// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
 	PurgeEventLabObservations(ctx context.Context, arg PurgeEventLabObservationsParams) (int64, error)
 	// Aggregates of events that ended before the cutoff.
 	PurgeEventLabTouches(ctx context.Context, arg PurgeEventLabTouchesParams) (int64, error)
 	PurgeEventLabTrafficCoverage(ctx context.Context, arg PurgeEventLabTrafficCoverageParams) (int64, error)
+	PurgeEventLabTransitions(ctx context.Context, arg PurgeEventLabTransitionsParams) (int64, error)
+	// Derived lab telemetry (minute tables, transitions journal and its states, raw
+	// archive) is kept for the telemetry period after the event's access closes:
+	// the withdrawal if set, else the finish (manual or scheduled). An event with
+	// no end (permanent, not finished) has nothing closed: its rows go by their
+	// own time (the minute, the transition, the end of the archived hour), a
+	// rolling window. closed_before is the cutoff (now minus the period) for both.
+	PurgeEventLabUsageMinutes(ctx context.Context, arg PurgeEventLabUsageMinutesParams) (int64, error)
 	// Stand and laboratory transitions of events that ended before the cutoff.
 	PurgeEventStandTransitions(ctx context.Context, arg PurgeEventStandTransitionsParams) (int64, error)
+	PurgeEventVPNClientMinutes(ctx context.Context, arg PurgeEventVPNClientMinutesParams) (int64, error)
 	// VPN sessions of events that ended before the cutoff.
 	PurgeEventVPNSessions(ctx context.Context, arg PurgeEventVPNSessionsParams) (int64, error)
 	// Pending invitations that can no longer be accepted: the event finished or

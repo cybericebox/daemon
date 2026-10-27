@@ -323,6 +323,76 @@ func (q *Queries) PurgeEventFormAnswers(ctx context.Context, arg PurgeEventFormA
 	return result.RowsAffected(), nil
 }
 
+const purgeEventLabJournalStates = `-- name: PurgeEventLabJournalStates :execrows
+DELETE FROM event_lab_journal_states
+WHERE ctid IN (SELECT s.ctid
+               FROM event_lab_journal_states s
+               JOIN events e ON e.id = s.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at)) < $1::timestamptz
+               LIMIT $2
+               FOR UPDATE OF s SKIP LOCKED)
+`
+
+type PurgeEventLabJournalStatesParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+// The remembered states have no time of their own: they go with a closed event only.
+func (q *Queries) PurgeEventLabJournalStates(ctx context.Context, arg PurgeEventLabJournalStatesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventLabJournalStates, arg.ClosedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeEventLabMinutes = `-- name: PurgeEventLabMinutes :execrows
+DELETE FROM event_lab_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_lab_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               LIMIT $2
+               FOR UPDATE OF m SKIP LOCKED)
+`
+
+type PurgeEventLabMinutesParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+func (q *Queries) PurgeEventLabMinutes(ctx context.Context, arg PurgeEventLabMinutesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventLabMinutes, arg.ClosedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeEventLabObservationArchives = `-- name: PurgeEventLabObservationArchives :execrows
+DELETE FROM event_lab_observation_archives
+WHERE id IN (SELECT a.id
+             FROM event_lab_observation_archives a
+             JOIN events e ON e.id = a.event_id
+             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), a.period_end) < $1::timestamptz
+             LIMIT $2
+             FOR UPDATE OF a SKIP LOCKED)
+`
+
+type PurgeEventLabObservationArchivesParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+func (q *Queries) PurgeEventLabObservationArchives(ctx context.Context, arg PurgeEventLabObservationArchivesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventLabObservationArchives, arg.ClosedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeEventLabObservations = `-- name: PurgeEventLabObservations :execrows
 DELETE FROM event_lab_observations
 WHERE id IN (SELECT o.id
@@ -351,6 +421,59 @@ func (q *Queries) PurgeEventLabObservations(ctx context.Context, arg PurgeEventL
 	return result.RowsAffected(), nil
 }
 
+const purgeEventLabTransitions = `-- name: PurgeEventLabTransitions :execrows
+DELETE FROM event_lab_transitions
+WHERE id IN (SELECT t.id
+             FROM event_lab_transitions t
+             JOIN events e ON e.id = t.event_id
+             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), t.at) < $1::timestamptz
+             LIMIT $2
+             FOR UPDATE OF t SKIP LOCKED)
+`
+
+type PurgeEventLabTransitionsParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+func (q *Queries) PurgeEventLabTransitions(ctx context.Context, arg PurgeEventLabTransitionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventLabTransitions, arg.ClosedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeEventLabUsageMinutes = `-- name: PurgeEventLabUsageMinutes :execrows
+
+DELETE FROM event_lab_usage_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_lab_usage_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               LIMIT $2
+               FOR UPDATE OF m SKIP LOCKED)
+`
+
+type PurgeEventLabUsageMinutesParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+// Derived lab telemetry (minute tables, transitions journal and its states, raw
+// archive) is kept for the telemetry period after the event's access closes:
+// the withdrawal if set, else the finish (manual or scheduled). An event with
+// no end (permanent, not finished) has nothing closed: its rows go by their
+// own time (the minute, the transition, the end of the archived hour), a
+// rolling window. closed_before is the cutoff (now minus the period) for both.
+func (q *Queries) PurgeEventLabUsageMinutes(ctx context.Context, arg PurgeEventLabUsageMinutesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventLabUsageMinutes, arg.ClosedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeEventStandTransitions = `-- name: PurgeEventStandTransitions :execrows
 DELETE FROM event_stand_transitions
 WHERE id IN (SELECT t.id
@@ -370,6 +493,29 @@ type PurgeEventStandTransitionsParams struct {
 // Stand and laboratory transitions of events that ended before the cutoff.
 func (q *Queries) PurgeEventStandTransitions(ctx context.Context, arg PurgeEventStandTransitionsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeEventStandTransitions, arg.EndedBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeEventVPNClientMinutes = `-- name: PurgeEventVPNClientMinutes :execrows
+DELETE FROM event_vpn_client_minutes
+WHERE ctid IN (SELECT m.ctid
+               FROM event_vpn_client_minutes m
+               JOIN events e ON e.id = m.event_id
+               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               LIMIT $2
+               FOR UPDATE OF m SKIP LOCKED)
+`
+
+type PurgeEventVPNClientMinutesParams struct {
+	ClosedBefore time.Time `json:"closed_before"`
+	BatchSize    int32     `json:"batch_size"`
+}
+
+func (q *Queries) PurgeEventVPNClientMinutes(ctx context.Context, arg PurgeEventVPNClientMinutesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeEventVPNClientMinutes, arg.ClosedBefore, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}

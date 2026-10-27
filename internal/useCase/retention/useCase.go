@@ -27,6 +27,7 @@ type (
 		PurgeExpiredSessions(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
+		PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error)
 		PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeNotificationDispatches(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
 		PurgeFinishedSignals(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
@@ -122,6 +123,10 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 	rolledUpObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgeRolledUpEventLabObservations(ctx, cut.LabRolledUpBefore, batch)
 	})
+	// The rollups, journal and archive derived from them wait for the event's access to close.
+	labTelemetry := step(func(ctx context.Context) (int64, error) {
+		return u.store.PurgeEventLabTelemetry(ctx, cut.LabObservedBefore, batch)
+	})
 	capacityObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgePlatformLabCapacityObservations(ctx, cut.LabObservedBefore, batch)
 	})
@@ -165,6 +170,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		Int64("sessions", sessions).
 		Int64("lab_observations", labObservations).
 		Int64("lab_observations_rolled_up", rolledUpObservations).
+		Int64("lab_telemetry", labTelemetry).
 		Int64("lab_capacity_observations", capacityObservations).
 		Int64("notification_dispatches", dispatches).
 		Int64("signals", signals).

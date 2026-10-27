@@ -11338,6 +11338,51 @@ func (mr *MockQuerierMockRecorder) PurgeEventFormAnswers(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventFormAnswers", reflect.TypeOf((*MockQuerier)(nil).PurgeEventFormAnswers), ctx, arg)
 }
 
+// PurgeEventLabJournalStates mocks base method.
+func (m *MockQuerier) PurgeEventLabJournalStates(ctx context.Context, arg postgres.PurgeEventLabJournalStatesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventLabJournalStates", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventLabJournalStates indicates an expected call of PurgeEventLabJournalStates.
+func (mr *MockQuerierMockRecorder) PurgeEventLabJournalStates(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabJournalStates", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabJournalStates), ctx, arg)
+}
+
+// PurgeEventLabMinutes mocks base method.
+func (m *MockQuerier) PurgeEventLabMinutes(ctx context.Context, arg postgres.PurgeEventLabMinutesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventLabMinutes", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventLabMinutes indicates an expected call of PurgeEventLabMinutes.
+func (mr *MockQuerierMockRecorder) PurgeEventLabMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabMinutes", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabMinutes), ctx, arg)
+}
+
+// PurgeEventLabObservationArchives mocks base method.
+func (m *MockQuerier) PurgeEventLabObservationArchives(ctx context.Context, arg postgres.PurgeEventLabObservationArchivesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventLabObservationArchives", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventLabObservationArchives indicates an expected call of PurgeEventLabObservationArchives.
+func (mr *MockQuerierMockRecorder) PurgeEventLabObservationArchives(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabObservationArchives", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabObservationArchives), ctx, arg)
+}
+
 // PurgeEventLabObservations mocks base method.
 func (m *MockQuerier) PurgeEventLabObservations(ctx context.Context, arg postgres.PurgeEventLabObservationsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -11383,6 +11428,36 @@ func (mr *MockQuerierMockRecorder) PurgeEventLabTrafficCoverage(ctx, arg any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabTrafficCoverage", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabTrafficCoverage), ctx, arg)
 }
 
+// PurgeEventLabTransitions mocks base method.
+func (m *MockQuerier) PurgeEventLabTransitions(ctx context.Context, arg postgres.PurgeEventLabTransitionsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventLabTransitions", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventLabTransitions indicates an expected call of PurgeEventLabTransitions.
+func (mr *MockQuerierMockRecorder) PurgeEventLabTransitions(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabTransitions", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabTransitions), ctx, arg)
+}
+
+// PurgeEventLabUsageMinutes mocks base method.
+func (m *MockQuerier) PurgeEventLabUsageMinutes(ctx context.Context, arg postgres.PurgeEventLabUsageMinutesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventLabUsageMinutes", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventLabUsageMinutes indicates an expected call of PurgeEventLabUsageMinutes.
+func (mr *MockQuerierMockRecorder) PurgeEventLabUsageMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventLabUsageMinutes", reflect.TypeOf((*MockQuerier)(nil).PurgeEventLabUsageMinutes), ctx, arg)
+}
+
 // PurgeEventStandTransitions mocks base method.
 func (m *MockQuerier) PurgeEventStandTransitions(ctx context.Context, arg postgres.PurgeEventStandTransitionsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -11396,6 +11471,21 @@ func (m *MockQuerier) PurgeEventStandTransitions(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) PurgeEventStandTransitions(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventStandTransitions", reflect.TypeOf((*MockQuerier)(nil).PurgeEventStandTransitions), ctx, arg)
+}
+
+// PurgeEventVPNClientMinutes mocks base method.
+func (m *MockQuerier) PurgeEventVPNClientMinutes(ctx context.Context, arg postgres.PurgeEventVPNClientMinutesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeEventVPNClientMinutes", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeEventVPNClientMinutes indicates an expected call of PurgeEventVPNClientMinutes.
+func (mr *MockQuerierMockRecorder) PurgeEventVPNClientMinutes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeEventVPNClientMinutes", reflect.TypeOf((*MockQuerier)(nil).PurgeEventVPNClientMinutes), ctx, arg)
 }
 
 // PurgeEventVPNSessions mocks base method.

@@ -17,7 +17,7 @@ func TestDefaultPolicy_MatchesPrivacyPolicy(t *testing.T) {
 		want time.Time
 	}{
 		{"sessions: 90 days after expiry", c.SessionsExpiredBefore, time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC)},
-		{"lab telemetry: 90 days", c.LabObservedBefore, time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC)},
+		{"lab telemetry: 365 days", c.LabObservedBefore, time.Date(2025, 9, 29, 3, 0, 0, 0, time.UTC)},
 		{"delivery log: 180 days", c.DispatchesCreatedBefore, time.Date(2026, 4, 2, 3, 0, 0, 0, time.UTC)},
 		{"form answers: event end + 365 days", c.EventsEndedBefore, time.Date(2025, 9, 29, 3, 0, 0, 0, time.UTC)},
 		{"inactive: 3 x 365 days", c.InactiveSince, time.Date(2023, 9, 30, 3, 0, 0, 0, time.UTC)},
