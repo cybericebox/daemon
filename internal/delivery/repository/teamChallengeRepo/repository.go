@@ -73,6 +73,11 @@ type PublishedChallenge struct {
 	// the team's own texts are in Challenge.Hints.
 	BoardHints []eventChallengeModel.Hint
 	HintCosts  map[uuid.UUID]int32
+	// BoardSnapshot is the event challenge's current snapshot of the canonical variant; CanonicalVariant says
+	// the team plays that variant, so the files the event task has now (added after the team copy was pinned)
+	// are the team's files too.
+	BoardSnapshot    json.RawMessage
+	CanonicalVariant bool
 }
 
 // Prerequisite is one prerequisite of a team's challenge, named by the team's
@@ -171,7 +176,7 @@ func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedO
 		}
 		out = append(out, PublishedChallenge{
 			EventExerciseID: row.EventExerciseID, LabID: row.LabID, StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
-			Challenge: challenge, BoardHints: boardHints, HintCosts: costs,
+			Challenge: challenge, BoardHints: boardHints, HintCosts: costs, BoardSnapshot: row.BoardSnapshot, CanonicalVariant: row.CanonicalVariant,
 			Points: row.Points, Order: row.BoardPosition, GroupID: groupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: contentUpdatedAt, HintsEnabled: row.HintsEnabled, Published: row.Published, Infrastructure: row.Infrastructure,
 		})

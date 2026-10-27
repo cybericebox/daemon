@@ -42,6 +42,8 @@ SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_i
              THEN e.static_points ELSE ec.points END)::integer AS points,
        ec.order_index, ec.group_id, ec.hints_enabled, ec.published,
        ec.hints AS board_hints, ec.hint_costs,
+       ec.snapshot AS board_snapshot,
+       (tc.variant_index = CASE WHEN ee.variant_mode = 1 AND ee.fixed_variant_index IS NOT NULL THEN ee.fixed_variant_index ELSE 0 END)::boolean AS canonical_variant,
        COALESCE(ecg.name, 'Інші')::text AS group_name,
        COALESCE(ecg.order_index, 2147483647)::integer AS group_order,
        (row_number() OVER (PARTITION BY ec.group_id

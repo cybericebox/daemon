@@ -596,6 +596,8 @@ SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_i
              THEN e.static_points ELSE ec.points END)::integer AS points,
        ec.order_index, ec.group_id, ec.hints_enabled, ec.published,
        ec.hints AS board_hints, ec.hint_costs,
+       ec.snapshot AS board_snapshot,
+       (tc.variant_index = CASE WHEN ee.variant_mode = 1 AND ee.fixed_variant_index IS NOT NULL THEN ee.fixed_variant_index ELSE 0 END)::boolean AS canonical_variant,
        COALESCE(ecg.name, 'Інші')::text AS group_name,
        COALESCE(ecg.order_index, 2147483647)::integer AS group_order,
        (row_number() OVER (PARTITION BY ec.group_id
@@ -652,6 +654,8 @@ type ListTeamBoardChallengesRow struct {
 	Published        bool               `json:"published"`
 	BoardHints       []byte             `json:"board_hints"`
 	HintCosts        []byte             `json:"hint_costs"`
+	BoardSnapshot    []byte             `json:"board_snapshot"`
+	CanonicalVariant bool               `json:"canonical_variant"`
 	GroupName        string             `json:"group_name"`
 	GroupOrder       int32              `json:"group_order"`
 	BoardPosition    int32              `json:"board_position"`
@@ -699,6 +703,8 @@ func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoard
 			&i.Published,
 			&i.BoardHints,
 			&i.HintCosts,
+			&i.BoardSnapshot,
+			&i.CanonicalVariant,
 			&i.GroupName,
 			&i.GroupOrder,
 			&i.BoardPosition,
