@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
@@ -112,4 +113,65 @@ WHERE event_id = $1 AND client_name = 'p-a' ORDER BY bucket_at`, f.event)
 		{m0, 2, 2, 300, 30, 400},
 		{m0.Add(time.Minute), 3, 2, 650, 65, 150},
 	}, clients)
+}
+
+// The reads give one team's rows in the range, the moderators team nothing,
+// and for lab_ready the platform's own time of marking the lab ready.
+func TestEventLabTelemetry_TeamReads(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventAnalyticsRepo.New(db.Queries)
+	f := anSeed(t, db, "labreads")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	m0 := anStart.Add(time.Hour).UTC()
+	period := eventAnalyticsModel.Period{From: m0, To: m0.Add(10 * time.Minute)}
+
+	telemetryObservation(t, db, f.event, f.team, 1, m0.Add(5*time.Second), telemetryPayload(true, "Running", 10, 1000, "p-a", m0, 100, 10))
+	telemetryObservation(t, db, f.event, f.moderators, 2, m0.Add(6*time.Second), telemetryPayload(true, "Running", 10, 1000, "p-m", m0, 100, 10))
+	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(20*time.Minute), telemetryPayload(true, "Running", 10, 1000, "p-a", m0, 100, 10)) // outside
+	newID := func() uuid.UUID { return uuid.Must(uuid.NewV7()) }
+	_, _, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
+	require.NoError(t, err)
+	journal, err := repo.LabJournal(ctx, f.event, newID)
+	require.NoError(t, err)
+	_, _, err = repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal)
+	require.NoError(t, err)
+
+	devices, err := repo.TeamDeviceMinutes(ctx, f.event, f.team, period, 100)
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
+	require.Equal(t, "app", devices[0].DeviceName)
+	require.EqualValues(t, 1000, devices[0].MemorySum)
+	labs, err := repo.TeamLabMinutes(ctx, f.event, f.team, period, 100)
+	require.NoError(t, err)
+	require.Len(t, labs, 1)
+	clients, err := repo.TeamClientMinutes(ctx, f.event, f.team, period, 100)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+	require.Equal(t, "p-a", clients[0].ClientName)
+	none, err := repo.TeamDeviceMinutes(ctx, f.event, f.moderators, period, 100)
+	require.NoError(t, err)
+	require.Empty(t, none, "the moderators team is never listed")
+
+	// The platform marked the lab ready 4 s after the agent saw it.
+	rtExec(t, db, `INSERT INTO lab_bindings (id, event_id, event_team_id, event_challenge_id, lab_group_name, lab_name, readiness, created_at)
+VALUES ($1, $2, $3, $4, 'grp', 'web', 1, $5)`, uuid.Must(uuid.NewV7()), f.event, f.team, f.challenge, m0)
+	rtExec(t, db, `INSERT INTO event_stand_transitions (event_id, team_id, source, challenge_id, generation, from_status, to_status, at)
+VALUES ($1, $2, 'lab', $3, 1, 0, 1, $4)`, f.event, f.team, f.challenge, m0.Add(9*time.Second))
+	transitions, err := repo.TeamLabTransitions(ctx, f.event, f.team, period, nil, 100)
+	require.NoError(t, err)
+	var ready *eventAnalyticsRepo.LabTransition
+	for i := range transitions {
+		if transitions[i].Kind == "lab_ready" {
+			ready = &transitions[i]
+		}
+	}
+	require.NotNil(t, ready)
+	require.Equal(t, m0.Add(5*time.Second), ready.At.UTC())
+	require.NotNil(t, ready.PlatformReadyAt)
+	require.Equal(t, 4*time.Second, ready.PlatformReadyAt.Sub(ready.At))
+	only, err := repo.TeamLabTransitions(ctx, f.event, f.team, period, []string{"client_connected"}, 100)
+	require.NoError(t, err)
+	require.Len(t, only, 1)
+	require.Nil(t, only[0].PlatformReadyAt)
 }

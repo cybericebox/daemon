@@ -25,6 +25,7 @@ type Queries interface {
 	ParticipantQueries
 	ArchiveQueries
 	JournalQueries
+	LabTelemetryQueries
 	ListEventAnalyticsRollupCandidates(context.Context, postgres.ListEventAnalyticsRollupCandidatesParams) ([]postgres.ListEventAnalyticsRollupCandidatesRow, error)
 	RefreshEventActivityBuckets(context.Context, uuid.UUID) error
 	MarkEventActivityBucketsRefreshed(context.Context, postgres.MarkEventActivityBucketsRefreshedParams) error

@@ -76,6 +76,8 @@ GET    /api/events/:id/manage/analytics/integrity/export.csv | gate: self | laye
 GET    /api/events/:id/manage/analytics/integrity/flags | gate: self | layers: eventAnalytics.requireSensitive
 DELETE /api/events/:id/manage/analytics/integrity/solves/:teamChallengeID/review | gate: self | layers: eventAnalytics.requireSensitive,eventAnalytics.requireWritable
 PUT    /api/events/:id/manage/analytics/integrity/solves/:teamChallengeID/review | gate: self | layers: eventAnalytics.requireSensitive,eventAnalytics.requireWritable
+GET    /api/events/:id/manage/analytics/lab-telemetry | gate: self | layers: eventAnalytics.requireSections
+GET    /api/events/:id/manage/analytics/lab-telemetry/transitions | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/overview | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/overview/export.csv | gate: self | layers: eventAnalytics.requireExport
 GET    /api/events/:id/manage/analytics/participants | gate: self | layers: eventAnalytics.requireSections
