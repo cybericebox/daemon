@@ -294,7 +294,8 @@ type Querier interface {
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
-	DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error
+	// Closes the entries chosen as settled, by (user_id, queued_at): an entry queued again meanwhile (a new time) stays.
+	DeleteLabTelemetryErasures(ctx context.Context, entries []byte) error
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteNotificationBroadcastTemplate(ctx context.Context, arg DeleteNotificationBroadcastTemplateParams) (int64, error)
@@ -1448,7 +1449,7 @@ type Querier interface {
 	// real name was archived (or arrived) by then and the pass rewrites it. An entry settles a day after it was queued,
 	// once the archive passed every raw row of its events that arrived within that day; one that never can (the event
 	// has no rollup row, the rows are gone or stuck) is closed after force_before all the same.
-	ListSettledLabTelemetryErasures(ctx context.Context, arg ListSettledLabTelemetryErasuresParams) ([]uuid.UUID, error)
+	ListSettledLabTelemetryErasures(ctx context.Context, arg ListSettledLabTelemetryErasuresParams) ([]ListSettledLabTelemetryErasuresRow, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)

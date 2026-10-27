@@ -300,7 +300,9 @@ WITH batch AS (
                        UNION
                        SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = b.id) x)
     FROM batch b
-    ON CONFLICT (user_id) DO NOTHING
+    ON CONFLICT (user_id) DO UPDATE
+        SET queued_at = now(),
+            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x)
     RETURNING user_id, client_name, pseudonym, event_ids
 ), lab_client_minutes AS (
     UPDATE event_vpn_client_minutes m SET client_name = e.pseudonym
@@ -426,7 +428,7 @@ LIMIT sqlc.arg(batch_size);
 -- real name was archived (or arrived) by then and the pass rewrites it. An entry settles a day after it was queued,
 -- once the archive passed every raw row of its events that arrived within that day; one that never can (the event
 -- has no rollup row, the rows are gone or stuck) is closed after force_before all the same.
-SELECT e.user_id
+SELECT e.user_id, e.queued_at
 FROM lab_telemetry_erasures e
 WHERE e.queued_at < sqlc.arg(force_before)::timestamptz
    OR (e.queued_at < sqlc.arg(settled_before)::timestamptz
@@ -442,7 +444,10 @@ WHERE e.queued_at < sqlc.arg(force_before)::timestamptz
 SELECT count(*) FROM lab_telemetry_erasures WHERE queued_at < sqlc.arg(queued_before)::timestamptz;
 
 -- name: DeleteLabTelemetryErasures :exec
-DELETE FROM lab_telemetry_erasures WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);
+-- Closes the entries chosen as settled, by (user_id, queued_at): an entry queued again meanwhile (a new time) stays.
+DELETE FROM lab_telemetry_erasures e
+USING jsonb_to_recordset(sqlc.arg(entries)::jsonb) AS settled(user_id uuid, queued_at timestamptz)
+WHERE e.user_id = settled.user_id AND e.queued_at = settled.queued_at;
 
 -- name: QueueLabTelemetryErasure :one
 -- Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
@@ -461,7 +466,9 @@ WITH person AS (
                        UNION
                        SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x)
     FROM person p
-    ON CONFLICT (user_id) DO UPDATE SET queued_at = now()
+    ON CONFLICT (user_id) DO UPDATE
+        SET queued_at = now(),
+            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x)
     RETURNING user_id, client_name, pseudonym, event_ids, queued_at
 ), minutes AS (
     UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym

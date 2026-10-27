@@ -30,9 +30,9 @@ type (
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
 		LabTelemetryErasures(ctx context.Context, after retentionRepo.LabTelemetryErasure, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
-		SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]uuid.UUID, error)
+		SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]retentionRepo.LabTelemetryErasure, error)
 		LabTelemetryErasuresQueuedBefore(ctx context.Context, before time.Time) (int64, error)
-		DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error
+		DeleteLabTelemetryErasures(ctx context.Context, entries []retentionRepo.LabTelemetryErasure) error
 		QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, error)
 		ScrubRawLabObservations(ctx context.Context, e retentionRepo.LabTelemetryErasure, batchSize int32) (int64, error)
 		ScrubLabMonitoringCurrent(ctx context.Context, e retentionRepo.LabTelemetryErasure) (int64, error)

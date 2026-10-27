@@ -21,8 +21,8 @@ var now = time.Date(2026, 9, 29, 3, 0, 0, 0, time.UTC)
 
 type fakeStore struct {
 	erasures        []retentionRepo.LabTelemetryErasure
-	settled         []uuid.UUID
-	deletedErasures []uuid.UUID
+	settled         []retentionRepo.LabTelemetryErasure
+	deletedErasures []retentionRepo.LabTelemetryErasure
 	scrubbed        []uuid.UUID
 	// batches returned by each purge, consumed in order; then 0.
 	purged    map[string][]int64
@@ -73,13 +73,13 @@ func (s *fakeStore) LabTelemetryErasures(
 	}
 	return out, nil
 }
-func (s *fakeStore) SettledLabTelemetryErasures(context.Context, time.Time, time.Time) ([]uuid.UUID, error) {
+func (s *fakeStore) SettledLabTelemetryErasures(context.Context, time.Time, time.Time) ([]retentionRepo.LabTelemetryErasure, error) {
 	return s.settled, nil
 }
 func (s *fakeStore) LabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
-func (s *fakeStore) DeleteLabTelemetryErasures(_ context.Context, ids []uuid.UUID) error {
+func (s *fakeStore) DeleteLabTelemetryErasures(_ context.Context, ids []retentionRepo.LabTelemetryErasure) error {
 	s.deletedErasures = append(s.deletedErasures, ids...)
 	return nil
 }
@@ -402,7 +402,7 @@ func TestEnforceDataRetention_ScrubsTheWholeErasureQueueAndClosesSettledEntries(
 			UserID: uuid.Must(uuid.NewV7()), ClientName: "p-a", Pseudonym: "deleted-a", EventIDs: []uuid.UUID{uuid.Must(uuid.NewV7())}, QueuedAt: now.Add(time.Duration(i) * time.Minute),
 		})
 	}
-	store := &fakeStore{erasures: all, settled: []uuid.UUID{all[0].UserID}}
+	store := &fakeStore{erasures: all, settled: []retentionRepo.LabTelemetryErasure{{UserID: all[0].UserID, QueuedAt: all[0].QueuedAt}}}
 	policy := retentionModel.DefaultPolicy()
 	policy.BatchSize = 3
 	uc := retention.New(retention.Dependencies{Store: store, Policies: &policySource{policy: policy}, Now: func() time.Time { return now }})
@@ -412,7 +412,7 @@ func TestEnforceDataRetention_ScrubsTheWholeErasureQueueAndClosesSettledEntries(
 	if len(store.scrubbed) != 7 {
 		t.Fatalf("scrubbed %d of 7 entries: the queue was not read whole", len(store.scrubbed))
 	}
-	if len(store.deletedErasures) != 1 || store.deletedErasures[0] != all[0].UserID {
+	if len(store.deletedErasures) != 1 || store.deletedErasures[0].UserID != all[0].UserID {
 		t.Fatalf("closed entries = %v", store.deletedErasures)
 	}
 }

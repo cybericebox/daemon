@@ -296,3 +296,40 @@ VALUES ($1, $2, 'g', $3, $4, 1, 1, 10, 1, 10, 1, $4)`, f.event, f.team, gone, at
 	require.NoError(t, err)
 	require.Equal(t, entry.Pseudonym, again.Pseudonym)
 }
+
+// Queuing a person again keeps the pseudonym, adds the events found this time to the known ones, and an entry
+// queued again after it was chosen as settled is not closed by that earlier choice.
+func TestLabTelemetryErasure_RequeueMergesEventsAndSurvivesAStaleClose(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "laberaserequeue")
+	gone := labBindingModel.ParticipantClientName(f.user)
+	store := retentionRepo.New(db.Queries)
+
+	first, err := store.QueueLabTelemetryErasure(ctx, f.user)
+	require.NoError(t, err)
+	require.Contains(t, first.EventIDs, f.event)
+
+	// The person turns up in a second event (found only now).
+	other := mustSeedEventForParticipants(t, db, "laberaserequeue2")
+	otherTeam := eaTeam(t, db, other.ID, f.user, "Green")
+	rtExec(t, db, `INSERT INTO event_vpn_client_minutes (event_id, team_id, lab_group_name, client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at)
+VALUES ($1, $2, 'g', $3, $4, 1, 1, 1, 1, 1, 1, $4)`, other.ID, otherTeam, gone, anStart)
+
+	// The earlier choice of this entry as settled is a stale pair by the time the entry is queued once more.
+	rtExec(t, db, `UPDATE lab_telemetry_erasures SET queued_at = now() - interval '3 days'`)
+	chosen, err := store.LabTelemetryErasures(ctx, retentionRepo.LabTelemetryErasure{}, 10)
+	require.NoError(t, err)
+	require.Len(t, chosen, 1)
+
+	again, err := store.QueueLabTelemetryErasure(ctx, f.user)
+	require.NoError(t, err)
+	require.Equal(t, first.Pseudonym, again.Pseudonym, "the pseudonym does not change")
+	require.ElementsMatch(t, []uuid.UUID{f.event, other.ID}, again.EventIDs, "the events are merged")
+
+	require.NoError(t, store.DeleteLabTelemetryErasures(ctx, chosen))
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "the entry queued again stays")
+
+	require.NoError(t, store.DeleteLabTelemetryErasures(ctx, []retentionRepo.LabTelemetryErasure{{UserID: again.UserID, QueuedAt: again.QueuedAt}}))
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "the matching pair closes it")
+}
