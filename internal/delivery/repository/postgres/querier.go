@@ -116,6 +116,7 @@ type Querier interface {
 	CountInboxByCategory(ctx context.Context, arg CountInboxByCategoryParams) (CountInboxByCategoryRow, error)
 	CountIncompleteSignalHookExecutions(ctx context.Context, signalID uuid.UUID) (int64, error)
 	CountLabGroupPlacementsByAgent(ctx context.Context) ([]CountLabGroupPlacementsByAgentRow, error)
+	CountLabTelemetryErasuresQueuedBefore(ctx context.Context, queuedBefore time.Time) (int64, error)
 	// Conflict means overlapping HALF-OPEN platform windows, not merely a reused
 	// tag. The exclusion constraint closes the race between concurrent writers.
 	CountLiveEventsWithTag(ctx context.Context, arg CountLiveEventsWithTagParams) (int64, error)
@@ -293,6 +294,7 @@ type Querier interface {
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
+	DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteNotificationBroadcastTemplate(ctx context.Context, arg DeleteNotificationBroadcastTemplateParams) (int64, error)
@@ -306,9 +308,6 @@ type Querier interface {
 	// Removes a stored setting; a typed setting then falls back to its defaults.
 	DeletePlatformSettingByKey(ctx context.Context, key string) error
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
-	// An entry settles a day after the account was purged, once the archive passed every raw row of its events that
-	// arrived before that: nothing that still carries the real name can be archived after it goes.
-	DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error)
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
 	// Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
@@ -1176,12 +1175,12 @@ type Querier interface {
 	// Pending, not yet announced invitations of started events; the use case
 	// applies the exact expiry rule of the event lifecycle.
 	ListInvitationExpiryCandidates(ctx context.Context, nowAt time.Time) ([]ListInvitationExpiryCandidatesRow, error)
-	// The archive chunks of an event created after created_after, after the given id, a page at a time.
+	// The archive chunks of an event after the given id, a page at a time.
 	ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabArchiveChunksForScrubParams) ([]ListLabArchiveChunksForScrubRow, error)
 	// The challenges that share one Lab of a team.
 	ListLabBindingChallenges(ctx context.Context, arg ListLabBindingChallengesParams) ([]uuid.UUID, error)
-	// Accounts erased from the lab telemetry that have not settled yet.
-	ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]LabTelemetryErasure, error)
+	// Accounts erased from the lab telemetry that have not settled yet, a page at a time by (queued_at, user_id).
+	ListLabTelemetryErasures(ctx context.Context, arg ListLabTelemetryErasuresParams) ([]LabTelemetryErasure, error)
 	// Spans of a team that overlap [since, until].
 	ListLabTrafficCoverage(ctx context.Context, arg ListLabTrafficCoverageParams) ([]ListLabTrafficCoverageRow, error)
 	ListLatestEventLabObservations(ctx context.Context, eventID uuid.UUID) ([]EventLabObservation, error)
@@ -1445,6 +1444,11 @@ type Querier interface {
 	ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
 	ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error)
+	// The entries that may be closed after this pass. Chosen before the pass scrubs: anything that could still carry the
+	// real name was archived (or arrived) by then and the pass rewrites it. An entry settles a day after it was queued,
+	// once the archive passed every raw row of its events that arrived within that day; one that never can (the event
+	// has no rollup row, the rows are gone or stuck) is closed after force_before all the same.
+	ListSettledLabTelemetryErasures(ctx context.Context, arg ListSettledLabTelemetryErasuresParams) ([]uuid.UUID, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)
@@ -1602,7 +1606,6 @@ type Querier interface {
 	// The labs of one team group of an event are gone (its cluster reservation ended).
 	MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
-	MarkLabTelemetryErasuresScrubbed(ctx context.Context, arg MarkLabTelemetryErasuresScrubbedParams) error
 	MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTPUsedParams) error
 	// A ready Lab makes the preparing team challenges of every binding that shares
 	// it ready in the same statement. Returns the number of bindings changed
@@ -1672,9 +1675,11 @@ type Querier interface {
 	// finish (the earlier of the scheduled and the manual finish); an event that
 	// has not ended keeps its answers.
 	PurgeEventFormAnswers(ctx context.Context, arg PurgeEventFormAnswersParams) (int64, error)
-	// The remembered states have no time of their own: they go with a closed event only.
+	// The remembered states have no time of their own: they go with a finished event only. with_clients selects the
+	// states of clients (the participants period) or the others.
 	PurgeEventLabJournalStates(ctx context.Context, arg PurgeEventLabJournalStatesParams) (int64, error)
 	PurgeEventLabMinutes(ctx context.Context, arg PurgeEventLabMinutesParams) (int64, error)
+	// The raw archive holds clients and IPs: the participants period.
 	PurgeEventLabObservationArchives(ctx context.Context, arg PurgeEventLabObservationArchivesParams) (int64, error)
 	// Raw rows past the telemetry period; only archived ones (see
 	// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
@@ -1682,13 +1687,15 @@ type Querier interface {
 	// Aggregates of events that ended before the cutoff.
 	PurgeEventLabTouches(ctx context.Context, arg PurgeEventLabTouchesParams) (int64, error)
 	PurgeEventLabTrafficCoverage(ctx context.Context, arg PurgeEventLabTrafficCoverageParams) (int64, error)
+	// with_clients selects the transitions of a client (the participants period) or the others.
 	PurgeEventLabTransitions(ctx context.Context, arg PurgeEventLabTransitionsParams) (int64, error)
-	// Derived lab telemetry (minute tables, transitions journal and its states, raw
-	// archive) is kept for the telemetry period after the event's access closes:
-	// the withdrawal if set, else the finish (manual or scheduled). An event with
-	// no end (permanent, not finished) has nothing closed: its rows go by their
-	// own time (the minute, the transition, the end of the archived hour), a
-	// rolling window. closed_before is the cutoff (now minus the period) for both.
+	// Derived lab telemetry has two periods, both counted from the event's finish (the manual one if earlier). The
+	// data about containers, labs and teams (the minute tables, the transitions and states that name no client) goes
+	// LabTelemetry after it; the data about people (client minutes, client_* transitions and states, and the raw
+	// archive with its clients and IPs) goes after the shorter LabTelemetryParticipants. An event with no end
+	// (permanent, not finished) has nothing finished: its rows go by their own time (the minute, the transition, the
+	// end of the archived hour), a rolling window. closed_before is the cutoff (now minus the period) of the data in
+	// question.
 	PurgeEventLabUsageMinutes(ctx context.Context, arg PurgeEventLabUsageMinutesParams) (int64, error)
 	// Stand and laboratory transitions of events that ended before the cutoff.
 	PurgeEventStandTransitions(ctx context.Context, arg PurgeEventStandTransitionsParams) (int64, error)
@@ -1729,6 +1736,11 @@ type Querier interface {
 	// Event deletion: queue every team LabGroup of the event (VPN-only groups
 	// included) so the teardown survives the cascading removal of the event.
 	QueueEventLabGroupCleanup(ctx context.Context, arg QueueEventLabGroupCleanupParams) (int64, error)
+	// Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
+	// Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
+	// renames the rollup rows now and rewrites the raw rows and the current state of the events the person took part in;
+	// the retention job finishes the archive. Returns the queued entry.
+	QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (QueueLabTelemetryErasureRow, error)
 	// Queue the deterministic team LabGroup even when no challenge Lab has been
 	// attached yet. The group may already contain VPN clients and a gateway.
 	QueueTeamLabGroupCleanup(ctx context.Context, arg QueueTeamLabGroupCleanupParams) (int64, error)

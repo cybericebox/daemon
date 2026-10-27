@@ -57,19 +57,20 @@ WHERE id IN (SELECT o.id
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE OF o SKIP LOCKED);
 
--- Derived lab telemetry (minute tables, transitions journal and its states, raw
--- archive) is kept for the telemetry period after the event's access closes:
--- the withdrawal if set, else the finish (manual or scheduled). An event with
--- no end (permanent, not finished) has nothing closed: its rows go by their
--- own time (the minute, the transition, the end of the archived hour), a
--- rolling window. closed_before is the cutoff (now minus the period) for both.
+-- Derived lab telemetry has two periods, both counted from the event's finish (the manual one if earlier). The
+-- data about containers, labs and teams (the minute tables, the transitions and states that name no client) goes
+-- LabTelemetry after it; the data about people (client minutes, client_* transitions and states, and the raw
+-- archive with its clients and IPs) goes after the shorter LabTelemetryParticipants. An event with no end
+-- (permanent, not finished) has nothing finished: its rows go by their own time (the minute, the transition, the
+-- end of the archived hour), a rolling window. closed_before is the cutoff (now minus the period) of the data in
+-- question.
 
 -- name: PurgeEventLabUsageMinutes :execrows
 DELETE FROM event_lab_usage_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_lab_usage_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
                LIMIT sqlc.arg(batch_size)
                FOR UPDATE OF m SKIP LOCKED);
 
@@ -78,7 +79,7 @@ DELETE FROM event_lab_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_lab_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
                LIMIT sqlc.arg(batch_size)
                FOR UPDATE OF m SKIP LOCKED);
 
@@ -87,35 +88,40 @@ DELETE FROM event_vpn_client_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_vpn_client_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < sqlc.arg(closed_before)::timestamptz
                LIMIT sqlc.arg(batch_size)
                FOR UPDATE OF m SKIP LOCKED);
 
 -- name: PurgeEventLabTransitions :execrows
+-- with_clients selects the transitions of a client (the participants period) or the others.
 DELETE FROM event_lab_transitions
 WHERE id IN (SELECT t.id
              FROM event_lab_transitions t
              JOIN events e ON e.id = t.event_id
-             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), t.at) < sqlc.arg(closed_before)::timestamptz
+             WHERE (t.client_name IS NOT NULL) = sqlc.arg(with_clients)::boolean
+               AND COALESCE(LEAST(e.manual_finished_at, e.finish_at), t.at) < sqlc.arg(closed_before)::timestamptz
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE OF t SKIP LOCKED);
 
 -- name: PurgeEventLabJournalStates :execrows
--- The remembered states have no time of their own: they go with a closed event only.
+-- The remembered states have no time of their own: they go with a finished event only. with_clients selects the
+-- states of clients (the participants period) or the others.
 DELETE FROM event_lab_journal_states
 WHERE ctid IN (SELECT s.ctid
                FROM event_lab_journal_states s
                JOIN events e ON e.id = s.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at)) < sqlc.arg(closed_before)::timestamptz
+               WHERE (s.kind = 'client') = sqlc.arg(with_clients)::boolean
+                 AND LEAST(e.manual_finished_at, e.finish_at) < sqlc.arg(closed_before)::timestamptz
                LIMIT sqlc.arg(batch_size)
                FOR UPDATE OF s SKIP LOCKED);
 
 -- name: PurgeEventLabObservationArchives :execrows
+-- The raw archive holds clients and IPs: the participants period.
 DELETE FROM event_lab_observation_archives
 WHERE id IN (SELECT a.id
              FROM event_lab_observation_archives a
              JOIN events e ON e.id = a.event_id
-             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), a.period_end) < sqlc.arg(closed_before)::timestamptz
+             WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), a.period_end) < sqlc.arg(closed_before)::timestamptz
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE OF a SKIP LOCKED);
 
@@ -408,11 +414,76 @@ WHERE (event_id, user_id) IN (
 SELECT purge_unconfirmed_accounts(sqlc.arg(created_before)::timestamptz, sqlc.arg(now_at)::timestamptz, sqlc.arg(batch_size)::integer)::bigint AS purged;
 
 -- name: ListLabTelemetryErasures :many
--- Accounts erased from the lab telemetry that have not settled yet.
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, archives_scrubbed_at
+-- Accounts erased from the lab telemetry that have not settled yet, a page at a time by (queued_at, user_id).
+SELECT user_id, client_name, pseudonym, event_ids, queued_at
 FROM lab_telemetry_erasures
+WHERE (queued_at, user_id) > (sqlc.arg(after_queued_at)::timestamptz, sqlc.arg(after_user_id)::uuid)
 ORDER BY queued_at, user_id
 LIMIT sqlc.arg(batch_size);
+
+-- name: ListSettledLabTelemetryErasures :many
+-- The entries that may be closed after this pass. Chosen before the pass scrubs: anything that could still carry the
+-- real name was archived (or arrived) by then and the pass rewrites it. An entry settles a day after it was queued,
+-- once the archive passed every raw row of its events that arrived within that day; one that never can (the event
+-- has no rollup row, the rows are gone or stuck) is closed after force_before all the same.
+SELECT e.user_id
+FROM lab_telemetry_erasures e
+WHERE e.queued_at < sqlc.arg(force_before)::timestamptz
+   OR (e.queued_at < sqlc.arg(settled_before)::timestamptz
+       AND NOT EXISTS (SELECT 1
+                       FROM event_lab_observations o
+                       LEFT JOIN event_analytics_rollups r ON r.event_id = o.event_id
+                       WHERE o.event_id = ANY (e.event_ids)
+                         AND o.received_at < e.queued_at + interval '1 day'
+                         AND (r.lab_archive_cursor_id IS NULL
+                              OR (o.received_at, o.id) > (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id))));
+
+-- name: CountLabTelemetryErasuresQueuedBefore :one
+SELECT count(*) FROM lab_telemetry_erasures WHERE queued_at < sqlc.arg(queued_before)::timestamptz;
+
+-- name: DeleteLabTelemetryErasures :exec
+DELETE FROM lab_telemetry_erasures WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);
+
+-- name: QueueLabTelemetryErasure :one
+-- Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
+-- Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
+-- renames the rollup rows now and rewrites the raw rows and the current state of the events the person took part in;
+-- the retention job finishes the archive. Returns the queued entry.
+WITH person AS (
+    SELECT sqlc.arg(user_id)::uuid AS id, lab_client_name(sqlc.arg(user_id)::uuid) AS client_name
+), queued AS (
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
+    SELECT p.id, p.client_name, 'deleted-' || gen_random_uuid()::text,
+           ARRAY(SELECT x.event_id
+                 FROM (SELECT pa.event_id FROM event_participants pa WHERE pa.user_id = p.id
+                       UNION
+                       SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = p.client_name
+                       UNION
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x)
+    FROM person p
+    ON CONFLICT (user_id) DO UPDATE SET queued_at = now()
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at
+), minutes AS (
+    UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym
+    FROM queued q WHERE m.client_name = q.client_name
+), transitions AS (
+    UPDATE event_lab_transitions t SET client_name = q.pseudonym
+    FROM queued q WHERE t.client_name = q.client_name
+), states AS (
+    UPDATE event_lab_journal_states s SET name = q.pseudonym
+    FROM queued q WHERE s.kind = 'client' AND s.name = q.client_name
+), raw AS (
+    UPDATE event_lab_observations o
+    SET payload = replace(o.payload::text, q.client_name, q.pseudonym)::jsonb
+    FROM queued q
+    WHERE o.event_id = ANY (q.event_ids) AND o.payload::text LIKE '%' || q.client_name || '%'
+), current AS (
+    UPDATE lab_monitoring_current c
+    SET payload = replace(c.payload::text, q.client_name, q.pseudonym)::jsonb
+    FROM queued q
+    WHERE c.event_id = ANY (q.event_ids) AND c.payload::text LIKE '%' || q.client_name || '%'
+)
+SELECT user_id, client_name, pseudonym, event_ids, queued_at FROM queued;
 
 -- name: ScrubRawLabObservations :execrows
 -- Rewrites up to batch_size raw observations of the events that still carry the client name.
@@ -461,31 +532,13 @@ WHERE s.kind = 'client' AND s.name = sqlc.arg(client_name)::text
                 AND t.kind = 'client' AND t.lab_name = s.lab_name AND t.name = sqlc.arg(pseudonym)::text);
 
 -- name: ListLabArchiveChunksForScrub :many
--- The archive chunks of an event created after created_after, after the given id, a page at a time.
+-- The archive chunks of an event after the given id, a page at a time.
 SELECT id, codec, data
 FROM event_lab_observation_archives
 WHERE event_id = sqlc.arg(event_id)
-  AND created_at > sqlc.arg(created_after)::timestamptz
   AND id > sqlc.arg(after_id)::uuid
 ORDER BY id
 LIMIT sqlc.arg(page_size);
 
 -- name: UpdateLabArchiveChunkData :exec
 UPDATE event_lab_observation_archives SET data = sqlc.arg(data) WHERE id = sqlc.arg(id);
-
--- name: MarkLabTelemetryErasuresScrubbed :exec
-UPDATE lab_telemetry_erasures SET archives_scrubbed_at = sqlc.arg(scrubbed_at)::timestamptz
-WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);
-
--- name: DeleteSettledLabTelemetryErasures :execrows
--- An entry settles a day after the account was purged, once the archive passed every raw row of its events that
--- arrived before that: nothing that still carries the real name can be archived after it goes.
-DELETE FROM lab_telemetry_erasures e
-WHERE e.queued_at < sqlc.arg(settled_before)::timestamptz
-  AND NOT EXISTS (SELECT 1
-                  FROM event_lab_observations o
-                  LEFT JOIN event_analytics_rollups r ON r.event_id = o.event_id
-                  WHERE o.event_id = ANY (e.event_ids)
-                    AND o.received_at < e.queued_at + interval '1 day'
-                    AND (r.lab_archive_cursor_id IS NULL
-                         OR (o.received_at, o.id) > (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)));

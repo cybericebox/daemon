@@ -8,6 +8,7 @@
   "20108": "This setting is saved on its own settings tab",
   "20109": "One archive file may not be larger than the file upload limit",
   "20110": "Unknown setting access level",
+  "20111": "The participants' lab data period may not be longer than the lab telemetry period",
   "20205": "Invalid template status",
   "20206": "Template references unavailable notification variables",
   "20207": "Notification type is not available for event-scoped templates",

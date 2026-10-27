@@ -116,6 +116,7 @@ func TestSaveRetentionSettings_WritesTheWholeValues(t *testing.T) {
 	repo, uc := setupTyped(t)
 	in := retentionModel.DefaultPolicy().Values()
 	in["LabTelemetry"] = 30 * daySeconds
+	in["LabTelemetryParticipants"] = 30 * daySeconds
 	repo.EXPECT().UpsertPlatformSetting(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.UpsertPlatformSettingParams) (postgres.AppSetting, error) {
 			assert.Equal(t, platformSettingsModel.RetentionKey, arg.Key)

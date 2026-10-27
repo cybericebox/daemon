@@ -35,16 +35,15 @@ $$;
 -- merged. The assigned IPs stay. The purge of a deleted account queues it with
 -- the pseudonym and the events it took part in; the retention job keeps
 -- rewriting what the telemetry still brings in with the real name (raw rows that
--- arrive or get archived later) until the entry has settled, then removes it.
+-- arrive or get archived later) until the entry has settled, then removes it:
+-- the link between the person and the pseudonym does not outlive the cleanup.
 CREATE TABLE lab_telemetry_erasures
 (
     user_id            uuid PRIMARY KEY,
     client_name        text        NOT NULL,
     pseudonym          text        NOT NULL,
     event_ids          uuid[]      NOT NULL,
-    queued_at          timestamptz NOT NULL DEFAULT now(),
-    -- Archive chunks created before this were scrubbed already.
-    archives_scrubbed_at timestamptz
+    queued_at          timestamptz NOT NULL DEFAULT now()
 );
 
 -- The purge finds a deleted user's rows by client name.
