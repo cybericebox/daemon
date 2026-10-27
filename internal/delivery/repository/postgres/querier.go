@@ -18,6 +18,7 @@ type Querier interface {
 	// An email image is owned by its draft as soon as it is uploaded. Inserting
 	// one link avoids a read/replace race when uploads finish concurrently.
 	AddFileReference(ctx context.Context, arg AddFileReferenceParams) error
+	AddLabTelemetryErasureIPs(ctx context.Context, arg AddLabTelemetryErasureIPsParams) error
 	AdvanceEventResultRevision(ctx context.Context, arg AdvanceEventResultRevisionParams) (AdvanceEventResultRevisionRow, error)
 	// A chunk is accepted only as the next one in order; zero rows means the client is out of step (it reads the
 	// status and continues from chunks_received). Every accepted chunk moves the expiry forward.
@@ -61,6 +62,9 @@ type Querier interface {
 	// A warned user who signed in again is active: forget the warning so the
 	// deletion never fires and a later inactivity period warns afresh.
 	ClearReturnedInactivityWarnings(ctx context.Context) (int64, error)
+	// The IPs the live telemetry (raw rows and current state) of the events gives the client, under its real name or
+	// its pseudonym. Erasure on request collects them before blanking, together with those found in the archive.
+	CollectLabClientIPs(ctx context.Context, arg CollectLabClientIPsParams) ([]string, error)
 	CompleteEventFormDelivery(ctx context.Context, arg CompleteEventFormDeliveryParams) (int64, error)
 	CompleteRequestIdempotency(ctx context.Context, arg CompleteRequestIdempotencyParams) (int64, error)
 	CompleteSignalHookExecution(ctx context.Context, arg CompleteSignalHookExecutionParams) (int64, error)
@@ -1739,8 +1743,8 @@ type Querier interface {
 	QueueEventLabGroupCleanup(ctx context.Context, arg QueueEventLabGroupCleanupParams) (int64, error)
 	// Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
 	// Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
-	// renames the rollup rows now and rewrites the raw rows and the current state of the events the person took part in;
-	// the retention job finishes the archive. Returns the queued entry.
+	// and renames the rollup rows now; the rest (raw rows, current state, archive, the IPs) is done by the scrub that
+	// follows, which first collects the person's IPs. Returns the queued entry.
 	QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (QueueLabTelemetryErasureRow, error)
 	// Queue the deterministic team LabGroup even when no challenge Lab has been
 	// attached yet. The group may already contain VPN clients and a gateway.

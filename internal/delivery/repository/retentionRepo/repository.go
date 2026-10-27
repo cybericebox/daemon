@@ -32,6 +32,8 @@ type Queries interface {
 	ScrubRawLabObservations(context.Context, postgres.ScrubRawLabObservationsParams) (int64, error)
 	ScrubLabMonitoringCurrent(context.Context, postgres.ScrubLabMonitoringCurrentParams) (int64, error)
 	RenameErasedLabClient(context.Context, postgres.RenameErasedLabClientParams) error
+	CollectLabClientIPs(context.Context, postgres.CollectLabClientIPsParams) ([]string, error)
+	AddLabTelemetryErasureIPs(context.Context, postgres.AddLabTelemetryErasureIPsParams) error
 	ListSettledLabTelemetryErasures(context.Context, postgres.ListSettledLabTelemetryErasuresParams) ([]postgres.ListSettledLabTelemetryErasuresRow, error)
 	CountLabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error)
 	DeleteLabTelemetryErasures(context.Context, []byte) error
@@ -247,6 +249,8 @@ type LabTelemetryErasure struct {
 	QueuedAt   time.Time
 	// EraseIP: the IP assigned to the client goes too (erasure on request); an account deletion leaves the IPs.
 	EraseIP bool
+	// IPs of the client collected for erasure on request, removed wherever they appear.
+	IPs []string
 }
 
 // LabArchiveChunk is an archive chunk to scrub.
@@ -267,7 +271,7 @@ func (r *Repository) LabTelemetryErasures(ctx context.Context, after LabTelemetr
 	out := make([]LabTelemetryErasure, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, LabTelemetryErasure{
-			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp,
+			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, IPs: row.Ips,
 		})
 	}
 	return out, nil
@@ -319,22 +323,42 @@ func (r *Repository) QueueLabTelemetryErasure(ctx context.Context, userID uuid.U
 		return LabTelemetryErasure{}, err
 	}
 	return LabTelemetryErasure{
-		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp,
+		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, IPs: row.Ips,
 	}, nil
 }
 
 // ScrubRawLabObservations rewrites up to batchSize raw observations of the events that carry the client name.
 func (r *Repository) ScrubRawLabObservations(ctx context.Context, e LabTelemetryErasure, batchSize int32) (int64, error) {
 	return r.q.ScrubRawLabObservations(ctx, postgres.ScrubRawLabObservationsParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize, EraseIp: e.EraseIP,
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize, Ips: ipsOf(e),
 	})
 }
 
 // ScrubLabMonitoringCurrent rewrites the current state of the events that carries the client name.
 func (r *Repository) ScrubLabMonitoringCurrent(ctx context.Context, e LabTelemetryErasure) (int64, error) {
 	return r.q.ScrubLabMonitoringCurrent(ctx, postgres.ScrubLabMonitoringCurrentParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, EraseIp: e.EraseIP,
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, Ips: ipsOf(e),
 	})
+}
+
+// ipsOf is the IPs to blank, never nil (the statements read an empty array as "none").
+func ipsOf(e LabTelemetryErasure) []string {
+	if e.IPs == nil {
+		return []string{}
+	}
+	return e.IPs
+}
+
+// CollectLabClientIPs lists the IPs the live telemetry (raw rows and current state) gives the erased client.
+func (r *Repository) CollectLabClientIPs(ctx context.Context, e LabTelemetryErasure) ([]string, error) {
+	return r.q.CollectLabClientIPs(ctx, postgres.CollectLabClientIPsParams{
+		EventIds: e.EventIDs, ClientName: e.ClientName, Pseudonym: e.Pseudonym,
+	})
+}
+
+// AddLabTelemetryErasureIPs adds IPs to the entry's list.
+func (r *Repository) AddLabTelemetryErasureIPs(ctx context.Context, userID uuid.UUID, ips []string) error {
+	return r.q.AddLabTelemetryErasureIPs(ctx, postgres.AddLabTelemetryErasureIPsParams{UserID: userID, Ips: ips})
 }
 
 // RenameErasedLabClient gives the rollup rows still named after the client its pseudonym.

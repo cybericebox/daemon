@@ -121,18 +121,18 @@ func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) 
 	})
 }
 
-// LabArchiveErasure is what to remove from an archive for one deleted participant: the client name becomes
-// Pseudonym and, with EraseIP, the IP assigned to the client is blanked too.
+// LabArchiveErasure is what to remove from an archive for one erased participant: the client name becomes
+// Pseudonym and every JSON string equal to one of IPs (or the same with a /32 mask) is emptied.
 type LabArchiveErasure struct {
 	Pseudonym string
-	EraseIP   bool
+	IPs       []string
 }
 
 // ScrubLabArchive rewrites an archive chunk without the link to erased people: every VPN client name in erasures
-// (real name -> erasure) is replaced by its pseudonym wherever it appears in the rows, and for erasures with
-// EraseIP the assigned IP of that client is blanked (also where the same address appears as a string elsewhere in
-// the row). Nothing else changes (counters and the IPs of others stay). It reports whether anything changed; a
-// chunk that does not mention the names comes back untouched, so a repeated scrub is a no-op.
+// (real name -> erasure) is replaced by its pseudonym wherever it appears in the rows, and the IPs of erasures that
+// have some are emptied wherever they appear as a JSON string. Nothing else changes (counters and the IPs of others
+// stay). It reports whether anything changed; a chunk that does not mention the names or IPs comes back untouched,
+// so a repeated scrub is a no-op.
 func ScrubLabArchive(codec string, data []byte, erasures map[string]LabArchiveErasure) ([]byte, bool, error) {
 	var lines []string
 	changed := false
@@ -142,11 +142,9 @@ func ScrubLabArchive(codec string, data []byte, erasures map[string]LabArchiveEr
 			if bytes.Contains(out, []byte(name)) {
 				out = bytes.ReplaceAll(out, []byte(name), []byte(erasure.Pseudonym))
 			}
-			if erasure.EraseIP && bytes.Contains(out, []byte(erasure.Pseudonym)) {
-				var err error
-				if out, err = blankLabArchiveLineIP(out, erasure.Pseudonym); err != nil {
-					return err
-				}
+			for _, ip := range erasure.IPs {
+				out = bytes.ReplaceAll(out, []byte(`"`+ip+`"`), []byte(`""`))
+				out = bytes.ReplaceAll(out, []byte(`"`+ip+`/32"`), []byte(`""`))
 			}
 		}
 		if !bytes.Equal(out, line) {
@@ -165,46 +163,49 @@ func ScrubLabArchive(codec string, data []byte, erasures map[string]LabArchiveEr
 	return packed, true, nil
 }
 
-// blankLabArchiveLineIP blanks the assigned IP of the named client in one archive row. A row where the client has
-// no IP to blank is returned byte for byte.
-func blankLabArchiveLineIP(line []byte, client string) ([]byte, error) {
-	dec := json.NewDecoder(bytes.NewReader(line))
-	dec.UseNumber()
-	var row map[string]any
-	if err := dec.Decode(&row); err != nil {
-		return nil, fmt.Errorf("lab archive: decode line: %w", err)
-	}
-	var ips []string
-	if payload, ok := row["payload"].(map[string]any); ok {
-		list, _ := payload["clients"].([]any)
-		for _, item := range list {
-			c, ok := item.(map[string]any)
-			if !ok {
+// LabArchiveClientIPs lists the IPs a chunk gives to the named VPN clients (their assigned IPs in the rows that
+// mention them), so erasure on request can remove them wherever else they appear.
+func LabArchiveClientIPs(codec string, data []byte, names []string) ([]string, error) {
+	found := map[string]struct{}{}
+	err := LabArchiveLines(codec, data, func(line []byte) error {
+		mentioned := false
+		for _, n := range names {
+			if bytes.Contains(line, []byte(n)) {
+				mentioned = true
+				break
+			}
+		}
+		if !mentioned {
+			return nil
+		}
+		var row struct {
+			Payload struct {
+				Clients []struct {
+					Name   string `json:"name"`
+					Status struct {
+						AssignedIP string `json:"assignedIp"`
+					} `json:"status"`
+				} `json:"clients"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(line, &row); err != nil {
+			return nil //nolint:nilerr // a row that cannot be read gives no IP
+		}
+		for _, c := range row.Payload.Clients {
+			if c.Status.AssignedIP == "" {
 				continue
 			}
-			if name, _ := c["name"].(string); name != client {
-				continue
-			}
-			if status, ok := c["status"].(map[string]any); ok {
-				if ip, _ := status["assignedIp"].(string); ip != "" {
-					ips = append(ips, ip)
-					status["assignedIp"] = ""
+			for _, n := range names {
+				if c.Name == n {
+					found[c.Status.AssignedIP] = struct{}{}
 				}
 			}
 		}
+		return nil
+	})
+	out := make([]string, 0, len(found))
+	for ip := range found {
+		out = append(out, ip)
 	}
-	if len(ips) == 0 {
-		return line, nil
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(row); err != nil {
-		return nil, err
-	}
-	out := bytes.TrimSpace(buf.Bytes())
-	for _, ip := range ips {
-		out = bytes.ReplaceAll(out, []byte(`"`+ip+`"`), []byte(`""`))
-	}
-	return out, nil
+	return out, err
 }

@@ -46,41 +46,45 @@ CREATE TABLE lab_telemetry_erasures
     queued_at          timestamptz NOT NULL DEFAULT now(),
     -- Erasure on request (an objection) also blanks the IP assigned to the client; the purge of a deleted account
     -- leaves the IPs, they are internal addresses the statistics need.
-    erase_ip           boolean     NOT NULL DEFAULT false
+    erase_ip           boolean     NOT NULL DEFAULT false,
+    -- The IPs of the client found in the telemetry (collected before they are blanked) that erasure on request
+    -- removes wherever they appear.
+    ips                text[]      NOT NULL DEFAULT '{}'
 );
 
--- Whether a lab group payload lists a client with this name and a non-empty assigned IP.
-CREATE FUNCTION lab_client_has_ip(payload jsonb, client_name text) RETURNS boolean
+-- Whether the payload holds, as a whole JSON string, one of the IPs (or the same with a /32 mask).
+CREATE FUNCTION lab_payload_has_ip(payload jsonb, ips text[]) RETURNS boolean
     LANGUAGE sql
     IMMUTABLE
     PARALLEL SAFE
 AS
 $$
-SELECT CASE
-           WHEN jsonb_typeof(payload -> 'clients') = 'array' THEN EXISTS (SELECT 1
-                                                                          FROM jsonb_array_elements(payload -> 'clients') c
-                                                                          WHERE jsonb_typeof(c) = 'object'
-                                                                            AND c ->> 'name' = client_name
-                                                                            AND COALESCE(c -> 'status' ->> 'assignedIp', '') <> '')
-           ELSE false END
+SELECT EXISTS (SELECT 1
+               FROM unnest(ips) ip
+               WHERE position('"' || ip || '"' IN payload::text) > 0
+                  OR position('"' || ip || '/32"' IN payload::text) > 0)
 $$;
 
--- The payload with the assigned IP of the named client blanked.
-CREATE FUNCTION lab_blank_client_ip(payload jsonb, client_name text) RETURNS jsonb
-    LANGUAGE sql
+-- The payload with every JSON string equal to one of the IPs (or the same with a /32 mask) emptied, wherever it is.
+CREATE FUNCTION lab_blank_ips(payload jsonb, ips text[]) RETURNS jsonb
+    LANGUAGE plpgsql
     IMMUTABLE
     PARALLEL SAFE
 AS
 $$
-SELECT CASE
-           WHEN lab_client_has_ip(payload, client_name) THEN
-               jsonb_set(payload, '{clients}',
-                         (SELECT jsonb_agg(CASE
-                                               WHEN jsonb_typeof(c) = 'object' AND c ->> 'name' = client_name
-                                                   THEN jsonb_set(c, '{status}', COALESCE(c -> 'status', '{}'::jsonb) || '{"assignedIp":""}'::jsonb)
-                                               ELSE c END)
-                          FROM jsonb_array_elements(payload -> 'clients') c))
-           ELSE payload END
+DECLARE
+    doc text := payload::text;
+    ip  text;
+BEGIN
+    IF COALESCE(cardinality(ips), 0) = 0 THEN
+        RETURN payload;
+    END IF;
+    FOREACH ip IN ARRAY ips
+        LOOP
+            doc := replace(replace(doc, '"' || ip || '"', '""'), '"' || ip || '/32"', '""');
+        END LOOP;
+    RETURN doc::jsonb;
+END
 $$;
 
 -- The purge finds a deleted user's rows by client name.

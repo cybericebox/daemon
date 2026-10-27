@@ -96,6 +96,10 @@ func (s *fakeStore) ScrubLabMonitoringCurrent(context.Context, retentionRepo.Lab
 func (s *fakeStore) RenameErasedLabClient(context.Context, retentionRepo.LabTelemetryErasure) error {
 	return nil
 }
+func (s *fakeStore) CollectLabClientIPs(context.Context, retentionRepo.LabTelemetryErasure) ([]string, error) {
+	return nil, nil
+}
+func (s *fakeStore) AddLabTelemetryErasureIPs(context.Context, uuid.UUID, []string) error { return nil }
 func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
 	return nil, nil
 }

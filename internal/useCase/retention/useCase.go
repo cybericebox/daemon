@@ -37,6 +37,8 @@ type (
 		ScrubRawLabObservations(ctx context.Context, e retentionRepo.LabTelemetryErasure, batchSize int32) (int64, error)
 		ScrubLabMonitoringCurrent(ctx context.Context, e retentionRepo.LabTelemetryErasure) (int64, error)
 		RenameErasedLabClient(ctx context.Context, e retentionRepo.LabTelemetryErasure) error
+		CollectLabClientIPs(ctx context.Context, e retentionRepo.LabTelemetryErasure) ([]string, error)
+		AddLabTelemetryErasureIPs(ctx context.Context, userID uuid.UUID, ips []string) error
 		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
 		SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error
 		PurgeEventLabTelemetry(ctx context.Context, closedBefore, participantsBefore time.Time, batchSize int32) (int64, error)
@@ -267,15 +269,26 @@ func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (
 	return rewritten, nil
 }
 
-// scrubErasures rewrites the live data of a page of erased people and every archive chunk of their events.
+// scrubErasures rewrites the live data of a page of erased people and every archive chunk of their events. For an
+// erasure on request it first collects the person's IPs (live data and archive) and keeps them in the entry, so
+// they can be removed wherever they appear, not only where the client lists them.
 func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRepo.LabTelemetryErasure, batch int32) (int64, error) {
+	for i := range page {
+		if page[i].EraseIP {
+			ips, err := u.collectIPs(ctx, page[i])
+			if err != nil {
+				return 0, err
+			}
+			page[i].IPs = ips
+		}
+	}
 	erasures := map[string]eventAnalyticsModel.LabArchiveErasure{}
 	events := map[uuid.UUID]struct{}{}
 	for _, e := range page {
 		if err := u.scrubLive(ctx, e, batch); err != nil {
 			return 0, err
 		}
-		erasures[e.ClientName] = eventAnalyticsModel.LabArchiveErasure{Pseudonym: e.Pseudonym, EraseIP: e.EraseIP}
+		erasures[e.ClientName] = eventAnalyticsModel.LabArchiveErasure{Pseudonym: e.Pseudonym, IPs: e.IPs}
 		for _, id := range e.EventIDs {
 			events[id] = struct{}{}
 		}
@@ -289,6 +302,50 @@ func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRe
 		}
 	}
 	return rewritten, nil
+}
+
+// collectIPs gathers the IPs of an erased client from the live telemetry and the archive of its events, adds them to
+// the entry's stored list and returns the whole list.
+func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTelemetryErasure) ([]string, error) {
+	found, err := u.store.CollectLabClientIPs(ctx, e)
+	if err != nil {
+		return nil, err
+	}
+	names := []string{e.ClientName, e.Pseudonym}
+	for _, eventID := range e.EventIDs {
+		after := uuid.Nil
+		for {
+			chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
+			if err != nil {
+				return nil, err
+			}
+			for _, chunk := range chunks {
+				after = chunk.ID
+				ips, err := eventAnalyticsModel.LabArchiveClientIPs(chunk.Codec, chunk.Data, names)
+				if err != nil {
+					return nil, err
+				}
+				found = append(found, ips...)
+			}
+			if len(chunks) < labScrubPageSize {
+				break
+			}
+		}
+	}
+	if len(found) > 0 {
+		if err = u.store.AddLabTelemetryErasureIPs(ctx, e.UserID, found); err != nil {
+			return nil, err
+		}
+	}
+	seen := map[string]struct{}{}
+	all := make([]string, 0, len(e.IPs)+len(found))
+	for _, ip := range append(append([]string{}, e.IPs...), found...) {
+		if _, dup := seen[ip]; !dup {
+			seen[ip] = struct{}{}
+			all = append(all, ip)
+		}
+	}
+	return all, nil
 }
 
 // scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.

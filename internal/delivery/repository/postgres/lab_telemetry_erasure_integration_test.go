@@ -45,7 +45,7 @@ func TestLabClientNameSQLMatchesGo(t *testing.T) {
 
 func erasurePayload(client, ip string) string {
 	return `{"clients":[{"name":"` + client + `","status":{"assignedIp":"` + ip + `","statistics":{"rxBytes":"5"}}}],` +
-		`"policies":[{"rules":[{"clientNames":["` + client + `"]}]}]}`
+		`"policies":[{"rules":[{"clientNames":["` + client + `"]}],"allowedIps":["` + ip + `/32"],"gateway":"` + ip + `"}]}`
 }
 
 // Deleting an account removes only the link to the person: the VPN client name becomes one pseudonym, the same in
@@ -249,7 +249,7 @@ func TestLabTelemetryErasure_NoClockFilterForcedCloseAndNoLasingLink(t *testing.
 		text := archiveText(t, db, id)
 		require.NotContains(t, text, gone)
 		require.Contains(t, text, entry.Pseudonym)
-		require.NotContains(t, text, "10.8.0.7", "erasure on request removes the IP")
+		require.NotContains(t, text, `"10.8.0.7"`, "erasure on request removes the IP")
 	}
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%' || $1 || '%'`, gone))
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "an unarchived raw row keeps it open")
@@ -279,7 +279,8 @@ func TestLabTelemetryErasureOnRequest(t *testing.T) {
 	other := labBindingModel.ParticipantClientName(uuid.Must(uuid.NewV7()))
 	at := anStart.Add(time.Hour)
 	both := func(a, ipA, b, ipB string) string {
-		return `{"clients":[{"name":"` + a + `","status":{"assignedIp":"` + ipA + `"}},{"name":"` + b + `","status":{"assignedIp":"` + ipB + `"}}]}`
+		return `{"clients":[{"name":"` + a + `","status":{"assignedIp":"` + ipA + `"}},{"name":"` + b + `","status":{"assignedIp":"` + ipB + `"}}],` +
+			`"policies":[{"allowedIps":["` + ipA + `/32","` + ipB + `"],"note":"gw ` + ipA + `"}],"groups":[{"status":{"vpnAddress":"` + ipA + `"}}]}`
 	}
 	rtExec(t, db, `INSERT INTO event_vpn_client_minutes (event_id, team_id, lab_group_name, client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at)
 VALUES ($1, $2, 'g', $3, $4, 1, 1, 10, 1, 10, 1, $4)`, f.event, f.team, gone, at)
@@ -305,12 +306,15 @@ VALUES ($1, $2, 'grp', 'agent', 1, $3, $3, $4)`, f.event, f.team, at, both(gone,
 		require.NoError(t, db.Pool.QueryRow(ctx, query, f.event).Scan(&text))
 		require.NotContains(t, text, gone)
 		require.Contains(t, text, entry.Pseudonym)
-		require.NotContains(t, text, "10.8.0.7", "the person's IP goes on request")
+		require.NotContains(t, text, `"10.8.0.7"`, "the person's IP goes on request, wherever it is a string")
+		require.NotContains(t, text, `"10.8.0.7/32"`)
+		require.Contains(t, text, "gw 10.8.0.7", "only whole strings are blanked, not text that merely mentions the address")
 		require.Contains(t, text, other)
-		require.Contains(t, text, "10.8.0.9", "the others keep theirs")
+		require.Contains(t, text, `"10.8.0.9"`, "the others keep theirs")
 	}
 	require.NotContains(t, archiveText(t, db, chunk), gone)
-	require.NotContains(t, archiveText(t, db, chunk), "10.8.0.7")
+	require.NotContains(t, archiveText(t, db, chunk), `"10.8.0.7"`)
+	require.NotContains(t, archiveText(t, db, chunk), `"10.8.0.7/32"`)
 	require.Contains(t, archiveText(t, db, otherChunk), "10.8.0.9")
 
 	again, _, err := uc.EraseLabTelemetryOf(ctx, f.user)
@@ -346,8 +350,8 @@ func TestLabTelemetryErasureOnRequestAfterAccountDeletion(t *testing.T) {
 
 	_, _, err = uc.EraseLabTelemetryOf(ctx, f.user)
 	require.NoError(t, err)
-	require.NotContains(t, archiveText(t, db, chunk), "10.8.0.7")
-	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%10.8.0.7%'`))
+	require.NotContains(t, archiveText(t, db, chunk), `"10.8.0.7"`)
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%"10.8.0.7%'`))
 }
 
 // Queuing a person again keeps the pseudonym, adds the events found this time to the known ones, and an entry
