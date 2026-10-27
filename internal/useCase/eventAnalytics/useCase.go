@@ -35,6 +35,8 @@ type (
 		SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor eventAnalyticsRepo.VPNCursor, finalizedAt *time.Time) error
 		RollupLabUsage(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32) (eventAnalyticsRepo.VPNCursor, int, error)
 		FinishLabUsageRollup(ctx context.Context, eventID uuid.UUID, finalizedAt time.Time) error
+		LabJournal(ctx context.Context, eventID uuid.UUID, newID func() uuid.UUID) (*eventAnalyticsModel.LabJournal, error)
+		RollupLabJournal(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal) (eventAnalyticsRepo.VPNCursor, int, error)
 		ArchiveLabObservations(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, closedBefore time.Time, chunkID uuid.UUID) (eventAnalyticsRepo.VPNCursor, int, error)
 		Overview(ctx context.Context, eventID uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error)
 		Series(ctx context.Context, eventID uuid.UUID, period eventAnalyticsModel.Period) ([]eventAnalyticsRepo.SeriesPoint, error)

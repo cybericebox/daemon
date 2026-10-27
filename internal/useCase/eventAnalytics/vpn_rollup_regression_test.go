@@ -130,6 +130,25 @@ VALUES ($1, $2, $3, 'grp', 'agent', $4, $5, $6, 3, $7, $8)`,
 	if err = db.Pool.QueryRow(ctx, `SELECT count(*) FROM event_vpn_sessions WHERE event_id = $1`, event.ID).Scan(&sessions); err != nil {
 		t.Fatal(err)
 	}
+	// The same pass fed the minute tables and the transitions journal.
+	var labReady, deviceReady, connected, minutes, clientMinutes int
+	if err = db.Pool.QueryRow(ctx, `
+SELECT count(*) FILTER (WHERE kind = 'lab_ready'), count(*) FILTER (WHERE kind = 'device_ready'),
+       count(*) FILTER (WHERE kind = 'client_connected')
+FROM event_lab_transitions WHERE event_id = $1`, event.ID).Scan(&labReady, &deviceReady, &connected); err != nil {
+		t.Fatal(err)
+	}
+	if labReady != 1 || deviceReady != 1 || connected != 3 {
+		t.Fatalf("transitions: lab_ready=%d device_ready=%d client_connected=%d", labReady, deviceReady, connected)
+	}
+	if err = db.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM event_lab_minutes WHERE event_id = $1),
+       (SELECT count(*) FROM event_vpn_client_minutes WHERE event_id = $1)`, event.ID).Scan(&minutes, &clientMinutes); err != nil || minutes != 375 || clientMinutes != 6*375 {
+		t.Fatalf("minute rows: labs=%d clients=%d err=%v", minutes, clientMinutes, err)
+	}
+	var usageFinalized bool
+	if err = db.Pool.QueryRow(ctx, `SELECT lab_usage_finalized_at IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).Scan(&usageFinalized); err != nil || !usageFinalized {
+		t.Fatalf("lab usage rollup finalized=%v err=%v", usageFinalized, err)
+	}
 	// Three of the six clients have handshakes; the counter restart does not split sessions.
 	if sessions != 3 {
 		t.Fatalf("vpn sessions = %d, want 3 (strconv %s)", sessions, strconv.Itoa(sessions))

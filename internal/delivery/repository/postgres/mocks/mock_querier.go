@@ -7451,6 +7451,21 @@ func (mr *MockQuerierMockRecorder) ListEventLabGroupLifecycleWork(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabGroupLifecycleWork", reflect.TypeOf((*MockQuerier)(nil).ListEventLabGroupLifecycleWork), ctx, arg)
 }
 
+// ListEventLabJournalStates mocks base method.
+func (m *MockQuerier) ListEventLabJournalStates(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventLabJournalStatesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLabJournalStates", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventLabJournalStatesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLabJournalStates indicates an expected call of ListEventLabJournalStates.
+func (mr *MockQuerierMockRecorder) ListEventLabJournalStates(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabJournalStates", reflect.TypeOf((*MockQuerier)(nil).ListEventLabJournalStates), ctx, eventID)
+}
+
 // ListEventLabMonitoringCurrent mocks base method.
 func (m *MockQuerier) ListEventLabMonitoringCurrent(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventLabMonitoringCurrentRow, error) {
 	m.ctrl.T.Helper()
@@ -12203,6 +12218,20 @@ func (m *MockQuerier) SaveClusterReservation(ctx context.Context, arg postgres.S
 func (mr *MockQuerierMockRecorder) SaveClusterReservation(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveClusterReservation", reflect.TypeOf((*MockQuerier)(nil).SaveClusterReservation), ctx, arg)
+}
+
+// SaveEventLabJournalBatch mocks base method.
+func (m *MockQuerier) SaveEventLabJournalBatch(ctx context.Context, arg postgres.SaveEventLabJournalBatchParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveEventLabJournalBatch", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveEventLabJournalBatch indicates an expected call of SaveEventLabJournalBatch.
+func (mr *MockQuerierMockRecorder) SaveEventLabJournalBatch(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventLabJournalBatch", reflect.TypeOf((*MockQuerier)(nil).SaveEventLabJournalBatch), ctx, arg)
 }
 
 // SaveEventLabObservationArchive mocks base method.
