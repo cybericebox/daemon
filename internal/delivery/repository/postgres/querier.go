@@ -797,7 +797,10 @@ type Querier interface {
 	// the reads of the analytics API. The moderators team is never counted.
 	// Events the rollup job still has work for: started, and without finalized
 	// buckets (or with results changed since), or with a VPN or lab usage rollup
-	// still open (infrastructure events). Running events come first.
+	// still open (infrastructure events). Running events come first. A closed
+	// VPN or lab usage rollup is open again while observations arrived after its
+	// cursor (a pass that closed it before the telemetry existed, or rows that
+	// arrived late); vpn_closed / lab_usage_closed already account for that.
 	ListEventAnalyticsRollupCandidates(ctx context.Context, arg ListEventAnalyticsRollupCandidatesParams) ([]ListEventAnalyticsRollupCandidatesRow, error)
 	// Every score change (solves and hint penalties) of the given teams, oldest
 	// first: the running total is the sum of Points, as on the scoreboard.
