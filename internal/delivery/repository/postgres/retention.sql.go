@@ -565,6 +565,8 @@ WHERE id IN (SELECT o.id
              WHERE o.received_at < $1
                AND r.lab_usage_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
+               AND r.lab_journal_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_journal_cursor_received_at, r.lab_journal_cursor_id)
                AND r.lab_archive_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
                AND (NOT e.infrastructure_allowed
@@ -586,9 +588,9 @@ type PurgeRolledUpEventLabObservationsParams struct {
 }
 
 // Raw lab snapshots are large, so they go a day after arrival once every
-// rollup that reads them (VPN sessions, lab usage) has passed them and the
-// archive holds them (a raw row is never deleted before it is archived). The
-// latest snapshot of each lab group stays for the latest-state readers.
+// rollup that reads them (VPN sessions, lab usage, the transitions journal) has
+// passed them and the archive holds them (a raw row is never deleted before it
+// is archived). The latest snapshot of each lab group stays for the latest-state readers.
 // Events without infrastructure have no VPN rollup to wait for.
 func (q *Queries) PurgeRolledUpEventLabObservations(ctx context.Context, arg PurgeRolledUpEventLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeRolledUpEventLabObservations, arg.ReceivedBefore, arg.BatchSize)

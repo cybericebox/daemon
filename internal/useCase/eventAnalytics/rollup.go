@@ -24,6 +24,10 @@ const (
 	// the statement aggregates in the database.
 	labUsageBatchSize       = 5000
 	labUsageBatchesPerEvent = 10
+	// The transitions journal parses the payloads in the application, so its
+	// batches are smaller.
+	labJournalBatchSize       = 1000
+	labJournalBatchesPerEvent = 10
 	// The archive compresses one chunk of raw rows per step.
 	labArchiveChunksPerEvent = 6
 )
@@ -144,10 +148,11 @@ func (u *EventAnalyticsUseCase) refreshVPNSessions(ctx context.Context, c eventA
 	return nil
 }
 
-// refreshLabUsage folds the observations after the event's cursor into the
-// per-device minute buckets, batch by batch. The store saves the buckets and
-// moves the cursor in one statement, so a failure loses and double-counts
-// nothing. Once caught up after the event is final, the rollup closes.
+// refreshLabUsage folds the observations after the event's cursors into the
+// minute buckets and the transitions journal, batch by batch. The store saves
+// the buckets (or the transitions and states) and moves the cursor in one
+// statement, so a failure loses and double-counts nothing. Once both caught up
+// after the event is final, the rollup closes.
 func (u *EventAnalyticsUseCase) refreshLabUsage(
 	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, now time.Time,
 ) error {
@@ -161,10 +166,37 @@ func (u *EventAnalyticsUseCase) refreshLabUsage(
 		caughtUp = read < labUsageBatchSize
 		cursor = next
 	}
-	if caughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
+	journalCaughtUp, err := u.refreshLabJournal(ctx, c)
+	if err != nil {
+		return err
+	}
+	if caughtUp && journalCaughtUp && eventAnalyticsModel.Final(c.FinishedAt, now) {
 		return u.store.FinishLabUsageRollup(ctx, c.EventID, now)
 	}
 	return nil
+}
+
+// refreshLabJournal feeds the observations after the journal cursor to the
+// event's transitions journal and reports whether it caught up.
+func (u *EventAnalyticsUseCase) refreshLabJournal(
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate,
+) (bool, error) {
+	journal, err := u.store.LabJournal(ctx, c.EventID, u.newID)
+	if err != nil {
+		return false, err
+	}
+	cursor := c.LabJournalCursor
+	for i := 0; i < labJournalBatchesPerEvent; i++ {
+		next, read, err := u.store.RollupLabJournal(ctx, c.EventID, cursor, labJournalBatchSize, journal)
+		if err != nil {
+			return false, err
+		}
+		cursor = next
+		if read < labJournalBatchSize {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // archiveLabObservations compresses the event's raw observations of closed

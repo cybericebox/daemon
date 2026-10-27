@@ -282,7 +282,20 @@ VALUES ($1, $2, $3, $4, 'agent', $5, $6, $6, 1, false, '{"labs":[]}')`, id, f.ev
 		at,
 		id,
 	)
-	// Both rollups passed, but the archive has not: raw rows are never deleted before they are archived.
+	// The journal has not passed them yet either.
+	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	rtExec(
+		t,
+		db,
+		`UPDATE event_analytics_rollups SET lab_journal_cursor_received_at = $2, lab_journal_cursor_id = $3 WHERE event_id = $1`,
+		f.event,
+		at,
+		id,
+	)
+
+	// All rollups passed, but the archive has not: raw rows are never deleted before they are archived.
 	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
 	require.NoError(t, err)
 	require.Zero(t, n)

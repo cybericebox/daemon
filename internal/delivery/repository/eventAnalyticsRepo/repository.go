@@ -24,6 +24,7 @@ type Queries interface {
 	ReportQueries
 	ParticipantQueries
 	ArchiveQueries
+	JournalQueries
 	ListEventAnalyticsRollupCandidates(context.Context, postgres.ListEventAnalyticsRollupCandidatesParams) ([]postgres.ListEventAnalyticsRollupCandidatesRow, error)
 	RefreshEventActivityBuckets(context.Context, uuid.UUID) error
 	MarkEventActivityBucketsRefreshed(context.Context, postgres.MarkEventActivityBucketsRefreshedParams) error
@@ -64,6 +65,8 @@ type (
 		LabUsageFinalized bool
 		// LabUsageCursor is the last observation the lab usage rollup folded in.
 		LabUsageCursor VPNCursor
+		// LabJournalCursor is the last observation the transitions journal read.
+		LabJournalCursor VPNCursor
 		// NotStarted: the event is listed only for its archive; buckets and
 		// the rollups do not apply to it yet.
 		NotStarted bool
@@ -145,6 +148,11 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		if row.LabUsageCursorReceivedAt.Valid && row.LabUsageCursorID.Valid {
 			c.LabUsageCursor = VPNCursor{
 				ReceivedAt: row.LabUsageCursorReceivedAt.Time, ID: row.LabUsageCursorID.UUID,
+			}
+		}
+		if row.LabJournalCursorReceivedAt.Valid && row.LabJournalCursorID.Valid {
+			c.LabJournalCursor = VPNCursor{
+				ReceivedAt: row.LabJournalCursorReceivedAt.Time, ID: row.LabJournalCursorID.UUID,
 			}
 		}
 		if row.LabArchiveCursorReceivedAt.Valid && row.LabArchiveCursorID.Valid {

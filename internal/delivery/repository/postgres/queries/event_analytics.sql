@@ -9,7 +9,8 @@
 -- Running events come first. A closed VPN or lab usage rollup is open again
 -- while observations arrived after its cursor (a pass that closed it before
 -- the telemetry existed, or rows that arrived late); vpn_closed /
--- lab_usage_closed already account for that. not_started marks an event listed
+-- lab_usage_closed already account for that (the lab usage rollup covers the
+-- minute buckets and the transitions journal). not_started marks an event listed
 -- only for its archive: buckets and the rollups do not apply to it yet.
 SELECT e.id,
        e.start_at,
@@ -26,6 +27,8 @@ SELECT e.id,
        (s.lab_usage_finalized_at IS NOT NULL AND NOT pending.lab_usage)::boolean AS lab_usage_closed,
        s.lab_usage_cursor_received_at,
        s.lab_usage_cursor_id,
+       s.lab_journal_cursor_received_at,
+       s.lab_journal_cursor_id,
        pending.archive::boolean                              AS archive_open,
        s.lab_archive_cursor_received_at,
        s.lab_archive_cursor_id
@@ -38,11 +41,16 @@ CROSS JOIN LATERAL (
                WHERE o.event_id = e.id
                  AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
                                               COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS vpn,
-           e.infrastructure_allowed AND EXISTS (
+           e.infrastructure_allowed AND (EXISTS (
                SELECT 1 FROM event_lab_observations o
                WHERE o.event_id = e.id
                  AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
-                                              COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS lab_usage,
+                                              COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+               OR EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_journal_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_journal_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))) AS lab_usage,
            EXISTS (
                SELECT 1 FROM event_lab_observations o
                WHERE o.event_id = e.id

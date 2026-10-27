@@ -50,6 +50,10 @@ type fakeStore struct {
 	usageFinal *time.Time
 	failUsage  bool
 
+	journalReads []int
+	journalCalls []eventAnalyticsRepo.VPNCursor
+	journalNext  eventAnalyticsRepo.VPNCursor
+
 	archiveChunks []int
 	archiveCalls  []eventAnalyticsRepo.VPNCursor
 	archiveNext   eventAnalyticsRepo.VPNCursor
@@ -114,6 +118,20 @@ func (s *fakeStore) RollupLabUsage(
 func (s *fakeStore) FinishLabUsageRollup(_ context.Context, _ uuid.UUID, at time.Time) error {
 	s.usageFinal = &at
 	return nil
+}
+func (s *fakeStore) LabJournal(context.Context, uuid.UUID, func() uuid.UUID) (*eventAnalyticsModel.LabJournal, error) {
+	return eventAnalyticsModel.NewLabJournal(nil, func() uuid.UUID { return uuid.Must(uuid.NewV7()) }), nil
+}
+func (s *fakeStore) RollupLabJournal(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ *eventAnalyticsModel.LabJournal,
+) (eventAnalyticsRepo.VPNCursor, int, error) {
+	s.journalCalls = append(s.journalCalls, after)
+	if len(s.journalReads) == 0 {
+		return after, 0, nil
+	}
+	read := s.journalReads[0]
+	s.journalReads = s.journalReads[1:]
+	return s.journalNext, read, nil
 }
 func (s *fakeStore) ArchiveLabObservations(
 	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ time.Time, _ uuid.UUID,
@@ -475,5 +493,41 @@ func TestRefreshEventAnalytics_Archive(t *testing.T) {
 	uc = newUC(failing, runningEvent(), nil, &clock)
 	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
 		t.Fatal("a failing archive fails the pass")
+	}
+}
+
+// The lab usage rollup closes only when the transitions journal caught up too;
+// the journal reads from its own cursor.
+func TestRefreshEventAnalytics_LabJournal(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	longAgo := now.Add(-time.Hour)
+	start := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-3 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	next := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-2 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	candidates := []eventAnalyticsRepo.RollupCandidate{{
+		EventID: eventID, FinishedAt: &longAgo, InfrastructureAllowed: true,
+		BucketsFinalized: true, VPNFinalized: true, LabJournalCursor: start,
+	}}
+
+	// 1000 = a full journal batch: more to read, so the rollup stays open this pass.
+	store := &fakeStore{candidates: candidates, journalReads: []int{1000}, journalNext: next}
+	uc := newUC(store, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.journalCalls) != 2 || store.journalCalls[0] != start || store.journalCalls[1] != next {
+		t.Fatalf("journal reads %+v", store.journalCalls)
+	}
+	if store.usageFinal == nil {
+		t.Fatal("the second journal read caught up: the rollup closes")
+	}
+
+	behind := &fakeStore{candidates: candidates, journalReads: []int{1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000}, journalNext: next}
+	uc = newUC(behind, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if behind.usageFinal != nil {
+		t.Fatal("a journal still behind keeps the rollup open")
 	}
 }
