@@ -119,3 +119,16 @@ func TestLabJournal_VPNBootAndPolicy(t *testing.T) {
 	require.Equal(t, "vpn_boot_changed,policy_applied", kinds(got))
 	require.Empty(t, j.Apply(journalObs(team, journalT0.Add(3*time.Minute), `not json`)))
 }
+
+// The first look at an event that is over only sets the states: no transitions are made up.
+func TestLabJournal_QuietRecordsStatesWithoutTransitions(t *testing.T) {
+	team := uuid.Must(uuid.NewV7())
+	j := eventAnalyticsModel.NewLabJournal(nil, func() uuid.UUID { return uuid.Must(uuid.NewV7()) })
+	j.Quiet = true
+	require.Empty(t, j.Apply(journalObs(team, journalT0, labPayload(true, true, 0, journalT0.UnixMilli(), journalT0.UnixMilli()))))
+	require.NotEmpty(t, j.Changed(), "the states are remembered")
+
+	j.Quiet = false
+	require.Empty(t, j.Apply(journalObs(team, journalT0.Add(time.Minute), labPayload(true, true, 0, journalT0.UnixMilli(), journalT0.UnixMilli()))),
+		"nothing changed since, so nothing is written once it is not quiet either")
+}

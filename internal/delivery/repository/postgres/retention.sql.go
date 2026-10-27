@@ -103,6 +103,18 @@ func (q *Queries) CountLabTelemetryErasuresQueuedBefore(ctx context.Context, que
 	return count, err
 }
 
+const countStaleLabObservations = `-- name: CountStaleLabObservations :one
+SELECT count(*) FROM event_lab_observations WHERE observed_at < $1::timestamptz
+`
+
+// Raw rows past the period that are still there.
+func (q *Queries) CountStaleLabObservations(ctx context.Context, observedBefore time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, countStaleLabObservations, observedBefore)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteLabTelemetryErasures = `-- name: DeleteLabTelemetryErasures :exec
 DELETE FROM lab_telemetry_erasures e
 USING jsonb_to_recordset($1::jsonb) AS settled(user_id uuid, queued_at timestamptz)
@@ -113,6 +125,23 @@ WHERE e.user_id = settled.user_id AND e.queued_at = settled.queued_at
 func (q *Queries) DeleteLabTelemetryErasures(ctx context.Context, entries []byte) error {
 	_, err := q.db.Exec(ctx, deleteLabTelemetryErasures, entries)
 	return err
+}
+
+const getLabArchiveChunkForScrub = `-- name: GetLabArchiveChunkForScrub :one
+SELECT id, codec, data FROM event_lab_observation_archives WHERE id = $1
+`
+
+type GetLabArchiveChunkForScrubRow struct {
+	ID    uuid.UUID `json:"id"`
+	Codec string    `json:"codec"`
+	Data  []byte    `json:"data"`
+}
+
+func (q *Queries) GetLabArchiveChunkForScrub(ctx context.Context, id uuid.UUID) (GetLabArchiveChunkForScrubRow, error) {
+	row := q.db.QueryRow(ctx, getLabArchiveChunkForScrub, id)
+	var i GetLabArchiveChunkForScrubRow
+	err := row.Scan(&i.ID, &i.Codec, &i.Data)
+	return i, err
 }
 
 const listInactiveAccountsToDelete = `-- name: ListInactiveAccountsToDelete :many
@@ -285,6 +314,63 @@ func (q *Queries) ListLabTelemetryErasures(ctx context.Context, arg ListLabTelem
 	return items, nil
 }
 
+const listLateLabObservations = `-- name: ListLateLabObservations :many
+WITH late AS (
+    SELECT o.id, o.event_id, o.received_at, o.event_team_id, o.lab_group_name, o.observed_at
+    FROM event_lab_observations o
+    JOIN event_analytics_rollups r ON r.event_id = o.event_id
+    WHERE o.received_at < $2::timestamptz
+      AND r.lab_archive_cursor_id IS NOT NULL
+      AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
+      AND NOT EXISTS (SELECT 1 FROM event_lab_archived_rows ar WHERE ar.row_id = o.id)
+), one_event AS (
+    SELECT l.event_id FROM late l ORDER BY l.received_at, l.id LIMIT 1
+)
+SELECT o.id, o.event_id, o.received_at, to_jsonb(o)::text AS line
+FROM event_lab_observations o
+WHERE o.id IN (SELECT l.id FROM late l JOIN one_event e ON e.event_id = l.event_id ORDER BY l.received_at, l.id LIMIT $1)
+ORDER BY o.received_at, o.id
+`
+
+type ListLateLabObservationsParams struct {
+	RowLimit       int32     `json:"row_limit"`
+	ReceivedBefore time.Time `json:"received_before"`
+}
+
+type ListLateLabObservationsRow struct {
+	ID         uuid.UUID `json:"id"`
+	EventID    uuid.UUID `json:"event_id"`
+	ReceivedAt time.Time `json:"received_at"`
+	Line       string    `json:"line"`
+}
+
+// Raw rows of one event that no archive chunk holds although the archive cursor is past them (committed late), older
+// than received_before; up to row_limit, with the id and the line the archive keeps.
+func (q *Queries) ListLateLabObservations(ctx context.Context, arg ListLateLabObservationsParams) ([]ListLateLabObservationsRow, error) {
+	rows, err := q.db.Query(ctx, listLateLabObservations, arg.RowLimit, arg.ReceivedBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLateLabObservationsRow{}
+	for rows.Next() {
+		var i ListLateLabObservationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.ReceivedAt,
+			&i.Line,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSettledLabTelemetryErasures = `-- name: ListSettledLabTelemetryErasures :many
 SELECT e.user_id, e.queued_at
 FROM lab_telemetry_erasures e
@@ -414,8 +500,9 @@ WITH batch AS (
     UPDATE event_vpn_sessions SET user_id = NULL, client_name = '' WHERE user_id IN (SELECT id FROM batch)
 ), lab_erasures AS (
     -- Only the link to the person goes: the client name becomes a pseudonym, the same everywhere (the IPs and the
-    -- traffic stay). The archive is rewritten later (it needs the chunk unpacked): the account is queued with the
-    -- events it took part in. The sub-selects see the rows as they are before this statement renames them.
+    -- traffic stay). This statement only queues the account with its pseudonym and the events it took part in; the
+    -- retention job renames and rewrites the telemetry right after, in batches (the queue entry lives for a day and
+    -- every run rescans, so nothing archived meanwhile keeps the name).
     INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
     SELECT b.id, lab_client_name(b.id), 'deleted-' || gen_random_uuid()::text,
            ARRAY(SELECT x.event_id
@@ -428,26 +515,7 @@ WITH batch AS (
     ON CONFLICT (user_id) DO UPDATE
         SET queued_at = now(),
             event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x)
-    RETURNING user_id, client_name, pseudonym, event_ids
-), lab_client_minutes AS (
-    UPDATE event_vpn_client_minutes m SET client_name = e.pseudonym
-    FROM lab_erasures e WHERE m.client_name = e.client_name
-), lab_transitions AS (
-    UPDATE event_lab_transitions t SET client_name = e.pseudonym
-    FROM lab_erasures e WHERE t.client_name = e.client_name
-), lab_client_states AS (
-    UPDATE event_lab_journal_states s SET name = e.pseudonym
-    FROM lab_erasures e WHERE s.kind = 'client' AND s.name = e.client_name
-), lab_raw AS (
-    UPDATE event_lab_observations o
-    SET payload = replace(o.payload::text, e.client_name, e.pseudonym)::jsonb
-    FROM lab_erasures e
-    WHERE o.event_id = ANY (e.event_ids) AND o.payload::text LIKE '%' || e.client_name || '%'
-), lab_current AS (
-    UPDATE lab_monitoring_current c
-    SET payload = replace(c.payload::text, e.client_name, e.pseudonym)::jsonb
-    FROM lab_erasures e
-    WHERE c.event_id = ANY (e.event_ids) AND c.payload::text LIKE '%' || e.client_name || '%'
+    RETURNING user_id
 ), lab_touches AS (
     -- Lab access counters keep what happened to the task, not who did it.
     UPDATE event_lab_touches SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
@@ -658,10 +726,9 @@ WHERE id IN (SELECT o.id
              JOIN event_analytics_rollups r ON r.event_id = o.event_id
              WHERE o.observed_at < $1
                AND (r.lab_telemetry_hold_until IS NULL OR r.lab_telemetry_hold_until <= now())
-               AND r.lab_archive_cursor_id IS NOT NULL
-               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
+               AND EXISTS (SELECT 1 FROM event_lab_archived_rows ar WHERE ar.row_id = o.id)
              LIMIT $2
-             FOR UPDATE SKIP LOCKED)
+             FOR UPDATE OF o SKIP LOCKED)
 `
 
 type PurgeEventLabObservationsParams struct {
@@ -669,8 +736,8 @@ type PurgeEventLabObservationsParams struct {
 	BatchSize      int32     `json:"batch_size"`
 }
 
-// Raw rows past the telemetry period; only archived ones (see
-// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
+// Raw rows past the participants period; only the ones a chunk of the archive really holds (event_lab_archived_rows,
+// not just 'behind the archive cursor'), so nothing is lost before the archive.
 func (q *Queries) PurgeEventLabObservations(ctx context.Context, arg PurgeEventLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeEventLabObservations, arg.ObservedBefore, arg.BatchSize)
 	if err != nil {
@@ -977,8 +1044,7 @@ WHERE id IN (SELECT o.id
                AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
                AND r.lab_journal_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_journal_cursor_received_at, r.lab_journal_cursor_id)
-               AND r.lab_archive_cursor_id IS NOT NULL
-               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
+               AND EXISTS (SELECT 1 FROM event_lab_archived_rows ar WHERE ar.row_id = o.id)
                AND (NOT e.infrastructure_allowed
                     OR (r.vpn_cursor_id IS NOT NULL
                         AND (o.received_at, o.id) <= (r.vpn_cursor_received_at, r.vpn_cursor_id)))
@@ -1049,15 +1115,6 @@ WITH person AS (
             event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x),
             erase_ip = lab_telemetry_erasures.erase_ip OR EXCLUDED.erase_ip
     RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips
-), minutes AS (
-    UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym
-    FROM queued q WHERE m.client_name = q.client_name
-), transitions AS (
-    UPDATE event_lab_transitions t SET client_name = q.pseudonym
-    FROM queued q WHERE t.client_name = q.client_name
-), states AS (
-    UPDATE event_lab_journal_states s SET name = q.pseudonym
-    FROM queued q WHERE s.kind = 'client' AND s.name = q.client_name
 )
 SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips FROM queued
 `
@@ -1074,8 +1131,8 @@ type QueueLabTelemetryErasureRow struct {
 
 // Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
 // Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
-// and renames the rollup rows now; the rest (raw rows, current state, archive, the IPs) is done by the scrub that
-// follows, which first collects the person's IPs. Returns the queued entry.
+// only queues; the scrub that follows renames the rollup rows, rewrites the raw rows, the current state and the
+// archive, and first collects the person's IPs. Returns the queued entry.
 func (q *Queries) QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (QueueLabTelemetryErasureRow, error) {
 	row := q.db.QueryRow(ctx, queueLabTelemetryErasure, userID)
 	var i QueueLabTelemetryErasureRow
@@ -1132,12 +1189,62 @@ func (q *Queries) RenameErasedLabClient(ctx context.Context, arg RenameErasedLab
 	return err
 }
 
+const saveLateLabObservationArchive = `-- name: SaveLateLabObservationArchive :exec
+WITH chunk AS (
+    INSERT INTO event_lab_observation_archives (id, event_id, period_start, period_end, row_count,
+                                                first_received_at, first_id, last_received_at, last_id, codec, data)
+    VALUES ($2, $3, $4, $5, $6,
+            $7, $8, $9, $10,
+            $11, $12)
+    ON CONFLICT (event_id, last_received_at, last_id) DO NOTHING
+    RETURNING id
+)
+INSERT INTO event_lab_archived_rows (row_id, chunk_id)
+SELECT unnest($1::uuid[]), c.id FROM chunk c
+ON CONFLICT DO NOTHING
+`
+
+type SaveLateLabObservationArchiveParams struct {
+	RowIds          []uuid.UUID `json:"row_ids"`
+	ID              uuid.UUID   `json:"id"`
+	EventID         uuid.UUID   `json:"event_id"`
+	PeriodStart     time.Time   `json:"period_start"`
+	PeriodEnd       time.Time   `json:"period_end"`
+	RowCount        int32       `json:"row_count"`
+	FirstReceivedAt time.Time   `json:"first_received_at"`
+	FirstID         uuid.UUID   `json:"first_id"`
+	LastReceivedAt  time.Time   `json:"last_received_at"`
+	LastID          uuid.UUID   `json:"last_id"`
+	Codec           string      `json:"codec"`
+	Data            []byte      `json:"data"`
+}
+
+// A chunk of late rows: stored with its row ids, the archive cursor stays where it is.
+func (q *Queries) SaveLateLabObservationArchive(ctx context.Context, arg SaveLateLabObservationArchiveParams) error {
+	_, err := q.db.Exec(ctx, saveLateLabObservationArchive,
+		arg.RowIds,
+		arg.ID,
+		arg.EventID,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.RowCount,
+		arg.FirstReceivedAt,
+		arg.FirstID,
+		arg.LastReceivedAt,
+		arg.LastID,
+		arg.Codec,
+		arg.Data,
+	)
+	return err
+}
+
 const scrubLabMonitoringCurrent = `-- name: ScrubLabMonitoringCurrent :execrows
 UPDATE lab_monitoring_current
 SET payload = lab_blank_ips(replace(payload::text, $1::text, $2::text)::jsonb, $3::text[])
 WHERE event_id = ANY ($4::uuid[])
   AND (payload::text LIKE '%' || $1::text || '%'
-       OR lab_payload_has_ip(payload, $3::text[]))
+       OR (payload::text LIKE '%' || $2::text || '%'
+           AND lab_payload_has_ip(payload, $3::text[])))
 `
 
 type ScrubLabMonitoringCurrentParams struct {
@@ -1167,7 +1274,8 @@ WHERE id IN (SELECT o.id
              FROM event_lab_observations o
              WHERE o.event_id = ANY ($4::uuid[])
                AND (o.payload::text LIKE '%' || $1::text || '%'
-                    OR lab_payload_has_ip(o.payload, $3::text[]))
+                    OR (o.payload::text LIKE '%' || $2::text || '%'
+                        AND lab_payload_has_ip(o.payload, $3::text[])))
              LIMIT $5)
 `
 
@@ -1179,7 +1287,8 @@ type ScrubRawLabObservationsParams struct {
 	BatchSize  int32       `json:"batch_size"`
 }
 
-// Rewrites up to batch_size raw observations of the events that still carry the client name.
+// Rewrites up to batch_size raw observations of the events that still carry the client name. The IPs go only from
+// rows that name the client (by its name or pseudonym): an address another client got later is left alone.
 func (q *Queries) ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, scrubRawLabObservations,
 		arg.ClientName,
@@ -1194,16 +1303,22 @@ func (q *Queries) ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabOb
 	return result.RowsAffected(), nil
 }
 
-const updateLabArchiveChunkData = `-- name: UpdateLabArchiveChunkData :exec
-UPDATE event_lab_observation_archives SET data = $1 WHERE id = $2
+const updateLabArchiveChunkData = `-- name: UpdateLabArchiveChunkData :execrows
+UPDATE event_lab_observation_archives SET data = $1
+WHERE id = $2 AND data = $3
 `
 
 type UpdateLabArchiveChunkDataParams struct {
-	Data []byte    `json:"data"`
-	ID   uuid.UUID `json:"id"`
+	Data    []byte    `json:"data"`
+	ID      uuid.UUID `json:"id"`
+	OldData []byte    `json:"old_data"`
 }
 
-func (q *Queries) UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) error {
-	_, err := q.db.Exec(ctx, updateLabArchiveChunkData, arg.Data, arg.ID)
-	return err
+// Replaces the data only if nobody changed it since it was read (another scrub); the caller reads again otherwise.
+func (q *Queries) UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateLabArchiveChunkData, arg.Data, arg.ID, arg.OldData)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

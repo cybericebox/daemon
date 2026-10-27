@@ -54,7 +54,7 @@ func TestEventLabTelemetry_ExtendedMinuteRollup(t *testing.T) {
 
 	var cursor eventAnalyticsRepo.VPNCursor
 	for {
-		next, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2) // batches of two split minute 1
+		next, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2, false) // batches of two split minute 1
 		require.NoError(t, err)
 		cursor = next
 		if read < 2 {
@@ -131,11 +131,11 @@ func TestEventLabTelemetry_TeamReads(t *testing.T) {
 	telemetryObservation(t, db, f.event, f.moderators, 2, m0.Add(6*time.Second), telemetryPayload(true, "Running", 10, 1000, "p-m", m0, 100, 10))
 	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(20*time.Minute), telemetryPayload(true, "Running", 10, 1000, "p-a", m0, 100, 10)) // outside
 	newID := func() uuid.UUID { return uuid.Must(uuid.NewV7()) }
-	_, _, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
+	_, _, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, false)
 	require.NoError(t, err)
 	journal, err := repo.LabJournal(ctx, f.event, newID)
 	require.NoError(t, err)
-	_, _, err = repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal)
+	_, _, err = repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal, false)
 	require.NoError(t, err)
 
 	devices, err := repo.TeamDeviceMinutes(ctx, f.event, f.team, period, 100)
@@ -171,6 +171,12 @@ VALUES ($1, $2, 'lab', $3, 1, 0, 1, $4)`, f.event, f.team, f.challenge, m0.Add(9
 	require.Equal(t, m0.Add(5*time.Second), ready.At.UTC())
 	require.NotNil(t, ready.PlatformReadyAt)
 	require.Equal(t, 4*time.Second, ready.PlatformReadyAt.Sub(ready.At))
+	// Two platform changes at the very same instant must not double the transition.
+	rtExec(t, db, `INSERT INTO event_stand_transitions (event_id, team_id, source, challenge_id, generation, from_status, to_status, at)
+VALUES ($1, $2, 'lab', $3, 2, 0, 1, $4)`, f.event, f.team, f.challenge, m0.Add(9*time.Second))
+	transitions, err = repo.TeamLabTransitions(ctx, f.event, f.team, period, []string{"lab_ready"}, 100)
+	require.NoError(t, err)
+	require.Len(t, transitions, 1)
 	only, err := repo.TeamLabTransitions(ctx, f.event, f.team, period, []string{"client_connected"}, 100)
 	require.NoError(t, err)
 	require.Len(t, only, 1)
@@ -197,7 +203,7 @@ func TestEventLabTelemetry_PoisonedPayloadDoesNotStopTheRollups(t *testing.T) {
 	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(3*time.Second), poison(`"100"`, `"10"`, `"2000"`, `"30"`, `"0"`, strconv.FormatInt(m0.Unix(), 10)))
 	telemetryObservation(t, db, f.event, f.team, 4, m0.Add(4*time.Second), `{"labs":"nope","clients":[1,"x",{"name":7}]}`)
 
-	cursor, read, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
+	cursor, read, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, false)
 	require.NoError(t, err)
 	require.Equal(t, 4, read)
 	require.NotEqual(t, uuid.Nil, cursor.ID, "the cursor moved past the bad observations")
@@ -217,7 +223,7 @@ func TestEventLabTelemetry_PoisonedPayloadDoesNotStopTheRollups(t *testing.T) {
 
 	journal, err := repo.LabJournal(ctx, f.event, func() uuid.UUID { return uuid.Must(uuid.NewV7()) })
 	require.NoError(t, err)
-	_, journalRead, err := repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal)
+	_, journalRead, err := repo.RollupLabJournal(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100, journal, false)
 	require.NoError(t, err)
 	require.Equal(t, 4, journalRead)
 }

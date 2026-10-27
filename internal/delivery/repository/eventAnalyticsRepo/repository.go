@@ -272,14 +272,14 @@ func (r *Repository) SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor
 // It returns the cursor after the last observation and how many it read
 // (fewer than batchSize: caught up).
 func (r *Repository) RollupLabUsage(
-	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32,
+	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32, ignoreHold bool,
 ) (VPNCursor, int, error) {
 	if after.ReceivedAt.IsZero() {
 		after.ReceivedAt = cursorStart
 	}
 	row, err := r.q.RollupEventLabUsage(ctx, postgres.RollupEventLabUsageParams{
 		EventID: eventID, AfterReceivedAt: after.ReceivedAt,
-		AfterID: after.ID, BatchSize: batchSize,
+		AfterID: after.ID, BatchSize: batchSize, IgnoreHold: ignoreHold,
 	})
 	if err != nil {
 		return after, 0, err

@@ -142,6 +142,10 @@ func ScrubLabArchive(codec string, data []byte, erasures map[string]LabArchiveEr
 			if bytes.Contains(out, []byte(name)) {
 				out = bytes.ReplaceAll(out, []byte(name), []byte(erasure.Pseudonym))
 			}
+			// Only rows that name the client lose its IPs: an address another client got later is not touched.
+			if !bytes.Contains(out, []byte(erasure.Pseudonym)) {
+				continue
+			}
 			for _, ip := range erasure.IPs {
 				out = bytes.ReplaceAll(out, []byte(`"`+ip+`"`), []byte(`""`))
 				out = bytes.ReplaceAll(out, []byte(`"`+ip+`/32"`), []byte(`""`))

@@ -85,7 +85,7 @@ func (q *Queries) ListEventLabObservationArchiveChunks(ctx context.Context, arg 
 }
 
 const listEventLabObservationArchiveLines = `-- name: ListEventLabObservationArchiveLines :many
-SELECT to_jsonb(o)::text AS line
+SELECT o.id, to_jsonb(o)::text AS line
 FROM event_lab_observations o
 WHERE o.event_id = $1
   AND (o.received_at, o.id) > ($2::timestamptz, $3::uuid)
@@ -101,9 +101,14 @@ type ListEventLabObservationArchiveLinesParams struct {
 	LastID          uuid.UUID `json:"last_id"`
 }
 
+type ListEventLabObservationArchiveLinesRow struct {
+	ID   uuid.UUID `json:"id"`
+	Line string    `json:"line"`
+}
+
 // The rows of a chunk as JSON lines with every column, ordered by team, lab
 // group and observation time so that neighbours resemble each other.
-func (q *Queries) ListEventLabObservationArchiveLines(ctx context.Context, arg ListEventLabObservationArchiveLinesParams) ([]string, error) {
+func (q *Queries) ListEventLabObservationArchiveLines(ctx context.Context, arg ListEventLabObservationArchiveLinesParams) ([]ListEventLabObservationArchiveLinesRow, error) {
 	rows, err := q.db.Query(ctx, listEventLabObservationArchiveLines,
 		arg.EventID,
 		arg.AfterReceivedAt,
@@ -115,13 +120,13 @@ func (q *Queries) ListEventLabObservationArchiveLines(ctx context.Context, arg L
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ListEventLabObservationArchiveLinesRow{}
 	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
+		var i ListEventLabObservationArchiveLinesRow
+		if err := rows.Scan(&i.ID, &i.Line); err != nil {
 			return nil, err
 		}
-		items = append(items, line)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -275,7 +280,11 @@ WITH chunk AS (
             $8, $9, $2, $3,
             $10, $11)
     ON CONFLICT (event_id, last_received_at, last_id) DO NOTHING
-    RETURNING 1
+    RETURNING id
+), covered AS (
+    INSERT INTO event_lab_archived_rows (row_id, chunk_id)
+    SELECT unnest($12::uuid[]), c.id FROM chunk c
+    ON CONFLICT DO NOTHING
 )
 INSERT INTO event_analytics_rollups (event_id, lab_archive_cursor_received_at, lab_archive_cursor_id)
 VALUES ($1, $2, $3)
@@ -296,10 +305,11 @@ type SaveEventLabObservationArchiveParams struct {
 	FirstID         uuid.UUID          `json:"first_id"`
 	Codec           string             `json:"codec"`
 	Data            []byte             `json:"data"`
+	RowIds          []uuid.UUID        `json:"row_ids"`
 }
 
-// Stores a chunk and moves the archive cursor past it in one statement: a
-// failure leaves both untouched, a re-run of the same chunk adds nothing.
+// Stores a chunk with the ids of its rows and moves the archive cursor past it in one statement: a
+// failure leaves all untouched, a re-run of the same chunk adds nothing.
 func (q *Queries) SaveEventLabObservationArchive(ctx context.Context, arg SaveEventLabObservationArchiveParams) error {
 	_, err := q.db.Exec(ctx, saveEventLabObservationArchive,
 		arg.EventID,
@@ -313,6 +323,7 @@ func (q *Queries) SaveEventLabObservationArchive(ctx context.Context, arg SaveEv
 		arg.FirstID,
 		arg.Codec,
 		arg.Data,
+		arg.RowIds,
 	)
 	return err
 }

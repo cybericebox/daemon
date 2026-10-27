@@ -84,6 +84,9 @@ type LabStateRow struct {
 // seeded with the stored states, applied to observations in arrival order, and
 // hands back the changed states to store with the transitions.
 type LabJournal struct {
+	// Quiet records the states without writing transitions: the first look at an event that is over only sees its
+	// last snapshots, whose "became ready" would be an invented history.
+	Quiet   bool
 	states  map[LabEntityKey]LabEntityState
 	dirty   map[LabEntityKey]struct{}
 	clients map[labGroupKey]map[LabEntityKey]struct{}
@@ -366,6 +369,9 @@ func (j *LabJournal) Apply(o LabObservation) []LabTransition {
 		emit(LabTransitionClientDisconnect, "", nil, &client, disconnectAt(s.Handshake, o.ObservedAt), "")
 		s.Connected = false
 		j.set(ck, s)
+	}
+	if j.Quiet {
+		return nil
 	}
 	return out
 }

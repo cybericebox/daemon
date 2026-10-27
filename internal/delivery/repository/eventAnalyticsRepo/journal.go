@@ -47,7 +47,7 @@ func (r *Repository) LabJournal(
 // after the last observation and how many it read (fewer than batchSize:
 // caught up). After an error the journal must be reloaded.
 func (r *Repository) RollupLabJournal(
-	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal,
+	ctx context.Context, eventID uuid.UUID, after VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal, ignoreHold bool,
 ) (VPNCursor, int, error) {
 	observations, err := r.RawLabObservations(ctx, eventID, after, batchSize)
 	if err != nil {
@@ -74,7 +74,7 @@ func (r *Repository) RollupLabJournal(
 		EventID:          eventID,
 		CursorReceivedAt: pgtype.Timestamptz{Time: last.ReceivedAt, Valid: true},
 		CursorID:         uuid.NullUUID{UUID: last.ID, Valid: true},
-		Transitions:      transitionsJSON, States: statesJSON,
+		Transitions:      transitionsJSON, States: statesJSON, IgnoreHold: ignoreHold,
 	})
 	if err != nil {
 		return after, 0, err
