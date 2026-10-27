@@ -136,3 +136,21 @@ func TestRuntimeReadDoesNotPromoteHistoricalReadyDuringRestart(t *testing.T) {
 		t.Fatalf("historical Ready promoted restart %+v", got)
 	}
 }
+
+// khctf: a Lab the agent reports ready, certified by its plain readiness, whose canonical row never recorded it
+// showed no addresses until the engine happened to touch it. The next runtime read records it.
+func TestRuntimeReadRecordsTheReadinessOfAReadyPlainLab(t *testing.T) {
+	f, set, user, _ := prepareLifecycle(t)
+	ctx := context.Background()
+	f.uc.SetLifecycleControls(false)
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE event_team_labs SET runtime_ready=false,actual_state='Unknown',observed_revision=0,observed_at=NULL,allocation=jsonb_set(allocation,'{RuntimeState}','"Unknown"') WHERE event_team_id=$1 AND id=(SELECT lab_id FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=$2)`, f.blueID, set.challenges[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.uc.GetOwnChallengeRuntime(ctx, f.eventID, user, set.challenges[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Lab == nil || got.Lab.RuntimeState != "ready" || !got.Status.Ready {
+		t.Fatalf("a ready plain lab stayed unrecorded: %+v", got)
+	}
+}

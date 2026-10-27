@@ -2,6 +2,9 @@ package event
 
 import (
 	"context"
+	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -131,6 +134,17 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 	if err != nil {
 		return ChallengeRuntimeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recheck runtime laboratory lifecycle").Err()
 	}
+	// The agent says the Lab is ready but the canonical row never recorded it (khctf: addresses stayed «—» for a
+	// ready Lab): record the plain readiness now, as the stand engine does, instead of waiting for a reload.
+	if !current.ReadyForAccess() && status.Ready {
+		if healed, healErr := u.adoptPlainReadiness(ctx, current, status); healErr != nil {
+			log.Warn().Err(healErr).Str("lab_id", current.ID.String()).Msg("Failed to refresh the runtime of a ready lab")
+		} else if healed {
+			if current, err = u.labs.GetForChallenge(ctx, *p.TeamID, challengeID); err != nil {
+				return ChallengeRuntimeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recheck runtime laboratory lifecycle").Err()
+			}
+		}
+	}
 	safe, err = u.participantLabCapabilities(ctx, current)
 	if err != nil {
 		return ChallengeRuntimeView{}, err
@@ -150,4 +164,24 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 		out.Status.InternetCIDR = ""
 	}
 	return out, nil
+}
+
+// adoptPlainReadiness records, for a Lab certified by its plain readiness (no managed lifecycle: the agent reports no
+// confirmed runtime, or the controls are off), the identity and readiness the agent reports now. It touches only the
+// original Running revision with a matching identity, like the stand engine, and reports whether the row changed.
+func (u *EventUseCase) adoptPlainReadiness(ctx context.Context, lab eventLabModel.Lab, status exerciseModel.LabDeployStatus) (bool, error) {
+	managed := u.lifecycleControls && !u.runtimeUnconfirmed(ctx, lab.Ref.Group)
+	if managed || lab.Revision != 1 || lab.DesiredState != "Running" || lab.ClosedAt != nil || status.LabUID == "" || status.LabGeneration <= 0 {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	if lab.AgentUID == "" {
+		adopted, err := u.labs.RecordInitialIdentity(ctx, lab.ID, lab.Ref, status.LabUID, status.LabGeneration, now)
+		if err != nil || !adopted {
+			return false, err
+		}
+	} else if lab.AgentUID != status.LabUID || status.LabGeneration < lab.AgentGeneration {
+		return false, nil
+	}
+	return u.labs.RecordInitialReadiness(ctx, lab.ID, lab.Ref, status.LabUID, status.LabGeneration, true, now)
 }
