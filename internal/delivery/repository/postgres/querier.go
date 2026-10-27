@@ -1780,12 +1780,18 @@ type Querier interface {
 	RollbackEmailTemplate(ctx context.Context, arg RollbackEmailTemplateParams) (NotificationEmailTemplate, error)
 	RollbackInAppTemplate(ctx context.Context, arg RollbackInAppTemplateParams) (NotificationInAppTemplate, error)
 	// Folds up to batch_size observations after the cursor, in arrival order, into
-	// the per-device minute buckets and moves the cursor past them, in one
-	// statement: a failure leaves both untouched, so a re-run never counts an
-	// observation twice. A minute spanning two batches merges: counts and sums
-	// add up, maxima take the larger. Returns how many observations it read
-	// (fewer than batch_size: caught up) and the cursor after the last one (the
-	// given cursor when it read none).
+	// the minute buckets (per device, per lab, per VPN client) and moves the
+	// cursor past them, in one statement: a failure leaves both untouched, so a
+	// re-run never counts an observation twice. A minute spanning two batches
+	// merges: counts and sums add up, maxima take the larger, "last" values the
+	// newer one. The traffic of a client is the growth of its counters between
+	// consecutive samples (continuing from the last sample stored before the
+	// batch); a counter that went down is a reset and counts the new value; the
+	// first sample of a client has no baseline and counts 0. A client is
+	// connected when its last handshake is at most 3 minutes older than the
+	// sample. Returns how many observations it read (fewer than batch_size:
+	// caught up) and the cursor after the last one (the given cursor when it
+	// read none).
 	RollupEventLabUsage(ctx context.Context, arg RollupEventLabUsageParams) (RollupEventLabUsageRow, error)
 	// Cluster reservations: the parts of the backend's reservations as the agents hold them, and the agent of each
 	// unit of a calendar reservation. See migration 0186. The desired state is written whole under the calendar lock
