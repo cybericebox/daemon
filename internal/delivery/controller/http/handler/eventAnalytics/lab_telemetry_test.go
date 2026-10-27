@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -22,6 +23,11 @@ type labTelemetryUseCase struct {
 	transitions eventAnalyticsUseCase.LabTransitionsView
 	kinds       []string
 	team        uuid.UUID
+	people      bool
+}
+
+func (f *labTelemetryUseCase) EventAnalyticsAccess(context.Context, uuid.UUID, rbac.Claims) (eventAnalyticsModel.Access, error) {
+	return eventAnalyticsModel.Access{People: f.people}, nil
 }
 
 func (f *labTelemetryUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rbac.Claims, level eventAnalyticsUseCase.Level) error {
@@ -51,7 +57,7 @@ func TestLabTelemetryReport(t *testing.T) {
 	team := uuid.Must(uuid.NewV7())
 	at := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
 	cpuMax := int64(90)
-	uc := &labTelemetryUseCase{telemetry: eventAnalyticsUseCase.LabTelemetryView{
+	uc := &labTelemetryUseCase{people: true, telemetry: eventAnalyticsUseCase.LabTelemetryView{
 		Available: true,
 		Devices: []eventAnalyticsRepo.DeviceMinute{
 			{LabName: "web", DeviceName: "app", BucketAt: at, Samples: 12, CPUSamples: 10, CPUSum: 500, CPUMax: &cpuMax, MemorySamples: 12, MemorySum: 1200, ReadySamples: 11, LastPodPhase: "Running"},
@@ -87,7 +93,7 @@ func TestLabTransitionsReport(t *testing.T) {
 	team := uuid.Must(uuid.NewV7())
 	at := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
 	platform := at.Add(7 * time.Second)
-	uc := &labTelemetryUseCase{transitions: eventAnalyticsUseCase.LabTransitionsView{
+	uc := &labTelemetryUseCase{people: true, transitions: eventAnalyticsUseCase.LabTransitionsView{
 		Available: true,
 		Transitions: []eventAnalyticsRepo.LabTransition{
 			{ID: uuid.Must(uuid.NewV7()), Kind: "lab_ready", LabName: "web", At: at, ReceivedAt: at.Add(700 * time.Millisecond), PlatformReadyAt: &platform},
@@ -110,4 +116,44 @@ func TestLabTransitionsReport(t *testing.T) {
 
 	code, _ = serveLabTelemetry(t, uc, "lab-telemetry/transitions?team_id="+team.String()+"&kinds=nope")
 	require.Equal(t, http.StatusBadRequest, code)
+}
+
+// Without the people level the VPN clients and the client transitions are left out; containers, labs and the
+// stand transitions stay.
+func TestLabTelemetryHidesPeopleWithoutThePeopleLevel(t *testing.T) {
+	team := uuid.Must(uuid.NewV7())
+	at := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
+	uc := &labTelemetryUseCase{
+		telemetry: eventAnalyticsUseCase.LabTelemetryView{
+			Available: true,
+			Labs:      []eventAnalyticsRepo.LabMinute{{LabName: "web", BucketAt: at, Samples: 1}},
+			Clients:   []eventAnalyticsRepo.ClientMinute{{ClientName: "p-secret", BucketAt: at, RxBytes: 5}},
+		},
+	}
+	code, body := serveLabTelemetry(t, uc, "lab-telemetry?team_id="+team.String())
+	require.Equal(t, http.StatusOK, code)
+	require.NotContains(t, string(body), "p-secret")
+	var out struct {
+		Data labTelemetryResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &out))
+	require.Len(t, out.Data.Labs, 1)
+	require.Empty(t, out.Data.Clients)
+
+	code, _ = serveLabTelemetry(t, uc, "lab-telemetry/transitions?team_id="+team.String())
+	require.Equal(t, http.StatusOK, code)
+	require.NotEmpty(t, uc.kinds)
+	for _, kind := range uc.kinds {
+		require.NotContains(t, kind, "client_", "the query never asks for client transitions")
+	}
+
+	uc.kinds = nil
+	code, body = serveLabTelemetry(t, uc, "lab-telemetry/transitions?team_id="+team.String()+"&kinds=client_connected")
+	require.Equal(t, http.StatusOK, code)
+	require.Nil(t, uc.kinds, "nothing is read when only client kinds were asked for")
+	require.Contains(t, string(body), `"Transitions":[]`)
+
+	uc.people = true
+	_, _ = serveLabTelemetry(t, uc, "lab-telemetry/transitions?team_id="+team.String()+"&kinds=client_connected")
+	require.Equal(t, []string{"client_connected"}, uc.kinds)
 }

@@ -122,10 +122,18 @@ func (h *Handler) labTelemetry(ctx *gin.Context) {
 	if !ok {
 		return
 	}
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
 	v, err := h.useCase.GetEventLabTelemetry(ctx, eventID, teamID, from, to)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if !people {
+		// The VPN clients are participants: a viewer without the people level sees containers and labs only.
+		v.Clients = nil
 	}
 	out := labTelemetryResponse{
 		Available: v.Available, Period: periodResponse{From: v.Period.From, To: v.Period.To}, Truncated: v.Truncated,
@@ -181,6 +189,10 @@ func (h *Handler) labTransitions(ctx *gin.Context) {
 	if !ok {
 		return
 	}
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
 	var kinds []string
 	if raw := ctx.Query("kinds"); raw != "" {
 		for _, kind := range strings.Split(raw, ",") {
@@ -190,6 +202,15 @@ func (h *Handler) labTransitions(ctx *gin.Context) {
 				return
 			}
 			kinds = append(kinds, kind)
+		}
+	}
+	if !people {
+		// Client connects and disconnects name a participant: left out without the people level.
+		if kinds = withoutClientKinds(kinds); len(kinds) == 0 {
+			response.AbortWithData(ctx, labTransitionsResponse{
+				Available: true, Transitions: []labTransitionResponse{},
+			})
+			return
 		}
 	}
 	v, err := h.useCase.GetEventLabTransitions(ctx, eventID, teamID, from, to, kinds)
@@ -214,6 +235,21 @@ func (h *Handler) labTransitions(ctx *gin.Context) {
 		out.Transitions = append(out.Transitions, r)
 	}
 	response.AbortWithData(ctx, out)
+}
+
+// withoutClientKinds narrows a kinds filter to the kinds that name no participant; an empty filter
+// (all kinds) becomes every such kind. An empty result means nothing is left to show.
+func withoutClientKinds(kinds []string) []string {
+	if len(kinds) == 0 {
+		kinds = eventAnalyticsUseCase.LabTransitionKinds
+	}
+	out := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		if !strings.HasPrefix(kind, "client_") {
+			out = append(out, kind)
+		}
+	}
+	return out
 }
 
 // parseLabTelemetryQuery reads the event, the required team and the optional period.
