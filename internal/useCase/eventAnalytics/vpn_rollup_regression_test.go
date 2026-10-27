@@ -153,4 +153,49 @@ FROM event_lab_transitions WHERE event_id = $1`, event.ID).Scan(&labReady, &devi
 	if sessions != 3 {
 		t.Fatalf("vpn sessions = %d, want 3 (strconv %s)", sessions, strconv.Itoa(sessions))
 	}
+
+	// Every raw row is archived; once they are gone (the retention job's day passed) a recompute rebuilds the
+	// minute tables and the journal from the archive alone, to exactly what the job built.
+	var archived int
+	if err = db.Pool.QueryRow(ctx, `SELECT COALESCE(sum(row_count), 0) FROM event_lab_observation_archives WHERE event_id = $1`, event.ID).Scan(&archived); err != nil || archived != total {
+		t.Fatalf("archived rows = %d err=%v", archived, err)
+	}
+	digest := func() string {
+		var d string
+		if err := db.Pool.QueryRow(ctx, `
+SELECT (SELECT string_agg(concat_ws(',', device_name, bucket_at, samples, cpu_sum, memory_sum, memory_samples, ready_samples, last_pod_phase), ';' ORDER BY device_name, bucket_at)
+        FROM event_lab_usage_minutes WHERE event_id = $1) || '|' ||
+       (SELECT string_agg(concat_ws(',', lab_name, bucket_at, samples, ready_samples, vpn_ready_samples), ';' ORDER BY lab_name, bucket_at)
+        FROM event_lab_minutes WHERE event_id = $1) || '|' ||
+       (SELECT string_agg(concat_ws(',', client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx), ';' ORDER BY client_name, bucket_at)
+        FROM event_vpn_client_minutes WHERE event_id = $1) || '|' ||
+       (SELECT string_agg(concat_ws(',', kind, at, lab_name, device_name, client_name, detail), ';' ORDER BY at, kind, lab_name, device_name, client_name)
+        FROM event_lab_transitions WHERE event_id = $1)`, event.ID).Scan(&d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	before := digest()
+	exec(`DELETE FROM event_lab_observations WHERE event_id = $1`, event.ID)
+	res, err := uc.RecomputeLabTelemetry(ctx, event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RestoredRows != total || res.UsageObservations != total || res.JournalObservations != total {
+		t.Fatalf("recompute %+v", res)
+	}
+	if after := digest(); after != before {
+		t.Fatalf("recomputed rollups differ from the job's:\nbefore %.300s\nafter  %.300s", before, after)
+	}
+	var held bool
+	if err = db.Pool.QueryRow(ctx, `SELECT lab_telemetry_hold_until IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).Scan(&held); err != nil || held {
+		t.Fatalf("the hold is released: held=%v err=%v", held, err)
+	}
+	// The next pass finds nothing to read and closes the rollup again.
+	if err = uc.RefreshEventAnalytics(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Pool.QueryRow(ctx, `SELECT lab_usage_finalized_at IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).Scan(&usageFinalized); err != nil || !usageFinalized {
+		t.Fatalf("lab usage rollup finalized after the recompute = %v err=%v", usageFinalized, err)
+	}
 }

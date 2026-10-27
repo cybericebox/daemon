@@ -337,6 +337,7 @@ SELECT e.id,
        s.lab_usage_cursor_id,
        s.lab_journal_cursor_received_at,
        s.lab_journal_cursor_id,
+       (s.lab_telemetry_hold_until IS NOT NULL AND s.lab_telemetry_hold_until > $1::timestamptz)::boolean AS lab_held,
        pending.archive::boolean                              AS archive_open,
        s.lab_archive_cursor_received_at,
        s.lab_archive_cursor_id
@@ -404,6 +405,7 @@ type ListEventAnalyticsRollupCandidatesRow struct {
 	LabUsageCursorID           uuid.NullUUID      `json:"lab_usage_cursor_id"`
 	LabJournalCursorReceivedAt pgtype.Timestamptz `json:"lab_journal_cursor_received_at"`
 	LabJournalCursorID         uuid.NullUUID      `json:"lab_journal_cursor_id"`
+	LabHeld                    bool               `json:"lab_held"`
 	ArchiveOpen                bool               `json:"archive_open"`
 	LabArchiveCursorReceivedAt pgtype.Timestamptz `json:"lab_archive_cursor_received_at"`
 	LabArchiveCursorID         uuid.NullUUID      `json:"lab_archive_cursor_id"`
@@ -448,6 +450,7 @@ func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg Li
 			&i.LabUsageCursorID,
 			&i.LabJournalCursorReceivedAt,
 			&i.LabJournalCursorID,
+			&i.LabHeld,
 			&i.ArchiveOpen,
 			&i.LabArchiveCursorReceivedAt,
 			&i.LabArchiveCursorID,

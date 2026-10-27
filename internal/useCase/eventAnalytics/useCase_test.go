@@ -54,6 +54,12 @@ type fakeStore struct {
 	journalCalls []eventAnalyticsRepo.VPNCursor
 	journalNext  eventAnalyticsRepo.VPNCursor
 
+	holds    []*time.Time
+	resets   int
+	chunks   []eventAnalyticsRepo.LabArchiveChunk
+	restored []uuid.UUID
+	tagged   map[string][]uuid.UUID
+
 	archiveChunks []int
 	archiveCalls  []eventAnalyticsRepo.VPNCursor
 	archiveNext   eventAnalyticsRepo.VPNCursor
@@ -132,6 +138,29 @@ func (s *fakeStore) RollupLabJournal(
 	read := s.journalReads[0]
 	s.journalReads = s.journalReads[1:]
 	return s.journalNext, read, nil
+}
+func (s *fakeStore) HoldLabTelemetry(_ context.Context, _ uuid.UUID, until *time.Time) error {
+	s.holds = append(s.holds, until)
+	return nil
+}
+func (s *fakeStore) ResetLabTelemetry(context.Context, uuid.UUID) error { s.resets++; return nil }
+func (s *fakeStore) LabArchiveChunks(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32,
+) ([]eventAnalyticsRepo.LabArchiveChunk, error) {
+	var out []eventAnalyticsRepo.LabArchiveChunk
+	for _, c := range s.chunks {
+		if c.Last.ReceivedAt.After(after.ReceivedAt) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+func (s *fakeStore) RestoreLabArchive(_ context.Context, c eventAnalyticsRepo.LabArchiveChunk) (int64, error) {
+	s.restored = append(s.restored, c.ID)
+	return int64(c.RowCount), nil
+}
+func (s *fakeStore) EventIDsByTag(_ context.Context, tag string) ([]uuid.UUID, error) {
+	return s.tagged[tag], nil
 }
 func (s *fakeStore) ArchiveLabObservations(
 	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ time.Time, _ uuid.UUID,
@@ -529,5 +558,58 @@ func TestRefreshEventAnalytics_LabJournal(t *testing.T) {
 	}
 	if behind.usageFinal != nil {
 		t.Fatal("a journal still behind keeps the rollup open")
+	}
+}
+
+// A recompute holds the event, resets its rollups, restores the archive in
+// order, rolls everything up again and releases the hold.
+func TestRecomputeLabTelemetry(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	chunk := func(hours int) eventAnalyticsRepo.LabArchiveChunk {
+		return eventAnalyticsRepo.LabArchiveChunk{
+			ID: uuid.Must(uuid.NewV7()), RowCount: 100,
+			Last: eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(time.Duration(-hours) * time.Hour), ID: uuid.Must(uuid.NewV7())},
+		}
+	}
+	store := &fakeStore{
+		chunks:     []eventAnalyticsRepo.LabArchiveChunk{chunk(5), chunk(4), chunk(3)},
+		usageReads: []int{5000, 40}, usageNext: eventAnalyticsRepo.VPNCursor{ReceivedAt: now, ID: uuid.Must(uuid.NewV7())},
+		journalReads: []int{1000, 7}, journalNext: eventAnalyticsRepo.VPNCursor{ReceivedAt: now, ID: uuid.Must(uuid.NewV7())},
+	}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	res, err := uc.RecomputeLabTelemetry(context.Background(), eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ArchiveChunks != 3 || res.RestoredRows != 300 || res.UsageObservations != 5040 || res.JournalObservations != 1007 {
+		t.Fatalf("result %+v", res)
+	}
+	if store.resets != 1 || len(store.restored) != 3 {
+		t.Fatalf("resets=%d restored=%d", store.resets, len(store.restored))
+	}
+	if n := len(store.holds); n < 2 || store.holds[0] == nil || store.holds[n-1] != nil {
+		t.Fatalf("the event is held first and released last: %v", store.holds)
+	}
+}
+
+func TestResolveEvent(t *testing.T) {
+	clock := now
+	one, a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	store := &fakeStore{tagged: map[string][]uuid.UUID{"khctf": {one}, "dup": {a, b}}}
+	uc := newUC(store, runningEvent(), nil, &clock)
+	ctx := context.Background()
+	if id, err := uc.ResolveEvent(ctx, one.String()); err != nil || id != one {
+		t.Fatalf("an id passes through: %v %v", id, err)
+	}
+	if id, err := uc.ResolveEvent(ctx, "khctf"); err != nil || id != one {
+		t.Fatalf("a tag resolves: %v %v", id, err)
+	}
+	if _, err := uc.ResolveEvent(ctx, "dup"); err == nil {
+		t.Fatal("an ambiguous tag is refused")
+	}
+	if _, err := uc.ResolveEvent(ctx, "none"); err == nil {
+		t.Fatal("an unknown tag is refused")
 	}
 }

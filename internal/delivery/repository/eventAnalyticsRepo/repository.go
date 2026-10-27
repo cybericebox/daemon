@@ -67,6 +67,9 @@ type (
 		LabUsageCursor VPNCursor
 		// LabJournalCursor is the last observation the transitions journal read.
 		LabJournalCursor VPNCursor
+		// LabHeld: a recompute of the lab telemetry is running; the lab
+		// usage rollup and the journal leave the event alone.
+		LabHeld bool
 		// NotStarted: the event is listed only for its archive; buckets and
 		// the rollups do not apply to it yet.
 		NotStarted bool
@@ -136,7 +139,7 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 			BucketsRevision:  row.BucketsRevision,
 			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnClosed,
 			LabUsageFinalized: row.LabUsageClosed,
-			NotStarted:        row.NotStarted, ArchiveOpen: row.ArchiveOpen,
+			NotStarted:        row.NotStarted, LabHeld: row.LabHeld, ArchiveOpen: row.ArchiveOpen,
 		}
 		if row.HasFinish {
 			finish := row.FinishedAt

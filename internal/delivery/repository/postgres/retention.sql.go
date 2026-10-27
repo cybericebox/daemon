@@ -329,6 +329,7 @@ WHERE id IN (SELECT o.id
              FROM event_lab_observations o
              JOIN event_analytics_rollups r ON r.event_id = o.event_id
              WHERE o.observed_at < $1
+               AND (r.lab_telemetry_hold_until IS NULL OR r.lab_telemetry_hold_until <= now())
                AND r.lab_archive_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
              LIMIT $2
@@ -563,6 +564,7 @@ WHERE id IN (SELECT o.id
              JOIN events e ON e.id = o.event_id
              JOIN event_analytics_rollups r ON r.event_id = o.event_id
              WHERE o.received_at < $1
+               AND (r.lab_telemetry_hold_until IS NULL OR r.lab_telemetry_hold_until <= now())
                AND r.lab_usage_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
                AND r.lab_journal_cursor_id IS NOT NULL

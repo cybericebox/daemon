@@ -37,6 +37,11 @@ type (
 		FinishLabUsageRollup(ctx context.Context, eventID uuid.UUID, finalizedAt time.Time) error
 		LabJournal(ctx context.Context, eventID uuid.UUID, newID func() uuid.UUID) (*eventAnalyticsModel.LabJournal, error)
 		RollupLabJournal(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal) (eventAnalyticsRepo.VPNCursor, int, error)
+		HoldLabTelemetry(ctx context.Context, eventID uuid.UUID, until *time.Time) error
+		ResetLabTelemetry(ctx context.Context, eventID uuid.UUID) error
+		LabArchiveChunks(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, limit int32) ([]eventAnalyticsRepo.LabArchiveChunk, error)
+		RestoreLabArchive(ctx context.Context, chunk eventAnalyticsRepo.LabArchiveChunk) (int64, error)
+		EventIDsByTag(ctx context.Context, tag string) ([]uuid.UUID, error)
 		ArchiveLabObservations(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, closedBefore time.Time, chunkID uuid.UUID) (eventAnalyticsRepo.VPNCursor, int, error)
 		Overview(ctx context.Context, eventID uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error)
 		Series(ctx context.Context, eventID uuid.UUID, period eventAnalyticsModel.Period) ([]eventAnalyticsRepo.SeriesPoint, error)

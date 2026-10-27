@@ -76,7 +76,7 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 				vpn++
 			}
 		}
-		if c.InfrastructureAllowed && !c.LabUsageFinalized {
+		if c.InfrastructureAllowed && !c.LabUsageFinalized && !c.LabHeld {
 			if err = u.refreshLabUsage(ctx, c, started); err != nil {
 				errs = append(errs, err)
 			} else {

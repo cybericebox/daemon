@@ -9,7 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 )
 
-const usage = "usage: daemon [admin-link]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag>]"
 
 func main() {
 	args := os.Args[1:]
@@ -19,14 +19,23 @@ func main() {
 		app.Run(cfg)
 		return
 	}
-	if len(args) != 1 || args[0] != "admin-link" {
+	switch {
+	case len(args) == 1 && args[0] == "admin-link":
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		if err := app.RunAdminLink(context.Background(), cfg, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "admin-link:", err)
+			os.Exit(1)
+		}
+	case len(args) == 2 && args[0] == "recompute-lab-telemetry":
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		if err := app.RunRecomputeLabTelemetry(context.Background(), cfg, args[1], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "recompute-lab-telemetry:", err)
+			os.Exit(1)
+		}
+	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
-	}
-	cfg := config.MustGetConfig()
-	config.SetupLogger(cfg)
-	if err := app.RunAdminLink(context.Background(), cfg, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "admin-link:", err)
-		os.Exit(1)
 	}
 }
