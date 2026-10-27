@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -55,10 +56,8 @@ func run() error {
 	if json.Unmarshal(raw, &cfg) != nil {
 		return fmt.Errorf("invalid fixture configuration")
 	}
-	var provenance struct{ SourceCommit string }
-	raw, err = os.ReadFile("third_party/laboratory-sdk/PROVENANCE.json")
-	if err != nil || json.Unmarshal(raw, &provenance) != nil || cfg.SourceCommit != provenance.SourceCommit {
-		return fmt.Errorf("fixture does not match exact SDK source gate")
+	if cfg.SourceCommit != laboratoryVersion() {
+		return fmt.Errorf("fixture does not match the laboratory version this tool is built with")
 	}
 	dsn, err := privateFile(cfg.DSNFile)
 	if err != nil {
@@ -133,4 +132,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// laboratoryVersion is the version of the laboratory module this binary is built with.
+func laboratoryVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == "github.com/cybericebox/laboratory" {
+			return dep.Version
+		}
+	}
+	return ""
 }
