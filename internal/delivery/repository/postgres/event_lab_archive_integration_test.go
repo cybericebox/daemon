@@ -19,9 +19,9 @@ import (
 // returns how many chunks it wrote.
 func archiveAll(
 	t *testing.T, repo *eventAnalyticsRepo.Repository, event uuid.UUID, from eventAnalyticsRepo.VPNCursor, closedBefore time.Time,
-) (chunks int, cursor eventAnalyticsRepo.VPNCursor) {
+) (int, eventAnalyticsRepo.VPNCursor) {
 	t.Helper()
-	cursor = from
+	cursor, chunks := from, 0
 	for {
 		next, rows, err := repo.ArchiveLabObservations(
 			context.Background(), event, cursor, closedBefore, uuid.Must(uuid.NewV7()),

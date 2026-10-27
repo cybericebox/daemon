@@ -54,7 +54,7 @@ func TestRetention_LabTelemetryFollowsAccessClose(t *testing.T) {
 	cut := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) // now minus the telemetry period
 	old, recent := cut.Add(-48*time.Hour), cut.Add(48*time.Hour)
 
-	newEvent := func(tag string) (event, team uuid.UUID) {
+	newEvent := func(tag string) (uuid.UUID, uuid.UUID) {
 		e := mustSeedEventForParticipants(t, db, tag)
 		user := mustSeedUser(t, db, tag+"@test.test")
 		return e.ID, eaTeam(t, db, e.ID, user, "Blue")
