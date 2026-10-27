@@ -897,6 +897,15 @@ type LabMonitoringCurrent struct {
 	Payload      []byte    `json:"payload"`
 }
 
+type LabTelemetryErasure struct {
+	UserID             uuid.UUID          `json:"user_id"`
+	ClientName         string             `json:"client_name"`
+	Pseudonym          string             `json:"pseudonym"`
+	EventIds           []uuid.UUID        `json:"event_ids"`
+	QueuedAt           time.Time          `json:"queued_at"`
+	ArchivesScrubbedAt pgtype.Timestamptz `json:"archives_scrubbed_at"`
+}
+
 type MailIdentity struct {
 	ID             uuid.UUID     `json:"id"`
 	ScopeEventID   uuid.NullUUID `json:"scope_event_id"`

@@ -282,10 +282,11 @@ WITH batch AS (
 ), vpn_sessions AS (
     UPDATE event_vpn_sessions SET user_id = NULL, client_name = '' WHERE user_id IN (SELECT id FROM batch)
 ), lab_erasures AS (
-    -- The archived raw telemetry is rewritten later (it needs the chunk unpacked): queue the account with the
+    -- Only the link to the person goes: the client name becomes a pseudonym, the same everywhere (the IPs and the
+    -- traffic stay). The archive is rewritten later (it needs the chunk unpacked): the account is queued with the
     -- events it took part in. The sub-selects see the rows as they are before this statement renames them.
-    INSERT INTO lab_telemetry_erasures (user_id, client_name, event_ids)
-    SELECT b.id, lab_client_name(b.id),
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
+    SELECT b.id, lab_client_name(b.id), 'deleted-' || gen_random_uuid()::text,
            ARRAY(SELECT x.event_id
                  FROM (SELECT p.event_id FROM event_participants p WHERE p.user_id = b.id
                        UNION
@@ -294,17 +295,26 @@ WITH batch AS (
                        SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = b.id) x)
     FROM batch b
     ON CONFLICT (user_id) DO NOTHING
+    RETURNING user_id, client_name, pseudonym, event_ids
 ), lab_client_minutes AS (
-    -- Traffic per minute stays for the team's figures; the client becomes an unrelated name per row.
-    UPDATE event_vpn_client_minutes
-    SET client_name = 'deleted-' || gen_random_uuid()::text
-    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+    UPDATE event_vpn_client_minutes m SET client_name = e.pseudonym
+    FROM lab_erasures e WHERE m.client_name = e.client_name
 ), lab_transitions AS (
-    UPDATE event_lab_transitions SET client_name = NULL
-    WHERE client_name IN (SELECT lab_client_name(id) FROM batch)
+    UPDATE event_lab_transitions t SET client_name = e.pseudonym
+    FROM lab_erasures e WHERE t.client_name = e.client_name
 ), lab_client_states AS (
-    DELETE FROM event_lab_journal_states
-    WHERE kind = 'client' AND name IN (SELECT lab_client_name(id) FROM batch)
+    UPDATE event_lab_journal_states s SET name = e.pseudonym
+    FROM lab_erasures e WHERE s.kind = 'client' AND s.name = e.client_name
+), lab_raw AS (
+    UPDATE event_lab_observations o
+    SET payload = replace(o.payload::text, e.client_name, e.pseudonym)::jsonb
+    FROM lab_erasures e
+    WHERE o.event_id = ANY (e.event_ids) AND o.payload::text LIKE '%' || e.client_name || '%'
+), lab_current AS (
+    UPDATE lab_monitoring_current c
+    SET payload = replace(c.payload::text, e.client_name, e.pseudonym)::jsonb
+    FROM lab_erasures e
+    WHERE c.event_id = ANY (e.event_ids) AND c.payload::text LIKE '%' || e.client_name || '%'
 ), lab_touches AS (
     -- Lab access counters keep what happened to the task, not who did it.
     UPDATE event_lab_touches SET user_id = NULL WHERE user_id IN (SELECT id FROM batch)
@@ -398,17 +408,64 @@ WHERE (event_id, user_id) IN (
 SELECT purge_unconfirmed_accounts(sqlc.arg(created_before)::timestamptz, sqlc.arg(now_at)::timestamptz, sqlc.arg(batch_size)::integer)::bigint AS purged;
 
 -- name: ListLabTelemetryErasures :many
--- Deleted accounts whose archived telemetry is still to be scrubbed.
-SELECT user_id, client_name, event_ids
+-- Accounts erased from the lab telemetry that have not settled yet.
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, archives_scrubbed_at
 FROM lab_telemetry_erasures
 ORDER BY queued_at, user_id
 LIMIT sqlc.arg(batch_size);
 
+-- name: ScrubRawLabObservations :execrows
+-- Rewrites up to batch_size raw observations of the events that still carry the client name.
+UPDATE event_lab_observations
+SET payload = replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb
+WHERE id IN (SELECT o.id
+             FROM event_lab_observations o
+             WHERE o.event_id = ANY (sqlc.arg(event_ids)::uuid[])
+               AND o.payload::text LIKE '%' || sqlc.arg(client_name)::text || '%'
+             LIMIT sqlc.arg(batch_size));
+
+-- name: ScrubLabMonitoringCurrent :execrows
+UPDATE lab_monitoring_current
+SET payload = replace(payload::text, sqlc.arg(client_name)::text, sqlc.arg(pseudonym)::text)::jsonb
+WHERE event_id = ANY (sqlc.arg(event_ids)::uuid[])
+  AND payload::text LIKE '%' || sqlc.arg(client_name)::text || '%';
+
+-- name: RenameErasedLabClient :exec
+-- Gives the rollups' rows that were built from telemetry still carrying the client name the pseudonym. A row whose
+-- pseudonymous twin exists already is dropped instead of renamed (the primary keys would collide).
+WITH minutes_renamed AS (
+    UPDATE event_vpn_client_minutes m SET client_name = sqlc.arg(pseudonym)::text
+    WHERE m.client_name = sqlc.arg(client_name)::text
+      AND NOT EXISTS (SELECT 1 FROM event_vpn_client_minutes t
+                      WHERE t.event_id = m.event_id AND t.team_id = m.team_id AND t.lab_group_name = m.lab_group_name
+                        AND t.client_name = sqlc.arg(pseudonym)::text AND t.bucket_at = m.bucket_at)
+), minutes_dropped AS (
+    DELETE FROM event_vpn_client_minutes m
+    WHERE m.client_name = sqlc.arg(client_name)::text
+      AND EXISTS (SELECT 1 FROM event_vpn_client_minutes t
+                  WHERE t.event_id = m.event_id AND t.team_id = m.team_id AND t.lab_group_name = m.lab_group_name
+                    AND t.client_name = sqlc.arg(pseudonym)::text AND t.bucket_at = m.bucket_at)
+), transitions_renamed AS (
+    UPDATE event_lab_transitions SET client_name = sqlc.arg(pseudonym)::text WHERE client_name = sqlc.arg(client_name)::text
+), states_renamed AS (
+    UPDATE event_lab_journal_states s SET name = sqlc.arg(pseudonym)::text
+    WHERE s.kind = 'client' AND s.name = sqlc.arg(client_name)::text
+      AND NOT EXISTS (SELECT 1 FROM event_lab_journal_states t
+                      WHERE t.event_id = s.event_id AND t.team_id = s.team_id AND t.lab_group_name = s.lab_group_name
+                        AND t.kind = 'client' AND t.lab_name = s.lab_name AND t.name = sqlc.arg(pseudonym)::text)
+)
+DELETE FROM event_lab_journal_states s
+WHERE s.kind = 'client' AND s.name = sqlc.arg(client_name)::text
+  AND EXISTS (SELECT 1 FROM event_lab_journal_states t
+              WHERE t.event_id = s.event_id AND t.team_id = s.team_id AND t.lab_group_name = s.lab_group_name
+                AND t.kind = 'client' AND t.lab_name = s.lab_name AND t.name = sqlc.arg(pseudonym)::text);
+
 -- name: ListLabArchiveChunksForScrub :many
--- The archive chunks of an event after the given id, a page at a time.
+-- The archive chunks of an event created after created_after, after the given id, a page at a time.
 SELECT id, codec, data
 FROM event_lab_observation_archives
 WHERE event_id = sqlc.arg(event_id)
+  AND created_at > sqlc.arg(created_after)::timestamptz
   AND id > sqlc.arg(after_id)::uuid
 ORDER BY id
 LIMIT sqlc.arg(page_size);
@@ -416,5 +473,19 @@ LIMIT sqlc.arg(page_size);
 -- name: UpdateLabArchiveChunkData :exec
 UPDATE event_lab_observation_archives SET data = sqlc.arg(data) WHERE id = sqlc.arg(id);
 
--- name: DeleteLabTelemetryErasures :exec
-DELETE FROM lab_telemetry_erasures WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);
+-- name: MarkLabTelemetryErasuresScrubbed :exec
+UPDATE lab_telemetry_erasures SET archives_scrubbed_at = sqlc.arg(scrubbed_at)::timestamptz
+WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[]);
+
+-- name: DeleteSettledLabTelemetryErasures :execrows
+-- An entry settles a day after the account was purged, once the archive passed every raw row of its events that
+-- arrived before that: nothing that still carries the real name can be archived after it goes.
+DELETE FROM lab_telemetry_erasures e
+WHERE e.queued_at < sqlc.arg(settled_before)::timestamptz
+  AND NOT EXISTS (SELECT 1
+                  FROM event_lab_observations o
+                  LEFT JOIN event_analytics_rollups r ON r.event_id = o.event_id
+                  WHERE o.event_id = ANY (e.event_ids)
+                    AND o.received_at < e.queued_at + interval '1 day'
+                    AND (r.lab_archive_cursor_id IS NULL
+                         OR (o.received_at, o.id) > (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)));
