@@ -269,20 +269,20 @@ func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (
 
 // scrubErasures rewrites the live data of a page of erased people and every archive chunk of their events.
 func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRepo.LabTelemetryErasure, batch int32) (int64, error) {
-	pseudonyms := map[string]string{}
+	erasures := map[string]eventAnalyticsModel.LabArchiveErasure{}
 	events := map[uuid.UUID]struct{}{}
 	for _, e := range page {
 		if err := u.scrubLive(ctx, e, batch); err != nil {
 			return 0, err
 		}
-		pseudonyms[e.ClientName] = e.Pseudonym
+		erasures[e.ClientName] = eventAnalyticsModel.LabArchiveErasure{Pseudonym: e.Pseudonym, EraseIP: e.EraseIP}
 		for _, id := range e.EventIDs {
 			events[id] = struct{}{}
 		}
 	}
 	var rewritten int64
 	for eventID := range events {
-		n, err := u.scrubEventArchive(ctx, eventID, pseudonyms)
+		n, err := u.scrubEventArchive(ctx, eventID, erasures)
 		rewritten += n
 		if err != nil {
 			return rewritten, err
@@ -306,7 +306,7 @@ func (u *RetentionUseCase) scrubLive(ctx context.Context, e retentionRepo.LabTel
 	return u.store.RenameErasedLabClient(ctx, e)
 }
 
-func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.UUID, pseudonyms map[string]string) (int64, error) {
+func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.UUID, erasures map[string]eventAnalyticsModel.LabArchiveErasure) (int64, error) {
 	var rewritten int64
 	after := uuid.Nil
 	for {
@@ -316,7 +316,7 @@ func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.U
 		}
 		for _, chunk := range chunks {
 			after = chunk.ID
-			data, changed, err := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, pseudonyms)
+			data, changed, err := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, erasures)
 			if err != nil {
 				return rewritten, err
 			}

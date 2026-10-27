@@ -54,11 +54,11 @@ type ExercisesFilter struct {
 	DifficultyMin int
 	DifficultyMax int
 	Archived      string // "only"; anything else = "exclude"
-	Cursor   uuid.UUID
-	Page     int
-	PageSize int
-	SortBy   string
-	SortDir  string
+	Cursor        uuid.UUID
+	Page          int
+	PageSize      int
+	SortBy        string
+	SortDir       string
 	// W4 visibility filters: Scope '' | catalog | event; EventIDs keeps what
 	// is relevant to ANY of the events; Infrastructure '' | yes | no.
 	Scope          string

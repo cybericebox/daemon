@@ -12,11 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
-	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 )
 
 var (

@@ -181,7 +181,7 @@ func (q *Queries) ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabA
 }
 
 const listLabTelemetryErasures = `-- name: ListLabTelemetryErasures :many
-SELECT user_id, client_name, pseudonym, event_ids, queued_at
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip
 FROM lab_telemetry_erasures
 WHERE (queued_at, user_id) > ($1::timestamptz, $2::uuid)
 ORDER BY queued_at, user_id
@@ -210,6 +210,7 @@ func (q *Queries) ListLabTelemetryErasures(ctx context.Context, arg ListLabTelem
 			&i.Pseudonym,
 			&i.EventIds,
 			&i.QueuedAt,
+			&i.EraseIp,
 		); err != nil {
 			return nil, err
 		}
@@ -970,19 +971,21 @@ const queueLabTelemetryErasure = `-- name: QueueLabTelemetryErasure :one
 WITH person AS (
     SELECT $1::uuid AS id, lab_client_name($1::uuid) AS client_name
 ), queued AS (
-    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids, erase_ip)
     SELECT p.id, p.client_name, 'deleted-' || gen_random_uuid()::text,
            ARRAY(SELECT x.event_id
                  FROM (SELECT pa.event_id FROM event_participants pa WHERE pa.user_id = p.id
                        UNION
                        SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = p.client_name
                        UNION
-                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x)
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x),
+           true
     FROM person p
     ON CONFLICT (user_id) DO UPDATE
         SET queued_at = now(),
-            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x)
-    RETURNING user_id, client_name, pseudonym, event_ids, queued_at
+            event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x),
+            erase_ip = lab_telemetry_erasures.erase_ip OR EXCLUDED.erase_ip
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip
 ), minutes AS (
     UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym
     FROM queued q WHERE m.client_name = q.client_name
@@ -994,16 +997,22 @@ WITH person AS (
     FROM queued q WHERE s.kind = 'client' AND s.name = q.client_name
 ), raw AS (
     UPDATE event_lab_observations o
-    SET payload = replace(o.payload::text, q.client_name, q.pseudonym)::jsonb
+    SET payload = CASE WHEN q.erase_ip
+                       THEN lab_blank_client_ip(replace(o.payload::text, q.client_name, q.pseudonym)::jsonb, q.pseudonym)
+                       ELSE replace(o.payload::text, q.client_name, q.pseudonym)::jsonb END
     FROM queued q
-    WHERE o.event_id = ANY (q.event_ids) AND o.payload::text LIKE '%' || q.client_name || '%'
+    WHERE o.event_id = ANY (q.event_ids)
+      AND (o.payload::text LIKE '%' || q.client_name || '%' OR (q.erase_ip AND lab_client_has_ip(o.payload, q.pseudonym)))
 ), current AS (
     UPDATE lab_monitoring_current c
-    SET payload = replace(c.payload::text, q.client_name, q.pseudonym)::jsonb
+    SET payload = CASE WHEN q.erase_ip
+                       THEN lab_blank_client_ip(replace(c.payload::text, q.client_name, q.pseudonym)::jsonb, q.pseudonym)
+                       ELSE replace(c.payload::text, q.client_name, q.pseudonym)::jsonb END
     FROM queued q
-    WHERE c.event_id = ANY (q.event_ids) AND c.payload::text LIKE '%' || q.client_name || '%'
+    WHERE c.event_id = ANY (q.event_ids)
+      AND (c.payload::text LIKE '%' || q.client_name || '%' OR (q.erase_ip AND lab_client_has_ip(c.payload, q.pseudonym)))
 )
-SELECT user_id, client_name, pseudonym, event_ids, queued_at FROM queued
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip FROM queued
 `
 
 type QueueLabTelemetryErasureRow struct {
@@ -1012,6 +1021,7 @@ type QueueLabTelemetryErasureRow struct {
 	Pseudonym  string      `json:"pseudonym"`
 	EventIds   []uuid.UUID `json:"event_ids"`
 	QueuedAt   time.Time   `json:"queued_at"`
+	EraseIp    bool        `json:"erase_ip"`
 }
 
 // Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
@@ -1027,6 +1037,7 @@ func (q *Queries) QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID
 		&i.Pseudonym,
 		&i.EventIds,
 		&i.QueuedAt,
+		&i.EraseIp,
 	)
 	return i, err
 }
@@ -1074,19 +1085,28 @@ func (q *Queries) RenameErasedLabClient(ctx context.Context, arg RenameErasedLab
 
 const scrubLabMonitoringCurrent = `-- name: ScrubLabMonitoringCurrent :execrows
 UPDATE lab_monitoring_current
-SET payload = replace(payload::text, $1::text, $2::text)::jsonb
-WHERE event_id = ANY ($3::uuid[])
-  AND payload::text LIKE '%' || $1::text || '%'
+SET payload = CASE WHEN $1::boolean
+                   THEN lab_blank_client_ip(replace(payload::text, $2::text, $3::text)::jsonb, $3::text)
+                   ELSE replace(payload::text, $2::text, $3::text)::jsonb END
+WHERE event_id = ANY ($4::uuid[])
+  AND (payload::text LIKE '%' || $2::text || '%'
+       OR ($1::boolean AND lab_client_has_ip(payload, $3::text)))
 `
 
 type ScrubLabMonitoringCurrentParams struct {
+	EraseIp    bool        `json:"erase_ip"`
 	ClientName string      `json:"client_name"`
 	Pseudonym  string      `json:"pseudonym"`
 	EventIds   []uuid.UUID `json:"event_ids"`
 }
 
 func (q *Queries) ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMonitoringCurrentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, scrubLabMonitoringCurrent, arg.ClientName, arg.Pseudonym, arg.EventIds)
+	result, err := q.db.Exec(ctx, scrubLabMonitoringCurrent,
+		arg.EraseIp,
+		arg.ClientName,
+		arg.Pseudonym,
+		arg.EventIds,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1095,15 +1115,19 @@ func (q *Queries) ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMon
 
 const scrubRawLabObservations = `-- name: ScrubRawLabObservations :execrows
 UPDATE event_lab_observations
-SET payload = replace(payload::text, $1::text, $2::text)::jsonb
+SET payload = CASE WHEN $1::boolean
+                   THEN lab_blank_client_ip(replace(payload::text, $2::text, $3::text)::jsonb, $3::text)
+                   ELSE replace(payload::text, $2::text, $3::text)::jsonb END
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
-             WHERE o.event_id = ANY ($3::uuid[])
-               AND o.payload::text LIKE '%' || $1::text || '%'
-             LIMIT $4)
+             WHERE o.event_id = ANY ($4::uuid[])
+               AND (o.payload::text LIKE '%' || $2::text || '%'
+                    OR ($1::boolean AND lab_client_has_ip(o.payload, $3::text)))
+             LIMIT $5)
 `
 
 type ScrubRawLabObservationsParams struct {
+	EraseIp    bool        `json:"erase_ip"`
 	ClientName string      `json:"client_name"`
 	Pseudonym  string      `json:"pseudonym"`
 	EventIds   []uuid.UUID `json:"event_ids"`
@@ -1113,6 +1137,7 @@ type ScrubRawLabObservationsParams struct {
 // Rewrites up to batch_size raw observations of the events that still carry the client name.
 func (q *Queries) ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, scrubRawLabObservations,
+		arg.EraseIp,
 		arg.ClientName,
 		arg.Pseudonym,
 		arg.EventIds,

@@ -37,7 +37,9 @@ func TestCatalogColumnsPreference(t *testing.T) {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	w := serve(http.MethodGet, "")
-	var body struct{ Data []exerciseUseCase.CatalogColumn }
+	var body struct {
+		Data []exerciseUseCase.CatalogColumn
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
