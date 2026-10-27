@@ -79,10 +79,10 @@ func ParseLabObservationLine(line string) (LabObservation, error) {
 	return o, nil
 }
 
-// DecodeLabArchive calls fn for every observation of a chunk, in the order the
-// chunk holds them (team, lab group, observation time). Rollups that depend on
-// arrival order sort what they read by ReceivedAt and ID.
-func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) error {
+// LabArchiveLines calls fn for every JSON line of a chunk, in the order the
+// chunk holds them (team, lab group, observation time). The slice is valid
+// only during the call.
+func LabArchiveLines(codec string, data []byte, fn func(line []byte) error) error {
 	if codec != LabArchiveCodecZstdNDJSON {
 		return fmt.Errorf("lab archive: unknown codec %q", codec)
 	}
@@ -94,12 +94,8 @@ func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) 
 	reader := bufio.NewReaderSize(dec, 1<<20)
 	for {
 		line, err := reader.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
-			var o LabObservation
-			if uerr := json.Unmarshal(line, &o); uerr != nil {
-				return fmt.Errorf("lab archive: decode line: %w", uerr)
-			}
-			if ferr := fn(o); ferr != nil {
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
+			if ferr := fn(trimmed); ferr != nil {
 				return ferr
 			}
 		}
@@ -110,4 +106,17 @@ func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) 
 			return err
 		}
 	}
+}
+
+// DecodeLabArchive calls fn for every observation of a chunk, in the order the
+// chunk holds them. Rollups that depend on arrival order sort what they read
+// by ReceivedAt and ID.
+func DecodeLabArchive(codec string, data []byte, fn func(LabObservation) error) error {
+	return LabArchiveLines(codec, data, func(line []byte) error {
+		var o LabObservation
+		if err := json.Unmarshal(line, &o); err != nil {
+			return fmt.Errorf("lab archive: decode line: %w", err)
+		}
+		return fn(o)
+	})
 }

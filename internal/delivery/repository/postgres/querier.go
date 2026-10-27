@@ -886,6 +886,7 @@ type Querier interface {
 	ListEventGroupChallengeIDs(ctx context.Context, arg ListEventGroupChallengeIDsParams) ([]uuid.UUID, error)
 	// Who unlocked which hint (moderators): team public name, member, cost.
 	ListEventHintUnlocks(ctx context.Context, eventID uuid.UUID) ([]ListEventHintUnlocksRow, error)
+	ListEventIDsByTag(ctx context.Context, tag string) ([]uuid.UUID, error)
 	// In-app notifications of the event per type: how many, how many read.
 	ListEventInAppStats(ctx context.Context, arg ListEventInAppStatsParams) ([]ListEventInAppStatsRow, error)
 	// Event analytics, «Доброчесність» (docs/EVENT-ANALYTICS.md §6.6, docs/ANTI-CHEAT.md).
@@ -1750,6 +1751,10 @@ type Querier interface {
 	// the daily limit is used up. The counter restarts when the day changes.
 	ReservePlatformSMTPSend(ctx context.Context, arg ReservePlatformSMTPSendParams) (int32, error)
 	ReserveRequestIdempotency(ctx context.Context, arg ReserveRequestIdempotencyParams) ([]RequestIdempotency, error)
+	// Deletes everything the lab usage rollup and the transitions journal derived
+	// for the event and rewinds their cursors; the VPN sessions, the archive and
+	// its cursor stay.
+	ResetEventLabTelemetry(ctx context.Context, eventID uuid.UUID) error
 	// Not yet published infrastructure challenges wait for the recreated Lab;
 	// already published ones stay on the team's board (the ACL still requires a
 	// ready Lab, so access returns only once the new Lab is ready).
@@ -1768,6 +1773,9 @@ type Querier interface {
 	// Only the observed failed/stale attempt may be replaced. Old queued arguments
 	// normalize generation zero to the migrated generation one in the worker.
 	RestartExerciseImportJob(ctx context.Context, arg RestartExerciseImportJobParams) (ExerciseImportJob, error)
+	// Puts archived raw rows (JSON objects as the archive holds them) back into
+	// the raw table; rows that are there already are left alone.
+	RestoreEventLabObservations(ctx context.Context, observations []byte) (int64, error)
 	// Save the current draft as a checkpoint in the same statement before
 	// replacing its contents with the selected historical version. The source
 	// must belong to this exercise; a foreign id produces zero rows.
@@ -1838,6 +1846,12 @@ type Querier interface {
 	// A set is shown or hidden as a whole: its tasks share one infrastructure.
 	SetEventExerciseChallengesPublished(ctx context.Context, arg SetEventExerciseChallengesPublishedParams) error
 	SetEventExerciseStage(ctx context.Context, arg SetEventExerciseStageParams) (EventExercise, error)
+	// Recompute of an event's lab telemetry rollups from the archive
+	// (docs/LAB-TRAFFIC-ACCOUNTING.md): a hold that keeps the jobs away, a reset
+	// of the derived tables and cursors, and a restore of archived raw rows.
+	// Holds the event's lab telemetry rollups and raw purge until hold_until; a
+	// null hold_until releases it.
+	SetEventLabTelemetryHold(ctx context.Context, arg SetEventLabTelemetryHoldParams) error
 	SetEventLiveScreenPosition(ctx context.Context, arg SetEventLiveScreenPositionParams) (int64, error)
 	// Moves a still pending event invitation to a team (moderator team builder).
 	SetEventParticipantInvitedTeam(ctx context.Context, arg SetEventParticipantInvitedTeamParams) (int64, error)

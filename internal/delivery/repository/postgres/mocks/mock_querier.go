@@ -7271,6 +7271,21 @@ func (mr *MockQuerierMockRecorder) ListEventHintUnlocks(ctx, eventID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventHintUnlocks", reflect.TypeOf((*MockQuerier)(nil).ListEventHintUnlocks), ctx, eventID)
 }
 
+// ListEventIDsByTag mocks base method.
+func (m *MockQuerier) ListEventIDsByTag(ctx context.Context, tag string) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventIDsByTag", ctx, tag)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventIDsByTag indicates an expected call of ListEventIDsByTag.
+func (mr *MockQuerierMockRecorder) ListEventIDsByTag(ctx, tag any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventIDsByTag", reflect.TypeOf((*MockQuerier)(nil).ListEventIDsByTag), ctx, tag)
+}
+
 // ListEventInAppStats mocks base method.
 func (m *MockQuerier) ListEventInAppStats(ctx context.Context, arg postgres.ListEventInAppStatsParams) ([]postgres.ListEventInAppStatsRow, error) {
 	m.ctrl.T.Helper()
@@ -11953,6 +11968,20 @@ func (mr *MockQuerierMockRecorder) ReserveRequestIdempotency(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveRequestIdempotency", reflect.TypeOf((*MockQuerier)(nil).ReserveRequestIdempotency), ctx, arg)
 }
 
+// ResetEventLabTelemetry mocks base method.
+func (m *MockQuerier) ResetEventLabTelemetry(ctx context.Context, eventID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetEventLabTelemetry", ctx, eventID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetEventLabTelemetry indicates an expected call of ResetEventLabTelemetry.
+func (mr *MockQuerierMockRecorder) ResetEventLabTelemetry(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetEventLabTelemetry", reflect.TypeOf((*MockQuerier)(nil).ResetEventLabTelemetry), ctx, eventID)
+}
+
 // ResetUnpublishedTeamChallengesForRecreate mocks base method.
 func (m *MockQuerier) ResetUnpublishedTeamChallengesForRecreate(ctx context.Context, eventTeamID uuid.UUID) error {
 	m.ctrl.T.Helper()
@@ -12039,6 +12068,21 @@ func (m *MockQuerier) RestartExerciseImportJob(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) RestartExerciseImportJob(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestartExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).RestartExerciseImportJob), ctx, arg)
+}
+
+// RestoreEventLabObservations mocks base method.
+func (m *MockQuerier) RestoreEventLabObservations(ctx context.Context, observations []byte) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RestoreEventLabObservations", ctx, observations)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RestoreEventLabObservations indicates an expected call of RestoreEventLabObservations.
+func (mr *MockQuerierMockRecorder) RestoreEventLabObservations(ctx, observations any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreEventLabObservations", reflect.TypeOf((*MockQuerier)(nil).RestoreEventLabObservations), ctx, observations)
 }
 
 // RestoreVersionPreservingDraft mocks base method.
@@ -12511,6 +12555,20 @@ func (m *MockQuerier) SetEventExerciseStage(ctx context.Context, arg postgres.Se
 func (mr *MockQuerierMockRecorder) SetEventExerciseStage(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEventExerciseStage", reflect.TypeOf((*MockQuerier)(nil).SetEventExerciseStage), ctx, arg)
+}
+
+// SetEventLabTelemetryHold mocks base method.
+func (m *MockQuerier) SetEventLabTelemetryHold(ctx context.Context, arg postgres.SetEventLabTelemetryHoldParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEventLabTelemetryHold", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetEventLabTelemetryHold indicates an expected call of SetEventLabTelemetryHold.
+func (mr *MockQuerierMockRecorder) SetEventLabTelemetryHold(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEventLabTelemetryHold", reflect.TypeOf((*MockQuerier)(nil).SetEventLabTelemetryHold), ctx, arg)
 }
 
 // SetEventLiveScreenPosition mocks base method.

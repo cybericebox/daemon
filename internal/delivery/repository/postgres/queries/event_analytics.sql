@@ -29,6 +29,7 @@ SELECT e.id,
        s.lab_usage_cursor_id,
        s.lab_journal_cursor_received_at,
        s.lab_journal_cursor_id,
+       (s.lab_telemetry_hold_until IS NOT NULL AND s.lab_telemetry_hold_until > sqlc.arg(now)::timestamptz)::boolean AS lab_held,
        pending.archive::boolean                              AS archive_open,
        s.lab_archive_cursor_received_at,
        s.lab_archive_cursor_id

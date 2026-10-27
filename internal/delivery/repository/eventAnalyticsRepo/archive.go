@@ -1,6 +1,7 @@
 package eventAnalyticsRepo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -25,6 +26,10 @@ type ArchiveQueries interface {
 	ListEventLabObservationsAfter(
 		context.Context, postgres.ListEventLabObservationsAfterParams,
 	) ([]postgres.ListEventLabObservationsAfterRow, error)
+	SetEventLabTelemetryHold(context.Context, postgres.SetEventLabTelemetryHoldParams) error
+	ResetEventLabTelemetry(context.Context, uuid.UUID) error
+	RestoreEventLabObservations(context.Context, []byte) (int64, error)
+	ListEventIDsByTag(context.Context, string) ([]uuid.UUID, error)
 }
 
 // LabArchiveChunk is one stored chunk of the raw observation archive.
@@ -136,4 +141,45 @@ func (r *Repository) RawLabObservations(
 		out = append(out, o)
 	}
 	return out, nil
+}
+
+// HoldLabTelemetry keeps the analytics and retention jobs off the event's lab
+// telemetry until the given time; nil releases the hold.
+func (r *Repository) HoldLabTelemetry(ctx context.Context, eventID uuid.UUID, until *time.Time) error {
+	return r.q.SetEventLabTelemetryHold(ctx, postgres.SetEventLabTelemetryHoldParams{
+		EventID: eventID, HoldUntil: timestamptz(until),
+	})
+}
+
+// ResetLabTelemetry deletes the minute tables, the transitions journal and its
+// states of the event and rewinds the lab usage and journal cursors.
+func (r *Repository) ResetLabTelemetry(ctx context.Context, eventID uuid.UUID) error {
+	return r.q.ResetEventLabTelemetry(ctx, eventID)
+}
+
+// RestoreLabArchive puts the rows of an archive chunk back into the raw
+// observation table (rows already there are left alone) and returns how many
+// it inserted.
+func (r *Repository) RestoreLabArchive(ctx context.Context, chunk LabArchiveChunk) (int64, error) {
+	var rows bytes.Buffer
+	rows.WriteByte('[')
+	first := true
+	err := eventAnalyticsModel.LabArchiveLines(chunk.Codec, chunk.Data, func(line []byte) error {
+		if !first {
+			rows.WriteByte(',')
+		}
+		first = false
+		rows.Write(line)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	rows.WriteByte(']')
+	return r.q.RestoreEventLabObservations(ctx, rows.Bytes())
+}
+
+// EventIDsByTag lists the events carrying the tag, oldest first.
+func (r *Repository) EventIDsByTag(ctx context.Context, tag string) ([]uuid.UUID, error) {
+	return r.q.ListEventIDsByTag(ctx, tag)
 }
