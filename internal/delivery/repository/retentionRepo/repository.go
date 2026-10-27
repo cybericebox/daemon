@@ -25,14 +25,16 @@ type Queries interface {
 	PurgeEventActivity(context.Context, postgres.PurgeEventActivityParams) (int64, error)
 	PurgeEventStandTransitions(context.Context, postgres.PurgeEventStandTransitionsParams) (int64, error)
 	PurgeEventVPNSessions(context.Context, postgres.PurgeEventVPNSessionsParams) (int64, error)
-	ListLabTelemetryErasures(context.Context, int32) ([]postgres.LabTelemetryErasure, error)
+	ListLabTelemetryErasures(context.Context, postgres.ListLabTelemetryErasuresParams) ([]postgres.LabTelemetryErasure, error)
 	ListLabArchiveChunksForScrub(context.Context, postgres.ListLabArchiveChunksForScrubParams) ([]postgres.ListLabArchiveChunksForScrubRow, error)
 	UpdateLabArchiveChunkData(context.Context, postgres.UpdateLabArchiveChunkDataParams) error
 	ScrubRawLabObservations(context.Context, postgres.ScrubRawLabObservationsParams) (int64, error)
 	ScrubLabMonitoringCurrent(context.Context, postgres.ScrubLabMonitoringCurrentParams) (int64, error)
 	RenameErasedLabClient(context.Context, postgres.RenameErasedLabClientParams) error
-	MarkLabTelemetryErasuresScrubbed(context.Context, postgres.MarkLabTelemetryErasuresScrubbedParams) error
-	DeleteSettledLabTelemetryErasures(context.Context, time.Time) (int64, error)
+	ListSettledLabTelemetryErasures(context.Context, postgres.ListSettledLabTelemetryErasuresParams) ([]uuid.UUID, error)
+	CountLabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error)
+	DeleteLabTelemetryErasures(context.Context, []uuid.UUID) error
+	QueueLabTelemetryErasure(context.Context, uuid.UUID) (postgres.QueueLabTelemetryErasureRow, error)
 	PurgeEventLabUsageMinutes(context.Context, postgres.PurgeEventLabUsageMinutesParams) (int64, error)
 	PurgeEventLabMinutes(context.Context, postgres.PurgeEventLabMinutesParams) (int64, error)
 	PurgeEventVPNClientMinutes(context.Context, postgres.PurgeEventVPNClientMinutesParams) (int64, error)
@@ -117,12 +119,12 @@ func (r *Repository) PurgeEventAnalytics(ctx context.Context, endedBefore time.T
 	return total, err
 }
 
-// PurgeEventLabTelemetry removes the derived lab telemetry (minute tables,
-// transitions journal and states, raw archive) of events whose access closed
-// before closedBefore, and the rows of events with no end older than it: up
-// to batchSize rows of each table per call. The sum reaches batchSize while
-// either table may hold more, so the drain loop runs until all are clear.
-func (r *Repository) PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error) {
+// PurgeEventLabTelemetry removes the derived lab telemetry of finished events: the data about containers, labs
+// and teams once it is older than closedBefore, the data about participants (client minutes, client transitions
+// and states, the raw archive) once it is older than participantsBefore. Events with no end lose only rows older
+// than the cutoffs. Up to batchSize rows of each table per call; the sum reaches batchSize while any table may
+// hold more, so the drain loop runs until all are clear.
+func (r *Repository) PurgeEventLabTelemetry(ctx context.Context, closedBefore, participantsBefore time.Time, batchSize int32) (int64, error) {
 	var total int64
 	for _, purge := range []func() (int64, error){
 		func() (int64, error) {
@@ -132,16 +134,26 @@ func (r *Repository) PurgeEventLabTelemetry(ctx context.Context, closedBefore ti
 			return r.q.PurgeEventLabMinutes(ctx, postgres.PurgeEventLabMinutesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
 		},
 		func() (int64, error) {
-			return r.q.PurgeEventVPNClientMinutes(ctx, postgres.PurgeEventVPNClientMinutesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
-		},
-		func() (int64, error) {
 			return r.q.PurgeEventLabTransitions(ctx, postgres.PurgeEventLabTransitionsParams{ClosedBefore: closedBefore, BatchSize: batchSize})
 		},
 		func() (int64, error) {
 			return r.q.PurgeEventLabJournalStates(ctx, postgres.PurgeEventLabJournalStatesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
 		},
 		func() (int64, error) {
-			return r.q.PurgeEventLabObservationArchives(ctx, postgres.PurgeEventLabObservationArchivesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+			return r.q.PurgeEventVPNClientMinutes(ctx, postgres.PurgeEventVPNClientMinutesParams{ClosedBefore: participantsBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabTransitions(ctx, postgres.PurgeEventLabTransitionsParams{
+				ClosedBefore: participantsBefore, WithClients: true, BatchSize: batchSize,
+			})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabJournalStates(ctx, postgres.PurgeEventLabJournalStatesParams{
+				ClosedBefore: participantsBefore, WithClients: true, BatchSize: batchSize,
+			})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabObservationArchives(ctx, postgres.PurgeEventLabObservationArchivesParams{ClosedBefore: participantsBefore, BatchSize: batchSize})
 		},
 	} {
 		n, err := purge()
@@ -224,14 +236,14 @@ func (r *Repository) PurgeUnconfirmedAccounts(ctx context.Context, createdBefore
 	return r.q.PurgeUnconfirmedAccounts(ctx, postgres.PurgeUnconfirmedAccountsParams{CreatedBefore: createdBefore, NowAt: now, BatchSize: batchSize})
 }
 
-// LabTelemetryErasure is a deleted account whose lab telemetry still gets rewritten: ClientName becomes Pseudonym.
+// LabTelemetryErasure is a person erased from the lab telemetry whose data still gets rewritten: ClientName becomes
+// Pseudonym. The entry exists only until the cleanup has settled.
 type LabTelemetryErasure struct {
-	UserID             uuid.UUID
-	ClientName         string
-	Pseudonym          string
-	EventIDs           []uuid.UUID
-	QueuedAt           time.Time
-	ArchivesScrubbedAt *time.Time
+	UserID     uuid.UUID
+	ClientName string
+	Pseudonym  string
+	EventIDs   []uuid.UUID
+	QueuedAt   time.Time
 }
 
 // LabArchiveChunk is an archive chunk to scrub.
@@ -241,23 +253,50 @@ type LabArchiveChunk struct {
 	Data  []byte
 }
 
-// LabTelemetryErasures lists up to batchSize queued accounts, oldest first.
-func (r *Repository) LabTelemetryErasures(ctx context.Context, batchSize int32) ([]LabTelemetryErasure, error) {
-	rows, err := r.q.ListLabTelemetryErasures(ctx, batchSize)
+// LabTelemetryErasures lists up to batchSize queued entries after the given (queued_at, user_id), oldest first.
+func (r *Repository) LabTelemetryErasures(ctx context.Context, after LabTelemetryErasure, batchSize int32) ([]LabTelemetryErasure, error) {
+	rows, err := r.q.ListLabTelemetryErasures(ctx, postgres.ListLabTelemetryErasuresParams{
+		AfterQueuedAt: after.QueuedAt, AfterUserID: after.UserID, BatchSize: batchSize,
+	})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]LabTelemetryErasure, 0, len(rows))
 	for _, row := range rows {
-		e := LabTelemetryErasure{
+		out = append(out, LabTelemetryErasure{
 			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt,
-		}
-		if row.ArchivesScrubbedAt.Valid {
-			e.ArchivesScrubbedAt = &row.ArchivesScrubbedAt.Time
-		}
-		out = append(out, e)
+		})
 	}
 	return out, nil
+}
+
+// SettledLabTelemetryErasures lists the entries that may be closed after the pass that follows: settled by
+// settledBefore, or older than forceBefore whatever the archive says.
+func (r *Repository) SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]uuid.UUID, error) {
+	return r.q.ListSettledLabTelemetryErasures(ctx, postgres.ListSettledLabTelemetryErasuresParams{
+		SettledBefore: settledBefore, ForceBefore: forceBefore,
+	})
+}
+
+// LabTelemetryErasuresQueuedBefore counts the entries older than the given time.
+func (r *Repository) LabTelemetryErasuresQueuedBefore(ctx context.Context, before time.Time) (int64, error) {
+	return r.q.CountLabTelemetryErasuresQueuedBefore(ctx, before)
+}
+
+// DeleteLabTelemetryErasures closes entries: the link between the person and the pseudonym goes with them.
+func (r *Repository) DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error {
+	return r.q.DeleteLabTelemetryErasures(ctx, userIDs)
+}
+
+// QueueLabTelemetryErasure erases one person on request (see the statement) and returns the queued entry.
+func (r *Repository) QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (LabTelemetryErasure, error) {
+	row, err := r.q.QueueLabTelemetryErasure(ctx, userID)
+	if err != nil {
+		return LabTelemetryErasure{}, err
+	}
+	return LabTelemetryErasure{
+		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt,
+	}, nil
 }
 
 // ScrubRawLabObservations rewrites up to batchSize raw observations of the events that carry the client name.
@@ -279,12 +318,10 @@ func (r *Repository) RenameErasedLabClient(ctx context.Context, e LabTelemetryEr
 	return r.q.RenameErasedLabClient(ctx, postgres.RenameErasedLabClientParams{ClientName: e.ClientName, Pseudonym: e.Pseudonym})
 }
 
-// LabArchiveChunksForScrub pages through an event's archive chunks created after createdAfter, by id.
-func (r *Repository) LabArchiveChunksForScrub(
-	ctx context.Context, eventID, afterID uuid.UUID, createdAfter time.Time, pageSize int32,
-) ([]LabArchiveChunk, error) {
+// LabArchiveChunksForScrub pages through an event's archive chunks by id.
+func (r *Repository) LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]LabArchiveChunk, error) {
 	rows, err := r.q.ListLabArchiveChunksForScrub(ctx, postgres.ListLabArchiveChunksForScrubParams{
-		EventID: eventID, AfterID: afterID, CreatedAfter: createdAfter, PageSize: pageSize,
+		EventID: eventID, AfterID: afterID, PageSize: pageSize,
 	})
 	if err != nil {
 		return nil, err
@@ -299,15 +336,4 @@ func (r *Repository) LabArchiveChunksForScrub(
 // SaveScrubbedLabArchiveChunk replaces the data of a chunk.
 func (r *Repository) SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error {
 	return r.q.UpdateLabArchiveChunkData(ctx, postgres.UpdateLabArchiveChunkDataParams{ID: id, Data: data})
-}
-
-// MarkLabTelemetryErasuresScrubbed records that the archive was scrubbed for the accounts up to scrubbedAt.
-func (r *Repository) MarkLabTelemetryErasuresScrubbed(ctx context.Context, userIDs []uuid.UUID, scrubbedAt time.Time) error {
-	return r.q.MarkLabTelemetryErasuresScrubbed(ctx, postgres.MarkLabTelemetryErasuresScrubbedParams{UserIds: userIDs, ScrubbedAt: scrubbedAt})
-}
-
-// DeleteSettledLabTelemetryErasures removes the entries queued before settledBefore whose events' raw rows of the
-// first day are all archived.
-func (r *Repository) DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error) {
-	return r.q.DeleteSettledLabTelemetryErasures(ctx, settledBefore)
 }

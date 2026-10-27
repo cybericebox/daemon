@@ -898,12 +898,11 @@ type LabMonitoringCurrent struct {
 }
 
 type LabTelemetryErasure struct {
-	UserID             uuid.UUID          `json:"user_id"`
-	ClientName         string             `json:"client_name"`
-	Pseudonym          string             `json:"pseudonym"`
-	EventIds           []uuid.UUID        `json:"event_ids"`
-	QueuedAt           time.Time          `json:"queued_at"`
-	ArchivesScrubbedAt pgtype.Timestamptz `json:"archives_scrubbed_at"`
+	UserID     uuid.UUID   `json:"user_id"`
+	ClientName string      `json:"client_name"`
+	Pseudonym  string      `json:"pseudonym"`
+	EventIds   []uuid.UUID `json:"event_ids"`
+	QueuedAt   time.Time   `json:"queued_at"`
 }
 
 type MailIdentity struct {

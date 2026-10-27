@@ -20,6 +20,10 @@ import (
 var now = time.Date(2026, 9, 29, 3, 0, 0, 0, time.UTC)
 
 type fakeStore struct {
+	erasures        []retentionRepo.LabTelemetryErasure
+	settled         []uuid.UUID
+	deletedErasures []uuid.UUID
+	scrubbed        []uuid.UUID
 	// batches returned by each purge, consumed in order; then 0.
 	purged    map[string][]int64
 	failing   string
@@ -58,10 +62,32 @@ func (s *fakeStore) PurgeRolledUpEventLabObservations(
 ) (int64, error) {
 	return s.purge("lab_rolled_up", before)
 }
-func (s *fakeStore) LabTelemetryErasures(context.Context, int32) ([]retentionRepo.LabTelemetryErasure, error) {
-	return nil, nil
+func (s *fakeStore) LabTelemetryErasures(
+	_ context.Context, after retentionRepo.LabTelemetryErasure, _ int32,
+) ([]retentionRepo.LabTelemetryErasure, error) {
+	var out []retentionRepo.LabTelemetryErasure
+	for _, e := range s.erasures {
+		if e.QueuedAt.After(after.QueuedAt) || (e.QueuedAt.Equal(after.QueuedAt) && e.UserID.String() > after.UserID.String()) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
-func (s *fakeStore) ScrubRawLabObservations(context.Context, retentionRepo.LabTelemetryErasure, int32) (int64, error) {
+func (s *fakeStore) SettledLabTelemetryErasures(context.Context, time.Time, time.Time) ([]uuid.UUID, error) {
+	return s.settled, nil
+}
+func (s *fakeStore) LabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+func (s *fakeStore) DeleteLabTelemetryErasures(_ context.Context, ids []uuid.UUID) error {
+	s.deletedErasures = append(s.deletedErasures, ids...)
+	return nil
+}
+func (s *fakeStore) QueueLabTelemetryErasure(_ context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, error) {
+	return retentionRepo.LabTelemetryErasure{UserID: userID, ClientName: "p-x", Pseudonym: "deleted-x", QueuedAt: now}, nil
+}
+func (s *fakeStore) ScrubRawLabObservations(_ context.Context, e retentionRepo.LabTelemetryErasure, _ int32) (int64, error) {
+	s.scrubbed = append(s.scrubbed, e.UserID)
 	return 0, nil
 }
 func (s *fakeStore) ScrubLabMonitoringCurrent(context.Context, retentionRepo.LabTelemetryErasure) (int64, error) {
@@ -70,17 +96,14 @@ func (s *fakeStore) ScrubLabMonitoringCurrent(context.Context, retentionRepo.Lab
 func (s *fakeStore) RenameErasedLabClient(context.Context, retentionRepo.LabTelemetryErasure) error {
 	return nil
 }
-func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, time.Time, int32) ([]retentionRepo.LabArchiveChunk, error) {
+func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
 	return nil, nil
 }
 func (s *fakeStore) SaveScrubbedLabArchiveChunk(context.Context, uuid.UUID, []byte) error { return nil }
-func (s *fakeStore) MarkLabTelemetryErasuresScrubbed(context.Context, []uuid.UUID, time.Time) error {
-	return nil
-}
-func (s *fakeStore) DeleteSettledLabTelemetryErasures(context.Context, time.Time) (int64, error) {
-	return 0, nil
-}
-func (s *fakeStore) PurgeEventLabTelemetry(_ context.Context, before time.Time, _ int32) (int64, error) {
+func (s *fakeStore) PurgeEventLabTelemetry(_ context.Context, before, participantsBefore time.Time, _ int32) (int64, error) {
+	if _, err := s.purge("lab_telemetry_participants", participantsBefore); err != nil {
+		return 0, err
+	}
 	return s.purge("lab_telemetry", before)
 }
 func (s *fakeStore) PurgePlatformLabCapacityObservations(_ context.Context, before time.Time, _ int32) (int64, error) {
@@ -289,7 +312,7 @@ func TestEnforceDataRetention_DrainsBatchesWithPolicyCutoffs(t *testing.T) {
 	}
 	want := retentionModel.DefaultPolicy().Cutoffs(now)
 	for name, cutoff := range map[string]time.Time{
-		"sessions": want.SessionsExpiredBefore, "lab": want.LabObservedBefore, "lab_rolled_up": want.LabRolledUpBefore, "capacity": want.LabObservedBefore, "lab_telemetry": want.LabObservedBefore,
+		"sessions": want.SessionsExpiredBefore, "lab": want.LabParticipantsBefore, "lab_telemetry_participants": want.LabParticipantsBefore, "lab_rolled_up": want.LabRolledUpBefore, "capacity": want.LabObservedBefore, "lab_telemetry": want.LabObservedBefore,
 		"dispatches": want.DispatchesCreatedBefore, "signals": want.SignalsCreatedBefore, "analytics": want.AnalyticsEventsEndedBefore, "answers": want.EventsEndedBefore, "deleted": now,
 		"invitations": want.InvitationsExpiredBefore, "pending": want.PendingAccountsCreatedBefore,
 		"answer_files": want.EventsEndedBefore, "unused_answer_files": want.UnusedAnswerFilesCreatedBefore,
@@ -307,7 +330,7 @@ func TestEnforceDataRetention_FailingStepDoesNotStopTheOthers(t *testing.T) {
 	if err := uc.EnforceDataRetention(context.Background()); err == nil {
 		t.Fatal("a failing purge must fail the run")
 	}
-	for _, name := range []string{"sessions", "lab_rolled_up", "lab_telemetry", "capacity", "dispatches", "signals", "analytics", "answers", "answer_files", "deleted", "invitations", "pending"} {
+	for _, name := range []string{"sessions", "lab_rolled_up", "lab_telemetry", "lab_telemetry_participants", "capacity", "dispatches", "signals", "analytics", "answers", "answer_files", "deleted", "invitations", "pending"} {
 		if _, ran := store.cutoffs[name]; !ran {
 			t.Errorf("%s purge did not run after the failure", name)
 		}
@@ -367,5 +390,39 @@ func TestEnforceAccountInactivity_NotifyFailureRecordsNothing(t *testing.T) {
 	}
 	if len(store.marked) != 0 || len(remover.removed) != 0 {
 		t.Fatalf("nothing may be recorded or deleted: marked=%v removed=%v", store.marked, remover.removed)
+	}
+}
+
+// The erasure queue is read whole, page by page, not only its first batch; the entries chosen as settled before
+// the pass are closed after it.
+func TestEnforceDataRetention_ScrubsTheWholeErasureQueueAndClosesSettledEntries(t *testing.T) {
+	var all []retentionRepo.LabTelemetryErasure
+	for i := 0; i < 7; i++ {
+		all = append(all, retentionRepo.LabTelemetryErasure{
+			UserID: uuid.Must(uuid.NewV7()), ClientName: "p-a", Pseudonym: "deleted-a", EventIDs: []uuid.UUID{uuid.Must(uuid.NewV7())}, QueuedAt: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	store := &fakeStore{erasures: all, settled: []uuid.UUID{all[0].UserID}}
+	policy := retentionModel.DefaultPolicy()
+	policy.BatchSize = 3
+	uc := retention.New(retention.Dependencies{Store: store, Policies: &policySource{policy: policy}, Now: func() time.Time { return now }})
+	if err := uc.EnforceDataRetention(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.scrubbed) != 7 {
+		t.Fatalf("scrubbed %d of 7 entries: the queue was not read whole", len(store.scrubbed))
+	}
+	if len(store.deletedErasures) != 1 || store.deletedErasures[0] != all[0].UserID {
+		t.Fatalf("closed entries = %v", store.deletedErasures)
+	}
+}
+
+func TestEraseLabTelemetryOf_ScrubsTheQueuedPerson(t *testing.T) {
+	store := &fakeStore{}
+	uc := retention.New(retention.Dependencies{Store: store, Now: func() time.Time { return now }})
+	user := uuid.Must(uuid.NewV7())
+	entry, _, err := uc.EraseLabTelemetryOf(context.Background(), user)
+	if err != nil || entry.UserID != user || len(store.scrubbed) != 0 {
+		t.Fatalf("entry=%+v scrubbed=%v err=%v", entry, store.scrubbed, err)
 	}
 }

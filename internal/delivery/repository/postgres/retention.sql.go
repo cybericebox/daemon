@@ -30,26 +30,24 @@ func (q *Queries) ClearReturnedInactivityWarnings(ctx context.Context) (int64, e
 	return result.RowsAffected(), nil
 }
 
-const deleteSettledLabTelemetryErasures = `-- name: DeleteSettledLabTelemetryErasures :execrows
-DELETE FROM lab_telemetry_erasures e
-WHERE e.queued_at < $1::timestamptz
-  AND NOT EXISTS (SELECT 1
-                  FROM event_lab_observations o
-                  LEFT JOIN event_analytics_rollups r ON r.event_id = o.event_id
-                  WHERE o.event_id = ANY (e.event_ids)
-                    AND o.received_at < e.queued_at + interval '1 day'
-                    AND (r.lab_archive_cursor_id IS NULL
-                         OR (o.received_at, o.id) > (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)))
+const countLabTelemetryErasuresQueuedBefore = `-- name: CountLabTelemetryErasuresQueuedBefore :one
+SELECT count(*) FROM lab_telemetry_erasures WHERE queued_at < $1::timestamptz
 `
 
-// An entry settles a day after the account was purged, once the archive passed every raw row of its events that
-// arrived before that: nothing that still carries the real name can be archived after it goes.
-func (q *Queries) DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSettledLabTelemetryErasures, settledBefore)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) CountLabTelemetryErasuresQueuedBefore(ctx context.Context, queuedBefore time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, countLabTelemetryErasuresQueuedBefore, queuedBefore)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteLabTelemetryErasures = `-- name: DeleteLabTelemetryErasures :exec
+DELETE FROM lab_telemetry_erasures WHERE user_id = ANY ($1::uuid[])
+`
+
+func (q *Queries) DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteLabTelemetryErasures, userIds)
+	return err
 }
 
 const listInactiveAccountsToDelete = `-- name: ListInactiveAccountsToDelete :many
@@ -141,17 +139,15 @@ const listLabArchiveChunksForScrub = `-- name: ListLabArchiveChunksForScrub :man
 SELECT id, codec, data
 FROM event_lab_observation_archives
 WHERE event_id = $1
-  AND created_at > $2::timestamptz
-  AND id > $3::uuid
+  AND id > $2::uuid
 ORDER BY id
-LIMIT $4
+LIMIT $3
 `
 
 type ListLabArchiveChunksForScrubParams struct {
-	EventID      uuid.UUID `json:"event_id"`
-	CreatedAfter time.Time `json:"created_after"`
-	AfterID      uuid.UUID `json:"after_id"`
-	PageSize     int32     `json:"page_size"`
+	EventID  uuid.UUID `json:"event_id"`
+	AfterID  uuid.UUID `json:"after_id"`
+	PageSize int32     `json:"page_size"`
 }
 
 type ListLabArchiveChunksForScrubRow struct {
@@ -160,14 +156,9 @@ type ListLabArchiveChunksForScrubRow struct {
 	Data  []byte    `json:"data"`
 }
 
-// The archive chunks of an event created after created_after, after the given id, a page at a time.
+// The archive chunks of an event after the given id, a page at a time.
 func (q *Queries) ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabArchiveChunksForScrubParams) ([]ListLabArchiveChunksForScrubRow, error) {
-	rows, err := q.db.Query(ctx, listLabArchiveChunksForScrub,
-		arg.EventID,
-		arg.CreatedAfter,
-		arg.AfterID,
-		arg.PageSize,
-	)
+	rows, err := q.db.Query(ctx, listLabArchiveChunksForScrub, arg.EventID, arg.AfterID, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -187,15 +178,22 @@ func (q *Queries) ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabA
 }
 
 const listLabTelemetryErasures = `-- name: ListLabTelemetryErasures :many
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, archives_scrubbed_at
+SELECT user_id, client_name, pseudonym, event_ids, queued_at
 FROM lab_telemetry_erasures
+WHERE (queued_at, user_id) > ($1::timestamptz, $2::uuid)
 ORDER BY queued_at, user_id
-LIMIT $1
+LIMIT $3
 `
 
-// Accounts erased from the lab telemetry that have not settled yet.
-func (q *Queries) ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]LabTelemetryErasure, error) {
-	rows, err := q.db.Query(ctx, listLabTelemetryErasures, batchSize)
+type ListLabTelemetryErasuresParams struct {
+	AfterQueuedAt time.Time `json:"after_queued_at"`
+	AfterUserID   uuid.UUID `json:"after_user_id"`
+	BatchSize     int32     `json:"batch_size"`
+}
+
+// Accounts erased from the lab telemetry that have not settled yet, a page at a time by (queued_at, user_id).
+func (q *Queries) ListLabTelemetryErasures(ctx context.Context, arg ListLabTelemetryErasuresParams) ([]LabTelemetryErasure, error) {
+	rows, err := q.db.Query(ctx, listLabTelemetryErasures, arg.AfterQueuedAt, arg.AfterUserID, arg.BatchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -209,11 +207,53 @@ func (q *Queries) ListLabTelemetryErasures(ctx context.Context, batchSize int32)
 			&i.Pseudonym,
 			&i.EventIds,
 			&i.QueuedAt,
-			&i.ArchivesScrubbedAt,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSettledLabTelemetryErasures = `-- name: ListSettledLabTelemetryErasures :many
+SELECT e.user_id
+FROM lab_telemetry_erasures e
+WHERE e.queued_at < $1::timestamptz
+   OR (e.queued_at < $2::timestamptz
+       AND NOT EXISTS (SELECT 1
+                       FROM event_lab_observations o
+                       LEFT JOIN event_analytics_rollups r ON r.event_id = o.event_id
+                       WHERE o.event_id = ANY (e.event_ids)
+                         AND o.received_at < e.queued_at + interval '1 day'
+                         AND (r.lab_archive_cursor_id IS NULL
+                              OR (o.received_at, o.id) > (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id))))
+`
+
+type ListSettledLabTelemetryErasuresParams struct {
+	ForceBefore   time.Time `json:"force_before"`
+	SettledBefore time.Time `json:"settled_before"`
+}
+
+// The entries that may be closed after this pass. Chosen before the pass scrubs: anything that could still carry the
+// real name was archived (or arrived) by then and the pass rewrites it. An entry settles a day after it was queued,
+// once the archive passed every raw row of its events that arrived within that day; one that never can (the event
+// has no rollup row, the rows are gone or stuck) is closed after force_before all the same.
+func (q *Queries) ListSettledLabTelemetryErasures(ctx context.Context, arg ListSettledLabTelemetryErasuresParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listSettledLabTelemetryErasures, arg.ForceBefore, arg.SettledBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var user_id uuid.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -240,21 +280,6 @@ func (q *Queries) MarkInactivityWarned(ctx context.Context, arg MarkInactivityWa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const markLabTelemetryErasuresScrubbed = `-- name: MarkLabTelemetryErasuresScrubbed :exec
-UPDATE lab_telemetry_erasures SET archives_scrubbed_at = $1::timestamptz
-WHERE user_id = ANY ($2::uuid[])
-`
-
-type MarkLabTelemetryErasuresScrubbedParams struct {
-	ScrubbedAt time.Time   `json:"scrubbed_at"`
-	UserIds    []uuid.UUID `json:"user_ids"`
-}
-
-func (q *Queries) MarkLabTelemetryErasuresScrubbed(ctx context.Context, arg MarkLabTelemetryErasuresScrubbedParams) error {
-	_, err := q.db.Exec(ctx, markLabTelemetryErasuresScrubbed, arg.ScrubbedAt, arg.UserIds)
-	return err
 }
 
 const purgeDeletedAccountsPersonalData = `-- name: PurgeDeletedAccountsPersonalData :execrows
@@ -483,19 +508,22 @@ DELETE FROM event_lab_journal_states
 WHERE ctid IN (SELECT s.ctid
                FROM event_lab_journal_states s
                JOIN events e ON e.id = s.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at)) < $1::timestamptz
-               LIMIT $2
+               WHERE (s.kind = 'client') = $1::boolean
+                 AND LEAST(e.manual_finished_at, e.finish_at) < $2::timestamptz
+               LIMIT $3
                FOR UPDATE OF s SKIP LOCKED)
 `
 
 type PurgeEventLabJournalStatesParams struct {
+	WithClients  bool      `json:"with_clients"`
 	ClosedBefore time.Time `json:"closed_before"`
 	BatchSize    int32     `json:"batch_size"`
 }
 
-// The remembered states have no time of their own: they go with a closed event only.
+// The remembered states have no time of their own: they go with a finished event only. with_clients selects the
+// states of clients (the participants period) or the others.
 func (q *Queries) PurgeEventLabJournalStates(ctx context.Context, arg PurgeEventLabJournalStatesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, purgeEventLabJournalStates, arg.ClosedBefore, arg.BatchSize)
+	result, err := q.db.Exec(ctx, purgeEventLabJournalStates, arg.WithClients, arg.ClosedBefore, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -507,7 +535,7 @@ DELETE FROM event_lab_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_lab_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
                LIMIT $2
                FOR UPDATE OF m SKIP LOCKED)
 `
@@ -530,7 +558,7 @@ DELETE FROM event_lab_observation_archives
 WHERE id IN (SELECT a.id
              FROM event_lab_observation_archives a
              JOIN events e ON e.id = a.event_id
-             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), a.period_end) < $1::timestamptz
+             WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), a.period_end) < $1::timestamptz
              LIMIT $2
              FOR UPDATE OF a SKIP LOCKED)
 `
@@ -540,6 +568,7 @@ type PurgeEventLabObservationArchivesParams struct {
 	BatchSize    int32     `json:"batch_size"`
 }
 
+// The raw archive holds clients and IPs: the participants period.
 func (q *Queries) PurgeEventLabObservationArchives(ctx context.Context, arg PurgeEventLabObservationArchivesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeEventLabObservationArchives, arg.ClosedBefore, arg.BatchSize)
 	if err != nil {
@@ -581,18 +610,21 @@ DELETE FROM event_lab_transitions
 WHERE id IN (SELECT t.id
              FROM event_lab_transitions t
              JOIN events e ON e.id = t.event_id
-             WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), t.at) < $1::timestamptz
-             LIMIT $2
+             WHERE (t.client_name IS NOT NULL) = $1::boolean
+               AND COALESCE(LEAST(e.manual_finished_at, e.finish_at), t.at) < $2::timestamptz
+             LIMIT $3
              FOR UPDATE OF t SKIP LOCKED)
 `
 
 type PurgeEventLabTransitionsParams struct {
+	WithClients  bool      `json:"with_clients"`
 	ClosedBefore time.Time `json:"closed_before"`
 	BatchSize    int32     `json:"batch_size"`
 }
 
+// with_clients selects the transitions of a client (the participants period) or the others.
 func (q *Queries) PurgeEventLabTransitions(ctx context.Context, arg PurgeEventLabTransitionsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, purgeEventLabTransitions, arg.ClosedBefore, arg.BatchSize)
+	result, err := q.db.Exec(ctx, purgeEventLabTransitions, arg.WithClients, arg.ClosedBefore, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -605,7 +637,7 @@ DELETE FROM event_lab_usage_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_lab_usage_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
                LIMIT $2
                FOR UPDATE OF m SKIP LOCKED)
 `
@@ -615,12 +647,13 @@ type PurgeEventLabUsageMinutesParams struct {
 	BatchSize    int32     `json:"batch_size"`
 }
 
-// Derived lab telemetry (minute tables, transitions journal and its states, raw
-// archive) is kept for the telemetry period after the event's access closes:
-// the withdrawal if set, else the finish (manual or scheduled). An event with
-// no end (permanent, not finished) has nothing closed: its rows go by their
-// own time (the minute, the transition, the end of the archived hour), a
-// rolling window. closed_before is the cutoff (now minus the period) for both.
+// Derived lab telemetry has two periods, both counted from the event's finish (the manual one if earlier). The
+// data about containers, labs and teams (the minute tables, the transitions and states that name no client) goes
+// LabTelemetry after it; the data about people (client minutes, client_* transitions and states, and the raw
+// archive with its clients and IPs) goes after the shorter LabTelemetryParticipants. An event with no end
+// (permanent, not finished) has nothing finished: its rows go by their own time (the minute, the transition, the
+// end of the archived hour), a rolling window. closed_before is the cutoff (now minus the period) of the data in
+// question.
 func (q *Queries) PurgeEventLabUsageMinutes(ctx context.Context, arg PurgeEventLabUsageMinutesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeEventLabUsageMinutes, arg.ClosedBefore, arg.BatchSize)
 	if err != nil {
@@ -659,7 +692,7 @@ DELETE FROM event_vpn_client_minutes
 WHERE ctid IN (SELECT m.ctid
                FROM event_vpn_client_minutes m
                JOIN events e ON e.id = m.event_id
-               WHERE COALESCE(e.withdraw_at, LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
+               WHERE COALESCE(LEAST(e.manual_finished_at, e.finish_at), m.bucket_at) < $1::timestamptz
                LIMIT $2
                FOR UPDATE OF m SKIP LOCKED)
 `
@@ -921,6 +954,69 @@ func (q *Queries) PurgeUnconfirmedAccounts(ctx context.Context, arg PurgeUnconfi
 	var purged int64
 	err := row.Scan(&purged)
 	return purged, err
+}
+
+const queueLabTelemetryErasure = `-- name: QueueLabTelemetryErasure :one
+WITH person AS (
+    SELECT $1::uuid AS id, lab_client_name($1::uuid) AS client_name
+), queued AS (
+    INSERT INTO lab_telemetry_erasures (user_id, client_name, pseudonym, event_ids)
+    SELECT p.id, p.client_name, 'deleted-' || gen_random_uuid()::text,
+           ARRAY(SELECT x.event_id
+                 FROM (SELECT pa.event_id FROM event_participants pa WHERE pa.user_id = p.id
+                       UNION
+                       SELECT m.event_id FROM event_vpn_client_minutes m WHERE m.client_name = p.client_name
+                       UNION
+                       SELECT v.event_id FROM event_vpn_sessions v WHERE v.user_id = p.id) x)
+    FROM person p
+    ON CONFLICT (user_id) DO UPDATE SET queued_at = now()
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at
+), minutes AS (
+    UPDATE event_vpn_client_minutes m SET client_name = q.pseudonym
+    FROM queued q WHERE m.client_name = q.client_name
+), transitions AS (
+    UPDATE event_lab_transitions t SET client_name = q.pseudonym
+    FROM queued q WHERE t.client_name = q.client_name
+), states AS (
+    UPDATE event_lab_journal_states s SET name = q.pseudonym
+    FROM queued q WHERE s.kind = 'client' AND s.name = q.client_name
+), raw AS (
+    UPDATE event_lab_observations o
+    SET payload = replace(o.payload::text, q.client_name, q.pseudonym)::jsonb
+    FROM queued q
+    WHERE o.event_id = ANY (q.event_ids) AND o.payload::text LIKE '%' || q.client_name || '%'
+), current AS (
+    UPDATE lab_monitoring_current c
+    SET payload = replace(c.payload::text, q.client_name, q.pseudonym)::jsonb
+    FROM queued q
+    WHERE c.event_id = ANY (q.event_ids) AND c.payload::text LIKE '%' || q.client_name || '%'
+)
+SELECT user_id, client_name, pseudonym, event_ids, queued_at FROM queued
+`
+
+type QueueLabTelemetryErasureRow struct {
+	UserID     uuid.UUID   `json:"user_id"`
+	ClientName string      `json:"client_name"`
+	Pseudonym  string      `json:"pseudonym"`
+	EventIds   []uuid.UUID `json:"event_ids"`
+	QueuedAt   time.Time   `json:"queued_at"`
+}
+
+// Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
+// Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
+// renames the rollup rows now and rewrites the raw rows and the current state of the events the person took part in;
+// the retention job finishes the archive. Returns the queued entry.
+func (q *Queries) QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (QueueLabTelemetryErasureRow, error) {
+	row := q.db.QueryRow(ctx, queueLabTelemetryErasure, userID)
+	var i QueueLabTelemetryErasureRow
+	err := row.Scan(
+		&i.UserID,
+		&i.ClientName,
+		&i.Pseudonym,
+		&i.EventIds,
+		&i.QueuedAt,
+	)
+	return i, err
 }
 
 const renameErasedLabClient = `-- name: RenameErasedLabClient :exec

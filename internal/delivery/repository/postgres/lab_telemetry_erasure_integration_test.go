@@ -23,7 +23,10 @@ import (
 type fixedPolicy struct{}
 
 func (fixedPolicy) RetentionPolicy(context.Context) (retentionModel.Policy, error) {
-	return retentionModel.DefaultPolicy(), nil
+	p := retentionModel.DefaultPolicy()
+	// The fixture's accounts are unconfirmed and old: keep this test's retention run away from them.
+	p.PendingAccount = 100 * 365 * 24 * time.Hour
+	return p, nil
 }
 
 // The SQL client name is the Go one.
@@ -187,4 +190,109 @@ func TestRetention_LatestRawSnapshotGoesWithTheTelemetryPeriod(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE event_id = $1`, f.event))
+}
+
+func erasureArchiveChunk(t *testing.T, db *testhelpers.TestDB, event, team uuid.UUID, at time.Time, createdAt time.Time, client, ip string) uuid.UUID {
+	t.Helper()
+	row, _ := json.Marshal(map[string]any{
+		"id": uuid.Must(uuid.NewV7()), "event_id": event, "event_team_id": team, "lab_group_name": "g", "agent_id": "a",
+		"sequence": 1, "observed_at": at, "received_at": at, "schema_version": 3, "snapshot": false,
+		"payload": json.RawMessage(erasurePayload(client, ip)),
+	})
+	data, err := eventAnalyticsModel.CompressLabArchive([]string{string(row)})
+	require.NoError(t, err)
+	id := uuid.Must(uuid.NewV7())
+	rtExec(t, db, `INSERT INTO event_lab_observation_archives (id, event_id, period_start, period_end, row_count, first_received_at, first_id, last_received_at, last_id, codec, data, created_at)
+VALUES ($1, $2, $3, $4, 1, $3, $1, $3, $1, $5, $6, $7)`, id, event, at, at.Add(time.Hour), eventAnalyticsModel.LabArchiveCodecZstdNDJSON, data, createdAt)
+	return id
+}
+
+func archiveText(t *testing.T, db *testhelpers.TestDB, id uuid.UUID) string {
+	t.Helper()
+	var stored []byte
+	require.NoError(t, db.Pool.QueryRow(context.Background(), `SELECT data FROM event_lab_observation_archives WHERE id = $1`, id).Scan(&stored))
+	var text strings.Builder
+	require.NoError(t, eventAnalyticsModel.LabArchiveLines(eventAnalyticsModel.LabArchiveCodecZstdNDJSON, stored, func(l []byte) error {
+		text.Write(l)
+		return nil
+	}))
+	return text.String()
+}
+
+// A chunk whose creation time is odd (the database clock is not the application's) is scrubbed all the same: the
+// scan has no time filter. An entry that can never settle (the event is never archived) is closed after the forced
+// age, and a closed entry leaves no row that ties a user id to a pseudonym.
+func TestLabTelemetryErasure_NoClockFilterForcedCloseAndNoLasingLink(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "laberaseclock")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	gone := labBindingModel.ParticipantClientName(f.user)
+	now := time.Now().UTC() // the users of the fixture are old for a fixed date, so the real clock is used
+	at := now.Add(-time.Hour)
+
+	// Created far in the future relative to the application clock, and long ago: both are found.
+	future := erasureArchiveChunk(t, db, f.event, f.team, at, now.AddDate(1, 0, 0), gone, "10.8.0.7")
+	past := erasureArchiveChunk(t, db, f.event, f.team, at, now.AddDate(-1, 0, 0), gone, "10.8.0.7")
+	// A raw row nobody archives (the event has no rollup row): the entry cannot settle by the archive.
+	telemetryObservation(t, db, f.event, f.team, 1, now.Add(-20*time.Hour), erasurePayload(gone, "10.8.0.7"))
+	rtExec(t, db, `DELETE FROM event_analytics_rollups WHERE event_id = $1`, f.event)
+
+	store := retentionRepo.New(db.Queries)
+	entry, err := store.QueueLabTelemetryErasure(ctx, f.user)
+	require.NoError(t, err)
+	require.Contains(t, entry.EventIDs, f.event)
+
+	uc := retention.New(retention.Dependencies{Store: store, Policies: fixedPolicy{}, Now: func() time.Time { return now }})
+	require.NoError(t, uc.EnforceDataRetention(ctx))
+	for _, id := range []uuid.UUID{future, past} {
+		text := archiveText(t, db, id)
+		require.NotContains(t, text, gone)
+		require.Contains(t, text, entry.Pseudonym)
+		require.Contains(t, text, "10.8.0.7", "the IPs stay")
+	}
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%' || $1 || '%'`, gone))
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "an unarchived raw row keeps it open")
+
+	// More than a day on it still cannot settle (the raw row of its first day is not archived); after the forced age it is closed.
+	rtExec(t, db, `UPDATE lab_telemetry_erasures SET queued_at = $1`, now.Add(-30*time.Hour))
+	require.NoError(t, uc.EnforceDataRetention(ctx))
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`))
+	rtExec(t, db, `UPDATE lab_telemetry_erasures SET queued_at = $1`, now.Add(-8*24*time.Hour))
+	require.NoError(t, uc.EnforceDataRetention(ctx))
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "the link between the person and the pseudonym is gone")
+	var rowsWithBoth int
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_telemetry_erasures WHERE user_id IS NOT NULL AND pseudonym <> ''`).Scan(&rowsWithBoth))
+	require.Zero(t, rowsWithBoth)
+	require.NotContains(t, archiveText(t, db, future), gone)
+}
+
+// An objection: one person is erased on request, without the account being deleted; asking again keeps the same
+// pseudonym.
+func TestLabTelemetryErasureOnRequest(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "laberasereq")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	gone := labBindingModel.ParticipantClientName(f.user)
+	at := anStart.Add(time.Hour)
+	rtExec(t, db, `INSERT INTO event_vpn_client_minutes (event_id, team_id, lab_group_name, client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx, last_tx, last_observed_at)
+VALUES ($1, $2, 'g', $3, $4, 1, 1, 10, 1, 10, 1, $4)`, f.event, f.team, gone, at)
+	telemetryObservation(t, db, f.event, f.team, 1, at, erasurePayload(gone, "10.8.0.7"))
+	chunk := erasureArchiveChunk(t, db, f.event, f.team, at, at, gone, "10.8.0.7")
+
+	uc := retention.New(retention.Dependencies{Store: retentionRepo.New(db.Queries), Now: func() time.Time { return anStart }})
+	entry, rewritten, err := uc.EraseLabTelemetryOf(ctx, f.user)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rewritten)
+	require.True(t, strings.HasPrefix(entry.Pseudonym, "deleted-"))
+	require.NotContains(t, entry.Pseudonym, strings.TrimPrefix(gone, "p-"), "not derived from the user id")
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_vpn_client_minutes WHERE client_name = $1 AND rx_bytes = 10`, entry.Pseudonym))
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE payload::text LIKE '%' || $1 || '%'`, gone))
+	require.NotContains(t, archiveText(t, db, chunk), gone)
+	require.Contains(t, archiveText(t, db, chunk), "10.8.0.7")
+
+	again, _, err := uc.EraseLabTelemetryOf(ctx, f.user)
+	require.NoError(t, err)
+	require.Equal(t, entry.Pseudonym, again.Pseudonym)
 }

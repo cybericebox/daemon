@@ -9,7 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 )
 
-const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag>]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> | erase-lab-telemetry <user id>]"
 
 func main() {
 	args := os.Args[1:]
@@ -32,6 +32,13 @@ func main() {
 		config.SetupLogger(cfg)
 		if err := app.RunRecomputeLabTelemetry(context.Background(), cfg, args[1], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "recompute-lab-telemetry:", err)
+			os.Exit(1)
+		}
+	case len(args) == 2 && args[0] == "erase-lab-telemetry":
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		if err := app.RunEraseLabTelemetry(context.Background(), cfg, args[1], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "erase-lab-telemetry:", err)
 			os.Exit(1)
 		}
 	default:

@@ -29,15 +29,17 @@ type (
 		PurgeExpiredSessions(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
-		LabTelemetryErasures(ctx context.Context, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
+		LabTelemetryErasures(ctx context.Context, after retentionRepo.LabTelemetryErasure, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
+		SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]uuid.UUID, error)
+		LabTelemetryErasuresQueuedBefore(ctx context.Context, before time.Time) (int64, error)
+		DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error
+		QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, error)
 		ScrubRawLabObservations(ctx context.Context, e retentionRepo.LabTelemetryErasure, batchSize int32) (int64, error)
 		ScrubLabMonitoringCurrent(ctx context.Context, e retentionRepo.LabTelemetryErasure) (int64, error)
 		RenameErasedLabClient(ctx context.Context, e retentionRepo.LabTelemetryErasure) error
-		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, createdAfter time.Time, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
-		MarkLabTelemetryErasuresScrubbed(ctx context.Context, userIDs []uuid.UUID, scrubbedAt time.Time) error
-		DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error)
+		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
 		SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error
-		PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error)
+		PurgeEventLabTelemetry(ctx context.Context, closedBefore, participantsBefore time.Time, batchSize int32) (int64, error)
 		PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeNotificationDispatches(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
 		PurgeFinishedSignals(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
@@ -128,14 +130,15 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeExpiredSessions(ctx, cut.SessionsExpiredBefore, batch)
 	})
 	labObservations := step(func(ctx context.Context) (int64, error) {
-		return u.store.PurgeEventLabObservations(ctx, cut.LabObservedBefore, batch)
+		// The raw rows hold clients and IPs: the participants period.
+		return u.store.PurgeEventLabObservations(ctx, cut.LabParticipantsBefore, batch)
 	})
 	rolledUpObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgeRolledUpEventLabObservations(ctx, cut.LabRolledUpBefore, batch)
 	})
 	// The rollups, journal and archive derived from them wait for the event's access to close.
 	labTelemetry := step(func(ctx context.Context) (int64, error) {
-		return u.store.PurgeEventLabTelemetry(ctx, cut.LabObservedBefore, batch)
+		return u.store.PurgeEventLabTelemetry(ctx, cut.LabObservedBefore, cut.LabParticipantsBefore, batch)
 	})
 	capacityObservations := step(func(ctx context.Context) (int64, error) {
 		return u.store.PurgePlatformLabCapacityObservations(ctx, cut.LabObservedBefore, batch)
@@ -208,53 +211,84 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 // labScrubPageSize archive chunks are unpacked at a time.
 const labScrubPageSize = 5
 
-// labErasureSettleAfter is how long an erased account stays queued: the lab drops its VPN client within minutes
-// and the archive follows the raw rows by about an hour, so after a day nothing can bring the real name back.
-const labErasureSettleAfter = 24 * time.Hour
+const (
+	// labErasureSettleAfter is how long an erased person stays queued: the lab drops a deleted account's VPN client
+	// within minutes and the archive follows the raw rows by about an hour, so after a day nothing can bring the
+	// real name back.
+	labErasureSettleAfter = 24 * time.Hour
+	// labErasureForceAfter closes an entry whatever the archive says (an event that is never archived), after
+	// reporting it: the link between the person and the pseudonym must not live on.
+	labErasureForceAfter = 7 * 24 * time.Hour
+)
 
-// scrubLabTelemetry removes the link to deleted accounts from the lab telemetry that still carries it: the raw
-// observations and the current state (they are rewritten at once when the account is purged, and again here for
-// what arrived since), the rollup rows built from them and the archive chunks. The VPN client name becomes the
-// account's pseudonym everywhere; IPs and counters stay. Every step is idempotent. An account leaves the queue a
-// day after its purge, once the archive passed the raw rows of that day. Returns the archive chunks it rewrote.
+// scrubLabTelemetry removes the link to erased people from the lab telemetry that still carries it: the raw
+// observations and the current state (rewritten at once when the account is purged, and again here for what
+// arrived since), the rollup rows built from them and every archive chunk of the events they took part in. The VPN
+// client name becomes the person's pseudonym everywhere; IPs and counters stay. Every step is idempotent. Entries
+// close a day after they were queued, once the archive passed the raw rows of that day; the set to close is fixed
+// before the pass so a chunk archived meanwhile cannot slip past it. The queue is read page by page whole.
+// Returns the archive chunks it rewrote.
 func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (int64, error) {
 	started := u.now()
-	erasures, err := u.store.LabTelemetryErasures(ctx, batch)
-	if err != nil || len(erasures) == 0 {
+	settled, err := u.store.SettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter), started.Add(-labErasureForceAfter))
+	if err != nil {
 		return 0, err
 	}
+	var rewritten int64
+	var after retentionRepo.LabTelemetryErasure
+	for {
+		page, err := u.store.LabTelemetryErasures(ctx, after, batch)
+		if err != nil {
+			return rewritten, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		n, err := u.scrubErasures(ctx, page, batch)
+		rewritten += n
+		if err != nil {
+			return rewritten, err
+		}
+		after = page[len(page)-1]
+		if len(page) < int(batch) {
+			break
+		}
+	}
+	if len(settled) > 0 {
+		if err = u.store.DeleteLabTelemetryErasures(ctx, settled); err != nil {
+			return rewritten, err
+		}
+	}
+	if stale, cerr := u.store.LabTelemetryErasuresQueuedBefore(ctx, started.Add(-labErasureSettleAfter)); cerr != nil {
+		return rewritten, cerr
+	} else if stale > 0 {
+		log.Error().Int64("entries", stale).Msg("data retention: lab telemetry erasures not settled after a day")
+	}
+	return rewritten, nil
+}
+
+// scrubErasures rewrites the live data of a page of erased people and every archive chunk of their events.
+func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRepo.LabTelemetryErasure, batch int32) (int64, error) {
 	pseudonyms := map[string]string{}
-	ids := make([]uuid.UUID, 0, len(erasures))
 	events := map[uuid.UUID]struct{}{}
-	createdAfter := started
-	for _, e := range erasures {
-		if err = u.scrubLive(ctx, e, batch); err != nil {
+	for _, e := range page {
+		if err := u.scrubLive(ctx, e, batch); err != nil {
 			return 0, err
 		}
 		pseudonyms[e.ClientName] = e.Pseudonym
-		ids = append(ids, e.UserID)
 		for _, id := range e.EventIDs {
 			events[id] = struct{}{}
-		}
-		if e.ArchivesScrubbedAt == nil {
-			createdAfter = time.Time{}
-		} else if e.ArchivesScrubbedAt.Before(createdAfter) {
-			createdAfter = *e.ArchivesScrubbedAt
 		}
 	}
 	var rewritten int64
 	for eventID := range events {
-		n, serr := u.scrubEventArchive(ctx, eventID, createdAfter, pseudonyms)
+		n, err := u.scrubEventArchive(ctx, eventID, pseudonyms)
 		rewritten += n
-		if serr != nil {
-			return rewritten, serr
+		if err != nil {
+			return rewritten, err
 		}
 	}
-	if err = u.store.MarkLabTelemetryErasuresScrubbed(ctx, ids, started); err != nil {
-		return rewritten, err
-	}
-	_, err = u.store.DeleteSettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter))
-	return rewritten, err
+	return rewritten, nil
 }
 
 // scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.
@@ -272,13 +306,11 @@ func (u *RetentionUseCase) scrubLive(ctx context.Context, e retentionRepo.LabTel
 	return u.store.RenameErasedLabClient(ctx, e)
 }
 
-func (u *RetentionUseCase) scrubEventArchive(
-	ctx context.Context, eventID uuid.UUID, createdAfter time.Time, pseudonyms map[string]string,
-) (int64, error) {
+func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.UUID, pseudonyms map[string]string) (int64, error) {
 	var rewritten int64
 	after := uuid.Nil
 	for {
-		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, createdAfter, labScrubPageSize)
+		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
 		if err != nil {
 			return rewritten, err
 		}
@@ -300,6 +332,29 @@ func (u *RetentionUseCase) scrubEventArchive(
 			return rewritten, nil
 		}
 	}
+}
+
+// EraseLabTelemetryOf erases one person from the lab telemetry on request (an objection), whether or not the
+// account exists: the VPN client name becomes a random pseudonym in every table, raw rows, current state and
+// archive included; IPs and counters stay. The person's VPN client keeps its name while it lives, so what the labs
+// report under it until the entry settles (a day) is rewritten by the retention job; run it after the access ended
+// to be done for good. Returns the entry and the archive chunks rewritten.
+func (u *RetentionUseCase) EraseLabTelemetryOf(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, int64, error) {
+	entry, err := u.store.QueueLabTelemetryErasure(ctx, userID)
+	if err != nil {
+		return entry, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to queue the erasure").Err()
+	}
+	batch := retentionModel.DefaultBatchSize
+	if u.policies != nil {
+		if policy, perr := u.policies.RetentionPolicy(ctx); perr == nil {
+			batch = int(policy.BatchSize)
+		}
+	}
+	rewritten, err := u.scrubErasures(ctx, []retentionRepo.LabTelemetryErasure{entry}, int32(batch)) //nolint:gosec // a batch size
+	if err != nil {
+		return entry, rewritten, model.ErrPlatform.WithError(err).WithMessage("Failed to erase the person from the lab telemetry").Err()
+	}
+	return entry, rewritten, nil
 }
 
 // EnforceAccountInactivity warns the owners of accounts inactive for the
