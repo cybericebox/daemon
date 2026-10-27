@@ -76,6 +76,7 @@ type LabEntityState struct {
 // LabStateRow is a stored entity state.
 type LabStateRow struct {
 	LabEntityKey
+
 	State LabEntityState `json:"state"`
 }
 
