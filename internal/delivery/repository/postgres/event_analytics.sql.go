@@ -325,79 +325,94 @@ SELECT e.id,
        (LEAST(e.manual_finished_at, e.finish_at) IS NOT NULL)::boolean AS has_finish,
        COALESCE(LEAST(e.manual_finished_at, e.finish_at), e.start_at)::timestamptz AS finished_at,
        e.infrastructure_allowed,
+       (NOT (e.lifecycle_configured AND e.start_at <= $1::timestamptz))::boolean AS not_started,
        COALESCE(r.revision, 0)::bigint                       AS revision,
        COALESCE(s.buckets_revision, 0)::bigint                AS buckets_revision,
        s.buckets_finalized_at,
-       (s.vpn_finalized_at IS NOT NULL AND NOT EXISTS (
-           SELECT 1 FROM event_lab_observations o
-           WHERE o.event_id = e.id
-             AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
-                                          COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))::boolean AS vpn_closed,
+       (s.vpn_finalized_at IS NOT NULL AND NOT pending.vpn)::boolean AS vpn_closed,
        s.vpn_cursor_received_at,
        s.vpn_cursor_id,
-       (s.lab_usage_finalized_at IS NOT NULL AND NOT EXISTS (
-           SELECT 1 FROM event_lab_observations o
-           WHERE o.event_id = e.id
-             AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
-                                          COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))::boolean AS lab_usage_closed,
+       (s.lab_usage_finalized_at IS NOT NULL AND NOT pending.lab_usage)::boolean AS lab_usage_closed,
        s.lab_usage_cursor_received_at,
-       s.lab_usage_cursor_id
+       s.lab_usage_cursor_id,
+       pending.archive::boolean                              AS archive_open,
+       s.lab_archive_cursor_received_at,
+       s.lab_archive_cursor_id
 FROM events e
 LEFT JOIN event_result_revisions r ON r.event_id = e.id
 LEFT JOIN event_analytics_rollups s ON s.event_id = e.id
-WHERE e.lifecycle_configured
-  AND e.start_at <= $1::timestamptz
-  AND (s.event_id IS NULL
-    OR s.buckets_finalized_at IS NULL
-    OR s.buckets_revision <> COALESCE(r.revision, 0)
-    OR (e.infrastructure_allowed AND (s.vpn_finalized_at IS NULL OR EXISTS (
-        SELECT 1 FROM event_lab_observations o
-        WHERE o.event_id = e.id
-          AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
-                                       COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))))
-    OR (e.infrastructure_allowed AND (s.lab_usage_finalized_at IS NULL OR EXISTS (
-        SELECT 1 FROM event_lab_observations o
-        WHERE o.event_id = e.id
-          AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
-                                       COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))))
+CROSS JOIN LATERAL (
+    SELECT e.infrastructure_allowed AND EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS vpn,
+           e.infrastructure_allowed AND EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS lab_usage,
+           EXISTS (
+               SELECT 1 FROM event_lab_observations o
+               WHERE o.event_id = e.id
+                 AND o.received_at < $2::timestamptz
+                 AND (o.received_at, o.id) > (COALESCE(s.lab_archive_cursor_received_at, 'epoch'::timestamptz),
+                                              COALESCE(s.lab_archive_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))) AS archive
+) pending
+WHERE pending.archive
+   OR (e.lifecycle_configured
+       AND e.start_at <= $1::timestamptz
+       AND (s.event_id IS NULL
+         OR s.buckets_finalized_at IS NULL
+         OR s.buckets_revision <> COALESCE(r.revision, 0)
+         OR (e.infrastructure_allowed AND (s.vpn_finalized_at IS NULL OR pending.vpn))
+         OR (e.infrastructure_allowed AND (s.lab_usage_finalized_at IS NULL OR pending.lab_usage))))
 ORDER BY (LEAST(e.manual_finished_at, e.finish_at) IS NULL
     OR LEAST(e.manual_finished_at, e.finish_at) > $1::timestamptz) DESC,
          e.start_at DESC, e.id
-LIMIT $2
+LIMIT $3
 `
 
 type ListEventAnalyticsRollupCandidatesParams struct {
-	Now      time.Time `json:"now"`
-	RowLimit int32     `json:"row_limit"`
+	Now           time.Time `json:"now"`
+	ArchiveBefore time.Time `json:"archive_before"`
+	RowLimit      int32     `json:"row_limit"`
 }
 
 type ListEventAnalyticsRollupCandidatesRow struct {
-	ID                       uuid.UUID          `json:"id"`
-	StartAt                  time.Time          `json:"start_at"`
-	HasFinish                bool               `json:"has_finish"`
-	FinishedAt               time.Time          `json:"finished_at"`
-	InfrastructureAllowed    bool               `json:"infrastructure_allowed"`
-	Revision                 int64              `json:"revision"`
-	BucketsRevision          int64              `json:"buckets_revision"`
-	BucketsFinalizedAt       pgtype.Timestamptz `json:"buckets_finalized_at"`
-	VpnClosed                bool               `json:"vpn_closed"`
-	VpnCursorReceivedAt      pgtype.Timestamptz `json:"vpn_cursor_received_at"`
-	VpnCursorID              uuid.NullUUID      `json:"vpn_cursor_id"`
-	LabUsageClosed           bool               `json:"lab_usage_closed"`
-	LabUsageCursorReceivedAt pgtype.Timestamptz `json:"lab_usage_cursor_received_at"`
-	LabUsageCursorID         uuid.NullUUID      `json:"lab_usage_cursor_id"`
+	ID                         uuid.UUID          `json:"id"`
+	StartAt                    time.Time          `json:"start_at"`
+	HasFinish                  bool               `json:"has_finish"`
+	FinishedAt                 time.Time          `json:"finished_at"`
+	InfrastructureAllowed      bool               `json:"infrastructure_allowed"`
+	NotStarted                 bool               `json:"not_started"`
+	Revision                   int64              `json:"revision"`
+	BucketsRevision            int64              `json:"buckets_revision"`
+	BucketsFinalizedAt         pgtype.Timestamptz `json:"buckets_finalized_at"`
+	VpnClosed                  bool               `json:"vpn_closed"`
+	VpnCursorReceivedAt        pgtype.Timestamptz `json:"vpn_cursor_received_at"`
+	VpnCursorID                uuid.NullUUID      `json:"vpn_cursor_id"`
+	LabUsageClosed             bool               `json:"lab_usage_closed"`
+	LabUsageCursorReceivedAt   pgtype.Timestamptz `json:"lab_usage_cursor_received_at"`
+	LabUsageCursorID           uuid.NullUUID      `json:"lab_usage_cursor_id"`
+	ArchiveOpen                bool               `json:"archive_open"`
+	LabArchiveCursorReceivedAt pgtype.Timestamptz `json:"lab_archive_cursor_received_at"`
+	LabArchiveCursorID         uuid.NullUUID      `json:"lab_archive_cursor_id"`
 }
 
 // Event analytics (docs/EVENT-ANALYTICS.md): the rollup job's statements and
 // the reads of the analytics API. The moderators team is never counted.
 // Events the rollup job still has work for: started, and without finalized
 // buckets (or with results changed since), or with a VPN or lab usage rollup
-// still open (infrastructure events). Running events come first. A closed
-// VPN or lab usage rollup is open again while observations arrived after its
-// cursor (a pass that closed it before the telemetry existed, or rows that
-// arrived late); vpn_closed / lab_usage_closed already account for that.
+// still open (infrastructure events), or with raw observations not archived
+// yet (archive_before: only closed hours are archived; started or not).
+// Running events come first. A closed VPN or lab usage rollup is open again
+// while observations arrived after its cursor (a pass that closed it before
+// the telemetry existed, or rows that arrived late); vpn_closed /
+// lab_usage_closed already account for that. not_started marks an event listed
+// only for its archive: buckets and the rollups do not apply to it yet.
 func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg ListEventAnalyticsRollupCandidatesParams) ([]ListEventAnalyticsRollupCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listEventAnalyticsRollupCandidates, arg.Now, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listEventAnalyticsRollupCandidates, arg.Now, arg.ArchiveBefore, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +426,7 @@ func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg Li
 			&i.HasFinish,
 			&i.FinishedAt,
 			&i.InfrastructureAllowed,
+			&i.NotStarted,
 			&i.Revision,
 			&i.BucketsRevision,
 			&i.BucketsFinalizedAt,
@@ -420,6 +436,9 @@ func (q *Queries) ListEventAnalyticsRollupCandidates(ctx context.Context, arg Li
 			&i.LabUsageClosed,
 			&i.LabUsageCursorReceivedAt,
 			&i.LabUsageCursorID,
+			&i.ArchiveOpen,
+			&i.LabArchiveCursorReceivedAt,
+			&i.LabArchiveCursorID,
 		); err != nil {
 			return nil, err
 		}

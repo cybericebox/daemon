@@ -13,16 +13,22 @@ WHERE id IN (SELECT s.id
              FOR UPDATE SKIP LOCKED);
 
 -- name: PurgeEventLabObservations :execrows
+-- Raw rows past the telemetry period; only archived ones (see
+-- PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
 DELETE FROM event_lab_observations
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
+             JOIN event_analytics_rollups r ON r.event_id = o.event_id
              WHERE o.observed_at < sqlc.arg(observed_before)
+               AND r.lab_archive_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
              LIMIT sqlc.arg(batch_size)
              FOR UPDATE SKIP LOCKED);
 
 -- name: PurgeRolledUpEventLabObservations :execrows
 -- Raw lab snapshots are large, so they go a day after arrival once every
--- rollup that reads them (VPN sessions, lab usage) has passed them. The
+-- rollup that reads them (VPN sessions, lab usage) has passed them and the
+-- archive holds them (a raw row is never deleted before it is archived). The
 -- latest snapshot of each lab group stays for the latest-state readers.
 -- Events without infrastructure have no VPN rollup to wait for.
 DELETE FROM event_lab_observations
@@ -33,6 +39,8 @@ WHERE id IN (SELECT o.id
              WHERE o.received_at < sqlc.arg(received_before)
                AND r.lab_usage_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
+               AND r.lab_archive_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
                AND (NOT e.infrastructure_allowed
                     OR (r.vpn_cursor_id IS NOT NULL
                         AND (o.received_at, o.id) <= (r.vpn_cursor_received_at, r.vpn_cursor_id)))

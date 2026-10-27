@@ -797,10 +797,13 @@ type Querier interface {
 	// the reads of the analytics API. The moderators team is never counted.
 	// Events the rollup job still has work for: started, and without finalized
 	// buckets (or with results changed since), or with a VPN or lab usage rollup
-	// still open (infrastructure events). Running events come first. A closed
-	// VPN or lab usage rollup is open again while observations arrived after its
-	// cursor (a pass that closed it before the telemetry existed, or rows that
-	// arrived late); vpn_closed / lab_usage_closed already account for that.
+	// still open (infrastructure events), or with raw observations not archived
+	// yet (archive_before: only closed hours are archived; started or not).
+	// Running events come first. A closed VPN or lab usage rollup is open again
+	// while observations arrived after its cursor (a pass that closed it before
+	// the telemetry existed, or rows that arrived late); vpn_closed /
+	// lab_usage_closed already account for that. not_started marks an event listed
+	// only for its archive: buckets and the rollups do not apply to it yet.
 	ListEventAnalyticsRollupCandidates(ctx context.Context, arg ListEventAnalyticsRollupCandidatesParams) ([]ListEventAnalyticsRollupCandidatesRow, error)
 	// Every score change (solves and hint penalties) of the given teams, oldest
 	// first: the running total is the sum of Points, as on the scoreboard.
@@ -922,7 +925,18 @@ type Querier interface {
 	ListEventLabGroupLifecycleWork(ctx context.Context, arg ListEventLabGroupLifecycleWorkParams) ([]EventTeamGroupAllocation, error)
 	// The merged current state of every lab group of one event, for the organizers' stand list.
 	ListEventLabMonitoringCurrent(ctx context.Context, eventID uuid.UUID) ([]ListEventLabMonitoringCurrentRow, error)
+	// The archived chunks of an event in arrival order, from one point on, with
+	// their data. limit_rows bounds a page; a reader continues after the last
+	// chunk it got.
+	ListEventLabObservationArchiveChunks(ctx context.Context, arg ListEventLabObservationArchiveChunksParams) ([]ListEventLabObservationArchiveChunksRow, error)
+	// The rows of a chunk as JSON lines with every column, ordered by team, lab
+	// group and observation time so that neighbours resemble each other.
+	ListEventLabObservationArchiveLines(ctx context.Context, arg ListEventLabObservationArchiveLinesParams) ([]string, error)
 	ListEventLabObservations(ctx context.Context, arg ListEventLabObservationsParams) ([]EventLabObservation, error)
+	// Raw observations still in the table after a point in arrival order (the
+	// ones the archive does not hold yet, or all while they are kept), up to
+	// limit_rows, as JSON lines in the archive format.
+	ListEventLabObservationsAfter(ctx context.Context, arg ListEventLabObservationsAfterParams) ([]ListEventLabObservationsAfterRow, error)
 	// The event's screens in the editor order; the first one is «Екран 1» of the
 	// old single-screen routes.
 	ListEventLiveScreens(ctx context.Context, eventID uuid.UUID) ([]EventLiveScreen, error)
@@ -1571,6 +1585,14 @@ type Querier interface {
 	// boundary-derived policy change allocates exactly one more revision before RPC.
 	MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error)
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
+	// Archive of the raw lab observations (docs/LAB-TRAFFIC-ACCOUNTING.md): the
+	// rows are written as zstd NDJSON chunks, one event and hour at a time,
+	// before the retention job may delete them.
+	// The next chunk of an event's observations after the archive cursor: up to
+	// max_rows rows in arrival order, all received in the hour of the first one
+	// and before closed_before (only closed hours are archived, so a chunk never
+	// grows afterwards). No row when nothing is left to archive.
+	NextEventLabObservationArchiveRange(ctx context.Context, arg NextEventLabObservationArchiveRangeParams) ([]NextEventLabObservationArchiveRangeRow, error)
 	ObserveClusterReservation(ctx context.Context, arg ObserveClusterReservationParams) error
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenReadyEventLabRevealBarriersParams) (int64, error)
@@ -1619,6 +1641,8 @@ type Querier interface {
 	// finish (the earlier of the scheduled and the manual finish); an event that
 	// has not ended keeps its answers.
 	PurgeEventFormAnswers(ctx context.Context, arg PurgeEventFormAnswersParams) (int64, error)
+	// Raw rows past the telemetry period; only archived ones (see
+	// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
 	PurgeEventLabObservations(ctx context.Context, arg PurgeEventLabObservationsParams) (int64, error)
 	// Aggregates of events that ended before the cutoff.
 	PurgeEventLabTouches(ctx context.Context, arg PurgeEventLabTouchesParams) (int64, error)
@@ -1649,7 +1673,8 @@ type Querier interface {
 	PurgeNotificationDispatches(ctx context.Context, arg PurgeNotificationDispatchesParams) (int64, error)
 	PurgePlatformLabCapacityObservations(ctx context.Context, arg PurgePlatformLabCapacityObservationsParams) (int64, error)
 	// Raw lab snapshots are large, so they go a day after arrival once every
-	// rollup that reads them (VPN sessions, lab usage) has passed them. The
+	// rollup that reads them (VPN sessions, lab usage) has passed them and the
+	// archive holds them (a raw row is never deleted before it is archived). The
 	// latest snapshot of each lab group stays for the latest-state readers.
 	// Events without infrastructure have no VPN rollup to wait for.
 	PurgeRolledUpEventLabObservations(ctx context.Context, arg PurgeRolledUpEventLabObservationsParams) (int64, error)
@@ -1767,6 +1792,9 @@ type Querier interface {
 	// (SaveClusterReservation); the agent's confirmation (MarkClusterReservationSynced) and the observed status
 	// (ObserveClusterReservation) are narrow writes, so neither can undo a newer desired change.
 	SaveClusterReservation(ctx context.Context, arg SaveClusterReservationParams) error
+	// Stores a chunk and moves the archive cursor past it in one statement: a
+	// failure leaves both untouched, a re-run of the same chunk adds nothing.
+	SaveEventLabObservationArchive(ctx context.Context, arg SaveEventLabObservationArchiveParams) error
 	SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error)
 	SaveEventLiveScreenDraft(ctx context.Context, arg SaveEventLiveScreenDraftParams) (int64, error)
 	// Saves the editor's draft. A page that was never published also mirrors the

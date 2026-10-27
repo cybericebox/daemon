@@ -23,6 +23,7 @@ type Queries interface {
 	IntegrityQueries
 	ReportQueries
 	ParticipantQueries
+	ArchiveQueries
 	ListEventAnalyticsRollupCandidates(context.Context, postgres.ListEventAnalyticsRollupCandidatesParams) ([]postgres.ListEventAnalyticsRollupCandidatesRow, error)
 	RefreshEventActivityBuckets(context.Context, uuid.UUID) error
 	MarkEventActivityBucketsRefreshed(context.Context, postgres.MarkEventActivityBucketsRefreshedParams) error
@@ -63,6 +64,13 @@ type (
 		LabUsageFinalized bool
 		// LabUsageCursor is the last observation the lab usage rollup folded in.
 		LabUsageCursor VPNCursor
+		// NotStarted: the event is listed only for its archive; buckets and
+		// the rollups do not apply to it yet.
+		NotStarted bool
+		// ArchiveOpen: raw observations of closed hours are not archived yet.
+		ArchiveOpen bool
+		// ArchiveCursor is the last observation the archive holds.
+		ArchiveCursor VPNCursor
 	}
 
 	// VPNCursor is the last observation the VPN rollup read (arrival order);
@@ -112,7 +120,9 @@ type (
 var cursorStart = time.Unix(0, 0).UTC()
 
 func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit int32) ([]RollupCandidate, error) {
-	rows, err := r.q.ListEventAnalyticsRollupCandidates(ctx, postgres.ListEventAnalyticsRollupCandidatesParams{Now: now, RowLimit: limit})
+	rows, err := r.q.ListEventAnalyticsRollupCandidates(ctx, postgres.ListEventAnalyticsRollupCandidatesParams{
+		Now: now, ArchiveBefore: eventAnalyticsModel.LabArchiveClosedBefore(now), RowLimit: limit,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +133,7 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 			BucketsRevision:  row.BucketsRevision,
 			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnClosed,
 			LabUsageFinalized: row.LabUsageClosed,
+			NotStarted:        row.NotStarted, ArchiveOpen: row.ArchiveOpen,
 		}
 		if row.HasFinish {
 			finish := row.FinishedAt
@@ -134,6 +145,11 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		if row.LabUsageCursorReceivedAt.Valid && row.LabUsageCursorID.Valid {
 			c.LabUsageCursor = VPNCursor{
 				ReceivedAt: row.LabUsageCursorReceivedAt.Time, ID: row.LabUsageCursorID.UUID,
+			}
+		}
+		if row.LabArchiveCursorReceivedAt.Valid && row.LabArchiveCursorID.Valid {
+			c.ArchiveCursor = VPNCursor{
+				ReceivedAt: row.LabArchiveCursorReceivedAt.Time, ID: row.LabArchiveCursorID.UUID,
 			}
 		}
 		out = append(out, c)

@@ -327,7 +327,10 @@ const purgeEventLabObservations = `-- name: PurgeEventLabObservations :execrows
 DELETE FROM event_lab_observations
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
+             JOIN event_analytics_rollups r ON r.event_id = o.event_id
              WHERE o.observed_at < $1
+               AND r.lab_archive_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
              LIMIT $2
              FOR UPDATE SKIP LOCKED)
 `
@@ -337,6 +340,8 @@ type PurgeEventLabObservationsParams struct {
 	BatchSize      int32     `json:"batch_size"`
 }
 
+// Raw rows past the telemetry period; only archived ones (see
+// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
 func (q *Queries) PurgeEventLabObservations(ctx context.Context, arg PurgeEventLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeEventLabObservations, arg.ObservedBefore, arg.BatchSize)
 	if err != nil {
@@ -560,6 +565,8 @@ WHERE id IN (SELECT o.id
              WHERE o.received_at < $1
                AND r.lab_usage_cursor_id IS NOT NULL
                AND (o.received_at, o.id) <= (r.lab_usage_cursor_received_at, r.lab_usage_cursor_id)
+               AND r.lab_archive_cursor_id IS NOT NULL
+               AND (o.received_at, o.id) <= (r.lab_archive_cursor_received_at, r.lab_archive_cursor_id)
                AND (NOT e.infrastructure_allowed
                     OR (r.vpn_cursor_id IS NOT NULL
                         AND (o.received_at, o.id) <= (r.vpn_cursor_received_at, r.vpn_cursor_id)))
@@ -579,7 +586,8 @@ type PurgeRolledUpEventLabObservationsParams struct {
 }
 
 // Raw lab snapshots are large, so they go a day after arrival once every
-// rollup that reads them (VPN sessions, lab usage) has passed them. The
+// rollup that reads them (VPN sessions, lab usage) has passed them and the
+// archive holds them (a raw row is never deleted before it is archived). The
 // latest snapshot of each lab group stays for the latest-state readers.
 // Events without infrastructure have no VPN rollup to wait for.
 func (q *Queries) PurgeRolledUpEventLabObservations(ctx context.Context, arg PurgeRolledUpEventLabObservationsParams) (int64, error) {

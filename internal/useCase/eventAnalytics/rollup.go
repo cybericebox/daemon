@@ -24,6 +24,8 @@ const (
 	// the statement aggregates in the database.
 	labUsageBatchSize       = 5000
 	labUsageBatchesPerEvent = 10
+	// The archive compresses one chunk of raw rows per step.
+	labArchiveChunksPerEvent = 6
 )
 
 // RefreshEventAnalytics is one pass of the analytics rollup job (§5): for
@@ -39,11 +41,22 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list events for analytics").Err()
 	}
 	var errs []error
-	var buckets, vpn, labUsage int
+	archiveBefore := eventAnalyticsModel.LabArchiveClosedBefore(started)
+	var buckets, vpn, labUsage, archived int
 	for _, c := range candidates {
 		if ctx.Err() != nil {
 			errs = append(errs, ctx.Err())
 			break
+		}
+		if c.ArchiveOpen {
+			n, aerr := u.archiveLabObservations(ctx, c, archiveBefore)
+			archived += n
+			if aerr != nil {
+				errs = append(errs, aerr)
+			}
+		}
+		if c.NotStarted {
+			continue
 		}
 		if !c.BucketsFinalized || c.BucketsRevision != c.Revision {
 			if err = u.refreshBuckets(ctx, c, started); err != nil {
@@ -69,7 +82,7 @@ func (u *EventAnalyticsUseCase) RefreshEventAnalytics(ctx context.Context) error
 	}
 	err = errors.Join(errs...)
 	log.Debug().Err(err).Int("events", len(candidates)).Int("buckets", buckets).Int("vpn", vpn).
-		Int("lab_usage", labUsage).
+		Int("lab_usage", labUsage).Int("archived_rows", archived).
 		Dur("took", u.now().Sub(started)).Msg("event analytics: rollup pass")
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event analytics").Err()
@@ -152,4 +165,27 @@ func (u *EventAnalyticsUseCase) refreshLabUsage(
 		return u.store.FinishLabUsageRollup(ctx, c.EventID, now)
 	}
 	return nil
+}
+
+// archiveLabObservations compresses the event's raw observations of closed
+// hours into the archive, chunk by chunk. The store saves the chunk and moves
+// the archive cursor in one statement, so a failure loses and duplicates
+// nothing; the retention job deletes raw rows only behind this cursor.
+func (u *EventAnalyticsUseCase) archiveLabObservations(
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, closedBefore time.Time,
+) (int, error) {
+	cursor := c.ArchiveCursor
+	total := 0
+	for i := 0; i < labArchiveChunksPerEvent; i++ {
+		next, rows, err := u.store.ArchiveLabObservations(ctx, c.EventID, cursor, closedBefore, u.newID())
+		if err != nil {
+			return total, err
+		}
+		if rows == 0 {
+			break
+		}
+		total += rows
+		cursor = next
+	}
+	return total, nil
 }
