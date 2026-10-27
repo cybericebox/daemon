@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -128,6 +129,20 @@ VALUES ($1, $2, $3, 'group', 'agent', $4, $5, $5, 1, true, '{}')`, uuid.Must(uui
 		rtExec(t, db, `
 INSERT INTO platform_lab_capacity_observations (id, agent_id, sequence, observed_at, received_at, schema_version, snapshot, payload)
 VALUES ($1, 'agent', $2, $3, $3, 1, true, '{}')`, uuid.Must(uuid.NewV7()), i+1, observedAt)
+	}
+	if n := rtDrain(t, batch, func() (int64, error) { return repo.PurgeEventLabObservations(ctx, cutoff, batch) }); n != 0 {
+		t.Fatalf("event lab observations purged before they are archived = %d, want 0", n)
+	}
+	archive := eventAnalyticsRepo.New(db.Queries)
+	for cursor := (eventAnalyticsRepo.VPNCursor{}); ; {
+		next, rows, aerr := archive.ArchiveLabObservations(ctx, event, cursor, rtNow, uuid.Must(uuid.NewV7()))
+		if aerr != nil {
+			t.Fatal(aerr)
+		}
+		if rows == 0 {
+			break
+		}
+		cursor = next
 	}
 	if n := rtDrain(t, batch, func() (int64, error) { return repo.PurgeEventLabObservations(ctx, cutoff, batch) }); n != 1 {
 		t.Fatalf("event lab observations purged = %d, want 1", n)

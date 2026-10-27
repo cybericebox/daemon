@@ -282,6 +282,23 @@ VALUES ($1, $2, $3, $4, 'agent', $5, $6, $6, 1, false, '{"labs":[]}')`, id, f.ev
 		at,
 		id,
 	)
+	// Both rollups passed, but the archive has not: raw rows are never deleted before they are archived.
+	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	archive := eventAnalyticsRepo.New(db.Queries)
+	var archived int
+	for cursor := (eventAnalyticsRepo.VPNCursor{}); ; {
+		next, rows, aerr := archive.ArchiveLabObservations(ctx, f.event, cursor, now, uuid.Must(uuid.NewV7()))
+		require.NoError(t, aerr)
+		if rows == 0 {
+			break
+		}
+		archived += rows
+		cursor = next
+	}
+	require.Equal(t, 6, archived)
 	n, err = retention.PurgeRolledUpEventLabObservations(ctx, cutoff, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, n)

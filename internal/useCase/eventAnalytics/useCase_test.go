@@ -49,6 +49,11 @@ type fakeStore struct {
 	usageNext  eventAnalyticsRepo.VPNCursor
 	usageFinal *time.Time
 	failUsage  bool
+
+	archiveChunks []int
+	archiveCalls  []eventAnalyticsRepo.VPNCursor
+	archiveNext   eventAnalyticsRepo.VPNCursor
+	failArchive   bool
 }
 
 func (s *fakeStore) RollupCandidates(context.Context, time.Time, int32) ([]eventAnalyticsRepo.RollupCandidate, error) {
@@ -109,6 +114,20 @@ func (s *fakeStore) RollupLabUsage(
 func (s *fakeStore) FinishLabUsageRollup(_ context.Context, _ uuid.UUID, at time.Time) error {
 	s.usageFinal = &at
 	return nil
+}
+func (s *fakeStore) ArchiveLabObservations(
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ time.Time, _ uuid.UUID,
+) (eventAnalyticsRepo.VPNCursor, int, error) {
+	if s.failArchive {
+		return after, 0, errors.New("archive boom")
+	}
+	s.archiveCalls = append(s.archiveCalls, after)
+	if len(s.archiveChunks) == 0 {
+		return after, 0, nil
+	}
+	rows := s.archiveChunks[0]
+	s.archiveChunks = s.archiveChunks[1:]
+	return s.archiveNext, rows, nil
 }
 func (s *fakeStore) Overview(_ context.Context, _ uuid.UUID, activeSince time.Time) (eventAnalyticsRepo.Overview, error) {
 	s.mu.Lock()
@@ -423,5 +442,38 @@ func TestRefreshEventAnalytics_LabUsage(t *testing.T) {
 	uc = newUC(failing, runningEvent(), nil, &clock)
 	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
 		t.Fatal("a failing lab usage rollup fails the pass")
+	}
+}
+
+// The archive runs chunk by chunk from its own cursor while closed hours
+// have rows, also for an event that has not started; a failure fails the pass.
+func TestRefreshEventAnalytics_Archive(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	start := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-3 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	next := eventAnalyticsRepo.VPNCursor{ReceivedAt: now.Add(-2 * time.Hour), ID: uuid.Must(uuid.NewV7())}
+	store := &fakeStore{
+		candidates: []eventAnalyticsRepo.RollupCandidate{{
+			EventID: eventID, NotStarted: true, ArchiveOpen: true, ArchiveCursor: start,
+		}},
+		archiveChunks: []int{4000, 120}, // a full chunk, then the rest (its next call finds nothing)
+		archiveNext:   next,
+	}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	if err := uc.RefreshEventAnalytics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.archiveCalls) != 3 || store.archiveCalls[0] != start || store.archiveCalls[1] != next {
+		t.Fatalf("archive calls %+v", store.archiveCalls)
+	}
+	if len(store.refreshed) != 0 {
+		t.Fatal("an event that has not started gets no rollups")
+	}
+
+	failing := &fakeStore{failArchive: true, candidates: store.candidates}
+	uc = newUC(failing, runningEvent(), nil, &clock)
+	if err := uc.RefreshEventAnalytics(context.Background()); err == nil {
+		t.Fatal("a failing archive fails the pass")
 	}
 }

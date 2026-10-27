@@ -7466,6 +7466,36 @@ func (mr *MockQuerierMockRecorder) ListEventLabMonitoringCurrent(ctx, eventID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabMonitoringCurrent", reflect.TypeOf((*MockQuerier)(nil).ListEventLabMonitoringCurrent), ctx, eventID)
 }
 
+// ListEventLabObservationArchiveChunks mocks base method.
+func (m *MockQuerier) ListEventLabObservationArchiveChunks(ctx context.Context, arg postgres.ListEventLabObservationArchiveChunksParams) ([]postgres.ListEventLabObservationArchiveChunksRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLabObservationArchiveChunks", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventLabObservationArchiveChunksRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLabObservationArchiveChunks indicates an expected call of ListEventLabObservationArchiveChunks.
+func (mr *MockQuerierMockRecorder) ListEventLabObservationArchiveChunks(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabObservationArchiveChunks", reflect.TypeOf((*MockQuerier)(nil).ListEventLabObservationArchiveChunks), ctx, arg)
+}
+
+// ListEventLabObservationArchiveLines mocks base method.
+func (m *MockQuerier) ListEventLabObservationArchiveLines(ctx context.Context, arg postgres.ListEventLabObservationArchiveLinesParams) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLabObservationArchiveLines", ctx, arg)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLabObservationArchiveLines indicates an expected call of ListEventLabObservationArchiveLines.
+func (mr *MockQuerierMockRecorder) ListEventLabObservationArchiveLines(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabObservationArchiveLines", reflect.TypeOf((*MockQuerier)(nil).ListEventLabObservationArchiveLines), ctx, arg)
+}
+
 // ListEventLabObservations mocks base method.
 func (m *MockQuerier) ListEventLabObservations(ctx context.Context, arg postgres.ListEventLabObservationsParams) ([]postgres.EventLabObservation, error) {
 	m.ctrl.T.Helper()
@@ -7479,6 +7509,21 @@ func (m *MockQuerier) ListEventLabObservations(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) ListEventLabObservations(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabObservations", reflect.TypeOf((*MockQuerier)(nil).ListEventLabObservations), ctx, arg)
+}
+
+// ListEventLabObservationsAfter mocks base method.
+func (m *MockQuerier) ListEventLabObservationsAfter(ctx context.Context, arg postgres.ListEventLabObservationsAfterParams) ([]postgres.ListEventLabObservationsAfterRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLabObservationsAfter", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListEventLabObservationsAfterRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLabObservationsAfter indicates an expected call of ListEventLabObservationsAfter.
+func (mr *MockQuerierMockRecorder) ListEventLabObservationsAfter(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabObservationsAfter", reflect.TypeOf((*MockQuerier)(nil).ListEventLabObservationsAfter), ctx, arg)
 }
 
 // ListEventLiveScreens mocks base method.
@@ -10965,6 +11010,21 @@ func (mr *MockQuerierMockRecorder) MaxEventChallengeOrder(ctx, eventExerciseID a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxEventChallengeOrder", reflect.TypeOf((*MockQuerier)(nil).MaxEventChallengeOrder), ctx, eventExerciseID)
 }
 
+// NextEventLabObservationArchiveRange mocks base method.
+func (m *MockQuerier) NextEventLabObservationArchiveRange(ctx context.Context, arg postgres.NextEventLabObservationArchiveRangeParams) ([]postgres.NextEventLabObservationArchiveRangeRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NextEventLabObservationArchiveRange", ctx, arg)
+	ret0, _ := ret[0].([]postgres.NextEventLabObservationArchiveRangeRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NextEventLabObservationArchiveRange indicates an expected call of NextEventLabObservationArchiveRange.
+func (mr *MockQuerierMockRecorder) NextEventLabObservationArchiveRange(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NextEventLabObservationArchiveRange", reflect.TypeOf((*MockQuerier)(nil).NextEventLabObservationArchiveRange), ctx, arg)
+}
+
 // ObserveClusterReservation mocks base method.
 func (m *MockQuerier) ObserveClusterReservation(ctx context.Context, arg postgres.ObserveClusterReservationParams) error {
 	m.ctrl.T.Helper()
@@ -12143,6 +12203,20 @@ func (m *MockQuerier) SaveClusterReservation(ctx context.Context, arg postgres.S
 func (mr *MockQuerierMockRecorder) SaveClusterReservation(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveClusterReservation", reflect.TypeOf((*MockQuerier)(nil).SaveClusterReservation), ctx, arg)
+}
+
+// SaveEventLabObservationArchive mocks base method.
+func (m *MockQuerier) SaveEventLabObservationArchive(ctx context.Context, arg postgres.SaveEventLabObservationArchiveParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveEventLabObservationArchive", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveEventLabObservationArchive indicates an expected call of SaveEventLabObservationArchive.
+func (mr *MockQuerierMockRecorder) SaveEventLabObservationArchive(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventLabObservationArchive", reflect.TypeOf((*MockQuerier)(nil).SaveEventLabObservationArchive), ctx, arg)
 }
 
 // SaveEventLandingDraft mocks base method.
