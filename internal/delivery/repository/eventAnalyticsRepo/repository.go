@@ -121,8 +121,8 @@ func (r *Repository) RollupCandidates(ctx context.Context, now time.Time, limit 
 		c := RollupCandidate{
 			EventID: row.ID, StartAt: row.StartAt, InfrastructureAllowed: row.InfrastructureAllowed, Revision: row.Revision,
 			BucketsRevision:  row.BucketsRevision,
-			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnFinalizedAt.Valid,
-			LabUsageFinalized: row.LabUsageFinalizedAt.Valid,
+			BucketsFinalized: row.BucketsFinalizedAt.Valid, VPNFinalized: row.VpnClosed,
+			LabUsageFinalized: row.LabUsageClosed,
 		}
 		if row.HasFinish {
 			finish := row.FinishedAt

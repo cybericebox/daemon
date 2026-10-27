@@ -4,7 +4,10 @@
 -- name: ListEventAnalyticsRollupCandidates :many
 -- Events the rollup job still has work for: started, and without finalized
 -- buckets (or with results changed since), or with a VPN or lab usage rollup
--- still open (infrastructure events). Running events come first.
+-- still open (infrastructure events). Running events come first. A closed
+-- VPN or lab usage rollup is open again while observations arrived after its
+-- cursor (a pass that closed it before the telemetry existed, or rows that
+-- arrived late); vpn_closed / lab_usage_closed already account for that.
 SELECT e.id,
        e.start_at,
        (LEAST(e.manual_finished_at, e.finish_at) IS NOT NULL)::boolean AS has_finish,
@@ -13,10 +16,18 @@ SELECT e.id,
        COALESCE(r.revision, 0)::bigint                       AS revision,
        COALESCE(s.buckets_revision, 0)::bigint                AS buckets_revision,
        s.buckets_finalized_at,
-       s.vpn_finalized_at,
+       (s.vpn_finalized_at IS NOT NULL AND NOT EXISTS (
+           SELECT 1 FROM event_lab_observations o
+           WHERE o.event_id = e.id
+             AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
+                                          COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))::boolean AS vpn_closed,
        s.vpn_cursor_received_at,
        s.vpn_cursor_id,
-       s.lab_usage_finalized_at,
+       (s.lab_usage_finalized_at IS NOT NULL AND NOT EXISTS (
+           SELECT 1 FROM event_lab_observations o
+           WHERE o.event_id = e.id
+             AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
+                                          COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))::boolean AS lab_usage_closed,
        s.lab_usage_cursor_received_at,
        s.lab_usage_cursor_id
 FROM events e
@@ -27,8 +38,16 @@ WHERE e.lifecycle_configured
   AND (s.event_id IS NULL
     OR s.buckets_finalized_at IS NULL
     OR s.buckets_revision <> COALESCE(r.revision, 0)
-    OR (e.infrastructure_allowed AND s.vpn_finalized_at IS NULL)
-    OR (e.infrastructure_allowed AND s.lab_usage_finalized_at IS NULL))
+    OR (e.infrastructure_allowed AND (s.vpn_finalized_at IS NULL OR EXISTS (
+        SELECT 1 FROM event_lab_observations o
+        WHERE o.event_id = e.id
+          AND (o.received_at, o.id) > (COALESCE(s.vpn_cursor_received_at, 'epoch'::timestamptz),
+                                       COALESCE(s.vpn_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid)))))
+    OR (e.infrastructure_allowed AND (s.lab_usage_finalized_at IS NULL OR EXISTS (
+        SELECT 1 FROM event_lab_observations o
+        WHERE o.event_id = e.id
+          AND (o.received_at, o.id) > (COALESCE(s.lab_usage_cursor_received_at, 'epoch'::timestamptz),
+                                       COALESCE(s.lab_usage_cursor_id, '00000000-0000-0000-0000-000000000000'::uuid))))))
 ORDER BY (LEAST(e.manual_finished_at, e.finish_at) IS NULL
     OR LEAST(e.manual_finished_at, e.finish_at) > sqlc.arg(now)::timestamptz) DESC,
          e.start_at DESC, e.id
@@ -207,7 +226,8 @@ WITH batch AS (
     SELECT sqlc.arg(event_id), l.received_at, l.id FROM last l
     ON CONFLICT (event_id) DO UPDATE
         SET lab_usage_cursor_received_at = EXCLUDED.lab_usage_cursor_received_at,
-            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id
+            lab_usage_cursor_id          = EXCLUDED.lab_usage_cursor_id,
+            lab_usage_finalized_at       = NULL
     RETURNING 1
 )
 SELECT (SELECT count(*) FROM batch)::bigint                 AS observations,
