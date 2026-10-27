@@ -82,7 +82,7 @@ func (r *Repository) ArchiveLabObservations(
 	}
 	err = r.q.SaveEventLabObservationArchive(ctx, postgres.SaveEventLabObservationArchiveParams{
 		ID: chunkID, EventID: eventID,
-		PeriodStart: chunk.PeriodStart, PeriodEnd: chunk.PeriodStart.Add(time.Hour), RowCount: int32(len(lines)),
+		PeriodStart: chunk.PeriodStart, PeriodEnd: chunk.PeriodStart.Add(time.Hour), RowCount: int32(len(lines)), //nolint:gosec // bounded by LabArchiveChunkRows
 		FirstReceivedAt: chunk.FirstReceivedAt, FirstID: chunk.FirstID,
 		LastReceivedAt: pgtype.Timestamptz{Time: chunk.LastReceivedAt, Valid: true},
 		LastID:         uuid.NullUUID{UUID: chunk.LastID, Valid: true},

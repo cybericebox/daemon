@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -193,13 +194,13 @@ func TestEventLabTelemetry_PoisonedPayloadDoesNotStopTheRollups(t *testing.T) {
 	}
 	telemetryObservation(t, db, f.event, f.team, 1, m0.Add(1*time.Second), poison(`"-5"`, `"abc"`, `"99999999999999999999"`, `"1.5"`, `"-1"`, `"1e10"`))
 	telemetryObservation(t, db, f.event, f.team, 2, m0.Add(2*time.Second), poison(`-7`, `1.5`, `-1`, `"x"`, `null`, `99999999999999999999`))
-	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(3*time.Second), poison(`"100"`, `"10"`, `"2000"`, `"30"`, `"0"`, fmt.Sprint(m0.Unix())))
+	telemetryObservation(t, db, f.event, f.team, 3, m0.Add(3*time.Second), poison(`"100"`, `"10"`, `"2000"`, `"30"`, `"0"`, strconv.FormatInt(m0.Unix(), 10)))
 	telemetryObservation(t, db, f.event, f.team, 4, m0.Add(4*time.Second), `{"labs":"nope","clients":[1,"x",{"name":7}]}`)
 
 	cursor, read, err := repo.RollupLabUsage(ctx, f.event, eventAnalyticsRepo.VPNCursor{}, 100)
 	require.NoError(t, err)
 	require.Equal(t, 4, read)
-	require.False(t, cursor.ID == uuid.Nil, "the cursor moved past the bad observations")
+	require.NotEqual(t, uuid.Nil, cursor.ID, "the cursor moved past the bad observations")
 
 	var samples, memorySum, cpuSum int64
 	require.NoError(t, db.Pool.QueryRow(ctx,

@@ -253,17 +253,19 @@ func withoutClientKinds(kinds []string) []string {
 }
 
 // parseLabTelemetryQuery reads the event, the required team and the optional period.
-func parseLabTelemetryQuery(ctx *gin.Context) (eventID, teamID uuid.UUID, from, to *time.Time, ok bool) {
-	if eventID, ok = parseEventID(ctx); !ok {
-		return
+func parseLabTelemetryQuery(ctx *gin.Context) (uuid.UUID, uuid.UUID, *time.Time, *time.Time, bool) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return uuid.Nil, uuid.Nil, nil, nil, false
 	}
 	teamID, err := uuid.FromString(ctx.Query("team_id"))
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return uuid.Nil, uuid.Nil, nil, nil, false
 	}
-	if from, to, ok = parsePeriod(ctx); !ok {
-		return
+	from, to, ok := parsePeriod(ctx)
+	if !ok {
+		return uuid.Nil, uuid.Nil, nil, nil, false
 	}
 	return eventID, teamID, from, to, true
 }
