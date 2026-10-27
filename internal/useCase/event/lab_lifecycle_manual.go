@@ -208,11 +208,15 @@ func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepositor
 	var storage int64
 	active := int32(0)
 	groupFound := false
+	holding := map[uuid.UUID]bool{lab.TeamID: true}
 	for _, l := range rows {
 		if l.ID == lab.ID {
 			l = lab
 		}
 		c := l.HeldCompute()
+		if c != (eventLabModel.Compute{}) {
+			holding[l.TeamID] = true
+		}
 		held.CPUMillicores += c.CPUMillicores
 		held.MemoryBytes += c.MemoryBytes
 		if l.TeamID == lab.TeamID {
@@ -229,6 +233,9 @@ func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepositor
 	}
 	for _, g := range groups {
 		c := g.Lifecycle.HeldCompute()
+		if c != (eventLabModel.Compute{}) {
+			holding[g.TeamID] = true
+		}
 		if g.TeamID == lab.TeamID {
 			total := g.Sizes.Total()
 			c.CPUMillicores = max(c.CPUMillicores, total.CPUMillicores)
@@ -247,7 +254,7 @@ func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepositor
 		return err
 	}
 	slot := budget.TeamSlot()
-	if !groupFound || teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes || !budget.HoldsTeams(len(groups)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.PlacedSize().CPUMillicores || held.MemoryBytes > budget.PlacedSize().MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
+	if !groupFound || teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes || !budget.HoldsTeams(len(holding)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.PlacedSize().CPUMillicores || held.MemoryBytes > budget.PlacedSize().MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
 		return eventLabModel.ErrManualLimit.Err()
 	}
 	return nil

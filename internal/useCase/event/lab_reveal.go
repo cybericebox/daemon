@@ -169,7 +169,19 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		}
 	}
 	slot := budget.TeamSlot()
+	holdingTeams := map[uuid.UUID]bool{}
+	for id := range candidateTeams {
+		holdingTeams[id] = true
+	}
+	for id, c := range perTeam {
+		if c != (eventLabModel.Compute{}) {
+			holdingTeams[id] = true
+		}
+	}
 	for id, g := range groupByTeam {
+		if g.Lifecycle.HeldCompute() != (eventLabModel.Compute{}) {
+			holdingTeams[id] = true
+		}
 		h := g.Lifecycle.HeldCompute()
 		if candidateTeams[id] {
 			total := g.Sizes.Total()
@@ -189,7 +201,7 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		}
 	}
 	placedSize := budget.PlacedSize()
-	if !budget.HoldsTeams(len(groupByTeam)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || quota > budget.SizeSnapshotQuotaBytes {
+	if !budget.HoldsTeams(len(holdingTeams)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || quota > budget.SizeSnapshotQuotaBytes {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
 	for _, snapshot := range labs {
