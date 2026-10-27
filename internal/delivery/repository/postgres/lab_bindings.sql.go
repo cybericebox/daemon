@@ -17,7 +17,7 @@ const createLabBinding = `-- name: CreateLabBinding :one
 INSERT INTO lab_bindings (id,event_id,event_team_id,event_challenge_id,lab_group_name,lab_name,created_at,generation,lab_id)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 ON CONFLICT (event_team_id, event_challenge_id) DO NOTHING
-RETURNING id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id
+RETURNING id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id, failed_at, retry_attempts, wait_reason, wait_since
 `
 
 type CreateLabBindingParams struct {
@@ -58,12 +58,16 @@ func (q *Queries) CreateLabBinding(ctx context.Context, arg CreateLabBindingPara
 		&i.DeployedAt,
 		&i.FailureReason,
 		&i.LabID,
+		&i.FailedAt,
+		&i.RetryAttempts,
+		&i.WaitReason,
+		&i.WaitSince,
 	)
 	return i, err
 }
 
 const getLabBinding = `-- name: GetLabBinding :one
-SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id FROM lab_bindings WHERE event_team_id = $1 AND event_challenge_id = $2
+SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id, failed_at, retry_attempts, wait_reason, wait_since FROM lab_bindings WHERE event_team_id = $1 AND event_challenge_id = $2
 `
 
 type GetLabBindingParams struct {
@@ -87,6 +91,10 @@ func (q *Queries) GetLabBinding(ctx context.Context, arg GetLabBindingParams) (L
 		&i.DeployedAt,
 		&i.FailureReason,
 		&i.LabID,
+		&i.FailedAt,
+		&i.RetryAttempts,
+		&i.WaitReason,
+		&i.WaitSince,
 	)
 	return i, err
 }
@@ -128,7 +136,7 @@ func (q *Queries) ListLabBindingChallenges(ctx context.Context, arg ListLabBindi
 }
 
 const listLegacyLabBindings = `-- name: ListLegacyLabBindings :many
-SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id, ec.event_exercise_id, tc.variant_index
+SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id, lb.failed_at, lb.retry_attempts, lb.wait_reason, lb.wait_since, ec.event_exercise_id, tc.variant_index
 FROM lab_bindings lb
 JOIN event_challenges ec ON ec.id = lb.event_challenge_id
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
@@ -152,6 +160,10 @@ type ListLegacyLabBindingsRow struct {
 	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
 	FailureReason    pgtype.Text        `json:"failure_reason"`
 	LabID            uuid.NullUUID      `json:"lab_id"`
+	FailedAt         pgtype.Timestamptz `json:"failed_at"`
+	RetryAttempts    int32              `json:"retry_attempts"`
+	WaitReason       string             `json:"wait_reason"`
+	WaitSince        pgtype.Timestamptz `json:"wait_since"`
 	EventExerciseID  uuid.UUID          `json:"event_exercise_id"`
 	VariantIndex     int32              `json:"variant_index"`
 }
@@ -180,6 +192,10 @@ func (q *Queries) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) 
 			&i.DeployedAt,
 			&i.FailureReason,
 			&i.LabID,
+			&i.FailedAt,
+			&i.RetryAttempts,
+			&i.WaitReason,
+			&i.WaitSince,
 			&i.EventExerciseID,
 			&i.VariantIndex,
 		); err != nil {
@@ -196,11 +212,13 @@ func (q *Queries) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) 
 const listPendingEventLabBindings = `-- name: ListPendingEventLabBindings :many
 SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
        pending.generation, pending.lab_id, pending.deployed_at, pending.created_at,
-       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
+       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id,
+       pending.wait_reason, pending.wait_since, pending.retry_attempts
 FROM (
     SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
            lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
            lb.generation, lb.lab_id, lb.deployed_at, lb.created_at,
+           lb.wait_reason, lb.wait_since, lb.retry_attempts,
            tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
     FROM lab_bindings lb
     JOIN event_team_labs lab ON lab.id=lb.lab_id AND lab.event_team_id=lb.event_team_id
@@ -237,6 +255,9 @@ type ListPendingEventLabBindingsRow struct {
 	VariantIndex      int32              `json:"variant_index"`
 	ExerciseVersionID uuid.UUID          `json:"exercise_version_id"`
 	EventExerciseID   uuid.UUID          `json:"event_exercise_id"`
+	WaitReason        string             `json:"wait_reason"`
+	WaitSince         pgtype.Timestamptz `json:"wait_since"`
+	RetryAttempts     int32              `json:"retry_attempts"`
 }
 
 // Stand engine work queue: every not yet ready Lab of one event together with
@@ -264,6 +285,9 @@ func (q *Queries) ListPendingEventLabBindings(ctx context.Context, arg ListPendi
 			&i.VariantIndex,
 			&i.ExerciseVersionID,
 			&i.EventExerciseID,
+			&i.WaitReason,
+			&i.WaitSince,
+			&i.RetryAttempts,
 		); err != nil {
 			return nil, err
 		}
@@ -302,8 +326,73 @@ func (q *Queries) ListPendingLabGroupCleanupRequests(ctx context.Context) ([]str
 	return items, nil
 }
 
+const listRetryableFailedLabBindings = `-- name: ListRetryableFailedLabBindings :many
+SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
+       lb.id, lb.generation, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.failure_reason,
+       lb.retry_attempts, COALESCE(lb.failed_at, lb.created_at)::timestamptz AS failed_at
+FROM lab_bindings lb
+JOIN event_team_labs lab ON lab.id = lb.lab_id AND lab.event_team_id = lb.event_team_id
+  AND lab.generation = lb.generation AND lab.lab_group_name = lb.lab_group_name AND lab.lab_name = lb.lab_name
+  AND lab.materialized AND lab.desired_state = 'Running' AND lab.logical_closed_at IS NULL
+  AND lab.agent_uid = '' AND lab.agent_generation = 0
+JOIN event_challenges ec ON ec.id = lb.event_challenge_id
+WHERE lb.event_id = $1
+  AND lb.readiness = 2
+  AND lb.deployed_at IS NULL
+  AND ec.event_exercise_id <> ALL ($2::uuid[])
+ORDER BY lb.event_team_id, lb.lab_name, lb.created_at, lb.id
+`
+
+type ListRetryableFailedLabBindingsParams struct {
+	EventID           uuid.UUID   `json:"event_id"`
+	NotDueExerciseIds []uuid.UUID `json:"not_due_exercise_ids"`
+}
+
+type ListRetryableFailedLabBindingsRow struct {
+	ID            uuid.UUID   `json:"id"`
+	Generation    int32       `json:"generation"`
+	EventTeamID   uuid.UUID   `json:"event_team_id"`
+	LabGroupName  string      `json:"lab_group_name"`
+	LabName       string      `json:"lab_name"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	RetryAttempts int32       `json:"retry_attempts"`
+	FailedAt      time.Time   `json:"failed_at"`
+}
+
+// Failed Labs the agent never accepted (deployed_at is empty) whose canonical Lab still waits for its first
+// creation: the stand engine retries them after a backoff. One row per Lab (its first binding); the sets that
+// are not due yet (a later stage) are left alone. An old failure without failed_at counts from its creation.
+func (q *Queries) ListRetryableFailedLabBindings(ctx context.Context, arg ListRetryableFailedLabBindingsParams) ([]ListRetryableFailedLabBindingsRow, error) {
+	rows, err := q.db.Query(ctx, listRetryableFailedLabBindings, arg.EventID, arg.NotDueExerciseIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRetryableFailedLabBindingsRow{}
+	for rows.Next() {
+		var i ListRetryableFailedLabBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Generation,
+			&i.EventTeamID,
+			&i.LabGroupName,
+			&i.LabName,
+			&i.FailureReason,
+			&i.RetryAttempts,
+			&i.FailedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeamInfrastructureLabs = `-- name: ListTeamInfrastructureLabs :many
-SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id
+SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id, failed_at, retry_attempts, wait_reason, wait_since
 FROM lab_bindings
 WHERE event_team_id = $1
   AND readiness <> 3
@@ -332,6 +421,10 @@ func (q *Queries) ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uu
 			&i.DeployedAt,
 			&i.FailureReason,
 			&i.LabID,
+			&i.FailedAt,
+			&i.RetryAttempts,
+			&i.WaitReason,
+			&i.WaitSince,
 		); err != nil {
 			return nil, err
 		}
@@ -344,7 +437,7 @@ func (q *Queries) ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uu
 }
 
 const listWithdrawnLabBindings = `-- name: ListWithdrawnLabBindings :many
-SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id
+SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id, lb.failed_at, lb.retry_attempts, lb.wait_reason, lb.wait_since
 FROM lab_bindings lb
 JOIN events e ON e.id = lb.event_id
 WHERE e.withdraw_at IS NOT NULL
@@ -378,6 +471,10 @@ func (q *Queries) ListWithdrawnLabBindings(ctx context.Context, now pgtype.Times
 			&i.DeployedAt,
 			&i.FailureReason,
 			&i.LabID,
+			&i.FailedAt,
+			&i.RetryAttempts,
+			&i.WaitReason,
+			&i.WaitSince,
 		); err != nil {
 			return nil, err
 		}
@@ -403,7 +500,10 @@ func (q *Queries) MarkEventLabBindingsDestroyed(ctx context.Context, eventID uui
 
 const markLabBindingDeployed = `-- name: MarkLabBindingDeployed :execrows
 UPDATE lab_bindings lb
-SET deployed_at = $1
+SET deployed_at = $1,
+    wait_reason = '',
+    wait_since = NULL,
+    failure_reason = NULL
 FROM lab_bindings leader
 WHERE leader.id = $2
   AND leader.generation = $3
@@ -447,10 +547,13 @@ func (q *Queries) MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (in
 const markLabBindingFailedWithReason = `-- name: MarkLabBindingFailedWithReason :execrows
 UPDATE lab_bindings lb
 SET readiness = 2,
-    failure_reason = $1
+    failure_reason = $1,
+    failed_at = $2,
+    wait_reason = '',
+    wait_since = NULL
 FROM lab_bindings leader
-WHERE leader.id = $2
-  AND leader.generation = $3
+WHERE leader.id = $3
+  AND leader.generation = $4
   AND lb.event_team_id = leader.event_team_id
   AND lb.lab_group_name = leader.lab_group_name
   AND lb.lab_name = leader.lab_name
@@ -458,13 +561,60 @@ WHERE leader.id = $2
 `
 
 type MarkLabBindingFailedWithReasonParams struct {
-	FailureReason pgtype.Text `json:"failure_reason"`
-	ID            uuid.UUID   `json:"id"`
-	Generation    int32       `json:"generation"`
+	FailureReason pgtype.Text        `json:"failure_reason"`
+	FailedAt      pgtype.Timestamptz `json:"failed_at"`
+	ID            uuid.UUID          `json:"id"`
+	Generation    int32              `json:"generation"`
 }
 
 func (q *Queries) MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLabBindingFailedWithReasonParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markLabBindingFailedWithReason, arg.FailureReason, arg.ID, arg.Generation)
+	result, err := q.db.Exec(ctx, markLabBindingFailedWithReason,
+		arg.FailureReason,
+		arg.FailedAt,
+		arg.ID,
+		arg.Generation,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markLabBindingWaiting = `-- name: MarkLabBindingWaiting :execrows
+UPDATE lab_bindings lb
+SET wait_reason = $1,
+    wait_since = CASE
+        WHEN $1::text = '' THEN NULL
+        WHEN lb.wait_reason = '' THEN $2::timestamptz
+        ELSE COALESCE(lb.wait_since, $2::timestamptz) END
+FROM lab_bindings leader
+WHERE leader.id = $3
+  AND leader.generation = $4
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0
+  AND lb.deployed_at IS NULL
+  AND lb.wait_reason <> $1::text
+`
+
+type MarkLabBindingWaitingParams struct {
+	WaitReason string    `json:"wait_reason"`
+	Now        time.Time `json:"now"`
+	ID         uuid.UUID `json:"id"`
+	Generation int32     `json:"generation"`
+}
+
+// The pending Lab of the leader binding (shared by the tasks of its exercise) waits for something that is
+// not a failure: wait_reason is a machine code, empty clears it. wait_since keeps the first moment of the wait
+// while the reason changes, so a long wait raises the alarm.
+func (q *Queries) MarkLabBindingWaiting(ctx context.Context, arg MarkLabBindingWaitingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markLabBindingWaiting,
+		arg.WaitReason,
+		arg.Now,
+		arg.ID,
+		arg.Generation,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -636,7 +786,11 @@ SET generation = $1,
     lab_name = $2,
     readiness = 0,
     deployed_at = NULL,
-    failure_reason = NULL
+    failure_reason = NULL,
+    failed_at = NULL,
+    retry_attempts = 0,
+    wait_reason = '',
+    wait_since = NULL
 WHERE id = $3
   AND generation = $4
   AND readiness <> 3
@@ -682,6 +836,40 @@ WHERE lb.event_team_id = $1
 func (q *Queries) ResetUnpublishedTeamChallengesForRecreate(ctx context.Context, eventTeamID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, resetUnpublishedTeamChallengesForRecreate, eventTeamID)
 	return err
+}
+
+const retryFailedLabBinding = `-- name: RetryFailedLabBinding :execrows
+UPDATE lab_bindings lb
+SET readiness = 0,
+    retry_attempts = lb.retry_attempts + 1,
+    failed_at = NULL,
+    wait_reason = '',
+    wait_since = NULL
+FROM lab_bindings leader
+WHERE leader.id = $1
+  AND leader.generation = $2
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 2
+  AND lb.deployed_at IS NULL
+  AND lb.retry_attempts = $3
+`
+
+type RetryFailedLabBindingParams struct {
+	ID            uuid.UUID `json:"id"`
+	Generation    int32     `json:"generation"`
+	RetryAttempts int32     `json:"retry_attempts"`
+}
+
+// Failed -> pending again for the Lab of the leader binding; the reason of the last failure stays visible while
+// the retry runs. Conditional on the attempt count the caller read, so two passes never retry the same failure.
+func (q *Queries) RetryFailedLabBinding(ctx context.Context, arg RetryFailedLabBindingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retryFailedLabBinding, arg.ID, arg.Generation, arg.RetryAttempts)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateLabBindingReadiness = `-- name: UpdateLabBindingReadiness :execrows

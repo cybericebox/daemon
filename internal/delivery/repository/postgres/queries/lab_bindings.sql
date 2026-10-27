@@ -84,11 +84,13 @@ WHERE lab_group_name = sqlc.arg(lab_group_name)
 -- of one exercise share a Lab, so each Lab is listed once, by its first binding.
 SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
        pending.generation, pending.lab_id, pending.deployed_at, pending.created_at,
-       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
+       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id,
+       pending.wait_reason, pending.wait_since, pending.retry_attempts
 FROM (
     SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
            lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
            lb.generation, lb.lab_id, lb.deployed_at, lb.created_at,
+           lb.wait_reason, lb.wait_since, lb.retry_attempts,
            tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
     FROM lab_bindings lb
     JOIN event_team_labs lab ON lab.id=lb.lab_id AND lab.event_team_id=lb.event_team_id
@@ -109,7 +111,10 @@ ORDER BY pending.created_at, pending.id;
 -- name: MarkLabBindingDeployed :execrows
 -- The Lab is shared by every binding of the exercise: all of them are marked.
 UPDATE lab_bindings lb
-SET deployed_at = sqlc.arg(deployed_at)
+SET deployed_at = sqlc.arg(deployed_at),
+    wait_reason = '',
+    wait_since = NULL,
+    failure_reason = NULL
 FROM lab_bindings leader
 WHERE leader.id = sqlc.arg(id)
   AND leader.generation = sqlc.arg(generation)
@@ -122,7 +127,10 @@ WHERE leader.id = sqlc.arg(id)
 -- name: MarkLabBindingFailedWithReason :execrows
 UPDATE lab_bindings lb
 SET readiness = 2,
-    failure_reason = sqlc.arg(failure_reason)
+    failure_reason = sqlc.arg(failure_reason),
+    failed_at = sqlc.arg(failed_at),
+    wait_reason = '',
+    wait_since = NULL
 FROM lab_bindings leader
 WHERE leader.id = sqlc.arg(id)
   AND leader.generation = sqlc.arg(generation)
@@ -130,6 +138,64 @@ WHERE leader.id = sqlc.arg(id)
   AND lb.lab_group_name = leader.lab_group_name
   AND lb.lab_name = leader.lab_name
   AND lb.readiness = 0;
+
+-- name: MarkLabBindingWaiting :execrows
+-- The pending Lab of the leader binding (shared by the tasks of its exercise) waits for something that is
+-- not a failure: wait_reason is a machine code, empty clears it. wait_since keeps the first moment of the wait
+-- while the reason changes, so a long wait raises the alarm.
+UPDATE lab_bindings lb
+SET wait_reason = sqlc.arg(wait_reason),
+    wait_since = CASE
+        WHEN sqlc.arg(wait_reason)::text = '' THEN NULL
+        WHEN lb.wait_reason = '' THEN sqlc.arg(now)::timestamptz
+        ELSE COALESCE(lb.wait_since, sqlc.arg(now)::timestamptz) END
+FROM lab_bindings leader
+WHERE leader.id = sqlc.arg(id)
+  AND leader.generation = sqlc.arg(generation)
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0
+  AND lb.deployed_at IS NULL
+  AND lb.wait_reason <> sqlc.arg(wait_reason)::text;
+
+-- name: ListRetryableFailedLabBindings :many
+-- Failed Labs the agent never accepted (deployed_at is empty) whose canonical Lab still waits for its first
+-- creation: the stand engine retries them after a backoff. One row per Lab (its first binding); the sets that
+-- are not due yet (a later stage) are left alone. An old failure without failed_at counts from its creation.
+SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
+       lb.id, lb.generation, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.failure_reason,
+       lb.retry_attempts, COALESCE(lb.failed_at, lb.created_at)::timestamptz AS failed_at
+FROM lab_bindings lb
+JOIN event_team_labs lab ON lab.id = lb.lab_id AND lab.event_team_id = lb.event_team_id
+  AND lab.generation = lb.generation AND lab.lab_group_name = lb.lab_group_name AND lab.lab_name = lb.lab_name
+  AND lab.materialized AND lab.desired_state = 'Running' AND lab.logical_closed_at IS NULL
+  AND lab.agent_uid = '' AND lab.agent_generation = 0
+JOIN event_challenges ec ON ec.id = lb.event_challenge_id
+WHERE lb.event_id = sqlc.arg(event_id)
+  AND lb.readiness = 2
+  AND lb.deployed_at IS NULL
+  AND ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
+ORDER BY lb.event_team_id, lb.lab_name, lb.created_at, lb.id;
+
+-- name: RetryFailedLabBinding :execrows
+-- Failed -> pending again for the Lab of the leader binding; the reason of the last failure stays visible while
+-- the retry runs. Conditional on the attempt count the caller read, so two passes never retry the same failure.
+UPDATE lab_bindings lb
+SET readiness = 0,
+    retry_attempts = lb.retry_attempts + 1,
+    failed_at = NULL,
+    wait_reason = '',
+    wait_since = NULL
+FROM lab_bindings leader
+WHERE leader.id = sqlc.arg(id)
+  AND leader.generation = sqlc.arg(generation)
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 2
+  AND lb.deployed_at IS NULL
+  AND lb.retry_attempts = sqlc.arg(retry_attempts);
 
 -- name: MarkStandLabReady :one
 -- A ready Lab makes the preparing team challenges of every binding that shares
@@ -182,7 +248,11 @@ SET generation = sqlc.arg(next_generation),
     lab_name = sqlc.arg(lab_name),
     readiness = 0,
     deployed_at = NULL,
-    failure_reason = NULL
+    failure_reason = NULL,
+    failed_at = NULL,
+    retry_attempts = 0,
+    wait_reason = '',
+    wait_since = NULL
 WHERE id = sqlc.arg(id)
   AND generation = sqlc.arg(generation)
   AND readiness <> 3;

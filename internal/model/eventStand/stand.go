@@ -63,6 +63,70 @@ func ImageUnavailableReason(image string) string {
 	return Reason(ReasonImageUnavailable + ": " + image)
 }
 
+// WaitAlarmAfter is how long a Lab may wait for something (room in the reservation, the cluster, the end of a
+// deletion, the agent) before the stand reports it to the organizers like a failure.
+const WaitAlarmAfter = 3 * time.Minute
+
+// Wait reason codes of a pending Lab. They are stored on the binding and shown to organizers (the texts are the
+// frontend's; WaitReasonText is the English fallback of the alarm).
+const (
+	WaitNotEnoughReserved   = "not_enough_reserved"
+	WaitClusterReservation  = "cluster_reservation"
+	WaitLabDeletion         = "lab_deletion"
+	WaitReplacingStaleLab   = "replacing_stale_lab"
+	WaitAgentUnavailable    = "agent_unavailable"
+	WaitImagesUnavailable   = "images_unavailable"
+	WaitGroupNotAllowed     = "group_not_allowed"
+	WaitRevealReservation   = "reveal_reservation"
+	WaitLabNotPrepared      = "lab_not_prepared"
+	WaitLabSizingUnknown    = "lab_sizing_unknown"
+	WaitLabNotAdmitted      = "lab_not_admitted"
+	WaitAwaitingReservation = ReasonAwaitingReservation
+)
+
+// WaitReasonText is the English sentence of a wait reason code.
+func WaitReasonText(code string) string {
+	switch code {
+	case WaitNotEnoughReserved:
+		return "Waiting: the event reservation has no room for this lab"
+	case WaitClusterReservation:
+		return "Waiting: the team has no room in its cluster reservation yet"
+	case WaitLabDeletion:
+		return "Waiting: the previous lab of this name is still being deleted"
+	case WaitReplacingStaleLab:
+		return "Waiting: replacing a stale lab of the same name"
+	case WaitAgentUnavailable:
+		return "Waiting: the laboratory agent does not answer"
+	case WaitImagesUnavailable:
+		return "Waiting: the images of the lab are not available yet"
+	case WaitGroupNotAllowed:
+		return "Waiting: the team group may not start labs now"
+	case WaitLabNotPrepared:
+		return "Waiting: the lab of the team is not prepared yet"
+	case WaitLabSizingUnknown:
+		return "Waiting: the size of the lab is not known yet"
+	case WaitLabNotAdmitted:
+		return "Waiting: the lab has not been admitted by the reservation yet"
+	case WaitRevealReservation:
+		return "Waiting: the labs of the task are reserved for all teams together"
+	default:
+		return "Waiting: " + code
+	}
+}
+
+// RetryBackoff is how long a failed Lab the agent never accepted waits before the next automatic try, after
+// attempts earlier retries: 30 s, 1 min, 2 min, 5 min, then every 5 minutes.
+func RetryBackoff(attempts int32) time.Duration {
+	steps := []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute}
+	if attempts < 0 {
+		attempts = 0
+	}
+	if int(attempts) >= len(steps) {
+		return steps[len(steps)-1]
+	}
+	return steps[attempts]
+}
+
 // DeployTimeout fails a Lab that the agent accepted but never reported
 // ready, so a stuck image pull or crash loop reaches the moderators
 // (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).
@@ -101,6 +165,10 @@ type LabCounters struct {
 	FailedLabs         int64
 	FailureReason      string
 	MissingAssignments int64
+	// StuckLabs are pending Labs that have waited for something other than the reservation for longer than
+	// WaitAlarmAfter, StuckReason the code of one of them.
+	StuckLabs   int64
+	StuckReason string
 }
 
 // Assess derives the stand status: any failed Lab fails the stand, any Lab or
@@ -110,6 +178,9 @@ func Assess(c LabCounters) (Status, string) {
 	switch {
 	case c.FailedLabs > 0:
 		return StatusFailed, Reason(c.FailureReason)
+	case c.StuckLabs > 0:
+		// A Lab that waits for long without anyone to blame needs a person: the stand reports it like a failure.
+		return StatusFailed, Reason(WaitReasonText(c.StuckReason))
 	case c.PendingLabs > 0 || c.MissingAssignments > 0:
 		return StatusCreating, ""
 	default:

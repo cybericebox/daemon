@@ -10044,6 +10044,21 @@ func (mr *MockQuerierMockRecorder) ListRetryableEmptyEventLabRevealBarriers(ctx,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRetryableEmptyEventLabRevealBarriers", reflect.TypeOf((*MockQuerier)(nil).ListRetryableEmptyEventLabRevealBarriers), ctx, eventID)
 }
 
+// ListRetryableFailedLabBindings mocks base method.
+func (m *MockQuerier) ListRetryableFailedLabBindings(ctx context.Context, arg postgres.ListRetryableFailedLabBindingsParams) ([]postgres.ListRetryableFailedLabBindingsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRetryableFailedLabBindings", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListRetryableFailedLabBindingsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRetryableFailedLabBindings indicates an expected call of ListRetryableFailedLabBindings.
+func (mr *MockQuerierMockRecorder) ListRetryableFailedLabBindings(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRetryableFailedLabBindings", reflect.TypeOf((*MockQuerier)(nil).ListRetryableFailedLabBindings), ctx, arg)
+}
+
 // ListRevealSetLabs mocks base method.
 func (m *MockQuerier) ListRevealSetLabs(ctx context.Context, arg postgres.ListRevealSetLabsParams) ([]postgres.EventTeamLab, error) {
 	m.ctrl.T.Helper()
@@ -11157,6 +11172,21 @@ func (m *MockQuerier) MarkLabBindingFailedWithReason(ctx context.Context, arg po
 func (mr *MockQuerierMockRecorder) MarkLabBindingFailedWithReason(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkLabBindingFailedWithReason", reflect.TypeOf((*MockQuerier)(nil).MarkLabBindingFailedWithReason), ctx, arg)
+}
+
+// MarkLabBindingWaiting mocks base method.
+func (m *MockQuerier) MarkLabBindingWaiting(ctx context.Context, arg postgres.MarkLabBindingWaitingParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkLabBindingWaiting", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkLabBindingWaiting indicates an expected call of MarkLabBindingWaiting.
+func (mr *MockQuerierMockRecorder) MarkLabBindingWaiting(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkLabBindingWaiting", reflect.TypeOf((*MockQuerier)(nil).MarkLabBindingWaiting), ctx, arg)
 }
 
 // MarkLabGroupBindingsDestroyed mocks base method.
@@ -12440,6 +12470,21 @@ func (m *MockQuerier) RestoreVersionPreservingDraft(ctx context.Context, arg pos
 func (mr *MockQuerierMockRecorder) RestoreVersionPreservingDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreVersionPreservingDraft", reflect.TypeOf((*MockQuerier)(nil).RestoreVersionPreservingDraft), ctx, arg)
+}
+
+// RetryFailedLabBinding mocks base method.
+func (m *MockQuerier) RetryFailedLabBinding(ctx context.Context, arg postgres.RetryFailedLabBindingParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetryFailedLabBinding", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetryFailedLabBinding indicates an expected call of RetryFailedLabBinding.
+func (mr *MockQuerierMockRecorder) RetryFailedLabBinding(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedLabBinding", reflect.TypeOf((*MockQuerier)(nil).RetryFailedLabBinding), ctx, arg)
 }
 
 // RetrySignalHookExecution mocks base method.

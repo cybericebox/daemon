@@ -884,6 +884,10 @@ type LabBinding struct {
 	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
 	FailureReason    pgtype.Text        `json:"failure_reason"`
 	LabID            uuid.NullUUID      `json:"lab_id"`
+	FailedAt         pgtype.Timestamptz `json:"failed_at"`
+	RetryAttempts    int32              `json:"retry_attempts"`
+	WaitReason       string             `json:"wait_reason"`
+	WaitSince        pgtype.Timestamptz `json:"wait_since"`
 }
 
 type LabMonitoringCurrent struct {

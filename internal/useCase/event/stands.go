@@ -3,10 +3,13 @@ package event
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
@@ -142,6 +145,9 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	awaiting := e.InfrastructureAllowed && u.awaitingReservation(ctx, eventID)
 	if e.InfrastructureAllowed {
 		if u.laboratoriesUsable(ctx) {
+			if err = u.retryFailedStandLabs(ctx, e, now, schedule.NotDue); err != nil {
+				errs = append(errs, err)
+			}
 			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, config.TaskRevealMode, now, schedule.NotDue, awaiting); err != nil {
 				errs = append(errs, err)
 			}
@@ -599,7 +605,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			if now.Sub(*binding.DeployedAt) < eventStandModel.DeployTimeout {
 				continue
 			}
-			if _, err = u.failStandLab(ctx, binding, eventStandModel.Reason("Laboratory status unavailable: "+statusErr.Error())); err != nil {
+			if _, err = u.failStandLab(ctx, binding, eventStandModel.Reason("Laboratory status unavailable: "+statusErr.Error()), now); err != nil {
 				errs = append(errs, model.ErrPlatform.WithError(err).WithMessage("Failed to fail stand lab").Err())
 			}
 			continue
@@ -668,7 +674,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				ready[binding.EventTeamID] = struct{}{}
 			}
 		case eventStandModel.OutcomeFailed:
-			if _, err = u.failStandLab(ctx, binding, reason); err != nil {
+			if _, err = u.failStandLab(ctx, binding, reason, now); err != nil {
 				errs = append(errs, model.ErrPlatform.WithError(err).WithMessage("Failed to fail stand lab").Err())
 			}
 		}
@@ -676,11 +682,42 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 	return ready, errors.Join(errs...)
 }
 
+// retryFailedStandLabs puts the failed Labs the agent never accepted back to pending once their backoff is over
+// (eventStandModel.RetryBackoff), so a Lab whose deploy failed for a reason that passed comes up without a hand.
+// The stand keeps its failed status (and the organizers keep the one alarm) while the retries run; the deploy
+// of the pending Lab follows in the same pass.
+func (u *EventUseCase) retryFailedStandLabs(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID) error {
+	failed, err := u.labBindings.ListRetryableFailed(ctx, e.ID, notDue)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to list failed stand labs").Err()
+	}
+	var errs []error
+	for _, item := range failed {
+		binding := item.Binding
+		if binding.FailedAt != nil && now.Sub(*binding.FailedAt) < eventStandModel.RetryBackoff(binding.RetryAttempts) {
+			continue
+		}
+		changed, retryErr := u.labBindings.RetryFailed(ctx, binding)
+		if retryErr != nil {
+			errs = append(errs, model.ErrPlatform.WithError(retryErr).WithMessage("Failed to retry stand lab").Err())
+			continue
+		}
+		if changed {
+			log.Info().Str("event_id", e.ID.String()).Str("lab_group", binding.LabGroupName).Str("lab", binding.LabName).
+				Int32("attempt", binding.RetryAttempts+1).Str("last_failure", binding.FailureReason).Msg("Retrying a failed stand lab")
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // failStandLab fails the pending Lab of a team's stand and tells the error journal about a failed lab deploy. The
 // journal hears about it once per failure (only when this call changed the binding).
-func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel.Binding, reason string) (bool, error) {
-	changed, err := u.labBindings.MarkFailed(ctx, binding, reason)
-	if err == nil && changed {
+func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel.Binding, reason string, now time.Time) (bool, error) {
+	changed, err := u.labBindings.MarkFailed(ctx, binding, reason, now)
+	if err == nil && changed && binding.RetryAttempts > 0 {
+		// A retry of an earlier failure failed again: the organizers were told at the first one.
+		log.Warn().Str("lab_group", binding.LabGroupName).Str("lab", binding.LabName).Int32("attempt", binding.RetryAttempts).Str("reason", reason).Msg("Stand lab failed again after a retry")
+	} else if err == nil && changed {
 		errorJournal.Report(errorJournal.Event{
 			Kind: errorJournal.KindLabDeploy, Source: "stands", Message: reason,
 			Details: map[string]string{
@@ -692,20 +729,44 @@ func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel
 }
 
 // deployStandLab deploys one pending Lab. held is true when the Lab waits for transient image trouble
-// (nothing was tried), so the caller does not count it against the pass's deploy budget.
+// (nothing was tried), so the caller does not count it against the pass's deploy budget. A Lab that waits for
+// anything records what it waits for on its binding (see eventStandModel.Wait*), so the wait is visible and a
+// long one reaches the organizers; a deploy error that is no verdict about the Lab (the agent does not answer,
+// a stale Lab of the same name is being replaced) keeps the Lab pending instead of failing it.
 func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, fair bool, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) (held bool, err error) {
+	held, wait, err := u.tryDeployStandLab(ctx, e, lab, fair, topologies, pulls, now)
+	if wait != "" {
+		u.recordStandLabWait(ctx, lab.Binding, wait, now)
+	}
+	return held, err
+}
+
+// recordStandLabWait stores the wait reason of a pending Lab when it changed. A failed write is only logged: the
+// reason is information, the deploy retries on the next pass anyway.
+func (u *EventUseCase) recordStandLabWait(ctx context.Context, binding labBindingModel.Binding, reason string, now time.Time) {
+	if binding.WaitReason == reason {
+		return
+	}
+	if _, err := u.labBindings.MarkWaiting(ctx, binding, reason, now); err != nil {
+		log.Warn().Err(err).Str("lab_group", binding.LabGroupName).Str("lab", binding.LabName).Str("wait", reason).Msg("Failed to record why a stand lab waits")
+		return
+	}
+	log.Info().Str("lab_group", binding.LabGroupName).Str("lab", binding.LabName).Str("wait", reason).Msg("Stand lab waits")
+}
+
+func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, fair bool, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) (held bool, wait string, err error) {
 	if u.topologies == nil {
-		return false, model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
+		return false, "", model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
 	}
 	key := topologyKey{versionID: lab.ExerciseVersionID, variant: lab.VariantIndex}
 	topology, cached := topologies[key]
 	if !cached {
 		resolved, err := u.topologies.ResolveDeployedTopology(ctx, lab.ExerciseVersionID, lab.VariantIndex)
 		if err != nil {
-			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Topology unavailable: "+err.Error())); markErr != nil {
-				return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Topology unavailable: "+err.Error()), now); markErr != nil {
+				return false, "", model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 			}
-			return false, nil
+			return false, "", nil
 		}
 		topology, topologies[key] = resolved, resolved
 	}
@@ -720,64 +781,65 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	if pulled.err != nil {
 		if !errors.Is(pulled.err, imageRegistryModel.ErrImagesUnavailable.Err()) || len(pulled.Unavailable) == 0 {
 			// The registry settings or secrets cannot be read: the Lab stays pending for the next pass.
-			return false, pulled.err
+			return false, eventStandModel.WaitImagesUnavailable, pulled.err
 		}
 		image, transient := blockingImage(pulled.Unavailable)
 		// Registry trouble that may clear by itself keeps the Lab pending until the deploy timeout,
 		// counted from the first pass that tried to deploy it.
 		if transient && now.Sub(u.imageWaits.since(waitKey, now)) < eventStandModel.DeployTimeout {
-			return true, nil
+			return true, eventStandModel.WaitImagesUnavailable, nil
 		}
 		u.imageWaits.done(waitKey)
-		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(image)); markErr != nil {
-			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(image), now); markErr != nil {
+			return false, "", model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
-		return false, nil
+		return false, "", nil
 	}
 	u.imageWaits.done(waitKey)
 	topology, err = u.withTeamFlags(ctx, lab, pulled.Topology)
 	if err != nil {
-		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error())); markErr != nil {
-			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error()), now); markErr != nil {
+			return false, "", model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
-		return false, nil
+		return false, "", nil
 	}
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
 			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
-				return false, nil
+				return false, eventStandModel.WaitNotEnoughReserved, nil
 			}
-			return false, err
+			return false, "", err
 		}
 	}
 	if u.allocationAccounting {
 		if !lab.Binding.LabID.Valid {
-			return false, nil
+			return false, eventStandModel.WaitLabNotPrepared, nil
 		}
 		demand := u.resourcePolicy().Total(topology).Amount
 		storage, known := u.snapshotQuotaFor(topology)
 		if !known {
-			return false, nil
+			return false, eventStandModel.WaitLabSizingUnknown, nil
 		}
 		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
 			if errors.Is(admitErr, calModel.ErrNotEnoughReserved.Err()) {
-				return false, nil
+				return false, eventStandModel.WaitNotEnoughReserved, nil
 			}
-			return false, admitErr
+			return false, "", admitErr
 		}
 	}
 	if u.lifecycleControls && !u.groupAllowsDeployment(ctx, lab.Binding.EventTeamID, now) {
-		return false, nil
+		return false, eventStandModel.WaitGroupNotAllowed, nil
 	}
 	meta := standLabMeta(e, lab, fair)
 	meta.PullCredentials = pulled.Credentials
+	var canonical eventLabModel.Lab
 	if u.allocationAccounting || u.lifecycleControls {
-		canonical, err := u.labs.Get(ctx, lab.Binding.LabID.UUID)
+		canonical, err = u.labs.Get(ctx, lab.Binding.LabID.UUID)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		if canonical.Ref.Group != lab.Binding.LabGroupName || canonical.Ref.Lab != lab.Binding.LabName || canonical.DesiredState != "Running" || canonical.ClosedAt != nil || canonical.Revision != 1 || canonical.OperationID == uuid.Nil || !canonical.Allocation.ConfiguredRequestsKnown || canonical.Allocation.RuntimeState != "Admitted" {
-			return false, nil
+			return false, eventStandModel.WaitLabNotAdmitted, nil
 		}
 		// An agent that reported no confirmed runtime cannot certify a lifecycle intent (the operator would wait for runtime
 		// reports that never come): such a Lab is created without one and certified by its plain readiness.
@@ -790,26 +852,98 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
 	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, meta, topology); err != nil {
-		// The previous group or Lab of this name is still being deleted: not a
-		// failure. The binding stays pending and the next pass deploys again.
-		if terminating, ok := infraModel.AsTerminating(err); ok {
-			log.Info().Err(terminating).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for deletion to finish")
-			return false, nil
-		}
-		// The team's part is not on its agent yet, or has no room now: the Lab waits, it has not failed.
-		if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) || errors.Is(err, infraModel.ErrReservationEnded) {
-			log.Info().Err(err).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for its cluster reservation")
-			return false, nil
-		}
-		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error())); markErr != nil {
-			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
-		}
-		return false, nil
+		return u.handleDeployError(ctx, lab, canonical, err, now)
 	}
 	if _, err := u.labBindings.MarkDeployed(ctx, lab.Binding, now); err != nil {
-		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to record stand lab deploy").Err()
+		return false, "", model.ErrPlatform.WithError(err).WithMessage("Failed to record stand lab deploy").Err()
 	}
-	return false, nil
+	return false, "", nil
+}
+
+// handleDeployError reads a failed deploy call. Only some errors say something about the Lab itself.
+//   - The previous group or Lab of this name is still being deleted, or the team's part is not on its agent yet or
+//     has no room now: the Lab waits.
+//   - A Lab of the same name with another spec exists: it is a leftover (this stand has not adopted any Lab of
+//     that name), it is deleted and the deploy repeats on the next pass.
+//   - The agent does not answer: the Lab waits until the deploy timeout, counted from the first such answer.
+//   - Anything else fails the Lab; the engine retries it after a backoff (retryFailedStandLabs).
+func (u *EventUseCase) handleDeployError(ctx context.Context, lab labBindingRepo.PendingLab, canonical eventLabModel.Lab, err error, now time.Time) (held bool, wait string, handled error) {
+	group, name := lab.Binding.LabGroupName, lab.Binding.LabName
+	if terminating, ok := infraModel.AsTerminating(err); ok {
+		log.Info().Err(terminating).Str("lab_group", group).Str("lab", name).Msg("Stand lab deploy waits for deletion to finish")
+		return false, eventStandModel.WaitLabDeletion, nil
+	}
+	if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) || errors.Is(err, infraModel.ErrReservationEnded) {
+		log.Info().Err(err).Str("lab_group", group).Str("lab", name).Msg("Stand lab deploy waits for its cluster reservation")
+		return false, eventStandModel.WaitClusterReservation, nil
+	}
+	if staleLabSpec(err) {
+		replaced, replaceErr := u.replaceStaleLab(ctx, lab, canonical)
+		if replaceErr != nil {
+			return false, "", model.ErrPlatform.WithError(replaceErr).WithMessage("Failed to replace a stale stand lab").Err()
+		}
+		if replaced {
+			return false, eventStandModel.WaitReplacingStaleLab, nil
+		}
+	}
+	if transientAgentError(err) {
+		if lab.Binding.WaitReason == eventStandModel.WaitAgentUnavailable && lab.Binding.WaitSince != nil && now.Sub(*lab.Binding.WaitSince) >= eventStandModel.DeployTimeout {
+			// The agent did not answer for the whole deploy window: now it is a failure the organizers hear about.
+		} else {
+			log.Warn().Err(err).Str("lab_group", group).Str("lab", name).Msg("Stand lab deploy waits for the laboratory agent")
+			return false, eventStandModel.WaitAgentUnavailable, nil
+		}
+	}
+	if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error()), now); markErr != nil {
+		return false, "", model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+	}
+	return false, "", nil
+}
+
+// staleLabSpecText is the agent's answer to a create of a Lab that exists with another spec.
+const staleLabSpecText = "already exists with a different spec"
+
+func staleLabSpec(err error) bool { return strings.Contains(err.Error(), staleLabSpecText) }
+
+// transientAgentError tells an agent that could not be asked from one that answered no: a dropped or timed out
+// call, an agent that is not there, a namespace that is not ready yet.
+func transientAgentError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	if st, ok := grpcstatus.FromError(err); ok {
+		switch st.Code() {
+		case grpccodes.Unavailable, grpccodes.DeadlineExceeded, grpccodes.Canceled, grpccodes.ResourceExhausted, grpccodes.Aborted:
+			return true
+		}
+	}
+	return strings.Contains(err.Error(), "namespace not provisioned within")
+}
+
+// replaceStaleLab deletes the Lab of this name that stands in the way of the deploy. It does so only when this
+// stand has never adopted a Lab of that name (the canonical Lab has no agent identity), so a Lab a team already
+// runs is never touched. It reports whether the delete was sent.
+func (u *EventUseCase) replaceStaleLab(ctx context.Context, lab labBindingRepo.PendingLab, canonical eventLabModel.Lab) (bool, error) {
+	deleter, ok := u.infra.(standLabDeleter)
+	if !ok {
+		return false, nil
+	}
+	if lab.Binding.LabID.Valid {
+		if canonical.ID == uuid.Nil {
+			var err error
+			if canonical, err = u.labs.Get(ctx, lab.Binding.LabID.UUID); err != nil {
+				return false, err
+			}
+		}
+		if canonical.AgentUID != "" || canonical.AgentGeneration != 0 {
+			return false, nil
+		}
+	}
+	if err := deleter.DeleteLab(ctx, lab.Binding.LabGroupName, lab.Binding.LabName); err != nil {
+		return false, err
+	}
+	log.Warn().Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Deleted a stale lab of the same name; the deploy repeats")
+	return true, nil
 }
 
 // fairDeployGroups: the fair reveal («all ready») reveals a task when its lab is
@@ -910,7 +1044,7 @@ func (u *EventUseCase) withTeamFlags(ctx context.Context, lab labBindingRepo.Pen
 // assessStands persists every candidate's stand status and reports whether
 // all admitted teams and the moderators team are ready at once.
 func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID, awaitingReservation bool) (bool, error) {
-	teams, err := u.stands.ListTeams(ctx, e.ID, notDue)
+	teams, err := u.stands.ListTeams(ctx, e.ID, notDue, now.Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

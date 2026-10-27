@@ -114,7 +114,7 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 		return StandsView{}, err
 	}
 	schedule := u.standSchedule(ctx, e, time.Now())
-	teams, err := u.stands.ListTeams(ctx, eventID, schedule.NotDue)
+	teams, err := u.stands.ListTeams(ctx, eventID, schedule.NotDue, time.Now().Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return StandsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}
@@ -401,7 +401,7 @@ func (u *EventUseCase) deleteStaleTeamLabs(ctx context.Context, teamID uuid.UUID
 }
 
 func (u *EventUseCase) standTeam(ctx context.Context, eventID, teamID uuid.UUID) (eventStandRepo.Team, error) {
-	teams, err := u.stands.ListTeams(ctx, eventID, nil)
+	teams, err := u.stands.ListTeams(ctx, eventID, nil, time.Now().Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return eventStandRepo.Team{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

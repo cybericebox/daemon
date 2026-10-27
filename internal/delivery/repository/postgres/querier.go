@@ -1456,6 +1456,10 @@ type Querier interface {
 	ListResourceReservationsInWindow(ctx context.Context, arg ListResourceReservationsInWindowParams) ([]ResourceReservation, error)
 	ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]EventTeamLab, error)
 	ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
+	// Failed Labs the agent never accepted (deployed_at is empty) whose canonical Lab still waits for its first
+	// creation: the stand engine retries them after a backoff. One row per Lab (its first binding); the sets that
+	// are not due yet (a later stage) are left alone. An old failure without failed_at counts from its creation.
+	ListRetryableFailedLabBindings(ctx context.Context, arg ListRetryableFailedLabBindingsParams) ([]ListRetryableFailedLabBindingsRow, error)
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
 	// The labs of an event that still run in the given team groups (their cluster reservation is ending).
 	ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
@@ -1622,6 +1626,10 @@ type Querier interface {
 	MarkLabBindingDeployed(ctx context.Context, arg MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLabBindingFailedWithReasonParams) (int64, error)
+	// The pending Lab of the leader binding (shared by the tasks of its exercise) waits for something that is
+	// not a failure: wait_reason is a machine code, empty clears it. wait_since keeps the first moment of the wait
+	// while the reason changes, so a long wait raises the alarm.
+	MarkLabBindingWaiting(ctx context.Context, arg MarkLabBindingWaitingParams) (int64, error)
 	// The labs of one team group of an event are gone (its cluster reservation ended).
 	MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
@@ -1851,6 +1859,9 @@ type Querier interface {
 	// replacing its contents with the selected historical version. The source
 	// must belong to this exercise; a foreign id produces zero rows.
 	RestoreVersionPreservingDraft(ctx context.Context, arg RestoreVersionPreservingDraftParams) (RestoreVersionPreservingDraftRow, error)
+	// Failed -> pending again for the Lab of the leader binding; the reason of the last failure stays visible while
+	// the retry runs. Conditional on the attempt count the caller read, so two passes never retry the same failure.
+	RetryFailedLabBinding(ctx context.Context, arg RetryFailedLabBindingParams) (int64, error)
 	RetrySignalHookExecution(ctx context.Context, arg RetrySignalHookExecutionParams) (int64, error)
 	RetrySignalOutbox(ctx context.Context, arg RetrySignalOutboxParams) (int64, error)
 	// «Вимкнути»: the screen has no working link afterwards.

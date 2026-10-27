@@ -9,7 +9,7 @@ import (
 // the qualified multi-table birth retry as an aggregate model method. It changes
 // only readiness/error fields; all canonical identity remains immutable.
 func (q *Queries) RetryNeverCreatedLabBindings(ctx context.Context, lab, team, event uuid.UUID, revision int64, operation uuid.UUID) (int64, error) {
-	r, e := q.db.Exec(ctx, `UPDATE lab_bindings b SET readiness=0,failure_reason=''
+	r, e := q.db.Exec(ctx, `UPDATE lab_bindings b SET readiness=0,failure_reason='',retry_attempts=0,failed_at=NULL,wait_reason='',wait_since=NULL
 FROM event_team_labs l,event_exercises e,event_challenges c
 WHERE b.lab_id=$1 AND b.event_team_id=$2 AND b.event_id=$3 AND b.readiness=2 AND b.deployed_at IS NULL
  AND l.id=b.lab_id AND l.event_team_id=b.event_team_id AND l.event_id=b.event_id

@@ -101,7 +101,7 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, repo IRepository
 	if len(byTeam) == 0 {
 		return nil, nil
 	}
-	teams, err := eventStandRepo.New(repo).ListTeams(ctx, link.EventID, nil)
+	teams, err := eventStandRepo.New(repo).ListTeams(ctx, link.EventID, nil, now.Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

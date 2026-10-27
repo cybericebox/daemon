@@ -30,6 +30,9 @@ type Queries interface {
 	ListPendingEventLabBindings(ctx context.Context, arg postgres.ListPendingEventLabBindingsParams) ([]postgres.ListPendingEventLabBindingsRow, error)
 	MarkLabBindingDeployed(ctx context.Context, arg postgres.MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg postgres.MarkLabBindingFailedWithReasonParams) (int64, error)
+	MarkLabBindingWaiting(ctx context.Context, arg postgres.MarkLabBindingWaitingParams) (int64, error)
+	ListRetryableFailedLabBindings(ctx context.Context, arg postgres.ListRetryableFailedLabBindingsParams) ([]postgres.ListRetryableFailedLabBindingsRow, error)
+	RetryFailedLabBinding(ctx context.Context, arg postgres.RetryFailedLabBindingParams) (int64, error)
 	MarkStandLabReady(ctx context.Context, arg postgres.MarkStandLabReadyParams) (int64, error)
 	ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uuid.UUID) ([]postgres.LabBinding, error)
 	RecreateLabBinding(ctx context.Context, arg postgres.RecreateLabBindingParams) (int64, error)
@@ -146,6 +149,11 @@ func (r *Repository) ListPending(ctx context.Context, eventID uuid.UUID, notDue 
 			at := row.DeployedAt.Time
 			binding.DeployedAt = &at
 		}
+		binding.WaitReason, binding.RetryAttempts = row.WaitReason, row.RetryAttempts
+		if row.WaitSince.Valid {
+			at := row.WaitSince.Time
+			binding.WaitSince = &at
+		}
 		out = append(out, PendingLab{Binding: binding, VariantIndex: row.VariantIndex, ExerciseVersionID: row.ExerciseVersionID, EventExerciseID: row.EventExerciseID})
 	}
 	return out, nil
@@ -158,9 +166,50 @@ func (r *Repository) MarkDeployed(ctx context.Context, value labBindingModel.Bin
 	return affected > 0, err
 }
 
-// MarkFailed fails this generation's pending Lab with a reason.
-func (r *Repository) MarkFailed(ctx context.Context, value labBindingModel.Binding, reason string) (bool, error) {
-	affected, err := r.q.MarkLabBindingFailedWithReason(ctx, postgres.MarkLabBindingFailedWithReasonParams{ID: value.ID, Generation: value.Generation, FailureReason: pgtype.Text{String: reason, Valid: true}})
+// MarkFailed fails this generation's pending Lab with a reason; now starts its retry backoff.
+func (r *Repository) MarkFailed(ctx context.Context, value labBindingModel.Binding, reason string, now time.Time) (bool, error) {
+	affected, err := r.q.MarkLabBindingFailedWithReason(ctx, postgres.MarkLabBindingFailedWithReasonParams{ID: value.ID, Generation: value.Generation, FailureReason: pgtype.Text{String: reason, Valid: true}, FailedAt: pgtype.Timestamptz{Time: now, Valid: true}})
+	return affected > 0, err
+}
+
+// MarkWaiting records what the pending Lab of the binding waits for (empty clears it). It reports whether the
+// recorded reason changed.
+func (r *Repository) MarkWaiting(ctx context.Context, value labBindingModel.Binding, reason string, now time.Time) (bool, error) {
+	affected, err := r.q.MarkLabBindingWaiting(ctx, postgres.MarkLabBindingWaitingParams{ID: value.ID, Generation: value.Generation, WaitReason: reason, Now: now})
+	return affected > 0, err
+}
+
+// FailedLab is a failed Lab that may be retried: its first binding, its failure and how often it was retried.
+type FailedLab struct {
+	Binding labBindingModel.Binding
+}
+
+// ListRetryableFailed lists the failed Labs of an event the agent never accepted, one row per Lab; notDue are the
+// sets whose labs are not due yet.
+func (r *Repository) ListRetryableFailed(ctx context.Context, eventID uuid.UUID, notDue []uuid.UUID) ([]FailedLab, error) {
+	if notDue == nil {
+		notDue = []uuid.UUID{}
+	}
+	rows, err := r.q.ListRetryableFailedLabBindings(ctx, postgres.ListRetryableFailedLabBindingsParams{EventID: eventID, NotDueExerciseIds: notDue})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FailedLab, 0, len(rows))
+	for _, row := range rows {
+		failedAt := row.FailedAt
+		out = append(out, FailedLab{Binding: labBindingModel.Binding{
+			ID: row.ID, EventID: eventID, EventTeamID: row.EventTeamID, LabGroupName: row.LabGroupName, LabName: row.LabName,
+			Generation: row.Generation, Readiness: labBindingModel.ReadinessFailed, FailureReason: row.FailureReason.String,
+			FailedAt: &failedAt, RetryAttempts: row.RetryAttempts,
+		}})
+	}
+	return out, nil
+}
+
+// RetryFailed puts the failed Lab of the binding back to pending, counting the attempt. It is conditional on the
+// attempt count read in the listing, so two passes never retry the same failure.
+func (r *Repository) RetryFailed(ctx context.Context, value labBindingModel.Binding) (bool, error) {
+	affected, err := r.q.RetryFailedLabBinding(ctx, postgres.RetryFailedLabBindingParams{ID: value.ID, Generation: value.Generation, RetryAttempts: value.RetryAttempts})
 	return affected > 0, err
 }
 
@@ -230,10 +279,19 @@ func (r *Repository) MarkEventDestroyed(ctx context.Context, eventID uuid.UUID) 
 }
 
 func ToDomain(row postgres.LabBinding) labBindingModel.Binding {
-	value := labBindingModel.Binding{ID: row.ID, LabID: row.LabID, EventID: row.EventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: labBindingModel.Readiness(row.Readiness), Generation: row.Generation, FailureReason: row.FailureReason.String}
+	value := labBindingModel.Binding{ID: row.ID, LabID: row.LabID, EventID: row.EventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: labBindingModel.Readiness(row.Readiness), Generation: row.Generation, FailureReason: row.FailureReason.String,
+		RetryAttempts: row.RetryAttempts, WaitReason: row.WaitReason}
 	if row.DeployedAt.Valid {
 		at := row.DeployedAt.Time
 		value.DeployedAt = &at
+	}
+	if row.FailedAt.Valid {
+		at := row.FailedAt.Time
+		value.FailedAt = &at
+	}
+	if row.WaitSince.Valid {
+		at := row.WaitSince.Time
+		value.WaitSince = &at
 	}
 	return value
 }

@@ -192,6 +192,7 @@ func (q *Queries) GetStandTeam(ctx context.Context, arg GetStandTeamParams) (Eve
 
 const listEventStandLabs = `-- name: ListEventStandLabs :many
 SELECT lb.event_team_id, lb.event_challenge_id, lb.readiness, lb.failure_reason,
+       lb.wait_reason, lb.wait_since, lb.retry_attempts, lb.failed_at,
        COALESCE(challenge.snapshot->>'name', '')::text AS challenge_name
 FROM lab_bindings lb
 JOIN event_challenges challenge ON challenge.id = lb.event_challenge_id
@@ -200,11 +201,15 @@ ORDER BY lb.event_team_id, challenge.order_index, lb.event_challenge_id
 `
 
 type ListEventStandLabsRow struct {
-	EventTeamID      uuid.UUID   `json:"event_team_id"`
-	EventChallengeID uuid.UUID   `json:"event_challenge_id"`
-	Readiness        int16       `json:"readiness"`
-	FailureReason    pgtype.Text `json:"failure_reason"`
-	ChallengeName    string      `json:"challenge_name"`
+	EventTeamID      uuid.UUID          `json:"event_team_id"`
+	EventChallengeID uuid.UUID          `json:"event_challenge_id"`
+	Readiness        int16              `json:"readiness"`
+	FailureReason    pgtype.Text        `json:"failure_reason"`
+	WaitReason       string             `json:"wait_reason"`
+	WaitSince        pgtype.Timestamptz `json:"wait_since"`
+	RetryAttempts    int32              `json:"retry_attempts"`
+	FailedAt         pgtype.Timestamptz `json:"failed_at"`
+	ChallengeName    string             `json:"challenge_name"`
 }
 
 func (q *Queries) ListEventStandLabs(ctx context.Context, eventID uuid.UUID) ([]ListEventStandLabsRow, error) {
@@ -221,6 +226,10 @@ func (q *Queries) ListEventStandLabs(ctx context.Context, eventID uuid.UUID) ([]
 			&i.EventChallengeID,
 			&i.Readiness,
 			&i.FailureReason,
+			&i.WaitReason,
+			&i.WaitSince,
+			&i.RetryAttempts,
+			&i.FailedAt,
 			&i.ChallengeName,
 		); err != nil {
 			return nil, err
@@ -448,9 +457,25 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
         JOIN event_challenges due_ec ON due_ec.id = lb.event_challenge_id
         WHERE lb.event_team_id = team.id AND lb.readiness = 0
           AND due_ec.event_exercise_id <> ALL ($1::uuid[]))::bigint AS pending_labs,
-       (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 2)::bigint AS failed_labs,
+       -- A Lab that failed and is being retried (pending again, never accepted by the agent) still counts as failed,
+       -- so the stand does not flicker between failed and creating and the organizers hear about it once.
+       (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
+        WHERE lb.event_team_id = team.id
+          AND (lb.readiness = 2 OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> '')))::bigint AS failed_labs,
        COALESCE((SELECT min(lb.failure_reason) FROM lab_bindings lb
-                 WHERE lb.event_team_id = team.id AND lb.readiness = 2), '')::text AS failure_reason,
+                 WHERE lb.event_team_id = team.id
+                   AND (lb.readiness = 2 OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> ''))), '')::text AS failure_reason,
+       -- Labs waiting for something other than the reservation to appear since before stuck_before: the organizers must hear it.
+       (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
+        JOIN event_challenges stuck_ec ON stuck_ec.id = lb.event_challenge_id
+        WHERE lb.event_team_id = team.id AND lb.readiness = 0 AND lb.deployed_at IS NULL
+          AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= $2::timestamptz
+          AND stuck_ec.event_exercise_id <> ALL ($1::uuid[]))::bigint AS stuck_labs,
+       COALESCE((SELECT min(lb.wait_reason) FROM lab_bindings lb
+                 JOIN event_challenges stuck_ec ON stuck_ec.id = lb.event_challenge_id
+                 WHERE lb.event_team_id = team.id AND lb.readiness = 0 AND lb.deployed_at IS NULL
+                   AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= $2::timestamptz
+                   AND stuck_ec.event_exercise_id <> ALL ($1::uuid[])), '')::text AS stuck_reason,
        (SELECT COALESCE(max(lb.generation), 0) FROM lab_bindings lb WHERE lb.event_team_id = team.id)::integer AS lab_generation,
        (SELECT count(*)
         FROM event_exercises exercise
@@ -463,7 +488,7 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
                             AND assignment.event_challenge_id = challenge.id))::bigint AS missing_assignments
 FROM event_teams team
 LEFT JOIN event_team_stands stand ON stand.event_team_id = team.id
-WHERE team.event_id = $2
+WHERE team.event_id = $3
   AND (team.moderators OR stand.event_team_id IS NOT NULL
     OR (event_team_admitted(team.event_id, team.individual, team.admitted_manually,
                             team.admission_locked, team.member_count)
@@ -473,6 +498,7 @@ ORDER BY team.moderators DESC, public_name, team.id
 
 type ListStandTeamsParams struct {
 	NotDueExerciseIds []uuid.UUID `json:"not_due_exercise_ids"`
+	StuckBefore       time.Time   `json:"stuck_before"`
 	EventID           uuid.UUID   `json:"event_id"`
 }
 
@@ -491,6 +517,8 @@ type ListStandTeamsRow struct {
 	PendingLabs        int64              `json:"pending_labs"`
 	FailedLabs         int64              `json:"failed_labs"`
 	FailureReason      string             `json:"failure_reason"`
+	StuckLabs          int64              `json:"stuck_labs"`
+	StuckReason        string             `json:"stuck_reason"`
 	LabGeneration      int32              `json:"lab_generation"`
 	MissingAssignments int64              `json:"missing_assignments"`
 }
@@ -500,7 +528,7 @@ type ListStandTeamsRow struct {
 // skip the sets whose labs are not due yet (a later stage), so the event-start
 // barrier never waits for them.
 func (q *Queries) ListStandTeams(ctx context.Context, arg ListStandTeamsParams) ([]ListStandTeamsRow, error) {
-	rows, err := q.db.Query(ctx, listStandTeams, arg.NotDueExerciseIds, arg.EventID)
+	rows, err := q.db.Query(ctx, listStandTeams, arg.NotDueExerciseIds, arg.StuckBefore, arg.EventID)
 	if err != nil {
 		return nil, err
 	}
@@ -523,6 +551,8 @@ func (q *Queries) ListStandTeams(ctx context.Context, arg ListStandTeamsParams) 
 			&i.PendingLabs,
 			&i.FailedLabs,
 			&i.FailureReason,
+			&i.StuckLabs,
+			&i.StuckReason,
 			&i.LabGeneration,
 			&i.MissingAssignments,
 		); err != nil {
