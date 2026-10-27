@@ -7,6 +7,7 @@ package retentionRepo
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -31,9 +32,9 @@ type Queries interface {
 	ScrubRawLabObservations(context.Context, postgres.ScrubRawLabObservationsParams) (int64, error)
 	ScrubLabMonitoringCurrent(context.Context, postgres.ScrubLabMonitoringCurrentParams) (int64, error)
 	RenameErasedLabClient(context.Context, postgres.RenameErasedLabClientParams) error
-	ListSettledLabTelemetryErasures(context.Context, postgres.ListSettledLabTelemetryErasuresParams) ([]uuid.UUID, error)
+	ListSettledLabTelemetryErasures(context.Context, postgres.ListSettledLabTelemetryErasuresParams) ([]postgres.ListSettledLabTelemetryErasuresRow, error)
 	CountLabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error)
-	DeleteLabTelemetryErasures(context.Context, []uuid.UUID) error
+	DeleteLabTelemetryErasures(context.Context, []byte) error
 	QueueLabTelemetryErasure(context.Context, uuid.UUID) (postgres.QueueLabTelemetryErasureRow, error)
 	PurgeEventLabUsageMinutes(context.Context, postgres.PurgeEventLabUsageMinutesParams) (int64, error)
 	PurgeEventLabMinutes(context.Context, postgres.PurgeEventLabMinutesParams) (int64, error)
@@ -270,12 +271,20 @@ func (r *Repository) LabTelemetryErasures(ctx context.Context, after LabTelemetr
 	return out, nil
 }
 
-// SettledLabTelemetryErasures lists the entries that may be closed after the pass that follows: settled by
-// settledBefore, or older than forceBefore whatever the archive says.
-func (r *Repository) SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]uuid.UUID, error) {
-	return r.q.ListSettledLabTelemetryErasures(ctx, postgres.ListSettledLabTelemetryErasuresParams{
+// SettledLabTelemetryErasures lists the entries (user and queue time) that may be closed after the pass that
+// follows: settled by settledBefore, or older than forceBefore whatever the archive says.
+func (r *Repository) SettledLabTelemetryErasures(ctx context.Context, settledBefore, forceBefore time.Time) ([]LabTelemetryErasure, error) {
+	rows, err := r.q.ListSettledLabTelemetryErasures(ctx, postgres.ListSettledLabTelemetryErasuresParams{
 		SettledBefore: settledBefore, ForceBefore: forceBefore,
 	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LabTelemetryErasure, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, LabTelemetryErasure{UserID: row.UserID, QueuedAt: row.QueuedAt})
+	}
+	return out, nil
 }
 
 // LabTelemetryErasuresQueuedBefore counts the entries older than the given time.
@@ -283,9 +292,22 @@ func (r *Repository) LabTelemetryErasuresQueuedBefore(ctx context.Context, befor
 	return r.q.CountLabTelemetryErasuresQueuedBefore(ctx, before)
 }
 
-// DeleteLabTelemetryErasures closes entries: the link between the person and the pseudonym goes with them.
-func (r *Repository) DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error {
-	return r.q.DeleteLabTelemetryErasures(ctx, userIDs)
+// DeleteLabTelemetryErasures closes the entries, matched by user and queue time: one queued again meanwhile stays.
+// The link between the person and the pseudonym goes with them.
+func (r *Repository) DeleteLabTelemetryErasures(ctx context.Context, entries []LabTelemetryErasure) error {
+	type entry struct {
+		UserID   uuid.UUID `json:"user_id"`
+		QueuedAt time.Time `json:"queued_at"`
+	}
+	list := make([]entry, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, entry{UserID: e.UserID, QueuedAt: e.QueuedAt})
+	}
+	data, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	return r.q.DeleteLabTelemetryErasures(ctx, data)
 }
 
 // QueueLabTelemetryErasure erases one person on request (see the statement) and returns the queued entry.
