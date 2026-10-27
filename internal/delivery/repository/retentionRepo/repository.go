@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
@@ -29,6 +30,7 @@ type Queries interface {
 	ListLabTelemetryErasures(context.Context, postgres.ListLabTelemetryErasuresParams) ([]postgres.LabTelemetryErasure, error)
 	ListLabArchiveChunksForScrub(context.Context, postgres.ListLabArchiveChunksForScrubParams) ([]postgres.ListLabArchiveChunksForScrubRow, error)
 	GetLabArchiveChunkForScrub(context.Context, uuid.UUID) (postgres.GetLabArchiveChunkForScrubRow, error)
+	DeleteLabArchiveChunk(context.Context, uuid.UUID) error
 	UpdateLabArchiveChunkData(context.Context, postgres.UpdateLabArchiveChunkDataParams) (int64, error)
 	ListLateLabObservations(context.Context, postgres.ListLateLabObservationsParams) ([]postgres.ListLateLabObservationsRow, error)
 	SaveLateLabObservationArchive(context.Context, postgres.SaveLateLabObservationArchiveParams) error
@@ -36,8 +38,8 @@ type Queries interface {
 	ScrubRawLabObservations(context.Context, postgres.ScrubRawLabObservationsParams) (int64, error)
 	ScrubLabMonitoringCurrent(context.Context, postgres.ScrubLabMonitoringCurrentParams) (int64, error)
 	RenameErasedLabClient(context.Context, postgres.RenameErasedLabClientParams) error
-	CollectLabClientIPs(context.Context, postgres.CollectLabClientIPsParams) ([]string, error)
-	AddLabTelemetryErasureIPs(context.Context, postgres.AddLabTelemetryErasureIPsParams) error
+	CollectLabClientIPWindows(context.Context, postgres.CollectLabClientIPWindowsParams) ([]postgres.CollectLabClientIPWindowsRow, error)
+	SetLabTelemetryErasureWindows(context.Context, postgres.SetLabTelemetryErasureWindowsParams) error
 	ListSettledLabTelemetryErasures(context.Context, postgres.ListSettledLabTelemetryErasuresParams) ([]postgres.ListSettledLabTelemetryErasuresRow, error)
 	CountLabTelemetryErasuresQueuedBefore(context.Context, time.Time) (int64, error)
 	DeleteLabTelemetryErasures(context.Context, []byte) error
@@ -253,8 +255,8 @@ type LabTelemetryErasure struct {
 	QueuedAt   time.Time
 	// EraseIP: the IP assigned to the client goes too (erasure on request); an account deletion leaves the IPs.
 	EraseIP bool
-	// IPs of the client collected for erasure on request, removed wherever they appear.
-	IPs []string
+	// Windows are the periods the client held its IPs in each lab group, collected for erasure on request.
+	Windows []eventAnalyticsModel.LabIPWindow
 }
 
 // LabArchiveChunk is an archive chunk to scrub.
@@ -275,7 +277,7 @@ func (r *Repository) LabTelemetryErasures(ctx context.Context, after LabTelemetr
 	out := make([]LabTelemetryErasure, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, LabTelemetryErasure{
-			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, IPs: row.Ips,
+			UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, Windows: windowsOf(row.IpWindows),
 		})
 	}
 	return out, nil
@@ -327,42 +329,67 @@ func (r *Repository) QueueLabTelemetryErasure(ctx context.Context, userID uuid.U
 		return LabTelemetryErasure{}, err
 	}
 	return LabTelemetryErasure{
-		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, IPs: row.Ips,
+		UserID: row.UserID, ClientName: row.ClientName, Pseudonym: row.Pseudonym, EventIDs: row.EventIds, QueuedAt: row.QueuedAt, EraseIP: row.EraseIp, Windows: windowsOf(row.IpWindows),
 	}, nil
 }
 
 // ScrubRawLabObservations rewrites up to batchSize raw observations of the events that carry the client name.
 func (r *Repository) ScrubRawLabObservations(ctx context.Context, e LabTelemetryErasure, batchSize int32) (int64, error) {
 	return r.q.ScrubRawLabObservations(ctx, postgres.ScrubRawLabObservationsParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize, Ips: ipsOf(e),
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, BatchSize: batchSize, Windows: windowsJSON(e),
 	})
 }
 
 // ScrubLabMonitoringCurrent rewrites the current state of the events that carries the client name.
 func (r *Repository) ScrubLabMonitoringCurrent(ctx context.Context, e LabTelemetryErasure) (int64, error) {
 	return r.q.ScrubLabMonitoringCurrent(ctx, postgres.ScrubLabMonitoringCurrentParams{
-		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, Ips: ipsOf(e),
+		ClientName: e.ClientName, Pseudonym: e.Pseudonym, EventIds: e.EventIDs, Windows: windowsJSON(e),
 	})
 }
 
-// ipsOf is the IPs to blank, never nil (the statements read an empty array as "none").
-func ipsOf(e LabTelemetryErasure) []string {
-	if e.IPs == nil {
-		return []string{}
+// windowsJSON is the entry's IP windows as the statements read them, never null.
+func windowsJSON(e LabTelemetryErasure) []byte {
+	if len(e.Windows) == 0 {
+		return []byte("[]")
 	}
-	return e.IPs
+	data, err := json.Marshal(e.Windows)
+	if err != nil {
+		return []byte("[]")
+	}
+	return data
 }
 
-// CollectLabClientIPs lists the IPs the live telemetry (raw rows and current state) gives the erased client.
-func (r *Repository) CollectLabClientIPs(ctx context.Context, e LabTelemetryErasure) ([]string, error) {
-	return r.q.CollectLabClientIPs(ctx, postgres.CollectLabClientIPsParams{
+func windowsOf(data []byte) []eventAnalyticsModel.LabIPWindow {
+	var out []eventAnalyticsModel.LabIPWindow
+	if len(data) == 0 || json.Unmarshal(data, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+// CollectLabClientIPWindows lists when the live telemetry (raw rows and current state) gave which IP to the erased
+// client in which lab group.
+func (r *Repository) CollectLabClientIPWindows(ctx context.Context, e LabTelemetryErasure) ([]eventAnalyticsModel.LabIPWindow, error) {
+	rows, err := r.q.CollectLabClientIPWindows(ctx, postgres.CollectLabClientIPWindowsParams{
 		EventIds: e.EventIDs, ClientName: e.ClientName, Pseudonym: e.Pseudonym,
 	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]eventAnalyticsModel.LabIPWindow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, eventAnalyticsModel.LabIPWindow{
+			TeamID: row.TeamID, Group: row.LabGroupName, IP: row.Ip, From: row.FirstAt, To: row.LastAt,
+		})
+	}
+	return out, nil
 }
 
-// AddLabTelemetryErasureIPs adds IPs to the entry's list.
-func (r *Repository) AddLabTelemetryErasureIPs(ctx context.Context, userID uuid.UUID, ips []string) error {
-	return r.q.AddLabTelemetryErasureIPs(ctx, postgres.AddLabTelemetryErasureIPsParams{UserID: userID, Ips: ips})
+// SetLabTelemetryErasureWindows stores the entry's IP windows.
+func (r *Repository) SetLabTelemetryErasureWindows(ctx context.Context, userID uuid.UUID, windows []eventAnalyticsModel.LabIPWindow) error {
+	return r.q.SetLabTelemetryErasureWindows(ctx, postgres.SetLabTelemetryErasureWindowsParams{
+		UserID: userID, Windows: windowsJSON(LabTelemetryErasure{Windows: windows}),
+	})
 }
 
 // RenameErasedLabClient gives the rollup rows still named after the client its pseudonym.
@@ -441,4 +468,9 @@ func (r *Repository) SaveLateLabArchive(ctx context.Context, eventID uuid.UUID, 
 // StaleLabObservations counts the raw rows observed before the given time that are still there.
 func (r *Repository) StaleLabObservations(ctx context.Context, before time.Time) (int64, error) {
 	return r.q.CountStaleLabObservations(ctx, before)
+}
+
+// DeleteLabArchiveChunk drops a chunk that cannot be read.
+func (r *Repository) DeleteLabArchiveChunk(ctx context.Context, id uuid.UUID) error {
+	return r.q.DeleteLabArchiveChunk(ctx, id)
 }

@@ -47,40 +47,45 @@ CREATE TABLE lab_telemetry_erasures
     -- Erasure on request (an objection) also blanks the IP assigned to the client; the purge of a deleted account
     -- leaves the IPs, they are internal addresses the statistics need.
     erase_ip           boolean     NOT NULL DEFAULT false,
-    -- The IPs of the client found in the telemetry (collected before they are blanked) that erasure on request
-    -- removes wherever they appear.
-    ips                text[]      NOT NULL DEFAULT '{}'
+    -- When the client had which IP in which lab group (collected before they are blanked), see lab_apply_ip_windows.
+    ip_windows         jsonb       NOT NULL DEFAULT '[]'
 );
 
--- Whether the payload holds, as a whole JSON string, one of the IPs (or the same with a /32 mask).
-CREATE FUNCTION lab_payload_has_ip(payload jsonb, ips text[]) RETURNS boolean
-    LANGUAGE sql
-    IMMUTABLE
-    PARALLEL SAFE
-AS
-$$
-SELECT EXISTS (SELECT 1
-               FROM unnest(ips) ip
-               WHERE position('"' || ip || '"' IN payload::text) > 0
-                  OR position('"' || ip || '/32"' IN payload::text) > 0)
-$$;
-
--- The payload with every JSON string equal to one of the IPs (or the same with a /32 mask) emptied, wherever it is.
-CREATE FUNCTION lab_blank_ips(payload jsonb, ips text[]) RETURNS jsonb
+-- The payload of a lab group observation with the IPs of an erased client emptied. windows is a JSON list of
+-- {team_id, group, ip, from, to}: the periods in which the IP belonged to the client in a lab group. Inside a
+-- window, every JSON string equal to the IP (or the IP with /32) is emptied wherever it is, also in observations
+-- that name no client (a policy delta); a window is skipped for an observation that explicitly gives the IP to a
+-- client that is not the person (names lists the person's names). Used on the raw rows and the current state; the
+-- archive does the same in the application.
+CREATE FUNCTION lab_apply_ip_windows(payload jsonb, team uuid, grp text, observed timestamptz, windows jsonb,
+                                     names text[]) RETURNS jsonb
     LANGUAGE plpgsql
-    IMMUTABLE
+    STABLE
     PARALLEL SAFE
 AS
 $$
 DECLARE
     doc text := payload::text;
+    w   jsonb;
     ip  text;
 BEGIN
-    IF COALESCE(cardinality(ips), 0) = 0 THEN
+    IF windows IS NULL OR jsonb_typeof(windows) <> 'array' OR jsonb_array_length(windows) = 0 THEN
         RETURN payload;
     END IF;
-    FOREACH ip IN ARRAY ips
+    FOR w IN SELECT * FROM jsonb_array_elements(windows)
         LOOP
+            CONTINUE WHEN (w ->> 'team_id')::uuid IS DISTINCT FROM team
+                OR w ->> 'group' IS DISTINCT FROM grp
+                OR observed < (w ->> 'from')::timestamptz
+                OR observed > (w ->> 'to')::timestamptz;
+            ip := w ->> 'ip';
+            IF jsonb_typeof(payload -> 'clients') = 'array' AND EXISTS (SELECT 1
+                                                                        FROM jsonb_array_elements(payload -> 'clients') c
+                                                                        WHERE jsonb_typeof(c) = 'object'
+                                                                          AND c -> 'status' ->> 'assignedIp' = ip
+                                                                          AND NOT (COALESCE(c ->> 'name', '') = ANY (names))) THEN
+                CONTINUE;
+            END IF;
             doc := replace(replace(doc, '"' || ip || '"', '""'), '"' || ip || '/32"', '""');
         END LOOP;
     RETURN doc::jsonb;

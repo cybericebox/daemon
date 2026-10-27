@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -182,9 +183,13 @@ VALUES ($1, $2, $3, $4, 1, $3, $1, $3, $1, 'zstd-ndjson-v1', '\x0102030405')`, b
 	rtExec(t, db, `UPDATE lab_telemetry_erasures SET queued_at = $1`, now.Add(-3*24*time.Hour))
 	require.NoError(t, uc.EnforceDataRetention(ctx))
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`))
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_lab_observation_archives WHERE id = $1`, bad), "kept until the forced age")
 	rtExec(t, db, `UPDATE lab_telemetry_erasures SET queued_at = $1`, now.Add(-8*24*time.Hour))
 	require.NoError(t, uc.EnforceDataRetention(ctx))
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "forced closed")
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_observation_archives WHERE id = $1`, bad),
+		"the chunk that cannot be read is dropped before the forced close, it could not be cleaned")
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_lab_observation_archives WHERE id = $1`, good))
 
 	// A write based on stale data does not go through.
 	var current []byte
@@ -260,4 +265,90 @@ VALUES ($1, $2, $3, $4, 1, $3, $1, $3, $1, $5, $6)`, odd, f.event, at.Add(-time.
 	require.Error(t, err, "an incomplete erasure is reported")
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "and stays in the queue")
 	require.NotContains(t, archiveText(t, db, good), gone, "what could be done was done")
+}
+
+// An IP the person held is emptied in every row of their lab group inside the period they held it (raw rows, current
+// state and archive alike), also in a delta that names no client; a row that gives the address to another client and
+// a row after the period are not touched.
+func TestLabTelemetryErasureOnRequest_IPWindow(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "labipwindow")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	gone := labBindingModel.ParticipantClientName(f.user)
+	other := labBindingModel.ParticipantClientName(uuid.Must(uuid.NewV7()))
+	t0 := anStart.Add(time.Hour).UTC()
+	at := func(d time.Duration) time.Time { return t0.Add(d) }
+	own := func(client, ip string) string {
+		return `{"clients":[{"name":"` + client + `","status":{"assignedIp":"` + ip + `"}}]}`
+	}
+	deltaNoName := `{"policies":[{"allowedIps":["10.8.0.7/32"]}],"groups":[{"vpn":"10.8.0.7"}]}`
+
+	telemetryObservation(t, db, f.event, f.team, 1, at(0), own(gone, "10.8.0.7"))
+	telemetryObservation(t, db, f.event, f.team, 2, at(time.Minute), deltaNoName)
+	telemetryObservation(t, db, f.event, f.team, 3, at(2*time.Minute), own(gone, "10.8.0.7"))
+	telemetryObservation(t, db, f.event, f.team, 4, at(90*time.Second), own(other, "10.8.0.7"))
+	telemetryObservation(t, db, f.event, f.team, 5, at(time.Hour), deltaNoName+"")
+	rtExec(t, db, `INSERT INTO lab_monitoring_current (event_id, event_team_id, lab_group_name, agent_id, sequence, observed_at, updated_at, payload)
+VALUES ($1, $2, 'grp', 'agent', 1, $3, $3, $4)`, f.event, f.team, at(time.Minute), deltaNoName)
+	// The same story in the archive (rows keep their team, group and observation time).
+	row := func(d time.Duration, payload string) string {
+		return `{"id":"` + uuid.Must(uuid.NewV7()).String() + `","event_id":"` + f.event.String() + `","event_team_id":"` + f.team.String() +
+			`","lab_group_name":"grp","agent_id":"a","sequence":1,"observed_at":"` + at(d).Format(time.RFC3339) + `","received_at":"` +
+			at(d).Format(time.RFC3339) + `","schema_version":3,"snapshot":false,"payload":` + payload + `}`
+	}
+	data, err := eventAnalyticsModel.CompressLabArchive([]string{
+		row(0, own(gone, "10.8.0.7")), row(time.Minute, deltaNoName), row(90*time.Second, own(other, "10.8.0.7")), row(time.Hour, deltaNoName)})
+	require.NoError(t, err)
+	chunk := uuid.Must(uuid.NewV7())
+	rtExec(t, db, `INSERT INTO event_lab_observation_archives (id, event_id, period_start, period_end, row_count, first_received_at, first_id, last_received_at, last_id, codec, data)
+VALUES ($1, $2, $3, $4, 4, $3, $1, $3, $1, $5, $6)`, chunk, f.event, t0, t0.Add(2*time.Hour), eventAnalyticsModel.LabArchiveCodecZstdNDJSON, data)
+
+	uc := retention.New(retention.Dependencies{Store: retentionRepo.New(db.Queries), Now: func() time.Time { return anStart }})
+	_, _, err = uc.EraseLabTelemetryOf(ctx, f.user)
+	require.NoError(t, err)
+
+	rawCount := func(where string) int {
+		return rtCount(t, db, `SELECT count(*) FROM event_lab_observations WHERE event_id = $1 AND `+where, f.event)
+	}
+	require.Equal(t, 3, rawCount(`sequence IN (1, 2, 3) AND payload::text NOT LIKE '%10.8.0.7%'`), "the person's rows and the nameless delta inside the window")
+	require.Equal(t, 1, rawCount(`sequence = 4 AND payload::text LIKE '%"10.8.0.7"%'`), "another client's row keeps the address")
+	require.Equal(t, 1, rawCount(`sequence = 5 AND payload::text LIKE '%"10.8.0.7"%'`), "a delta after the window keeps it")
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM lab_monitoring_current WHERE payload::text LIKE '%10.8.0.7%'`), "the current state, inside the window")
+	var stored []byte
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT data FROM event_lab_observation_archives WHERE id = $1`, chunk).Scan(&stored))
+	byTime := map[string]string{}
+	require.NoError(t, eventAnalyticsModel.LabArchiveLines(eventAnalyticsModel.LabArchiveCodecZstdNDJSON, stored, func(l []byte) error {
+		var r struct {
+			ObservedAt time.Time `json:"observed_at"`
+		}
+		require.NoError(t, json.Unmarshal(l, &r))
+		byTime[r.ObservedAt.UTC().Format(time.RFC3339)] = string(l)
+		return nil
+	}))
+	require.NotContains(t, byTime[at(0).Format(time.RFC3339)], `"10.8.0.7"`)
+	require.NotContains(t, byTime[at(time.Minute).Format(time.RFC3339)], "10.8.0.7", "the nameless delta inside the window")
+	require.Contains(t, byTime[at(90*time.Second).Format(time.RFC3339)], `"10.8.0.7"`, "another client's address")
+	require.Contains(t, byTime[at(time.Hour).Format(time.RFC3339)], `"10.8.0.7"`, "after the window")
+}
+
+// The rows of event_lab_archived_rows go with their chunk (cascade): when the chunk is purged by the participants
+// period, nothing about it is left behind.
+func TestRetention_ArchivedRowIdsGoWithTheirChunk(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "labcover")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true, finish_at = $2, withdraw_at = $3, start_at = $4, publish_at = $4 WHERE id = $1`,
+		f.event, anStart.Add(-48*time.Hour), anStart.AddDate(1, 0, 0), anStart.Add(-96*time.Hour))
+	repo := eventAnalyticsRepo.New(db.Queries)
+	at := anStart.Add(-60 * time.Hour)
+	telemetryObservation(t, db, f.event, f.team, 1, at, erasurePayload("p-a", "10.8.0.1"))
+	telemetryObservation(t, db, f.event, f.team, 2, at.Add(time.Minute), erasurePayload("p-a", "10.8.0.1"))
+	archiveUpTo(t, repo, f.event, anStart)
+	require.Equal(t, 2, rtCount(t, db, `SELECT count(*) FROM event_lab_archived_rows`))
+
+	n, err := retentionRepo.New(db.Queries).PurgeEventLabTelemetry(ctx, anStart, anStart, 100)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "the chunk goes (finished before the cutoff)")
+	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_archived_rows`), "its row ids went with it")
 }

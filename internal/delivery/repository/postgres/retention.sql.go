@@ -12,22 +12,6 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-const addLabTelemetryErasureIPs = `-- name: AddLabTelemetryErasureIPs :exec
-UPDATE lab_telemetry_erasures
-SET ips = ARRAY(SELECT DISTINCT x FROM unnest(ips || $1::text[]) x)
-WHERE user_id = $2
-`
-
-type AddLabTelemetryErasureIPsParams struct {
-	Ips    []string  `json:"ips"`
-	UserID uuid.UUID `json:"user_id"`
-}
-
-func (q *Queries) AddLabTelemetryErasureIPs(ctx context.Context, arg AddLabTelemetryErasureIPsParams) error {
-	_, err := q.db.Exec(ctx, addLabTelemetryErasureIPs, arg.Ips, arg.UserID)
-	return err
-}
-
 const clearReturnedInactivityWarnings = `-- name: ClearReturnedInactivityWarnings :execrows
 UPDATE users
 SET inactivity_warned_at = NULL
@@ -46,45 +30,61 @@ func (q *Queries) ClearReturnedInactivityWarnings(ctx context.Context) (int64, e
 	return result.RowsAffected(), nil
 }
 
-const collectLabClientIPs = `-- name: CollectLabClientIPs :many
-SELECT DISTINCT x.ip::text AS ip
-FROM (SELECT c -> 'status' ->> 'assignedIp' AS ip, c ->> 'name' AS name
+const collectLabClientIPWindows = `-- name: CollectLabClientIPWindows :many
+SELECT x.team_id::uuid AS team_id, x.lab_group_name::text AS lab_group_name, x.ip::text AS ip,
+       min(x.observed_at)::timestamptz AS first_at, max(x.observed_at)::timestamptz AS last_at
+FROM (SELECT o.event_team_id AS team_id, o.lab_group_name, o.observed_at, c -> 'status' ->> 'assignedIp' AS ip, c ->> 'name' AS name
       FROM event_lab_observations o
       CROSS JOIN LATERAL jsonb_array_elements(
               CASE WHEN jsonb_typeof(o.payload -> 'clients') = 'array' THEN o.payload -> 'clients' ELSE '[]'::jsonb END) c
       WHERE o.event_id = ANY ($1::uuid[])
         AND (o.payload::text LIKE '%' || $2::text || '%' OR o.payload::text LIKE '%' || $3::text || '%')
       UNION ALL
-      SELECT c -> 'status' ->> 'assignedIp', c ->> 'name'
+      SELECT m.event_team_id, m.lab_group_name, m.observed_at, c -> 'status' ->> 'assignedIp', c ->> 'name'
       FROM lab_monitoring_current m
       CROSS JOIN LATERAL jsonb_array_elements(
               CASE WHEN jsonb_typeof(m.payload -> 'clients') = 'array' THEN m.payload -> 'clients' ELSE '[]'::jsonb END) c
       WHERE m.event_id = ANY ($1::uuid[])) x
 WHERE x.name IN ($2::text, $3::text)
   AND COALESCE(x.ip, '') <> ''
+GROUP BY x.team_id, x.lab_group_name, x.ip
 `
 
-type CollectLabClientIPsParams struct {
+type CollectLabClientIPWindowsParams struct {
 	EventIds   []uuid.UUID `json:"event_ids"`
 	ClientName string      `json:"client_name"`
 	Pseudonym  string      `json:"pseudonym"`
 }
 
-// The IPs the live telemetry (raw rows and current state) of the events gives the client, under its real name or
-// its pseudonym. Erasure on request collects them before blanking, together with those found in the archive.
-func (q *Queries) CollectLabClientIPs(ctx context.Context, arg CollectLabClientIPsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, collectLabClientIPs, arg.EventIds, arg.ClientName, arg.Pseudonym)
+type CollectLabClientIPWindowsRow struct {
+	TeamID       uuid.UUID `json:"team_id"`
+	LabGroupName string    `json:"lab_group_name"`
+	Ip           string    `json:"ip"`
+	FirstAt      time.Time `json:"first_at"`
+	LastAt       time.Time `json:"last_at"`
+}
+
+// When, in which lab group, the live telemetry (raw rows and current state) of the events gave which IP to the client
+// (under its real name or its pseudonym): the first and the last observation.
+func (q *Queries) CollectLabClientIPWindows(ctx context.Context, arg CollectLabClientIPWindowsParams) ([]CollectLabClientIPWindowsRow, error) {
+	rows, err := q.db.Query(ctx, collectLabClientIPWindows, arg.EventIds, arg.ClientName, arg.Pseudonym)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []CollectLabClientIPWindowsRow{}
 	for rows.Next() {
-		var ip string
-		if err := rows.Scan(&ip); err != nil {
+		var i CollectLabClientIPWindowsRow
+		if err := rows.Scan(
+			&i.TeamID,
+			&i.LabGroupName,
+			&i.Ip,
+			&i.FirstAt,
+			&i.LastAt,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, ip)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -113,6 +113,17 @@ func (q *Queries) CountStaleLabObservations(ctx context.Context, observedBefore 
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteLabArchiveChunk = `-- name: DeleteLabArchiveChunk :exec
+DELETE FROM event_lab_observation_archives WHERE id = $1
+`
+
+// Drops an archive chunk that cannot be read (its rows go with it from event_lab_archived_rows, so the raw rows it held
+// count as unarchived again).
+func (q *Queries) DeleteLabArchiveChunk(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteLabArchiveChunk, id)
+	return err
 }
 
 const deleteLabTelemetryErasures = `-- name: DeleteLabTelemetryErasures :exec
@@ -272,7 +283,7 @@ func (q *Queries) ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabA
 }
 
 const listLabTelemetryErasures = `-- name: ListLabTelemetryErasures :many
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows
 FROM lab_telemetry_erasures
 WHERE (queued_at, user_id) > ($1::timestamptz, $2::uuid)
 ORDER BY queued_at, user_id
@@ -302,7 +313,7 @@ func (q *Queries) ListLabTelemetryErasures(ctx context.Context, arg ListLabTelem
 			&i.EventIds,
 			&i.QueuedAt,
 			&i.EraseIp,
-			&i.Ips,
+			&i.IpWindows,
 		); err != nil {
 			return nil, err
 		}
@@ -1114,9 +1125,9 @@ WITH person AS (
         SET queued_at = now(),
             event_ids = ARRAY(SELECT DISTINCT x FROM unnest(lab_telemetry_erasures.event_ids || EXCLUDED.event_ids) x),
             erase_ip = lab_telemetry_erasures.erase_ip OR EXCLUDED.erase_ip
-    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips
+    RETURNING user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows
 )
-SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ips FROM queued
+SELECT user_id, client_name, pseudonym, event_ids, queued_at, erase_ip, ip_windows FROM queued
 `
 
 type QueueLabTelemetryErasureRow struct {
@@ -1126,7 +1137,7 @@ type QueueLabTelemetryErasureRow struct {
 	EventIds   []uuid.UUID `json:"event_ids"`
 	QueuedAt   time.Time   `json:"queued_at"`
 	EraseIp    bool        `json:"erase_ip"`
-	Ips        []string    `json:"ips"`
+	IpWindows  []byte      `json:"ip_windows"`
 }
 
 // Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
@@ -1143,7 +1154,7 @@ func (q *Queries) QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID
 		&i.EventIds,
 		&i.QueuedAt,
 		&i.EraseIp,
-		&i.Ips,
+		&i.IpWindows,
 	)
 	return i, err
 }
@@ -1240,17 +1251,19 @@ func (q *Queries) SaveLateLabObservationArchive(ctx context.Context, arg SaveLat
 
 const scrubLabMonitoringCurrent = `-- name: ScrubLabMonitoringCurrent :execrows
 UPDATE lab_monitoring_current
-SET payload = lab_blank_ips(replace(payload::text, $1::text, $2::text)::jsonb, $3::text[])
+SET payload = lab_apply_ip_windows(replace(payload::text, $1::text, $2::text)::jsonb,
+                                   event_team_id, lab_group_name, observed_at, $3::jsonb,
+                                   ARRAY [$1::text, $2::text])
 WHERE event_id = ANY ($4::uuid[])
   AND (payload::text LIKE '%' || $1::text || '%'
-       OR (payload::text LIKE '%' || $2::text || '%'
-           AND lab_payload_has_ip(payload, $3::text[])))
+       OR lab_apply_ip_windows(payload, event_team_id, lab_group_name, observed_at, $3::jsonb,
+                               ARRAY [$1::text, $2::text]) <> payload)
 `
 
 type ScrubLabMonitoringCurrentParams struct {
 	ClientName string      `json:"client_name"`
 	Pseudonym  string      `json:"pseudonym"`
-	Ips        []string    `json:"ips"`
+	Windows    []byte      `json:"windows"`
 	EventIds   []uuid.UUID `json:"event_ids"`
 }
 
@@ -1258,7 +1271,7 @@ func (q *Queries) ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMon
 	result, err := q.db.Exec(ctx, scrubLabMonitoringCurrent,
 		arg.ClientName,
 		arg.Pseudonym,
-		arg.Ips,
+		arg.Windows,
 		arg.EventIds,
 	)
 	if err != nil {
@@ -1269,31 +1282,34 @@ func (q *Queries) ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMon
 
 const scrubRawLabObservations = `-- name: ScrubRawLabObservations :execrows
 UPDATE event_lab_observations
-SET payload = lab_blank_ips(replace(payload::text, $1::text, $2::text)::jsonb, $3::text[])
+SET payload = lab_apply_ip_windows(replace(payload::text, $1::text, $2::text)::jsonb,
+                                   event_team_id, lab_group_name, observed_at, $3::jsonb,
+                                   ARRAY [$1::text, $2::text])
 WHERE id IN (SELECT o.id
              FROM event_lab_observations o
              WHERE o.event_id = ANY ($4::uuid[])
                AND (o.payload::text LIKE '%' || $1::text || '%'
-                    OR (o.payload::text LIKE '%' || $2::text || '%'
-                        AND lab_payload_has_ip(o.payload, $3::text[])))
+                    OR lab_apply_ip_windows(o.payload, o.event_team_id, o.lab_group_name, o.observed_at, $3::jsonb,
+                                            ARRAY [$1::text, $2::text]) <> o.payload)
              LIMIT $5)
 `
 
 type ScrubRawLabObservationsParams struct {
 	ClientName string      `json:"client_name"`
 	Pseudonym  string      `json:"pseudonym"`
-	Ips        []string    `json:"ips"`
+	Windows    []byte      `json:"windows"`
 	EventIds   []uuid.UUID `json:"event_ids"`
 	BatchSize  int32       `json:"batch_size"`
 }
 
-// Rewrites up to batch_size raw observations of the events that still carry the client name. The IPs go only from
-// rows that name the client (by its name or pseudonym): an address another client got later is left alone.
+// Rewrites up to batch_size raw observations of the events that still carry the client name or an IP window of the
+// client (see lab_apply_ip_windows): the name becomes the pseudonym, the IPs go inside the windows. names are the
+// person's names (the real one and the pseudonym).
 func (q *Queries) ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, scrubRawLabObservations,
 		arg.ClientName,
 		arg.Pseudonym,
-		arg.Ips,
+		arg.Windows,
 		arg.EventIds,
 		arg.BatchSize,
 	)
@@ -1301,6 +1317,20 @@ func (q *Queries) ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabOb
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setLabTelemetryErasureWindows = `-- name: SetLabTelemetryErasureWindows :exec
+UPDATE lab_telemetry_erasures SET ip_windows = $1::jsonb WHERE user_id = $2
+`
+
+type SetLabTelemetryErasureWindowsParams struct {
+	Windows []byte    `json:"windows"`
+	UserID  uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) SetLabTelemetryErasureWindows(ctx context.Context, arg SetLabTelemetryErasureWindowsParams) error {
+	_, err := q.db.Exec(ctx, setLabTelemetryErasureWindows, arg.Windows, arg.UserID)
+	return err
 }
 
 const updateLabArchiveChunkData = `-- name: UpdateLabArchiveChunkData :execrows
