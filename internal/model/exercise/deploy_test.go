@@ -48,3 +48,12 @@ func TestLabQueueDetailsOnlyForTheirReasons(t *testing.T) {
 		t.Fatalf("queue = %+v", none.Queue)
 	}
 }
+
+func TestLabDeployedDeviceLimitNotice(t *testing.T) {
+	if got := (LabDeployedDevice{CPUThrottledPercent: 50}).LimitNotice(); got != "" {
+		t.Fatalf("50%% is not above the threshold: %q", got)
+	}
+	if got := (LabDeployedDevice{CPUThrottledPercent: 51}).LimitNotice(); got != DeviceLimitCPU {
+		t.Fatalf("51%% = %q, want %q", got, DeviceLimitCPU)
+	}
+}

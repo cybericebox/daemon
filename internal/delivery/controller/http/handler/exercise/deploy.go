@@ -116,6 +116,9 @@ type (
 		Ready bool   `json:"Ready"`
 		// Reason is the container waiting/termination reason (ImagePullBackOff, ...); empty while healthy.
 		Reason string `json:"Reason"`
+		// Limit is the code of a resource limit the device hits ("device_cpu_limit": more than half of its CPU periods
+		// are throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.
+		Limit string `json:"Limit,omitempty"`
 		// Scheduling is the pod's way through the scheduler queue; null when it does not track the device.
 		Scheduling *labview.SchedulingResponse `json:"Scheduling"`
 		// Snapshot is null for a device without state persistence.
@@ -161,7 +164,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		out.VPNLastHandshake = &t
 	}
 	for _, d := range s.Devices {
-		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot)})
+		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Limit: d.LimitNotice(), Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot)})
 	}
 	for _, a := range s.Access {
 		out.Access = append(out.Access, deployAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})

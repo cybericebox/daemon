@@ -126,10 +126,27 @@ type LabDeployedDevice struct {
 	Name   string
 	Ready  bool
 	Reason string
+	// CPUThrottledPercent is the share of CPU periods the device was throttled in the agent's window (0: no data).
+	CPUThrottledPercent int32
 	// Snapshot is set only for a device with state persistence.
 	Snapshot *DeviceSnapshot
 	// Scheduling is the pod's way through the scheduler; nil when the scheduler does not track it.
 	Scheduling *PodScheduling
+}
+
+// DeviceLimitCPU is the notice code of a device that hits its CPU limit (more than half of its CPU periods are
+// throttled). The limit is set by the task author; a test run tells the author, the event organizers hear nothing.
+const DeviceLimitCPU = "device_cpu_limit"
+
+// DeviceThrottleNoticePercent is the throttled share above which a device carries the DeviceLimitCPU notice.
+const DeviceThrottleNoticePercent = 50
+
+// LimitNotice is the code of the resource limit the device hits, empty when none.
+func (d LabDeployedDevice) LimitNotice() string {
+	if d.CPUThrottledPercent > DeviceThrottleNoticePercent {
+		return DeviceLimitCPU
+	}
+	return ""
 }
 
 // PodScheduling is where one device pod is between the scheduler queue and Ready. Failure is set

@@ -606,7 +606,7 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 			out.CPUMillicores += d.GetCpuMillicores()
 			out.MemoryBytes += d.GetMemoryBytes()
 		}
-		device := exerciseModel.LabDeployedDevice{Name: d.GetName(), Ready: d.GetReady(), Reason: d.GetPodReason()}
+		device := exerciseModel.LabDeployedDevice{Name: d.GetName(), Ready: d.GetReady(), Reason: d.GetPodReason(), CPUThrottledPercent: d.GetCpuThrottledPercent()}
 		if sn := d.GetSnapshot(); sn != nil {
 			device.Snapshot = &exerciseModel.DeviceSnapshot{
 				LastSnapshotAt: unixMilli(sn.GetLastSnapshotUnixMs()), RestoredAt: unixMilli(sn.GetRestoredUnixMs()),
