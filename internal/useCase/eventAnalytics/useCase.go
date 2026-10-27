@@ -34,10 +34,11 @@ type (
 		OpenVPNSessions(ctx context.Context, eventID uuid.UUID, endedAfter time.Time) ([]eventAnalyticsModel.VPNSession, error)
 		SaveVPNSessions(ctx context.Context, eventID uuid.UUID, changed []eventAnalyticsModel.VPNSession, absorbed []uuid.UUID) error
 		SetVPNCursor(ctx context.Context, eventID uuid.UUID, cursor eventAnalyticsRepo.VPNCursor, finalizedAt *time.Time) error
-		RollupLabUsage(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32) (eventAnalyticsRepo.VPNCursor, int, error)
+		RollupLabUsage(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32, ignoreHold bool) (eventAnalyticsRepo.VPNCursor, int, error)
 		FinishLabUsageRollup(ctx context.Context, eventID uuid.UUID, finalizedAt time.Time) error
 		LabJournal(ctx context.Context, eventID uuid.UUID, newID func() uuid.UUID) (*eventAnalyticsModel.LabJournal, error)
-		RollupLabJournal(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal) (eventAnalyticsRepo.VPNCursor, int, error)
+		RollupLabJournal(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, batchSize int32, journal *eventAnalyticsModel.LabJournal, ignoreHold bool) (eventAnalyticsRepo.VPNCursor, int, error)
+		LabTelemetryCoverage(ctx context.Context, eventID uuid.UUID) (dataFrom, coveredFrom *time.Time, err error)
 		HoldLabTelemetry(ctx context.Context, eventID uuid.UUID, until *time.Time) error
 		ResetLabTelemetry(ctx context.Context, eventID uuid.UUID) error
 		LabArchiveChunks(ctx context.Context, eventID uuid.UUID, after eventAnalyticsRepo.VPNCursor, limit int32) ([]eventAnalyticsRepo.LabArchiveChunk, error)
@@ -79,6 +80,9 @@ type (
 		Now func() time.Time
 		// NewID makes VPN session IDs; nil means UUIDv7.
 		NewID func() uuid.UUID
+		// RecomputeSettle is how long a recompute waits, after holding the event, for the statements already running to
+		// finish; zero means 15 seconds.
+		RecomputeSettle time.Duration
 	}
 
 	EventAnalyticsUseCase struct {
@@ -90,6 +94,7 @@ type (
 		cache       *reportCache
 		now         func() time.Time
 		newID       func() uuid.UUID
+		settle      time.Duration
 	}
 )
 
@@ -102,8 +107,12 @@ func New(deps Dependencies) *EventAnalyticsUseCase {
 	if newID == nil {
 		newID = func() uuid.UUID { return uuid.Must(uuid.NewV7()) }
 	}
+	settle := deps.RecomputeSettle
+	if settle == 0 {
+		settle = 15 * time.Second
+	}
 	return &EventAnalyticsUseCase{
 		store: deps.Store, events: deps.Events, configs: deps.Configs, memberships: deps.Memberships, labTraffic: deps.LabTraffic,
-		cache: newReportCache(now), now: now, newID: newID,
+		cache: newReportCache(now), now: now, newID: newID, settle: settle,
 	}
 }

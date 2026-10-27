@@ -103,7 +103,19 @@ func (s *fakeStore) AddLabTelemetryErasureIPs(context.Context, uuid.UUID, []stri
 func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
 	return nil, nil
 }
-func (s *fakeStore) SaveScrubbedLabArchiveChunk(context.Context, uuid.UUID, []byte) error { return nil }
+func (s *fakeStore) LabArchiveChunk(context.Context, uuid.UUID) (retentionRepo.LabArchiveChunk, error) {
+	return retentionRepo.LabArchiveChunk{}, nil
+}
+func (s *fakeStore) SaveScrubbedLabArchiveChunk(context.Context, uuid.UUID, []byte, []byte) (bool, error) {
+	return true, nil
+}
+func (s *fakeStore) LateLabObservations(context.Context, time.Time, int32) (uuid.UUID, []retentionRepo.LateLabObservation, error) {
+	return uuid.Nil, nil, nil
+}
+func (s *fakeStore) SaveLateLabArchive(context.Context, uuid.UUID, []retentionRepo.LateLabObservation, string, []byte) error {
+	return nil
+}
+func (s *fakeStore) StaleLabObservations(context.Context, time.Time) (int64, error) { return 0, nil }
 func (s *fakeStore) PurgeEventLabTelemetry(_ context.Context, before, participantsBefore time.Time, _ int32) (int64, error) {
 	if _, err := s.purge("lab_telemetry_participants", participantsBefore); err != nil {
 		return 0, err

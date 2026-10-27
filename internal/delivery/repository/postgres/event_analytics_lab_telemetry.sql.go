@@ -90,7 +90,8 @@ LEFT JOIN event_stand_transitions st
                           FROM event_stand_transitions earlier
                           WHERE earlier.event_id = st.event_id AND earlier.team_id = st.team_id AND earlier.source = 'lab'
                             AND earlier.challenge_id = st.challenge_id AND earlier.to_status = 1
-                            AND earlier.at >= x.at - interval '30 seconds' AND earlier.at < st.at)
+                            AND earlier.at >= x.at - interval '30 seconds'
+                            AND (earlier.at < st.at OR (earlier.at = st.at AND earlier.id < st.id)))
 JOIN event_teams t ON t.id = x.team_id AND t.event_id = x.event_id AND NOT t.moderators
 WHERE x.event_id = $1
   AND x.team_id = $2

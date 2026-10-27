@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
@@ -159,14 +160,14 @@ func (u *EventAnalyticsUseCase) refreshLabUsage(
 	cursor := c.LabUsageCursor
 	caughtUp := false
 	for i := 0; i < labUsageBatchesPerEvent && !caughtUp; i++ {
-		next, read, err := u.store.RollupLabUsage(ctx, c.EventID, cursor, labUsageBatchSize)
+		next, read, err := u.store.RollupLabUsage(ctx, c.EventID, cursor, labUsageBatchSize, false)
 		if err != nil {
 			return err
 		}
 		caughtUp = read < labUsageBatchSize
 		cursor = next
 	}
-	journalCaughtUp, err := u.refreshLabJournal(ctx, c)
+	journalCaughtUp, err := u.refreshLabJournal(ctx, c, now)
 	if err != nil {
 		return err
 	}
@@ -179,15 +180,18 @@ func (u *EventAnalyticsUseCase) refreshLabUsage(
 // refreshLabJournal feeds the observations after the journal cursor to the
 // event's transitions journal and reports whether it caught up.
 func (u *EventAnalyticsUseCase) refreshLabJournal(
-	ctx context.Context, c eventAnalyticsRepo.RollupCandidate,
+	ctx context.Context, c eventAnalyticsRepo.RollupCandidate, now time.Time,
 ) (bool, error) {
 	journal, err := u.store.LabJournal(ctx, c.EventID, u.newID)
 	if err != nil {
 		return false, err
 	}
+	// An event that is over and was never journaled (it predates the journal) shows only its last snapshots: they
+	// set the states but do not make up transitions.
+	journal.Quiet = c.LabJournalCursor.ID == uuid.Nil && c.FinishedAt != nil && c.FinishedAt.Before(now)
 	cursor := c.LabJournalCursor
 	for i := 0; i < labJournalBatchesPerEvent; i++ {
-		next, read, err := u.store.RollupLabJournal(ctx, c.EventID, cursor, labJournalBatchSize, journal)
+		next, read, err := u.store.RollupLabJournal(ctx, c.EventID, cursor, labJournalBatchSize, journal, false)
 		if err != nil {
 			return false, err
 		}

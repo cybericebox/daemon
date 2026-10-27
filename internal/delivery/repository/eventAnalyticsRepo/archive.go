@@ -18,7 +18,7 @@ type ArchiveQueries interface {
 	NextEventLabObservationArchiveRange(
 		context.Context, postgres.NextEventLabObservationArchiveRangeParams,
 	) ([]postgres.NextEventLabObservationArchiveRangeRow, error)
-	ListEventLabObservationArchiveLines(context.Context, postgres.ListEventLabObservationArchiveLinesParams) ([]string, error)
+	ListEventLabObservationArchiveLines(context.Context, postgres.ListEventLabObservationArchiveLinesParams) ([]postgres.ListEventLabObservationArchiveLinesRow, error)
 	SaveEventLabObservationArchive(context.Context, postgres.SaveEventLabObservationArchiveParams) error
 	ListEventLabObservationArchiveChunks(
 		context.Context, postgres.ListEventLabObservationArchiveChunksParams,
@@ -28,6 +28,7 @@ type ArchiveQueries interface {
 	) ([]postgres.ListEventLabObservationsAfterRow, error)
 	SetEventLabTelemetryHold(context.Context, postgres.SetEventLabTelemetryHoldParams) error
 	ResetEventLabTelemetry(context.Context, uuid.UUID) error
+	GetEventLabTelemetryCoverage(context.Context, uuid.UUID) (postgres.GetEventLabTelemetryCoverageRow, error)
 	RestoreEventLabObservations(context.Context, []byte) (int64, error)
 	ListEventIDsByTag(context.Context, string) ([]uuid.UUID, error)
 }
@@ -66,15 +67,21 @@ func (r *Repository) ArchiveLabObservations(
 		return after, 0, nil
 	}
 	chunk := ranges[0]
-	lines, err := r.q.ListEventLabObservationArchiveLines(ctx, postgres.ListEventLabObservationArchiveLinesParams{
+	rows, err := r.q.ListEventLabObservationArchiveLines(ctx, postgres.ListEventLabObservationArchiveLinesParams{
 		EventID: eventID, AfterReceivedAt: after.ReceivedAt, AfterID: after.ID,
 		LastReceivedAt: chunk.LastReceivedAt, LastID: chunk.LastID,
 	})
 	if err != nil {
 		return after, 0, err
 	}
-	if len(lines) == 0 {
+	if len(rows) == 0 {
 		return after, 0, errors.New("lab archive: the chunk range holds no rows")
+	}
+	lines := make([]string, 0, len(rows))
+	rowIDs := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, row.Line)
+		rowIDs = append(rowIDs, row.ID)
 	}
 	data, err := eventAnalyticsModel.CompressLabArchive(lines)
 	if err != nil {
@@ -83,6 +90,7 @@ func (r *Repository) ArchiveLabObservations(
 	err = r.q.SaveEventLabObservationArchive(ctx, postgres.SaveEventLabObservationArchiveParams{
 		ID: chunkID, EventID: eventID,
 		PeriodStart: chunk.PeriodStart, PeriodEnd: chunk.PeriodStart.Add(time.Hour), RowCount: int32(len(lines)), //nolint:gosec // bounded by LabArchiveChunkRows
+		RowIds:          rowIDs,
 		FirstReceivedAt: chunk.FirstReceivedAt, FirstID: chunk.FirstID,
 		LastReceivedAt: pgtype.Timestamptz{Time: chunk.LastReceivedAt, Valid: true},
 		LastID:         uuid.NullUUID{UUID: chunk.LastID, Valid: true},
@@ -182,4 +190,21 @@ func (r *Repository) RestoreLabArchive(ctx context.Context, chunk LabArchiveChun
 // EventIDsByTag lists the events carrying the tag, oldest first.
 func (r *Repository) EventIDsByTag(ctx context.Context, tag string) ([]uuid.UUID, error) {
 	return r.q.ListEventIDsByTag(ctx, tag)
+}
+
+// LabTelemetryCoverage tells where the event's derived lab telemetry starts and where the archive and the raw rows
+// it can be rebuilt from start; nil: there is none.
+func (r *Repository) LabTelemetryCoverage(ctx context.Context, eventID uuid.UUID) (dataFrom, coveredFrom *time.Time, err error) {
+	row, err := r.q.GetEventLabTelemetryCoverage(ctx, eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	unix := func(v int64) *time.Time {
+		if v < 0 {
+			return nil
+		}
+		t := time.Unix(v, 0).UTC()
+		return &t
+	}
+	return unix(row.DataFrom), unix(row.CoveredFrom), nil
 }

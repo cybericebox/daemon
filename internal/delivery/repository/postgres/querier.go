@@ -131,6 +131,8 @@ type Querier interface {
 	CountPlatformStandsByStatus(ctx context.Context) ([]CountPlatformStandsByStatusRow, error)
 	// active = lease not over yet, expired = the lease is over but the lab is not cleaned up yet.
 	CountPlatformTestLabs(ctx context.Context, now time.Time) (CountPlatformTestLabsRow, error)
+	// Raw rows past the period that are still there.
+	CountStaleLabObservations(ctx context.Context, observedBefore time.Time) (int64, error)
 	CountTargetsByChannelStatusSince(ctx context.Context, createdAt time.Time) ([]CountTargetsByChannelStatusSinceRow, error)
 	CountUnreadInbox(ctx context.Context, arg CountUnreadInboxParams) (int64, error)
 	CountUserLoginMethods(ctx context.Context, id uuid.UUID) (int64, error)
@@ -445,6 +447,9 @@ type Querier interface {
 	GetEventLabObservationCursor(ctx context.Context, arg GetEventLabObservationCursorParams) (GetEventLabObservationCursorRow, error)
 	GetEventLabPendingStarts(ctx context.Context, eventTeamID uuid.UUID) (int32, error)
 	GetEventLabRevealBarrier(ctx context.Context, arg GetEventLabRevealBarrierParams) (EventLabRevealBarrier, error)
+	// Where the event's derived lab telemetry starts and where the sources a recompute can rebuild it from (the archive
+	// and the raw rows) start, in unix seconds; -1: there is none. Data older than its sources cannot be rebuilt.
+	GetEventLabTelemetryCoverage(ctx context.Context, eventID uuid.UUID) (GetEventLabTelemetryCoverageRow, error)
 	GetEventListColumns(ctx context.Context, arg GetEventListColumnsParams) (EventListColumn, error)
 	GetEventLiveScreen(ctx context.Context, arg GetEventLiveScreenParams) (EventLiveScreen, error)
 	GetEventLiveScreenLinkByTokenHash(ctx context.Context, tokenHash []byte) (EventLiveScreenLink, error)
@@ -551,6 +556,7 @@ type Querier interface {
 	GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (InfrastructureAgent, error)
 	// The catalog task behind a team task of the event.
 	GetIntegrityTaskOfTeamChallenge(ctx context.Context, arg GetIntegrityTaskOfTeamChallengeParams) (GetIntegrityTaskOfTeamChallengeRow, error)
+	GetLabArchiveChunkForScrub(ctx context.Context, id uuid.UUID) (GetLabArchiveChunkForScrubRow, error)
 	GetLabBinding(ctx context.Context, arg GetLabBindingParams) (LabBinding, error)
 	// The earliest moment a lab of this task existed for the team; 0001-01-01 when
 	// it was never deployed.
@@ -945,7 +951,7 @@ type Querier interface {
 	ListEventLabObservationArchiveChunks(ctx context.Context, arg ListEventLabObservationArchiveChunksParams) ([]ListEventLabObservationArchiveChunksRow, error)
 	// The rows of a chunk as JSON lines with every column, ordered by team, lab
 	// group and observation time so that neighbours resemble each other.
-	ListEventLabObservationArchiveLines(ctx context.Context, arg ListEventLabObservationArchiveLinesParams) ([]string, error)
+	ListEventLabObservationArchiveLines(ctx context.Context, arg ListEventLabObservationArchiveLinesParams) ([]ListEventLabObservationArchiveLinesRow, error)
 	ListEventLabObservations(ctx context.Context, arg ListEventLabObservationsParams) ([]EventLabObservation, error)
 	// Raw observations still in the table after a point in arrival order (the
 	// ones the archive does not hold yet, or all while they are kept), up to
@@ -1188,6 +1194,9 @@ type Querier interface {
 	ListLabTelemetryErasures(ctx context.Context, arg ListLabTelemetryErasuresParams) ([]LabTelemetryErasure, error)
 	// Spans of a team that overlap [since, until].
 	ListLabTrafficCoverage(ctx context.Context, arg ListLabTrafficCoverageParams) ([]ListLabTrafficCoverageRow, error)
+	// Raw rows of one event that no archive chunk holds although the archive cursor is past them (committed late), older
+	// than received_before; up to row_limit, with the id and the line the archive keeps.
+	ListLateLabObservations(ctx context.Context, arg ListLateLabObservationsParams) ([]ListLateLabObservationsRow, error)
 	ListLatestEventLabObservations(ctx context.Context, eventID uuid.UUID) ([]EventLabObservation, error)
 	ListLatestPlatformLabCapacityObservations(ctx context.Context) ([]PlatformLabCapacityObservation, error)
 	// Latest registration-form answer per listed user (moderation list columns).
@@ -1686,8 +1695,8 @@ type Querier interface {
 	PurgeEventLabMinutes(ctx context.Context, arg PurgeEventLabMinutesParams) (int64, error)
 	// The raw archive holds clients and IPs: the participants period.
 	PurgeEventLabObservationArchives(ctx context.Context, arg PurgeEventLabObservationArchivesParams) (int64, error)
-	// Raw rows past the telemetry period; only archived ones (see
-	// PurgeRolledUpEventLabObservations), so nothing is lost before the archive.
+	// Raw rows past the participants period; only the ones a chunk of the archive really holds (event_lab_archived_rows,
+	// not just 'behind the archive cursor'), so nothing is lost before the archive.
 	PurgeEventLabObservations(ctx context.Context, arg PurgeEventLabObservationsParams) (int64, error)
 	// Aggregates of events that ended before the cutoff.
 	PurgeEventLabTouches(ctx context.Context, arg PurgeEventLabTouchesParams) (int64, error)
@@ -1743,8 +1752,8 @@ type Querier interface {
 	QueueEventLabGroupCleanup(ctx context.Context, arg QueueEventLabGroupCleanupParams) (int64, error)
 	// Erases one person on request (an objection): the same as the purge of a deleted account does, for any user id.
 	// Queues the person with a random pseudonym (the existing one when queued already, with the day starting afresh),
-	// and renames the rollup rows now; the rest (raw rows, current state, archive, the IPs) is done by the scrub that
-	// follows, which first collects the person's IPs. Returns the queued entry.
+	// only queues; the scrub that follows renames the rollup rows, rewrites the raw rows, the current state and the
+	// archive, and first collects the person's IPs. Returns the queued entry.
 	QueueLabTelemetryErasure(ctx context.Context, userID uuid.UUID) (QueueLabTelemetryErasureRow, error)
 	// Queue the deterministic team LabGroup even when no challenge Lab has been
 	// attached yet. The group may already contain VPN clients and a gateway.
@@ -1871,10 +1880,11 @@ type Querier interface {
 	SaveClusterReservation(ctx context.Context, arg SaveClusterReservationParams) error
 	// Stores the transitions and the changed entity states of one batch of
 	// observations and moves the journal cursor past it, in one statement: a
-	// failure leaves all three untouched. transitions and states are JSON arrays.
+	// failure leaves all three untouched. transitions and states are JSON arrays. Nothing is stored while the event
+	// is held (a recompute runs) unless ignore_hold is set (the recompute itself).
 	SaveEventLabJournalBatch(ctx context.Context, arg SaveEventLabJournalBatchParams) error
-	// Stores a chunk and moves the archive cursor past it in one statement: a
-	// failure leaves both untouched, a re-run of the same chunk adds nothing.
+	// Stores a chunk with the ids of its rows and moves the archive cursor past it in one statement: a
+	// failure leaves all untouched, a re-run of the same chunk adds nothing.
 	SaveEventLabObservationArchive(ctx context.Context, arg SaveEventLabObservationArchiveParams) error
 	SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error)
 	SaveEventLiveScreenDraft(ctx context.Context, arg SaveEventLiveScreenDraftParams) (int64, error)
@@ -1885,11 +1895,14 @@ type Querier interface {
 	// published content and file references; a following content PUT preserves
 	// the edited metadata, including across a concurrent first-draft insert.
 	SaveExerciseDraftIdentity(ctx context.Context, arg SaveExerciseDraftIdentityParams) (SaveExerciseDraftIdentityRow, error)
+	// A chunk of late rows: stored with its row ids, the archive cursor stays where it is.
+	SaveLateLabObservationArchive(ctx context.Context, arg SaveLateLabObservationArchiveParams) error
 	ScheduleEventLabGroupRetry(ctx context.Context, arg ScheduleEventLabGroupRetryParams) error
 	// Narrow retry write; never copies physical state over a concurrent observation.
 	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
 	ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMonitoringCurrentParams) (int64, error)
-	// Rewrites up to batch_size raw observations of the events that still carry the client name.
+	// Rewrites up to batch_size raw observations of the events that still carry the client name. The IPs go only from
+	// rows that name the client (by its name or pseudonym): an address another client got later is left alone.
 	ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error)
 	SelectEventStageRetainedLab(ctx context.Context, arg SelectEventStageRetainedLabParams) error
 	SetDispatchStatus(ctx context.Context, arg SetDispatchStatusParams) error
@@ -2044,7 +2057,8 @@ type Querier interface {
 	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 	// endpoint identifies the agent (and its certificate), so it never changes.
 	UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error)
-	UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) error
+	// Replaces the data only if nobody changed it since it was read (another scrub); the caller reads again otherwise.
+	UpdateLabArchiveChunkData(ctx context.Context, arg UpdateLabArchiveChunkDataParams) (int64, error)
 	UpdateLabBindingReadiness(ctx context.Context, arg UpdateLabBindingReadinessParams) (int64, error)
 	// Only within its own scope: scope_filter is 'platform' or the Event id.
 	UpdateNotificationBroadcastTemplate(ctx context.Context, arg UpdateNotificationBroadcastTemplateParams) (int64, error)

@@ -1,5 +1,4 @@
-ALTER TABLE event_analytics_rollups
-    DROP COLUMN lab_archive_cursor_received_at,
-    DROP COLUMN lab_archive_cursor_id;
-
-DROP TABLE event_lab_observation_archives;
+-- Not reversible on purpose: rolling this back would drop the archive, and by then the archive may hold the only copy
+-- of raw telemetry (the raw rows are deleted a day after they were archived). Nothing is done; drop the tables by hand
+-- if the data is really to go.
+SELECT 1;

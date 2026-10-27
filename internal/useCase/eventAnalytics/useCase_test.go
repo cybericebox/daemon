@@ -60,11 +60,12 @@ type fakeStore struct {
 	deviceMinutes  []eventAnalyticsRepo.DeviceMinute
 	labTransitions []eventAnalyticsRepo.LabTransition
 
-	holds    []*time.Time
-	resets   int
-	chunks   []eventAnalyticsRepo.LabArchiveChunk
-	restored []uuid.UUID
-	tagged   map[string][]uuid.UUID
+	dataFrom, coveredFrom *time.Time
+	holds                 []*time.Time
+	resets                int
+	chunks                []eventAnalyticsRepo.LabArchiveChunk
+	restored              []uuid.UUID
+	tagged                map[string][]uuid.UUID
 
 	archiveChunks []int
 	archiveCalls  []eventAnalyticsRepo.VPNCursor
@@ -114,7 +115,7 @@ func (s *fakeStore) SetVPNCursor(_ context.Context, _ uuid.UUID, cursor eventAna
 	return nil
 }
 func (s *fakeStore) RollupLabUsage(
-	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32,
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ bool,
 ) (eventAnalyticsRepo.VPNCursor, int, error) {
 	if s.failUsage {
 		return after, 0, errors.New("usage boom")
@@ -135,7 +136,7 @@ func (s *fakeStore) LabJournal(context.Context, uuid.UUID, func() uuid.UUID) (*e
 	return eventAnalyticsModel.NewLabJournal(nil, func() uuid.UUID { return uuid.Must(uuid.NewV7()) }), nil
 }
 func (s *fakeStore) RollupLabJournal(
-	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ *eventAnalyticsModel.LabJournal,
+	_ context.Context, _ uuid.UUID, after eventAnalyticsRepo.VPNCursor, _ int32, _ *eventAnalyticsModel.LabJournal, _ bool,
 ) (eventAnalyticsRepo.VPNCursor, int, error) {
 	s.journalCalls = append(s.journalCalls, after)
 	if len(s.journalReads) == 0 {
@@ -162,6 +163,9 @@ func (s *fakeStore) TeamLabTransitions(
 ) ([]eventAnalyticsRepo.LabTransition, error) {
 	s.readTeam, s.readPeriod, s.readKinds = team, p, kinds
 	return s.labTransitions, nil
+}
+func (s *fakeStore) LabTelemetryCoverage(context.Context, uuid.UUID) (*time.Time, *time.Time, error) {
+	return s.dataFrom, s.coveredFrom, nil
 }
 func (s *fakeStore) HoldLabTelemetry(_ context.Context, _ uuid.UUID, until *time.Time) error {
 	s.holds = append(s.holds, until)
@@ -247,8 +251,9 @@ func newUC(store *fakeStore, event eventModel.Event, members fakeMemberships, cl
 	n := byte(0)
 	return eventAnalytics.New(eventAnalytics.Dependencies{
 		Store: store, Events: fakeEvents{event}, Configs: fakeConfigs{config}, Memberships: members,
-		Now:   func() time.Time { return *clock },
-		NewID: func() uuid.UUID { n++; return uuid.UUID{15: n} },
+		Now:             func() time.Time { return *clock },
+		NewID:           func() uuid.UUID { n++; return uuid.UUID{15: n} },
+		RecomputeSettle: time.Nanosecond,
 	})
 }
 
@@ -603,12 +608,15 @@ func TestRecomputeLabTelemetry(t *testing.T) {
 	}
 	uc := newUC(store, runningEvent(), nil, &clock)
 
-	res, err := uc.RecomputeLabTelemetry(context.Background(), eventID)
+	res, err := uc.RecomputeLabTelemetry(context.Background(), eventID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.ArchiveChunks != 3 || res.RestoredRows != 300 || res.UsageObservations != 5040 || res.JournalObservations != 1007 {
 		t.Fatalf("result %+v", res)
+	}
+	if len(store.holds) < 6 {
+		t.Fatalf("the hold is renewed in every loop: %d calls", len(store.holds))
 	}
 	if store.resets != 1 || len(store.restored) != 3 {
 		t.Fatalf("resets=%d restored=%d", store.resets, len(store.restored))
@@ -665,5 +673,31 @@ func TestGetEventLabTelemetry(t *testing.T) {
 	plain := newUC(&fakeStore{}, noInfra, nil, &clock)
 	if v, err = plain.GetEventLabTelemetry(context.Background(), noInfra.ID, team, nil, nil); err != nil || v.Available {
 		t.Fatalf("an event without infrastructure shows nothing: %+v %v", v, err)
+	}
+}
+
+// A recompute refuses an event whose rollups reach back further than the archive and the raw rows, unless forced;
+// the refusal changes nothing.
+func TestRecomputeLabTelemetry_RefusesWhatCannotBeRebuilt(t *testing.T) {
+	clock := now
+	eventID := uuid.Must(uuid.NewV7())
+	dataFrom, coveredFrom := now.Add(-100*24*time.Hour), now.Add(-10*24*time.Hour)
+	store := &fakeStore{dataFrom: &dataFrom, coveredFrom: &coveredFrom}
+	uc := newUC(store, runningEvent(), nil, &clock)
+
+	if _, err := uc.RecomputeLabTelemetry(context.Background(), eventID, false); err == nil || store.resets != 0 || len(store.holds) != 0 {
+		t.Fatalf("must refuse and change nothing: err=%v resets=%d holds=%d", err, store.resets, len(store.holds))
+	}
+	if _, err := uc.RecomputeLabTelemetry(context.Background(), eventID, true); err != nil || store.resets != 1 {
+		t.Fatalf("force goes ahead: err=%v resets=%d", err, store.resets)
+	}
+
+	covered := &fakeStore{dataFrom: &coveredFrom, coveredFrom: &dataFrom}
+	if _, err := newUC(covered, runningEvent(), nil, &clock).RecomputeLabTelemetry(context.Background(), eventID, false); err != nil {
+		t.Fatalf("sources reach back far enough: %v", err)
+	}
+	none := &fakeStore{dataFrom: &dataFrom}
+	if _, err := newUC(none, runningEvent(), nil, &clock).RecomputeLabTelemetry(context.Background(), eventID, false); err == nil {
+		t.Fatal("data and no sources at all must be refused")
 	}
 }

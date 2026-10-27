@@ -12,6 +12,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getEventLabTelemetryCoverage = `-- name: GetEventLabTelemetryCoverage :one
+SELECT COALESCE(extract(epoch FROM LEAST(
+           (SELECT min(m.bucket_at) FROM event_lab_usage_minutes m WHERE m.event_id = $1),
+           (SELECT min(m.bucket_at) FROM event_lab_minutes m WHERE m.event_id = $1),
+           (SELECT min(m.bucket_at) FROM event_vpn_client_minutes m WHERE m.event_id = $1),
+           (SELECT min(t.at) FROM event_lab_transitions t WHERE t.event_id = $1)))::bigint, -1)::bigint AS data_from,
+       COALESCE(extract(epoch FROM LEAST(
+           (SELECT min(a.first_received_at) FROM event_lab_observation_archives a WHERE a.event_id = $1),
+           (SELECT min(o.received_at) FROM event_lab_observations o WHERE o.event_id = $1)))::bigint, -1)::bigint AS covered_from
+`
+
+type GetEventLabTelemetryCoverageRow struct {
+	DataFrom    int64 `json:"data_from"`
+	CoveredFrom int64 `json:"covered_from"`
+}
+
+// Where the event's derived lab telemetry starts and where the sources a recompute can rebuild it from (the archive
+// and the raw rows) start, in unix seconds; -1: there is none. Data older than its sources cannot be rebuilt.
+func (q *Queries) GetEventLabTelemetryCoverage(ctx context.Context, eventID uuid.UUID) (GetEventLabTelemetryCoverageRow, error) {
+	row := q.db.QueryRow(ctx, getEventLabTelemetryCoverage, eventID)
+	var i GetEventLabTelemetryCoverageRow
+	err := row.Scan(&i.DataFrom, &i.CoveredFrom)
+	return i, err
+}
+
 const listEventIDsByTag = `-- name: ListEventIDsByTag :many
 SELECT id FROM events WHERE tag = $1 ORDER BY created_at, id
 `

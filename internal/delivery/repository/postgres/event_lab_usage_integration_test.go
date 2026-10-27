@@ -93,7 +93,7 @@ func rollupAll(
 	t.Helper()
 	var cursor eventAnalyticsRepo.VPNCursor
 	for range 100 {
-		next, read, err := repo.RollupLabUsage(context.Background(), event, cursor, 2)
+		next, read, err := repo.RollupLabUsage(context.Background(), event, cursor, 2, false)
 		require.NoError(t, err)
 		cursor = next
 		if read < 2 {
@@ -185,7 +185,7 @@ VALUES ($1, $2, $3, $4, 'agent', $5, $6, $6, 1, false, $7)`, uuid.Must(uuid.NewV
 	require.Equal(t, rawResources(t, db, f.event, sub), got)
 
 	// Idempotent: nothing left to read, nothing changes.
-	again, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2)
+	again, read, err := repo.RollupLabUsage(ctx, f.event, cursor, 2, false)
 	require.NoError(t, err)
 	require.Zero(t, read)
 	require.Equal(t, cursor, again)

@@ -2,6 +2,7 @@ package eventAnalytics
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -13,9 +14,9 @@ import (
 
 const (
 	// labRecomputeHold is how long the jobs stay off the event while it is
-	// recomputed; every archive page renews it and it expires by itself if
-	// the recompute dies.
-	labRecomputeHold = 30 * time.Minute
+	// recomputed; every loop renews it. After a failed run it stays that long, so
+	// the half-restored sources are not rolled up by the regular job.
+	labRecomputeHold = 24 * time.Hour
 	// labRecomputeChunksPerPage archive chunks are read and restored at a time.
 	labRecomputeChunksPerPage = 3
 )
@@ -59,38 +60,57 @@ func (u *EventAnalyticsUseCase) ResolveEvent(ctx context.Context, idOrTag string
 // built before they existed, or after fixing one. The restored rows are
 // deleted again by the retention job after the usual day, since the archive
 // already holds them.
-func (u *EventAnalyticsUseCase) RecomputeLabTelemetry(ctx context.Context, eventID uuid.UUID) (LabTelemetryRecompute, error) {
+//
+// The rebuild starts by deleting what it rebuilds, so it refuses an event that
+// has data older than the archive and the raw rows reach (the participants
+// period has passed for the sources, not yet for the rollups) unless force is
+// set: that data would be lost. The hold stays on after a failure (it expires on
+// its own after a day), so the half-restored sources are never rolled up by the
+// regular job; a repeated run starts over.
+func (u *EventAnalyticsUseCase) RecomputeLabTelemetry(ctx context.Context, eventID uuid.UUID, force bool) (LabTelemetryRecompute, error) {
 	var res LabTelemetryRecompute
-	hold := func(until *time.Time) error {
-		return u.store.HoldLabTelemetry(context.WithoutCancel(ctx), eventID, until)
-	}
-	until := u.now().Add(labRecomputeHold)
-	if err := hold(&until); err != nil {
-		return res, model.ErrPlatform.WithError(err).WithMessage("Failed to hold the event's lab telemetry").Err()
-	}
-	defer func() {
-		if err := hold(nil); err != nil {
-			log.Error().Err(err).Str("event_id", eventID.String()).Msg("lab telemetry recompute: release the hold")
-		}
-	}()
 	fail := func(err error, msg string) (LabTelemetryRecompute, error) {
 		return res, model.ErrPlatform.WithError(err).WithMessage(msg).Err()
 	}
+	dataFrom, coveredFrom, err := u.store.LabTelemetryCoverage(ctx, eventID)
+	if err != nil {
+		return fail(err, "Failed to check what the lab telemetry can be rebuilt from")
+	}
+	if dataFrom != nil && (coveredFrom == nil || dataFrom.Before(coveredFrom.Add(-2*time.Minute))) && !force {
+		return res, model.ErrPlatform.WithMessage(fmt.Sprintf(
+			"The event has lab telemetry from %s, but the archive and raw rows it would be rebuilt from start only at %s: "+
+				"recomputing would erase what cannot be rebuilt. Pass --force to do it anyway",
+			dataFrom.Format(time.RFC3339), coveredFromText(coveredFrom))).Err()
+	}
 
-	if err := u.store.ResetLabTelemetry(ctx, eventID); err != nil {
+	// renew keeps the hold for the whole run: every loop below calls it.
+	renew := func() error {
+		until := u.now().Add(labRecomputeHold)
+		return u.store.HoldLabTelemetry(context.WithoutCancel(ctx), eventID, &until)
+	}
+	if err = renew(); err != nil {
+		return fail(err, "Failed to hold the event's lab telemetry")
+	}
+	// Statements that started before the hold still finish (the rollup statements check the hold themselves).
+	select {
+	case <-time.After(u.settle):
+	case <-ctx.Done():
+		return fail(ctx.Err(), "The recompute was interrupted")
+	}
+
+	if err = u.store.ResetLabTelemetry(ctx, eventID); err != nil {
 		return fail(err, "Failed to reset the event's lab telemetry rollups")
 	}
 	var after eventAnalyticsRepo.VPNCursor
 	for {
-		chunks, err := u.store.LabArchiveChunks(ctx, eventID, after, labRecomputeChunksPerPage)
-		if err != nil {
-			return fail(err, "Failed to read the lab observation archive")
+		chunks, cerr := u.store.LabArchiveChunks(ctx, eventID, after, labRecomputeChunksPerPage)
+		if cerr != nil {
+			return fail(cerr, "Failed to read the lab observation archive")
 		}
 		if len(chunks) == 0 {
 			break
 		}
-		renewed := u.now().Add(labRecomputeHold)
-		if err = hold(&renewed); err != nil {
+		if err = renew(); err != nil {
 			return fail(err, "Failed to renew the hold")
 		}
 		for _, chunk := range chunks {
@@ -106,9 +126,12 @@ func (u *EventAnalyticsUseCase) RecomputeLabTelemetry(ctx context.Context, event
 
 	var cursor eventAnalyticsRepo.VPNCursor
 	for {
-		next, read, err := u.store.RollupLabUsage(ctx, eventID, cursor, labUsageBatchSize)
-		if err != nil {
-			return fail(err, "Failed to roll up the lab usage")
+		if err = renew(); err != nil {
+			return fail(err, "Failed to renew the hold")
+		}
+		next, read, uerr := u.store.RollupLabUsage(ctx, eventID, cursor, labUsageBatchSize, true)
+		if uerr != nil {
+			return fail(uerr, "Failed to roll up the lab usage")
 		}
 		res.UsageObservations += read
 		cursor = next
@@ -122,7 +145,10 @@ func (u *EventAnalyticsUseCase) RecomputeLabTelemetry(ctx context.Context, event
 	}
 	cursor = eventAnalyticsRepo.VPNCursor{}
 	for {
-		next, read, jerr := u.store.RollupLabJournal(ctx, eventID, cursor, labJournalBatchSize, journal)
+		if err = renew(); err != nil {
+			return fail(err, "Failed to renew the hold")
+		}
+		next, read, jerr := u.store.RollupLabJournal(ctx, eventID, cursor, labJournalBatchSize, journal, true)
 		if jerr != nil {
 			return fail(jerr, "Failed to build the transitions journal")
 		}
@@ -135,8 +161,18 @@ func (u *EventAnalyticsUseCase) RecomputeLabTelemetry(ctx context.Context, event
 			return fail(ctx.Err(), "The recompute was interrupted")
 		}
 	}
+	if err = u.store.HoldLabTelemetry(context.WithoutCancel(ctx), eventID, nil); err != nil {
+		log.Error().Err(err).Str("event_id", eventID.String()).Msg("lab telemetry recompute: release the hold")
+	}
 	log.Info().Str("event_id", eventID.String()).Int("archive_chunks", res.ArchiveChunks).
 		Int64("restored_rows", res.RestoredRows).Int("usage_observations", res.UsageObservations).
 		Int("journal_observations", res.JournalObservations).Msg("lab telemetry recompute: done")
 	return res, nil
+}
+
+func coveredFromText(t *time.Time) string {
+	if t == nil {
+		return "never (nothing is left)"
+	}
+	return t.Format(time.RFC3339)
 }

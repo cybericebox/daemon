@@ -674,8 +674,11 @@ WITH batch AS (
     FROM event_lab_observations o
     WHERE o.event_id = $3
       AND (o.received_at, o.id) > ($1::timestamptz, $2::uuid)
+      AND ($4::boolean
+           OR NOT EXISTS (SELECT 1 FROM event_analytics_rollups h
+                          WHERE h.event_id = o.event_id AND h.lab_telemetry_hold_until > now()))
     ORDER BY o.received_at, o.id
-    LIMIT $4
+    LIMIT $5
 ), last AS (
     SELECT b.received_at, b.id FROM batch b ORDER BY b.received_at DESC, b.id DESC LIMIT 1
 ), lab_rows AS (
@@ -759,26 +762,30 @@ WITH batch AS (
 ), client_samples AS (
     SELECT b.id, b.event_team_id AS team_id, b.lab_group_name, b.observed_at,
            COALESCE(c ->> 'name', '')                                                       AS client_name,
-           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes'), 0)           AS rx,
-           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes'), 0)           AS tx,
+           lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes')                         AS rx,
+           lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes')                         AS tx,
            COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0) AS handshake
     FROM batch b
     CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(b.payload -> 'clients') = 'array' THEN b.payload -> 'clients' ELSE '[]'::jsonb END) c
     WHERE COALESCE(c ->> 'name', '') <> ''
+      AND lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes') IS NOT NULL
+      AND lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes') IS NOT NULL
 ), previous AS (
     SELECT DISTINCT ON (m.team_id, m.lab_group_name, m.client_name)
-           m.team_id, m.lab_group_name, m.client_name, m.last_rx, m.last_tx
+           m.team_id, m.lab_group_name, m.client_name, m.last_rx, m.last_tx, m.last_observed_at
     FROM event_vpn_client_minutes m
     WHERE m.event_id = $3
       AND (m.team_id, m.lab_group_name, m.client_name) IN (SELECT cs.team_id, cs.lab_group_name, cs.client_name FROM client_samples cs)
-    ORDER BY m.team_id, m.lab_group_name, m.client_name, m.bucket_at DESC
+    ORDER BY m.team_id, m.lab_group_name, m.client_name, m.last_observed_at DESC
 ), client_steps AS (
     SELECT cs.id, cs.team_id, cs.lab_group_name, cs.observed_at, cs.client_name, cs.rx, cs.tx, cs.handshake,
            COALESCE(lag(cs.rx) OVER w, p.last_rx) AS prev_rx,
            COALESCE(lag(cs.tx) OVER w, p.last_tx) AS prev_tx
     FROM client_samples cs
     LEFT JOIN previous p ON p.team_id = cs.team_id AND p.lab_group_name = cs.lab_group_name AND p.client_name = cs.client_name
+    -- A sample older than the newest one stored cannot be told from a counter reset: it is left out.
+    WHERE p.last_observed_at IS NULL OR cs.observed_at > p.last_observed_at
     WINDOW w AS (PARTITION BY cs.team_id, cs.lab_group_name, cs.client_name ORDER BY cs.observed_at, cs.id)
 ), client_deltas AS (
     SELECT team_id, lab_group_name, client_name, observed_at, id, rx, tx,
@@ -833,6 +840,7 @@ type RollupEventLabUsageParams struct {
 	AfterReceivedAt time.Time `json:"after_received_at"`
 	AfterID         uuid.UUID `json:"after_id"`
 	EventID         uuid.UUID `json:"event_id"`
+	IgnoreHold      bool      `json:"ignore_hold"`
 	BatchSize       int32     `json:"batch_size"`
 }
 
@@ -860,6 +868,7 @@ func (q *Queries) RollupEventLabUsage(ctx context.Context, arg RollupEventLabUsa
 		arg.AfterReceivedAt,
 		arg.AfterID,
 		arg.EventID,
+		arg.IgnoreHold,
 		arg.BatchSize,
 	)
 	var i RollupEventLabUsageRow

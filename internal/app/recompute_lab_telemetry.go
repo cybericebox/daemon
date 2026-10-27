@@ -14,8 +14,8 @@ import (
 // RunRecomputeLabTelemetry is the `recompute-lab-telemetry <event id or tag>` subcommand: it rebuilds the
 // lab usage minute tables and the transitions journal of one event from the raw lab observations and
 // their archive (see EventAnalyticsUseCase.RecomputeLabTelemetry). It does not migrate (the server does)
-// and refuses a database whose schema is not current. The summary goes to out.
-func RunRecomputeLabTelemetry(ctx context.Context, cfg *config.Config, idOrTag string, out io.Writer) error {
+// and refuses an event whose rollups are older than the archive and raw rows (unless force) and a database whose schema is not current. The summary goes to out.
+func RunRecomputeLabTelemetry(ctx context.Context, cfg *config.Config, idOrTag string, force bool, out io.Writer) error {
 	repo := repository.NewRepository(repository.Dependencies{PostgresConfig: &cfg.Infrastructure.Postgres})
 	defer repo.Close()
 	if err := repo.SchemaCurrent(); err != nil {
@@ -26,7 +26,7 @@ func RunRecomputeLabTelemetry(ctx context.Context, cfg *config.Config, idOrTag s
 	if err != nil {
 		return err
 	}
-	res, err := uc.RecomputeLabTelemetry(ctx, eventID)
+	res, err := uc.RecomputeLabTelemetry(ctx, eventID, force)
 	if err != nil {
 		return err
 	}

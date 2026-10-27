@@ -38,7 +38,7 @@ CROSS JOIN (SELECT p.received_at, p.id FROM picked p ORDER BY p.received_at DESC
 -- name: ListEventLabObservationArchiveLines :many
 -- The rows of a chunk as JSON lines with every column, ordered by team, lab
 -- group and observation time so that neighbours resemble each other.
-SELECT to_jsonb(o)::text AS line
+SELECT o.id, to_jsonb(o)::text AS line
 FROM event_lab_observations o
 WHERE o.event_id = sqlc.arg(event_id)
   AND (o.received_at, o.id) > (sqlc.arg(after_received_at)::timestamptz, sqlc.arg(after_id)::uuid)
@@ -46,8 +46,8 @@ WHERE o.event_id = sqlc.arg(event_id)
 ORDER BY o.event_team_id, o.lab_group_name, o.observed_at, o.id;
 
 -- name: SaveEventLabObservationArchive :exec
--- Stores a chunk and moves the archive cursor past it in one statement: a
--- failure leaves both untouched, a re-run of the same chunk adds nothing.
+-- Stores a chunk with the ids of its rows and moves the archive cursor past it in one statement: a
+-- failure leaves all untouched, a re-run of the same chunk adds nothing.
 WITH chunk AS (
     INSERT INTO event_lab_observation_archives (id, event_id, period_start, period_end, row_count,
                                                 first_received_at, first_id, last_received_at, last_id, codec, data)
@@ -55,7 +55,11 @@ WITH chunk AS (
             sqlc.arg(first_received_at), sqlc.arg(first_id), sqlc.arg(last_received_at), sqlc.arg(last_id),
             sqlc.arg(codec), sqlc.arg(data))
     ON CONFLICT (event_id, last_received_at, last_id) DO NOTHING
-    RETURNING 1
+    RETURNING id
+), covered AS (
+    INSERT INTO event_lab_archived_rows (row_id, chunk_id)
+    SELECT unnest(sqlc.arg(row_ids)::uuid[]), c.id FROM chunk c
+    ON CONFLICT DO NOTHING
 )
 INSERT INTO event_analytics_rollups (event_id, lab_archive_cursor_received_at, lab_archive_cursor_id)
 VALUES (sqlc.arg(event_id), sqlc.arg(last_received_at), sqlc.arg(last_id))

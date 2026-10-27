@@ -28,7 +28,11 @@ type Queries interface {
 	PurgeEventVPNSessions(context.Context, postgres.PurgeEventVPNSessionsParams) (int64, error)
 	ListLabTelemetryErasures(context.Context, postgres.ListLabTelemetryErasuresParams) ([]postgres.LabTelemetryErasure, error)
 	ListLabArchiveChunksForScrub(context.Context, postgres.ListLabArchiveChunksForScrubParams) ([]postgres.ListLabArchiveChunksForScrubRow, error)
-	UpdateLabArchiveChunkData(context.Context, postgres.UpdateLabArchiveChunkDataParams) error
+	GetLabArchiveChunkForScrub(context.Context, uuid.UUID) (postgres.GetLabArchiveChunkForScrubRow, error)
+	UpdateLabArchiveChunkData(context.Context, postgres.UpdateLabArchiveChunkDataParams) (int64, error)
+	ListLateLabObservations(context.Context, postgres.ListLateLabObservationsParams) ([]postgres.ListLateLabObservationsRow, error)
+	SaveLateLabObservationArchive(context.Context, postgres.SaveLateLabObservationArchiveParams) error
+	CountStaleLabObservations(context.Context, time.Time) (int64, error)
 	ScrubRawLabObservations(context.Context, postgres.ScrubRawLabObservationsParams) (int64, error)
 	ScrubLabMonitoringCurrent(context.Context, postgres.ScrubLabMonitoringCurrentParams) (int64, error)
 	RenameErasedLabClient(context.Context, postgres.RenameErasedLabClientParams) error
@@ -381,7 +385,60 @@ func (r *Repository) LabArchiveChunksForScrub(ctx context.Context, eventID, afte
 	return out, nil
 }
 
-// SaveScrubbedLabArchiveChunk replaces the data of a chunk.
-func (r *Repository) SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error {
-	return r.q.UpdateLabArchiveChunkData(ctx, postgres.UpdateLabArchiveChunkDataParams{ID: id, Data: data})
+// LabArchiveChunk reads one chunk to scrub.
+func (r *Repository) LabArchiveChunk(ctx context.Context, id uuid.UUID) (LabArchiveChunk, error) {
+	row, err := r.q.GetLabArchiveChunkForScrub(ctx, id)
+	if err != nil {
+		return LabArchiveChunk{}, err
+	}
+	return LabArchiveChunk{ID: row.ID, Codec: row.Codec, Data: row.Data}, nil
+}
+
+// SaveScrubbedLabArchiveChunk replaces the data of a chunk if it still is what was read; false means another scrub
+// changed it meanwhile and the caller reads it again.
+func (r *Repository) SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, oldData, data []byte) (bool, error) {
+	n, err := r.q.UpdateLabArchiveChunkData(ctx, postgres.UpdateLabArchiveChunkDataParams{ID: id, Data: data, OldData: oldData})
+	return n > 0, err
+}
+
+// LateLabObservation is a raw row no archive chunk holds although the archive cursor is past it.
+type LateLabObservation struct {
+	ID         uuid.UUID
+	ReceivedAt time.Time
+	Line       string
+}
+
+// LateLabObservations lists up to limit raw rows of one event (returned) that were committed behind the archive
+// cursor and are in no chunk, older than receivedBefore.
+func (r *Repository) LateLabObservations(ctx context.Context, receivedBefore time.Time, limit int32) (uuid.UUID, []LateLabObservation, error) {
+	rows, err := r.q.ListLateLabObservations(ctx, postgres.ListLateLabObservationsParams{ReceivedBefore: receivedBefore, RowLimit: limit})
+	if err != nil || len(rows) == 0 {
+		return uuid.Nil, nil, err
+	}
+	out := make([]LateLabObservation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, LateLabObservation{ID: row.ID, ReceivedAt: row.ReceivedAt, Line: row.Line})
+	}
+	return rows[0].EventID, out, nil
+}
+
+// SaveLateLabArchive stores the late rows as a chunk of their own (the archive cursor stays where it is).
+func (r *Repository) SaveLateLabArchive(ctx context.Context, eventID uuid.UUID, rows []LateLabObservation, codec string, data []byte) error {
+	first, last := rows[0], rows[len(rows)-1]
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	start := first.ReceivedAt.UTC().Truncate(time.Hour)
+	return r.q.SaveLateLabObservationArchive(ctx, postgres.SaveLateLabObservationArchiveParams{
+		ID: uuid.Must(uuid.NewV7()), EventID: eventID, PeriodStart: start, PeriodEnd: start.Add(time.Hour),
+		RowCount:        int32(len(rows)), //nolint:gosec // bounded by the page size
+		FirstReceivedAt: first.ReceivedAt, FirstID: first.ID, LastReceivedAt: last.ReceivedAt, LastID: last.ID,
+		Codec: codec, Data: data, RowIds: ids,
+	})
+}
+
+// StaleLabObservations counts the raw rows observed before the given time that are still there.
+func (r *Repository) StaleLabObservations(ctx context.Context, before time.Time) (int64, error) {
+	return r.q.CountStaleLabObservations(ctx, before)
 }

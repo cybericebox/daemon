@@ -93,7 +93,7 @@ func TestRefreshEventAnalytics_VPNRollupOnRealisticTelemetry(t *testing.T) {
 	uc := eventAnalytics.New(eventAnalytics.Dependencies{
 		Store: eventAnalyticsRepo.New(db.Queries), Events: eventRepo.New(db.Queries),
 		Configs: eventConfigRepo.New(db.Queries), Memberships: eventManagerRepo.New(db.Queries),
-		Now: func() time.Time { return clock },
+		Now: func() time.Time { return clock }, RecomputeSettle: time.Nanosecond,
 	})
 	// A pass that runs while the event is already past its finish but before
 	// any telemetry exists (the finish was moved later afterwards, or the rows
@@ -138,7 +138,9 @@ SELECT count(*) FILTER (WHERE kind = 'lab_ready'), count(*) FILTER (WHERE kind =
 FROM event_lab_transitions WHERE event_id = $1`, event.ID).Scan(&labReady, &deviceReady, &connected); err != nil {
 		t.Fatal(err)
 	}
-	if labReady != 1 || deviceReady != 1 || connected != 3 {
+	// The event is over and its journal was never started: the first look at it only sets the states, it does not
+	// make up transitions (the recompute below writes the real history).
+	if labReady != 0 || deviceReady != 0 || connected != 0 {
 		t.Fatalf("transitions: lab_ready=%d device_ready=%d client_connected=%d", labReady, deviceReady, connected)
 	}
 	if err = db.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM event_lab_minutes WHERE event_id = $1),
@@ -169,15 +171,14 @@ SELECT (SELECT string_agg(concat_ws(',', device_name, bucket_at, samples, cpu_su
         FROM event_lab_minutes WHERE event_id = $1) || '|' ||
        (SELECT string_agg(concat_ws(',', client_name, bucket_at, samples, connected_samples, rx_bytes, tx_bytes, last_rx), ';' ORDER BY client_name, bucket_at)
         FROM event_vpn_client_minutes WHERE event_id = $1) || '|' ||
-       (SELECT string_agg(concat_ws(',', kind, at, lab_name, device_name, client_name, detail), ';' ORDER BY at, kind, lab_name, device_name, client_name)
-        FROM event_lab_transitions WHERE event_id = $1)`, event.ID).Scan(&d); err != nil {
+       'x'`, event.ID).Scan(&d); err != nil {
 			t.Fatal(err)
 		}
 		return d
 	}
 	before := digest()
 	exec(`DELETE FROM event_lab_observations WHERE event_id = $1`, event.ID)
-	res, err := uc.RecomputeLabTelemetry(ctx, event.ID)
+	res, err := uc.RecomputeLabTelemetry(ctx, event.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +187,15 @@ SELECT (SELECT string_agg(concat_ws(',', device_name, bucket_at, samples, cpu_su
 	}
 	if after := digest(); after != before {
 		t.Fatalf("recomputed rollups differ from the job's:\nbefore %.300s\nafter  %.300s", before, after)
+	}
+	if err = db.Pool.QueryRow(ctx, `
+SELECT count(*) FILTER (WHERE kind = 'lab_ready'), count(*) FILTER (WHERE kind = 'device_ready'),
+       count(*) FILTER (WHERE kind = 'client_connected')
+FROM event_lab_transitions WHERE event_id = $1`, event.ID).Scan(&labReady, &deviceReady, &connected); err != nil {
+		t.Fatal(err)
+	}
+	if labReady != 1 || deviceReady != 1 || connected != 3 {
+		t.Fatalf("recomputed transitions: lab_ready=%d device_ready=%d client_connected=%d", labReady, deviceReady, connected)
 	}
 	var held bool
 	if err = db.Pool.QueryRow(ctx, `SELECT lab_telemetry_hold_until IS NOT NULL FROM event_analytics_rollups WHERE event_id = $1`, event.ID).Scan(&held); err != nil || held {

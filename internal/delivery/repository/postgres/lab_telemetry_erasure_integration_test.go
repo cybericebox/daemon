@@ -105,7 +105,12 @@ VALUES ($1, $2, $3, $4, 2, $3, $1, $3, $1, $5, $6)`, chunk, f.event, at, at.Add(
 		"queued with the event it took part in")
 	require.True(t, strings.HasPrefix(pseudonym, "deleted-"))
 
-	// Everything the person's name was in carries the same pseudonym at once, the traffic and IPs stay.
+	// The purge only queues; the retention run that follows renames and rewrites in batches.
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_vpn_client_minutes WHERE client_name = $1`, gone))
+	uc := retention.New(retention.Dependencies{Store: store, Policies: fixedPolicy{}, Now: func() time.Time { return anStart }})
+	require.NoError(t, uc.EnforceDataRetention(ctx))
+
+	// Everything the person's name was in carries the same pseudonym, the traffic and IPs stay.
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_vpn_client_minutes WHERE client_name = $1`, gone))
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_vpn_client_minutes WHERE client_name = $1 AND rx_bytes = 10`, pseudonym))
 	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM event_lab_transitions WHERE client_name = $1 AND kind = 'client_connected'`, pseudonym))
@@ -129,7 +134,6 @@ VALUES ($1, $2, $3, $4, 2, $3, $1, $3, $1, $5, $6)`, chunk, f.event, at, at.Add(
 		}
 		cursor = next
 	}
-	uc := retention.New(retention.Dependencies{Store: store, Policies: fixedPolicy{}, Now: func() time.Time { return anStart }})
 	for pass := 0; pass < 2; pass++ { // a second run changes nothing
 		require.NoError(t, uc.EnforceDataRetention(ctx))
 		var all []string

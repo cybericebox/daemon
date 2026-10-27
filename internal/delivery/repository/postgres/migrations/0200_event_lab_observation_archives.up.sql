@@ -33,6 +33,17 @@ ALTER TABLE event_lab_observation_archives
 CREATE INDEX event_lab_observation_archives_event_period_idx
     ON event_lab_observation_archives (event_id, period_start, first_received_at, first_id);
 
+-- Which raw rows a chunk really holds. The cursor says how far the archive got by position, but a row committed
+-- late can sit behind it; a raw row is deleted only when it is listed here, and the retention job archives the
+-- late ones in a chunk of their own.
+CREATE TABLE event_lab_archived_rows
+(
+    row_id   uuid PRIMARY KEY,
+    chunk_id uuid NOT NULL REFERENCES event_lab_observation_archives (id) ON DELETE CASCADE
+);
+
+CREATE INDEX event_lab_archived_rows_chunk_idx ON event_lab_archived_rows (chunk_id);
+
 -- The archive cursor is the last observation archived (arrival order), like
 -- the VPN and lab usage cursors. The purge of raw rows waits for it.
 ALTER TABLE event_analytics_rollups
