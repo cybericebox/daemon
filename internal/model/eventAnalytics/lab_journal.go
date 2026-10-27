@@ -59,8 +59,8 @@ type LabEntityKey struct {
 
 // LabEntityState is what the journal remembers of an entity to recognize the
 // next change. Fields are used by kind: ready, phase, restarts and the
-// scheduling times by labs, devices and pods; boot by the group; applied by a
-// policy; connected and handshake by a client.
+// scheduling times by labs, devices and pods; boot by the group; revision (applied), state
+// (phase) and VPN boot by a policy; connected and handshake by a client.
 type LabEntityState struct {
 	Ready      bool   `json:"ready,omitempty"`
 	Phase      string `json:"phase,omitempty"`
@@ -208,8 +208,10 @@ type (
 		Policies []struct {
 			PolicyUID string `json:"policyUid"`
 			Status    struct {
+				State           string  `json:"state"`
 				AppliedAtUnixMs flexInt `json:"appliedAtUnixMs"`
 				AppliedRevision flexInt `json:"appliedRevision"`
+				VPNBootID       string  `json:"vpnBootId"`
 			} `json:"status"`
 		} `json:"policies"`
 	}
@@ -316,13 +318,21 @@ func (j *LabJournal) Apply(o LabObservation) []LabTransition {
 			name = "policy"
 		}
 		pk := key(labEntityPolicy, "", name)
-		prev := j.states[pk]
-		if applied := int64(pol.Status.AppliedAtUnixMs); applied > 0 && applied != prev.Applied {
-			detail := "revision " + strconv.FormatInt(int64(pol.Status.AppliedRevision), 10)
-			emit(LabTransitionPolicyApplied, "", nil, nil, time.UnixMilli(applied).UTC(), detail)
-			prev.Applied = applied
-			j.set(pk, prev)
+		prev, known := j.states[pk]
+		// The agent restamps appliedAtUnixMs on every reconcile, so the time says nothing: a policy counts as applied anew
+		// when it is Applied and its revision, state or VPN boot differs from what was seen before.
+		next := prev
+		next.Applied = int64(pol.Status.AppliedRevision)
+		next.Phase = pol.Status.State
+		next.BootID = pol.Status.VPNBootID
+		if pol.Status.State == "Applied" && (!known || next != prev) {
+			at := o.ObservedAt
+			if ms := int64(pol.Status.AppliedAtUnixMs); ms > 0 {
+				at = time.UnixMilli(ms).UTC()
+			}
+			emit(LabTransitionPolicyApplied, "", nil, nil, at, "revision "+strconv.FormatInt(next.Applied, 10))
 		}
+		j.set(pk, next)
 	}
 
 	present := map[LabEntityKey]struct{}{}

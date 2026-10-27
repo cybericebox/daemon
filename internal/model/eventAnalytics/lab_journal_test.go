@@ -105,7 +105,7 @@ func TestLabJournal_VPNBootAndPolicy(t *testing.T) {
 	applied := journalT0.Add(-5 * time.Second).UnixMilli()
 	payload := func(boot string, appliedAt int64) string {
 		return fmt.Sprintf(`{"groups":[{"name":"grp","status":{"currentVpnBootId":%q,"pods":[{"name":"vpn","scheduling":{"startedUnixMs":"%d"}}]}}],`+
-			`"policies":[{"policyUid":"pol-1","status":{"state":"Applied","appliedAtUnixMs":%d,"appliedRevision":"7"}}]}`, boot, applied, appliedAt)
+			`"policies":[{"policyUid":"pol-1","status":{"state":"Applied","appliedAtUnixMs":%d,"appliedRevision":"7","vpnBootId":"boot-1"}}]}`, boot, applied, appliedAt)
 	}
 	got := j.Apply(journalObs(team, journalT0, payload("boot-1", applied)))
 	require.Equal(t, "vpn_boot_changed,pod_started,policy_applied", kinds(got))
@@ -116,7 +116,7 @@ func TestLabJournal_VPNBootAndPolicy(t *testing.T) {
 
 	require.Empty(t, j.Apply(journalObs(team, journalT0.Add(time.Minute), payload("boot-1", applied))))
 	got = j.Apply(journalObs(team, journalT0.Add(2*time.Minute), payload("boot-2", applied+60000)))
-	require.Equal(t, "vpn_boot_changed,policy_applied", kinds(got))
+	require.Equal(t, "vpn_boot_changed", kinds(got), "a newer applied time alone is not a new policy")
 	require.Empty(t, j.Apply(journalObs(team, journalT0.Add(3*time.Minute), `not json`)))
 }
 
@@ -131,4 +131,30 @@ func TestLabJournal_QuietRecordsStatesWithoutTransitions(t *testing.T) {
 	j.Quiet = false
 	require.Empty(t, j.Apply(journalObs(team, journalT0.Add(time.Minute), labPayload(true, true, 0, journalT0.UnixMilli(), journalT0.UnixMilli()))),
 		"nothing changed since, so nothing is written once it is not quiet either")
+}
+
+func policyPayload(state string, appliedAtMs, revision int64, boot string) string {
+	return fmt.Sprintf(`{"policies":[{"policyUid":"pol-1","status":{"state":%q,"appliedAtUnixMs":%d,"appliedRevision":"%d","vpnBootId":%q}}]}`,
+		state, appliedAtMs, revision, boot)
+}
+
+// The agent restamps the applied time on every reconcile: 100 identical snapshots make one policy_applied; a new
+// revision, a new VPN boot or going back to Applied after another state each make one more.
+func TestLabJournal_PolicyAppliedOnlyWhenThePolicyChanges(t *testing.T) {
+	team := uuid.Must(uuid.NewV7())
+	j := eventAnalyticsModel.NewLabJournal(nil, func() uuid.UUID { return uuid.Must(uuid.NewV7()) })
+	var all []eventAnalyticsModel.LabTransition
+	for i := 0; i < 100; i++ {
+		at := journalT0.Add(time.Duration(i) * 5 * time.Second)
+		all = append(all, j.Apply(journalObs(team, at, policyPayload("Applied", at.UnixMilli(), 7, "boot-1")))...)
+	}
+	require.Equal(t, "policy_applied", kinds(all))
+	require.Equal(t, "revision 7", *all[0].Detail)
+
+	at := journalT0.Add(10 * time.Minute)
+	require.Equal(t, "policy_applied", kinds(j.Apply(journalObs(team, at, policyPayload("Applied", at.UnixMilli(), 8, "boot-1")))), "a new revision")
+	require.Empty(t, j.Apply(journalObs(team, at.Add(5*time.Second), policyPayload("Applied", at.UnixMilli()+5000, 8, "boot-1"))))
+	require.Equal(t, "policy_applied", kinds(j.Apply(journalObs(team, at.Add(time.Minute), policyPayload("Applied", at.UnixMilli()+60000, 8, "boot-2")))), "a new VPN boot")
+	require.Empty(t, j.Apply(journalObs(team, at.Add(2*time.Minute), policyPayload("Pending", at.UnixMilli()+60000, 8, "boot-2"))), "pending is not applied")
+	require.Equal(t, "policy_applied", kinds(j.Apply(journalObs(team, at.Add(3*time.Minute), policyPayload("Applied", at.UnixMilli()+180000, 8, "boot-2")))), "applied again")
 }
