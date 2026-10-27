@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 	"github.com/cybericebox/daemon/internal/useCase/retention"
@@ -234,4 +235,29 @@ func TestRetention_StaleRawRowsAreCounted(t *testing.T) {
 	n, err = store.StaleLabObservations(context.Background(), at.Add(-time.Hour))
 	require.NoError(t, err)
 	require.Zero(t, n)
+}
+
+// Collecting the person's IPs fails closed: an archive row that names the person but cannot be read leaves the
+// erasure open (an error, the entry stays); the readable chunks are still scrubbed.
+func TestLabTelemetryErasureOnRequest_UnreadableRowKeepsTheEntryOpen(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "labfailclosed")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	gone := labBindingModel.ParticipantClientName(f.user)
+	at := anStart.Add(time.Hour)
+	good := erasureArchiveChunk(t, db, f.event, f.team, at, at, gone, "10.8.0.7")
+
+	data, err := eventAnalyticsModel.CompressLabArchive([]string{`{"payload":"` + gone + `"}`})
+	require.NoError(t, err)
+	odd := uuid.Must(uuid.NewV7())
+	rtExec(t, db, `INSERT INTO event_lab_observation_archives (id, event_id, period_start, period_end, row_count, first_received_at, first_id, last_received_at, last_id, codec, data)
+VALUES ($1, $2, $3, $4, 1, $3, $1, $3, $1, $5, $6)`, odd, f.event, at.Add(-time.Hour), at, eventAnalyticsModel.LabArchiveCodecZstdNDJSON, data)
+
+	store := retentionRepo.New(db.Queries)
+	uc := retention.New(retention.Dependencies{Store: store, Now: func() time.Time { return anStart }})
+	_, _, err = uc.EraseLabTelemetryOf(ctx, f.user)
+	require.Error(t, err, "an incomplete erasure is reported")
+	require.Equal(t, 1, rtCount(t, db, `SELECT count(*) FROM lab_telemetry_erasures`), "and stays in the queue")
+	require.NotContains(t, archiveText(t, db, good), gone, "what could be done was done")
 }

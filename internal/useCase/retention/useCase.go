@@ -339,10 +339,12 @@ func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRe
 	var res scrubResult
 	for i := range page {
 		if page[i].EraseIP {
-			ips, err := u.collectIPs(ctx, page[i])
+			ips, unreadable, err := u.collectIPs(ctx, page[i])
 			if err != nil {
 				return res, err
 			}
+			// A chunk whose IPs could not be read means an incomplete erasure: the entry stays open.
+			res.failed += unreadable
 			page[i].IPs = ips
 		}
 	}
@@ -370,10 +372,11 @@ func (u *RetentionUseCase) scrubErasures(ctx context.Context, page []retentionRe
 
 // collectIPs gathers the IPs of an erased client from the live telemetry and the archive of its events, adds them to
 // the entry's stored list and returns the whole list.
-func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTelemetryErasure) ([]string, error) {
+func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTelemetryErasure) ([]string, int64, error) {
+	var unreadable int64
 	found, err := u.store.CollectLabClientIPs(ctx, e)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	names := []string{e.ClientName, e.Pseudonym}
 	for _, eventID := range e.EventIDs {
@@ -381,13 +384,14 @@ func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTe
 		for {
 			chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
 			if err != nil {
-				return nil, err
+				return nil, unreadable, err
 			}
 			for _, chunk := range chunks {
 				after = chunk.ID
 				ips, err := eventAnalyticsModel.LabArchiveClientIPs(chunk.Codec, chunk.Data, names)
 				if err != nil {
-					log.Error().Err(err).Str("chunk_id", chunk.ID.String()).Msg("data retention: an archive chunk cannot be read for the IPs of an erased client")
+					unreadable++
+					log.Error().Err(err).Str("chunk_id", chunk.ID.String()).Msg("data retention: an archive chunk cannot be read for the IPs of an erased client, the erasure stays open")
 					continue
 				}
 				found = append(found, ips...)
@@ -399,7 +403,7 @@ func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTe
 	}
 	if len(found) > 0 {
 		if err = u.store.AddLabTelemetryErasureIPs(ctx, e.UserID, found); err != nil {
-			return nil, err
+			return nil, unreadable, err
 		}
 	}
 	seen := map[string]struct{}{}
@@ -410,7 +414,7 @@ func (u *RetentionUseCase) collectIPs(ctx context.Context, e retentionRepo.LabTe
 			all = append(all, ip)
 		}
 	}
-	return all, nil
+	return all, unreadable, nil
 }
 
 // scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.
