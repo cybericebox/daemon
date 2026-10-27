@@ -19,6 +19,7 @@ import (
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"sort"
 	"time"
 )
@@ -215,6 +216,12 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 	for _, snapshot := range groups {
 		observation, observeErr := port.ObserveLabGroup(ctx, snapshot.Name)
 		if observeErr != nil && u.settleGoneGroup(ctx, snapshot.Name, snapshot.AgentUID != "" && snapshot.AgentGeneration > 0, observeErr) {
+			continue
+		}
+		if observeErr != nil && awaitingCreation(snapshot.AgentUID, snapshot.AgentGeneration, observeErr) {
+			// The group is made by the first deploy of the team: not there yet is waiting, not a failure.
+			log.Debug().Err(observeErr).Str("lab_group", snapshot.Name).Msg("Lab group lifecycle waits for the agent to create the group")
+			_ = eventLabGroupRepo.New(u.repo).Schedule(ctx, snapshot, now.Add(u.labLifecycleRetryMin))
 			continue
 		}
 		if observeErr != nil {
