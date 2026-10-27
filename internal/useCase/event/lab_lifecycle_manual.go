@@ -247,7 +247,7 @@ func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepositor
 		return err
 	}
 	slot := budget.TeamSlot()
-	if !groupFound || teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes || budget.Unplaced > 0 || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.Size.CPUMillicores || held.MemoryBytes > budget.Size.MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
+	if !groupFound || teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes || !budget.HoldsTeams(len(groups)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.PlacedSize().CPUMillicores || held.MemoryBytes > budget.PlacedSize().MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
 		return eventLabModel.ErrManualLimit.Err()
 	}
 	return nil

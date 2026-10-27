@@ -11334,6 +11334,11 @@ definitions:
       PerTeamSnapshotQuotaBytes:
         example: ""
         type: string
+      PlacedTeams:
+        description: |-
+          PlacedTeams is the number of teams that have an agent; UnplacedReason says why the others have none
+          (no_agents, device_too_large, no_capacity); empty when every team is placed.
+        type: integer
       Placement:
         items:
           $ref: '#/definitions/resourceCalendar.shareDTO'
@@ -11355,6 +11360,8 @@ definitions:
         type: string
       Unplaced:
         type: integer
+      UnplacedReason:
+        type: string
       Used:
         allOf:
         - $ref: '#/definitions/resourceCalendar.amountDTO'

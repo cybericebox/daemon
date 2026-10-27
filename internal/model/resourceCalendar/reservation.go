@@ -417,3 +417,46 @@ func (c *ChangeRequest) RequestStorage(size, dynamic *int64) error {
 	c.DynamicSnapshotQuotaBytes = dynamic
 	return nil
 }
+
+// PlacedTeams is how many of the reservation's teams have an agent.
+func (r *Reservation) PlacedTeams() int { return max(r.Teams-r.Unplaced, 0) }
+
+// PlacedSize is the part of Size that sits on an agent: the room of the placed teams only. Compute held by an
+// event is checked against it, so the teams that are placed do not wait for the ones that are not.
+func (r *Reservation) PlacedSize() Amount {
+	if r.Unplaced <= 0 {
+		return r.Size
+	}
+	slot := r.TeamSlot()
+	n := int64(r.PlacedTeams())
+	return Amount{CPUMillicores: min(slot.CPUMillicores*n, r.Size.CPUMillicores), MemoryBytes: min(slot.MemoryBytes*n, r.Size.MemoryBytes)}
+}
+
+// HoldsTeams reports whether n teams (counting the one asking) all have a placed unit. Admission is per team:
+// the first PlacedTeams teams are admitted, only the ones beyond them wait for the unplaced part.
+func (r *Reservation) HoldsTeams(n int) bool { return n <= r.PlacedTeams() }
+
+// Why the units of a reservation have no agent (UnplacedReason).
+const (
+	UnplacedNoAgents       = "no_agents"
+	UnplacedDeviceTooLarge = "device_too_large"
+	UnplacedNoCapacity     = "no_capacity"
+)
+
+// UnplacedReason says why the reservation has units without an agent; empty when every unit is placed. agents are
+// the agents that may be used.
+func (r *Reservation) UnplacedReason(agents []Agent) string {
+	if r.Unplaced <= 0 {
+		return ""
+	}
+	during := duringAll(agents, r.Window)
+	if len(during) == 0 {
+		return UnplacedNoAgents
+	}
+	for _, a := range during {
+		if a.Allows(r.LargestDevice) {
+			return UnplacedNoCapacity
+		}
+	}
+	return UnplacedDeviceTooLarge
+}

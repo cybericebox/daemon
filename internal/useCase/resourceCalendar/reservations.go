@@ -197,12 +197,14 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 				return calModel.ErrNotEnoughReserved.Err()
 			}
 		}
-		if err = u.requireHeldCoverage(ctx, s, now, r); err != nil {
-			return err
-		}
 		view, conflicts, covered, planErr := u.placeAndCheck(ctx, s, r, existing != nil, states, settings.TestPool, now)
 		if planErr != nil {
 			return planErr
+		}
+		// Held compute is checked against the NEW placement: the old Unplaced of a reservation that is resized to
+		// the real team count must not refuse its own correction.
+		if err = u.requireHeldCoverage(ctx, s, now, r); err != nil {
+			return err
 		}
 		view.StartLead = startLead(e, r)
 		result = ReservationResult{Reservation: view, Conflicts: conflicts}
@@ -390,6 +392,7 @@ func (u *ResourceCalendarUseCase) reservationView(r *calModel.Reservation, state
 	if v.Alarms == nil {
 		v.Alarms = []AlarmView{}
 	}
+	v.PlacedTeams, v.UnplacedReason = r.PlacedTeams(), r.UnplacedReason(usedAgents(states))
 	v.Parts = []PartView{}
 	for _, sh := range r.Placement {
 		v.Placement = append(v.Placement, ShareView{AgentID: sh.AgentID, AgentName: names[sh.AgentID], Units: sh.Units})

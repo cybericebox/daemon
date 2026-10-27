@@ -38,6 +38,10 @@ type ReservationView struct {
 
 	Placement []ShareView
 	Unplaced  int
+	// PlacedTeams is how many teams have an agent (Teams - Unplaced); UnplacedReason says why the others have none
+	// (no_agents, device_too_large, no_capacity), empty when all are placed.
+	PlacedTeams    int
+	UnplacedReason string
 	// Covered: every team has an agent and no slot of the window is over capacity.
 	Covered bool
 	// Used is what the event's running objects request now (events only; zero when unknown).

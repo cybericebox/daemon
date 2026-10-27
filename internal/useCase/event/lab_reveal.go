@@ -188,7 +188,8 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 			return calModel.ErrNotEnoughReserved.Err()
 		}
 	}
-	if budget.Unplaced > 0 || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.Size.CPUMillicores || held.MemoryBytes > budget.Size.MemoryBytes || quota > budget.SizeSnapshotQuotaBytes {
+	placedSize := budget.PlacedSize()
+	if !budget.HoldsTeams(len(groupByTeam)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || quota > budget.SizeSnapshotQuotaBytes {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
 	for _, snapshot := range labs {

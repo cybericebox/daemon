@@ -42942,6 +42942,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": ""
                 },
+                "PlacedTeams": {
+                    "description": "PlacedTeams is the number of teams that have an agent; UnplacedReason says why the others have none\n(no_agents, device_too_large, no_capacity); empty when every team is placed.",
+                    "type": "integer"
+                },
                 "Placement": {
                     "type": "array",
                     "items": {
@@ -42970,6 +42974,9 @@ const docTemplate = `{
                 },
                 "Unplaced": {
                     "type": "integer"
+                },
+                "UnplacedReason": {
+                    "type": "string"
                 },
                 "Used": {
                     "description": "Used is what the event's running objects request now.",

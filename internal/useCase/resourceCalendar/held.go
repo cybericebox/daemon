@@ -63,7 +63,7 @@ func (u *ResourceCalendarUseCase) requireHeldCoverage(ctx context.Context, s Sto
 				return calModel.ErrNotEnoughReserved.Err()
 			}
 		}
-		if r == nil || !r.Active() || !compute.Within(r.Size) || storage > r.SizeSnapshotQuotaBytes || (compute != (Amount{}) && (!r.Window.Contains(now) || r.Unplaced > 0 || len(r.Placement) == 0)) {
+		if r == nil || !r.Active() || !compute.Within(r.PlacedSize()) || storage > r.SizeSnapshotQuotaBytes || (compute != (Amount{}) && (!r.Window.Contains(now) || r.PlacedTeams() == 0 || len(r.Placement) == 0)) {
 			return calModel.ErrNotEnoughReserved.Err()
 		}
 	}

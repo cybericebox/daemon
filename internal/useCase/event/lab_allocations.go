@@ -231,7 +231,14 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	if teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
-	if reservation.Unplaced > 0 || len(reservation.Placement) == 0 || !reservation.Window.Contains(time.Now().UTC()) || held.CPUMillicores > reservation.Size.CPUMillicores || held.MemoryBytes > reservation.Size.MemoryBytes || storage > reservation.SizeSnapshotQuotaBytes || (storageBytes > 0 && reservation.SizeSnapshotQuotaBytes == 0) {
+	// Admission is per team: the first PlacedTeams teams of the event are admitted, only the teams beyond the placed
+	// units wait for the unplaced part of the reservation.
+	teamsHolding := len(groups)
+	if !foundGroup {
+		teamsHolding++
+	}
+	placedSize := reservation.PlacedSize()
+	if !reservation.HoldsTeams(teamsHolding) || len(reservation.Placement) == 0 || !reservation.Window.Contains(time.Now().UTC()) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || storage > reservation.SizeSnapshotQuotaBytes || (storageBytes > 0 && reservation.SizeSnapshotQuotaBytes == 0) {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
 	if !foundGroup {
