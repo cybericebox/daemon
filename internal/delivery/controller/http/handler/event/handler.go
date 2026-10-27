@@ -167,6 +167,7 @@ type (
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
 		ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in eventUseCase.ReplaceEventExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		UpdateEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
+		PreviewEventExerciseUpdate(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID) (eventUseCase.EventExerciseUpdatePreview, error)
 		ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		RevertEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		DetachEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, confirmed bool, by uuid.UUID) error
@@ -418,6 +419,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("exercises", h.requireManage, h.attachExercise)
 		manage.POST("exercises/:exerciseID/replace", h.requireManage, h.replaceEventExercise)
 		manage.POST("exercises/:exerciseID/update", h.requireManage, h.updateEventExercise)
+		manage.POST("exercises/:exerciseID/update/preview", h.requireManage, h.previewEventExerciseUpdate)
 		manage.POST("exercises/:exerciseID/fork", h.requireManage, h.forkEventExercise)
 		manage.POST("exercises/:exerciseID/revert", h.requireManage, h.revertEventExercise)
 		manage.DELETE("exercises/:exerciseID", h.requireManage, h.detachEventExercise)
@@ -2073,7 +2075,7 @@ func parseEventExerciseParams(ctx *gin.Context) (eventID, exerciseID, userID uui
 // updateEventExercise godoc
 // @Summary «Оновити»: switch the attachment in place to the latest (or given) published version, keeping event overrides
 // @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
-// @Description Teams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.
+// @Description Board challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -2112,6 +2114,37 @@ func bindRecreateStands(ctx *gin.Context) (recreateStandsRequest, bool) {
 		}
 	}
 	return req, true
+}
+
+// previewEventExerciseUpdate godoc
+// @Summary Dry run of «Оновити до нової версії»: what the update would do, nothing is changed
+// @Description Returns how many stands of how many teams would be recreated (StandsRecreated, TeamsAffected, Teams), how many labs are re-prepared in place because they have not started (StandsReset) or are kept as they are (StandsKept), the tasks added, removed or kept under a new task id, removed tasks with attempts that block the update, and whether the reservation is short. RequiresConfirmation is true when the update recreates running stands: repeat the update with RecreateStands=true only after the organizer confirmed.
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param id path string true "event ID"
+// @Param exerciseID path string true "event exercise attachment ID"
+// @Param body body updateEventExerciseRequest false "target version (default: latest published)"
+// @Success 200 {object} response.Response{data=eventExerciseUpdatePreviewResponse}
+// @Router /events/{id}/manage/exercises/{exerciseID}/update/preview [post]
+func (h *Handler) previewEventExerciseUpdate(ctx *gin.Context) {
+	eventID, exerciseID, _, ok := parseEventExerciseParams(ctx)
+	if !ok {
+		return
+	}
+	var req updateEventExerciseRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+	}
+	value, err := h.useCase.PreviewEventExerciseUpdate(ctx, eventID, exerciseID, req.ExerciseVersionID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toEventExerciseUpdatePreviewResponse(value))
 }
 
 // forkEventExercise godoc

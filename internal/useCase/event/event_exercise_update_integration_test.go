@@ -199,3 +199,29 @@ func TestRecreateTeamStand_TakesTheNextFreeGeneration(t *testing.T) {
 	f.pass(t)
 	require.Equal(t, 2, f.count(t, `SELECT count(*) FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID))
 }
+
+// The dry run says what the update would do and changes nothing.
+func TestPreviewEventExerciseUpdate(t *testing.T) {
+	f, set := readySetFixture(t)
+	ctx := context.Background()
+	_, gensBefore, _ := f.bindings(t, f.blueID, set.challenges)
+
+	text := publishSetVersion(t, f, set, changeText)
+	preview, err := f.uc.PreviewEventExerciseUpdate(ctx, f.eventID, set.exerciseID, &text)
+	require.NoError(t, err)
+	require.False(t, preview.RequiresConfirmation)
+	require.Zero(t, preview.StandsRecreated)
+	require.NotZero(t, preview.StandsKept)
+
+	topology := publishSetVersion(t, f, set, changeTopology)
+	preview, err = f.uc.PreviewEventExerciseUpdate(ctx, f.eventID, set.exerciseID, &topology)
+	require.NoError(t, err)
+	require.True(t, preview.RequiresConfirmation)
+	require.Equal(t, 3, preview.TeamsAffected, "blue, red and the moderators")
+	require.Equal(t, 3, preview.StandsRecreated)
+	require.Len(t, preview.Teams, 3)
+
+	_, gensAfter, _ := f.bindings(t, f.blueID, set.challenges)
+	require.Equal(t, gensBefore, gensAfter, "a preview changes nothing")
+	require.Empty(t, f.agent.deleted)
+}

@@ -38,4 +38,3 @@ func TestPublish_TeamOutsideTheCohortDoesNotWaitForTheBarrier(t *testing.T) {
 	require.Equal(t, 3, f.count(t, `SELECT count(*) FROM team_challenges WHERE event_team_id=$1 AND event_challenge_id=ANY($2) AND readiness=2`, f.blueID, set.challenges))
 	require.Equal(t, 0, f.count(t, `SELECT count(*) FROM team_challenges WHERE event_team_id=$1 AND event_challenge_id=ANY($2) AND readiness=2`, f.redID, set.challenges), "the cohort still waits")
 }
-

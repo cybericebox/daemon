@@ -541,7 +541,7 @@ type attachExerciseRequest struct {
 
 type replaceEventExerciseRequest struct {
 	ExerciseVersionID uuid.UUID `json:"ExerciseVersionID"`
-	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	// RecreateStands confirms recreating running stand Labs (the preview says whether the update does).
 	RecreateStands bool `json:"RecreateStands"`
 }
 
@@ -634,10 +634,41 @@ type eventExerciseForkResponse struct {
 	SourceUpdateAvailable     bool       `json:"SourceUpdateAvailable"`
 }
 
+type eventExerciseUpdateTeamResponse struct {
+	ID   uuid.UUID `json:"ID"`
+	Name string    `json:"Name"`
+}
+
+type eventExerciseUpdatePreviewResponse struct {
+	TargetVersionID      uuid.UUID                         `json:"TargetVersionID"`
+	StandsRecreated      int                               `json:"StandsRecreated"`
+	TeamsAffected        int                               `json:"TeamsAffected"`
+	StandsReset          int                               `json:"StandsReset"`
+	StandsKept           int                               `json:"StandsKept"`
+	Teams                []eventExerciseUpdateTeamResponse `json:"Teams"`
+	TasksAdded           []string                          `json:"TasksAdded"`
+	TasksRemoved         []string                          `json:"TasksRemoved"`
+	TasksRepointed       []string                          `json:"TasksRepointed"`
+	TasksBlocking        []string                          `json:"TasksBlocking"`
+	RequiresConfirmation bool                              `json:"RequiresConfirmation"`
+	ReservationShort     bool                              `json:"ReservationShort"`
+}
+
+func toEventExerciseUpdatePreviewResponse(v eventUseCase.EventExerciseUpdatePreview) eventExerciseUpdatePreviewResponse {
+	out := eventExerciseUpdatePreviewResponse{TargetVersionID: v.TargetVersionID, StandsRecreated: v.StandsRecreated, TeamsAffected: v.TeamsAffected,
+		StandsReset: v.StandsReset, StandsKept: v.StandsKept, Teams: make([]eventExerciseUpdateTeamResponse, 0, len(v.Teams)),
+		TasksAdded: nonNilStrings(v.TasksAdded), TasksRemoved: nonNilStrings(v.TasksRemoved), TasksRepointed: nonNilStrings(v.TasksRepointed), TasksBlocking: nonNilStrings(v.TasksBlocking),
+		RequiresConfirmation: v.RequiresConfirmation, ReservationShort: v.ReservationShort}
+	for _, team := range v.Teams {
+		out.Teams = append(out.Teams, eventExerciseUpdateTeamResponse{ID: team.ID, Name: team.Name})
+	}
+	return out
+}
+
 type updateEventExerciseRequest struct {
 	// ExerciseVersionID nil = the exercise's latest published version.
 	ExerciseVersionID *uuid.UUID `json:"ExerciseVersionID"`
-	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	// RecreateStands confirms recreating running stand Labs (the preview says whether the update does).
 	RecreateStands bool `json:"RecreateStands"`
 }
 
