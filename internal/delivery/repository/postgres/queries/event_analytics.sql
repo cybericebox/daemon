@@ -143,9 +143,9 @@ SELECT b.id                                                                     
        b.event_team_id                                                               AS team_id,
        b.observed_at,
        COALESCE(c ->> 'name', '')::text                                              AS client_name,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix')::bigint, 0)::bigint AS handshake_unix,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'rxBytes')::bigint, 0)::bigint   AS rx_bytes,
-       COALESCE((c -> 'status' -> 'statistics' ->> 'txBytes')::bigint, 0)::bigint   AS tx_bytes
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0)::bigint AS handshake_unix,
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes'), 0)::bigint   AS rx_bytes,
+       COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes'), 0)::bigint   AS tx_bytes
 FROM batch b
 LEFT JOIN LATERAL jsonb_array_elements(
         CASE WHEN jsonb_typeof(b.payload -> 'clients') = 'array' THEN b.payload -> 'clients' ELSE '[]'::jsonb END) c ON true
@@ -221,9 +221,9 @@ WITH batch AS (
            date_trunc('minute', l.observed_at)                                               AS bucket_at,
            l.observed_at,
            l.id,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'cpuMillicores', '')::bigint END AS cpu,
-           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN NULLIF(dev ->> 'memoryBytes', '')::bigint END   AS memory,
-           COALESCE(NULLIF(dev ->> 'restartCount', '')::bigint, 0)                           AS restarts,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN lab_telemetry_number(dev ->> 'cpuMillicores') END AS cpu,
+           CASE WHEN dev ->> 'usageAvailable' = 'true' THEN lab_telemetry_number(dev ->> 'memoryBytes') END   AS memory,
+           COALESCE(lab_telemetry_number(dev ->> 'restartCount'), 0)                           AS restarts,
            COALESCE(dev ->> 'ready' = 'true', false)                                         AS ready,
            NULLIF(dev ->> 'podPhase', '')                                                    AS pod_phase
     FROM lab_rows l
@@ -289,9 +289,9 @@ WITH batch AS (
 ), client_samples AS (
     SELECT b.id, b.event_team_id AS team_id, b.lab_group_name, b.observed_at,
            COALESCE(c ->> 'name', '')                                                       AS client_name,
-           COALESCE(NULLIF(c -> 'status' -> 'statistics' ->> 'rxBytes', '')::bigint, 0)           AS rx,
-           COALESCE(NULLIF(c -> 'status' -> 'statistics' ->> 'txBytes', '')::bigint, 0)           AS tx,
-           COALESCE(NULLIF(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix', '')::bigint, 0) AS handshake
+           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'rxBytes'), 0)           AS rx,
+           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'txBytes'), 0)           AS tx,
+           COALESCE(lab_telemetry_number(c -> 'status' -> 'statistics' ->> 'lastHandshakeUnix'), 0) AS handshake
     FROM batch b
     CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(b.payload -> 'clients') = 'array' THEN b.payload -> 'clients' ELSE '[]'::jsonb END) c
