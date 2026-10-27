@@ -1278,3 +1278,51 @@ func TestEndExpiredTestDeploy_WaitingLabGetsAFreshLease(t *testing.T) {
 		t.Fatalf("lease extended to %v, want after %v", extended, now)
 	}
 }
+
+// policyRefusingInfra refuses a group policy that names a Lab the agent does not have (the prod refusal
+// «lab ... does not belong to group»).
+type policyRefusingInfra struct {
+	*fakeInfra
+	have map[string]bool
+}
+
+func (p *policyRefusingInfra) ReconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy) error {
+	for _, pol := range policies {
+		for _, lab := range pol.AllowedLabs {
+			if !p.have[lab] {
+				return errors.New("replace lab group access policy: lab \"" + lab + "\" does not belong to group \"" + group + "\"")
+			}
+		}
+	}
+	return p.fakeInfra.ReconcileLabGroupAccess(ctx, group, policies)
+}
+func (p *policyRefusingInfra) LabGroupExists(context.Context, string) (bool, error) { return true, nil }
+func (p *policyRefusingInfra) LabExists(_ context.Context, _, lab string) (bool, error) {
+	return p.have[lab], nil
+}
+
+// Production 2026-10-21: the author's other lease still ran but its Lab was gone from the agent, so the policy
+// built for the remaining Labs was refused and the destroy answered 500.
+func TestDestroyDeployTest_StaleLabInThePolicyDoesNotFailTheDestroy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID, staleID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	future := time.Now().Add(time.Hour)
+	row := postgres.ExerciseTestDeployment{ID: deployID, GroupName: "tu-group", LabName: "l-one", CreatedBy: userID, ExpiresAt: future}
+	stale := postgres.ExerciseTestDeployment{ID: staleID, GroupName: "tu-group", LabName: "l-stale", CreatedBy: userID, ExpiresAt: future}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row, stale}, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+	infra := &policyRefusingInfra{fakeInfra: &fakeInfra{}, have: map[string]bool{"l-one": true}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	if err := uc.DestroyDeployTest(context.Background(), userID, deployID); err != nil {
+		t.Fatalf("destroy must not fail on a stale lab: %v", err)
+	}
+	if len(infra.deletedLabs) != 1 || infra.deletedLabs[0] != "tu-group/l-one" {
+		t.Fatalf("the lab is deleted: %v", infra.deletedLabs)
+	}
+	if len(infra.policies) != 1 || len(infra.policies[0].AllowedLabs) != 0 {
+		t.Fatalf("the policy is rebuilt from the labs the agent has: %+v", infra.policies)
+	}
+}

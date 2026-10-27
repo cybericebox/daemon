@@ -601,8 +601,35 @@ func (u *ExerciseUseCase) removeTestLab(ctx context.Context, deploy exerciseMode
 	if err := u.infra.DeleteLab(ctx, deploy.GroupName, deploy.LabName); err != nil {
 		return err
 	}
-	return u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: testClientName(deploy.CreatedBy), AllowedLabs: labNames(all, deploy.ID)}})
+	err := u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: testClientName(deploy.CreatedBy), AllowedLabs: labNames(all, deploy.ID)}})
+	if err == nil || !strings.Contains(err.Error(), labNotInGroup) {
+		return err
+	}
+	// A lease that still runs does not mean its Lab still exists: the agent refuses a policy naming a Lab it no
+	// longer has in the group (deleted by hand, failed to start, removed by an earlier destroy whose row waits for
+	// its check). The Lab being removed is already deleted, so the policy is rebuilt from the Labs the agent
+	// really has; if it still cannot be applied the stale entry is not worth failing the destroy for.
+	var present []exerciseModel.TestDeploy
+	presence, tracked := u.infra.(labPresence)
+	for _, item := range all {
+		if item.ID == deploy.ID {
+			continue
+		}
+		if tracked {
+			if exists, existsErr := presence.LabExists(ctx, item.GroupName, item.LabName); existsErr != nil || !exists {
+				continue
+			}
+		}
+		present = append(present, item)
+	}
+	if retryErr := u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: testClientName(deploy.CreatedBy), AllowedLabs: labNames(present, deploy.ID)}}); retryErr != nil {
+		log.Warn().Err(retryErr).Str("lab_group", deploy.GroupName).Str("lab", deploy.LabName).Msg("Test lab removed, its group policy still names a lab the agent does not have")
+	}
+	return nil
 }
+
+// labNotInGroup is the agent's refusal of a group policy that names a Lab it does not have in the group.
+const labNotInGroup = "does not belong to group"
 
 // underOwnerLock runs fn with the author's lock held until it returns: with a unit of work it is the
 // per-user advisory lock of one transaction, so a deploy, a destroy and an expiry of one author
