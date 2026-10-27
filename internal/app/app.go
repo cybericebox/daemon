@@ -33,7 +33,6 @@ import (
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/useCase"
-	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -203,16 +202,9 @@ func Run(cfg *config.Config) {
 				listed, gone := labagent.ReservationsOf(reservations, deleted)
 				return ucs.ObserveClusterReservations(ctx, member.ID, snapshot, listed, gone)
 			})
-			// A device that its CPU limit starves is reported to the platform admins, once per device per lab run;
-			// the request closes by itself when the lab run is gone.
-			runner = runner.WithThrottleWatcher(labMonitoring.NewThrottleWatcher(member.ID.String(), func(ctx context.Context, a labMonitoring.ThrottleAlert) error {
-				return ucs.InboxRequests.CPUThrottled(ctx, inboxUseCase.CPUThrottle{
-					AgentID: a.AgentID, LabRun: a.Run, LabName: a.LabName, LabGroupName: a.LabGroupName,
-					Device: a.Device, Percent: a.Percent, WindowSeconds: a.WindowSeconds, RaisedAt: time.Now().UTC(),
-				})
-			}).WithGone(func(ctx context.Context, run, device string) error {
-				return ucs.InboxRequests.CPUThrottleGone(ctx, run, device)
-			}))
+			// A device that its CPU limit starves is written to the error journal (super admins only), once per device
+			// per window: the limit is the task author's, no organizer or admin on duty can fix it.
+			runner = runner.WithThrottleWatcher(labMonitoring.NewThrottleWatcher(member.ID.String(), labMonitoring.ThrottleJournal(errorJournal.Report, time.Now)))
 			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},
 	})

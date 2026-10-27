@@ -41,48 +41,6 @@ type ResourceAlarm struct {
 	RaisedAt  time.Time
 }
 
-// CPUThrottle is a lab device the agent reports starved by its CPU limit.
-type CPUThrottle struct {
-	AgentID       string
-	LabRun        string
-	LabName       string
-	LabGroupName  string
-	Device        string
-	Percent       int
-	WindowSeconds int
-	RaisedAt      time.Time
-}
-
-// CPUThrottled tells every platform admin that a lab device is throttled above the threshold, once per device per
-// lab run: a request already delivered for it (open or closed by an admin) is not sent again, even after a restart
-// of the daemon that forgot the alert.
-func (r *RequestRouter) CPUThrottled(ctx context.Context, t CPUThrottle) error {
-	ref := inboxModel.CPUThrottleRef(t.LabRun, t.Device)
-	sent, err := r.inbox.SubjectExists(ctx, ref)
-	if err != nil {
-		return fmt.Errorf("inbox requests: check the CPU throttling alert: %w", err)
-	}
-	if sent {
-		return nil
-	}
-	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("inbox requests: list platform admins: %w", err)
-	}
-	vars := map[string]any{
-		"lab_name": t.LabName, "lab_group_name": t.LabGroupName, "device_name": t.Device, "agent_id": t.AgentID,
-		"percent": strconv.Itoa(t.Percent), "window_minutes": strconv.Itoa((t.WindowSeconds + 59) / 60), "admin_url": r.adminURL,
-	}
-	meta := inboxModel.NewMeta(inboxModel.TypeResourceCPUThrottled, inboxModel.RoleAdmin, ref).Raised(t.RaisedAt)
-	return r.fanOut(ctx, admins, inboxModel.TypeResourceCPUThrottled, vars, meta)
-}
-
-// CPUThrottleGone closes the admins' throttling request of a device whose lab run is gone (deleted, or missing
-// from the agent's snapshot): nothing is left to look at.
-func (r *RequestRouter) CPUThrottleGone(ctx context.Context, labRun, device string) error {
-	return r.resolve(ctx, inboxModel.CPUThrottleRef(labRun, device), inboxModel.ResolutionResolved, uuid.Nil)
-}
-
 func (r *RequestRouter) resourceChangeVars(ctx context.Context, c ResourceChange) (map[string]any, error) {
 	vars := map[string]any{
 		"change_id": c.ID.String(), "event_id": c.EventID.String(), "event_name": c.EventName, "event_tag": c.EventTag,
