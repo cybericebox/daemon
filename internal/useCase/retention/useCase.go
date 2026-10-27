@@ -30,9 +30,13 @@ type (
 		PurgeEventLabObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeRolledUpEventLabObservations(ctx context.Context, receivedBefore time.Time, batchSize int32) (int64, error)
 		LabTelemetryErasures(ctx context.Context, batchSize int32) ([]retentionRepo.LabTelemetryErasure, error)
-		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
+		ScrubRawLabObservations(ctx context.Context, e retentionRepo.LabTelemetryErasure, batchSize int32) (int64, error)
+		ScrubLabMonitoringCurrent(ctx context.Context, e retentionRepo.LabTelemetryErasure) (int64, error)
+		RenameErasedLabClient(ctx context.Context, e retentionRepo.LabTelemetryErasure) error
+		LabArchiveChunksForScrub(ctx context.Context, eventID, afterID uuid.UUID, createdAfter time.Time, pageSize int32) ([]retentionRepo.LabArchiveChunk, error)
+		MarkLabTelemetryErasuresScrubbed(ctx context.Context, userIDs []uuid.UUID, scrubbedAt time.Time) error
+		DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error)
 		SaveScrubbedLabArchiveChunk(ctx context.Context, id uuid.UUID, data []byte) error
-		DeleteLabTelemetryErasures(ctx context.Context, userIDs []uuid.UUID) error
 		PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error)
 		PurgePlatformLabCapacityObservations(ctx context.Context, observedBefore time.Time, batchSize int32) (int64, error)
 		PurgeNotificationDispatches(ctx context.Context, createdBefore time.Time, batchSize int32) (int64, error)
@@ -152,7 +156,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeDeletedAccounts(ctx, started, batch)
 	})
 	// The archived raw telemetry of the accounts just purged: their VPN client names and IPs go.
-	scrubbedChunks, err := u.scrubLabArchives(ctx, batch)
+	scrubbedChunks, err := u.scrubLabTelemetry(ctx, batch)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -204,57 +208,88 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 // labScrubPageSize archive chunks are unpacked at a time.
 const labScrubPageSize = 5
 
-// scrubLabArchives rewrites the archive chunks that mention deleted accounts (queued by the account purge): the
-// VPN client names and the assigned IPs are removed, then the accounts leave the queue. A chunk without the
-// names is not touched and a failed run leaves the queue as it was, so a re-run is harmless. Returns the chunks
-// it rewrote.
-func (u *RetentionUseCase) scrubLabArchives(ctx context.Context, batch int32) (int64, error) {
-	var rewritten int64
-	for {
-		erasures, err := u.store.LabTelemetryErasures(ctx, batch)
-		if err != nil {
-			return rewritten, err
-		}
-		if len(erasures) == 0 {
-			return rewritten, nil
-		}
-		names := make([]string, 0, len(erasures))
+// labErasureSettleAfter is how long an erased account stays queued: the lab drops its VPN client within minutes
+// and the archive follows the raw rows by about an hour, so after a day nothing can bring the real name back.
+const labErasureSettleAfter = 24 * time.Hour
+
+// scrubLabTelemetry removes the link to deleted accounts from the lab telemetry that still carries it: the raw
+// observations and the current state (they are rewritten at once when the account is purged, and again here for
+// what arrived since), the rollup rows built from them and the archive chunks. The VPN client name becomes the
+// account's pseudonym everywhere; IPs and counters stay. Every step is idempotent. An account leaves the queue a
+// day after its purge, once the archive passed the raw rows of that day. Returns the archive chunks it rewrote.
+func (u *RetentionUseCase) scrubLabTelemetry(ctx context.Context, batch int32) (int64, error) {
+	started := u.now()
+	erasures, err := u.store.LabTelemetryErasures(ctx, batch)
+	if err != nil {
+		return 0, err
+	}
+	if len(erasures) > 0 {
+		var rewritten int64
+		pseudonyms := map[string]string{}
 		ids := make([]uuid.UUID, 0, len(erasures))
 		events := map[uuid.UUID]struct{}{}
+		createdAfter := started
 		for _, e := range erasures {
-			names = append(names, e.ClientName)
+			if err = u.scrubLive(ctx, e, batch); err != nil {
+				return rewritten, err
+			}
+			pseudonyms[e.ClientName] = e.Pseudonym
 			ids = append(ids, e.UserID)
 			for _, id := range e.EventIDs {
 				events[id] = struct{}{}
 			}
+			if e.ArchivesScrubbedAt == nil {
+				createdAfter = time.Time{}
+			} else if e.ArchivesScrubbedAt.Before(createdAfter) {
+				createdAfter = *e.ArchivesScrubbedAt
+			}
 		}
 		for eventID := range events {
-			n, err := u.scrubEventArchive(ctx, eventID, names)
+			n, err := u.scrubEventArchive(ctx, eventID, createdAfter, pseudonyms)
 			rewritten += n
 			if err != nil {
 				return rewritten, err
 			}
 		}
-		if err = u.store.DeleteLabTelemetryErasures(ctx, ids); err != nil {
+		if err = u.store.MarkLabTelemetryErasuresScrubbed(ctx, ids, started); err != nil {
 			return rewritten, err
 		}
-		if len(erasures) < int(batch) {
-			return rewritten, ctx.Err()
+		if _, err = u.store.DeleteSettledLabTelemetryErasures(ctx, started.Add(-labErasureSettleAfter)); err != nil {
+			return rewritten, err
 		}
+		return rewritten, nil
 	}
+	return 0, nil
 }
 
-func (u *RetentionUseCase) scrubEventArchive(ctx context.Context, eventID uuid.UUID, names []string) (int64, error) {
+// scrubLive rewrites the raw observations and the current state of one erased account and renames the rollup rows.
+func (u *RetentionUseCase) scrubLive(ctx context.Context, e retentionRepo.LabTelemetryErasure, batch int32) error {
+	if len(e.EventIDs) > 0 {
+		if _, err := drain(ctx, batch, func(ctx context.Context) (int64, error) {
+			return u.store.ScrubRawLabObservations(ctx, e, batch)
+		}); err != nil {
+			return err
+		}
+		if _, err := u.store.ScrubLabMonitoringCurrent(ctx, e); err != nil {
+			return err
+		}
+	}
+	return u.store.RenameErasedLabClient(ctx, e)
+}
+
+func (u *RetentionUseCase) scrubEventArchive(
+	ctx context.Context, eventID uuid.UUID, createdAfter time.Time, pseudonyms map[string]string,
+) (int64, error) {
 	var rewritten int64
 	after := uuid.Nil
 	for {
-		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, labScrubPageSize)
+		chunks, err := u.store.LabArchiveChunksForScrub(ctx, eventID, after, createdAfter, labScrubPageSize)
 		if err != nil {
 			return rewritten, err
 		}
 		for _, chunk := range chunks {
 			after = chunk.ID
-			data, changed, err := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, names)
+			data, changed, err := eventAnalyticsModel.ScrubLabArchive(chunk.Codec, chunk.Data, pseudonyms)
 			if err != nil {
 				return rewritten, err
 			}

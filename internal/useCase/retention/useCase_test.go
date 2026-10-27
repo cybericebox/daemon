@@ -61,11 +61,25 @@ func (s *fakeStore) PurgeRolledUpEventLabObservations(
 func (s *fakeStore) LabTelemetryErasures(context.Context, int32) ([]retentionRepo.LabTelemetryErasure, error) {
 	return nil, nil
 }
-func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, int32) ([]retentionRepo.LabArchiveChunk, error) {
+func (s *fakeStore) ScrubRawLabObservations(context.Context, retentionRepo.LabTelemetryErasure, int32) (int64, error) {
+	return 0, nil
+}
+func (s *fakeStore) ScrubLabMonitoringCurrent(context.Context, retentionRepo.LabTelemetryErasure) (int64, error) {
+	return 0, nil
+}
+func (s *fakeStore) RenameErasedLabClient(context.Context, retentionRepo.LabTelemetryErasure) error {
+	return nil
+}
+func (s *fakeStore) LabArchiveChunksForScrub(context.Context, uuid.UUID, uuid.UUID, time.Time, int32) ([]retentionRepo.LabArchiveChunk, error) {
 	return nil, nil
 }
 func (s *fakeStore) SaveScrubbedLabArchiveChunk(context.Context, uuid.UUID, []byte) error { return nil }
-func (s *fakeStore) DeleteLabTelemetryErasures(context.Context, []uuid.UUID) error        { return nil }
+func (s *fakeStore) MarkLabTelemetryErasuresScrubbed(context.Context, []uuid.UUID, time.Time) error {
+	return nil
+}
+func (s *fakeStore) DeleteSettledLabTelemetryErasures(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
 func (s *fakeStore) PurgeEventLabTelemetry(_ context.Context, before time.Time, _ int32) (int64, error) {
 	return s.purge("lab_telemetry", before)
 }

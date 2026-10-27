@@ -293,7 +293,6 @@ type Querier interface {
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
-	DeleteLabTelemetryErasures(ctx context.Context, userIds []uuid.UUID) error
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteNotificationBroadcastTemplate(ctx context.Context, arg DeleteNotificationBroadcastTemplateParams) (int64, error)
@@ -307,6 +306,9 @@ type Querier interface {
 	// Removes a stored setting; a typed setting then falls back to its defaults.
 	DeletePlatformSettingByKey(ctx context.Context, key string) error
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
+	// An entry settles a day after the account was purged, once the archive passed every raw row of its events that
+	// arrived before that: nothing that still carries the real name can be archived after it goes.
+	DeleteSettledLabTelemetryErasures(ctx context.Context, settledBefore time.Time) (int64, error)
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
 	// Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
@@ -1174,12 +1176,12 @@ type Querier interface {
 	// Pending, not yet announced invitations of started events; the use case
 	// applies the exact expiry rule of the event lifecycle.
 	ListInvitationExpiryCandidates(ctx context.Context, nowAt time.Time) ([]ListInvitationExpiryCandidatesRow, error)
-	// The archive chunks of an event after the given id, a page at a time.
+	// The archive chunks of an event created after created_after, after the given id, a page at a time.
 	ListLabArchiveChunksForScrub(ctx context.Context, arg ListLabArchiveChunksForScrubParams) ([]ListLabArchiveChunksForScrubRow, error)
 	// The challenges that share one Lab of a team.
 	ListLabBindingChallenges(ctx context.Context, arg ListLabBindingChallengesParams) ([]uuid.UUID, error)
-	// Deleted accounts whose archived telemetry is still to be scrubbed.
-	ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]ListLabTelemetryErasuresRow, error)
+	// Accounts erased from the lab telemetry that have not settled yet.
+	ListLabTelemetryErasures(ctx context.Context, batchSize int32) ([]LabTelemetryErasure, error)
 	// Spans of a team that overlap [since, until].
 	ListLabTrafficCoverage(ctx context.Context, arg ListLabTrafficCoverageParams) ([]ListLabTrafficCoverageRow, error)
 	ListLatestEventLabObservations(ctx context.Context, eventID uuid.UUID) ([]EventLabObservation, error)
@@ -1600,6 +1602,7 @@ type Querier interface {
 	// The labs of one team group of an event are gone (its cluster reservation ended).
 	MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
+	MarkLabTelemetryErasuresScrubbed(ctx context.Context, arg MarkLabTelemetryErasuresScrubbedParams) error
 	MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTPUsedParams) error
 	// A ready Lab makes the preparing team challenges of every binding that shares
 	// it ready in the same statement. Returns the number of bindings changed
@@ -1767,6 +1770,9 @@ type Querier interface {
 	RemoveEventSetRuntimeSelections(ctx context.Context, arg RemoveEventSetRuntimeSelectionsParams) error
 	RemoveEventStageRuntimeSelections(ctx context.Context, stageID uuid.UUID) error
 	RemoveEventTeamStands(ctx context.Context, arg RemoveEventTeamStandsParams) error
+	// Gives the rollups' rows that were built from telemetry still carrying the client name the pseudonym. A row whose
+	// pseudonymous twin exists already is dropped instead of renamed (the primary keys would collide).
+	RenameErasedLabClient(ctx context.Context, arg RenameErasedLabClientParams) error
 	RenameEventLiveScreen(ctx context.Context, arg RenameEventLiveScreenParams) (EventLiveScreen, error)
 	// Priorities become the position in the given list (0, 1, ...); providers not
 	// in the list keep their order after it.
@@ -1865,6 +1871,9 @@ type Querier interface {
 	ScheduleEventLabGroupRetry(ctx context.Context, arg ScheduleEventLabGroupRetryParams) error
 	// Narrow retry write; never copies physical state over a concurrent observation.
 	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
+	ScrubLabMonitoringCurrent(ctx context.Context, arg ScrubLabMonitoringCurrentParams) (int64, error)
+	// Rewrites up to batch_size raw observations of the events that still carry the client name.
+	ScrubRawLabObservations(ctx context.Context, arg ScrubRawLabObservationsParams) (int64, error)
 	SelectEventStageRetainedLab(ctx context.Context, arg SelectEventStageRetainedLabParams) error
 	SetDispatchStatus(ctx context.Context, arg SetDispatchStatusParams) error
 	SetErrorGroupStatus(ctx context.Context, arg SetErrorGroupStatusParams) (ErrorGroup, error)
