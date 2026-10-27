@@ -35,6 +35,7 @@ type Queries interface {
 	CreateEventChallengePrerequisite(ctx context.Context, arg postgres.CreateEventChallengePrerequisiteParams) error
 	UpdateEventChallengeContent(ctx context.Context, arg postgres.UpdateEventChallengeContentParams) (int64, error)
 	SetEventChallengeHintCosts(ctx context.Context, arg postgres.SetEventChallengeHintCostsParams) (int64, error)
+	UpdateEventChallengeTask(ctx context.Context, arg postgres.UpdateEventChallengeTaskParams) (int64, error)
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.EventChallengePrerequisite, error)
 	ListEventChallengesWithAttempts(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
@@ -272,6 +273,11 @@ func (r *Repository) UpdateContent(ctx context.Context, value eventChallengeMode
 		return affected, err
 	}
 	return r.q.SetEventChallengeHintCosts(ctx, postgres.SetEventChallengeHintCostsParams{ID: value.ID, EventExerciseID: value.EventExerciseID, HintCosts: costs})
+}
+
+// UpdateTask points the board challenge at the task that replaces its old one in a new version of the set.
+func (r *Repository) UpdateTask(ctx context.Context, id, eventExerciseID, taskID uuid.UUID) (int64, error) {
+	return r.q.UpdateEventChallengeTask(ctx, postgres.UpdateEventChallengeTaskParams{ID: id, EventExerciseID: eventExerciseID, TaskID: taskID})
 }
 
 // SetHintCosts writes the event's hint cost overrides.

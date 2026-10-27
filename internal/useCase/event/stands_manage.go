@@ -323,7 +323,10 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	}
 	generation := current.LabGeneration
 	for _, lab := range labs {
-		next := lab.Generation + 1
+		next, genErr := eventLabRepo.New(txRepo).NextGeneration(txCtx, lab.EventTeamID, lab.EventChallengeID, lab.Generation)
+		if genErr != nil {
+			return StandTeamView{}, model.ErrPlatform.WithError(genErr).WithMessage("Failed to find the next lab generation").Err()
+		}
 		if _, err = bindings.Recreate(txCtx, lab, labBindingModel.NextLabName(lab.LabName, next), next); err != nil {
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recreate team stand lab").Err()
 		}

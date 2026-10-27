@@ -2928,6 +2928,21 @@ func (mr *MockQuerierMockRecorder) DeleteTemporalCodesForUser(ctx, arg any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemporalCodesForUser", reflect.TypeOf((*MockQuerier)(nil).DeleteTemporalCodesForUser), ctx, arg)
 }
 
+// DeleteUnbornEventTeamLab mocks base method.
+func (m *MockQuerier) DeleteUnbornEventTeamLab(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUnbornEventTeamLab", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUnbornEventTeamLab indicates an expected call of DeleteUnbornEventTeamLab.
+func (mr *MockQuerierMockRecorder) DeleteUnbornEventTeamLab(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUnbornEventTeamLab", reflect.TypeOf((*MockQuerier)(nil).DeleteUnbornEventTeamLab), ctx, id)
+}
+
 // DeleteUnreferencedFiles mocks base method.
 func (m *MockQuerier) DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]postgres.DeleteUnreferencedFilesRow, error) {
 	m.ctrl.T.Helper()
@@ -11308,6 +11323,21 @@ func (mr *MockQuerierMockRecorder) NextEventLabObservationArchiveRange(ctx, arg 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NextEventLabObservationArchiveRange", reflect.TypeOf((*MockQuerier)(nil).NextEventLabObservationArchiveRange), ctx, arg)
 }
 
+// NextEventTeamLabGeneration mocks base method.
+func (m *MockQuerier) NextEventTeamLabGeneration(ctx context.Context, arg postgres.NextEventTeamLabGenerationParams) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NextEventTeamLabGeneration", ctx, arg)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NextEventTeamLabGeneration indicates an expected call of NextEventTeamLabGeneration.
+func (mr *MockQuerierMockRecorder) NextEventTeamLabGeneration(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NextEventTeamLabGeneration", reflect.TypeOf((*MockQuerier)(nil).NextEventTeamLabGeneration), ctx, arg)
+}
+
 // ObserveClusterReservation mocks base method.
 func (m *MockQuerier) ObserveClusterReservation(ctx context.Context, arg postgres.ObserveClusterReservationParams) error {
 	m.ctrl.T.Helper()
@@ -13500,6 +13530,21 @@ func (mr *MockQuerierMockRecorder) TryRemoveEventTeamMember(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryRemoveEventTeamMember", reflect.TypeOf((*MockQuerier)(nil).TryRemoveEventTeamMember), ctx, arg)
 }
 
+// UnlinkUnbornLabBindings mocks base method.
+func (m *MockQuerier) UnlinkUnbornLabBindings(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnlinkUnbornLabBindings", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UnlinkUnbornLabBindings indicates an expected call of UnlinkUnbornLabBindings.
+func (mr *MockQuerierMockRecorder) UnlinkUnbornLabBindings(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnlinkUnbornLabBindings", reflect.TypeOf((*MockQuerier)(nil).UnlinkUnbornLabBindings), ctx, id)
+}
+
 // UnpublishEventExerciseChallenges mocks base method.
 func (m *MockQuerier) UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error {
 	m.ctrl.T.Helper()
@@ -13631,6 +13676,21 @@ func (m *MockQuerier) UpdateEventChallengeScoring(ctx context.Context, arg postg
 func (mr *MockQuerierMockRecorder) UpdateEventChallengeScoring(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventChallengeScoring", reflect.TypeOf((*MockQuerier)(nil).UpdateEventChallengeScoring), ctx, arg)
+}
+
+// UpdateEventChallengeTask mocks base method.
+func (m *MockQuerier) UpdateEventChallengeTask(ctx context.Context, arg postgres.UpdateEventChallengeTaskParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEventChallengeTask", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEventChallengeTask indicates an expected call of UpdateEventChallengeTask.
+func (mr *MockQuerierMockRecorder) UpdateEventChallengeTask(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventChallengeTask", reflect.TypeOf((*MockQuerier)(nil).UpdateEventChallengeTask), ctx, arg)
 }
 
 // UpdateEventConfig mocks base method.

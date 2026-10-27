@@ -197,3 +197,11 @@ WHERE ec.id = sqlc.arg(id)
 UPDATE event_challenges
 SET published = sqlc.arg(published)
 WHERE event_exercise_id = sqlc.arg(event_exercise_id);
+
+-- name: UpdateEventChallengeTask :execrows
+-- A source switch whose version re-issued the task ids (a re-import) keeps the board row and points it at the
+-- task of the new version that replaces the old one.
+UPDATE event_challenges
+SET task_id = sqlc.arg(task_id)
+WHERE id = sqlc.arg(id)
+  AND event_exercise_id = sqlc.arg(event_exercise_id);

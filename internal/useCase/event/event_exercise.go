@@ -576,10 +576,6 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get pinned version").Err()
 	}
 	tasks := version.Variants[link.CanonicalVariant(len(version.Variants))].Tasks
-	taskByID := make(map[uuid.UUID]exerciseModel.Task, len(tasks))
-	for _, task := range tasks {
-		taskByID[task.ID] = task
-	}
 	challenges := eventChallengeRepo.New(repo)
 	board, err := challenges.List(ctx, link.ID)
 	if err != nil {
@@ -589,16 +585,20 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 	for _, challenge := range board {
 		setShown = setShown || challenge.Published
 	}
-	existing := make(map[uuid.UUID]bool, len(board))
-	removed, kept := make([]uuid.UUID, 0), make([]uuid.UUID, 0, len(board))
+	// A challenge stays whenever the new version has the same task (by id, or by name when a re-import re-issued
+	// the ids): its row, group, order, points, publication and team copies are kept, only the content is refreshed.
+	match := matchBoardTasks(board, tasks)
 	for i := range board {
-		existing[board[i].TaskID] = true
-		task, found := taskByID[board[i].TaskID]
-		if !found {
-			removed = append(removed, board[i].ID)
+		task, stays := match.Tasks[board[i].ID]
+		if !stays {
 			continue
 		}
-		kept = append(kept, board[i].ID)
+		if board[i].TaskID != task.ID {
+			if _, err = challenges.UpdateTask(ctx, board[i].ID, link.ID, task.ID); err != nil {
+				return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to repoint event challenge").Err()
+			}
+			board[i].TaskID = task.ID
+		}
 		if err = board[i].RefreshContent(task); err != nil {
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to snapshot event challenge").Err()
 		}
@@ -606,16 +606,13 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event challenge").Err()
 		}
 	}
+	removed := match.Removed
 	// A task cannot leave a set of a stage that has opened, and none can join one of a closed stage.
-	added := false
-	for _, task := range tasks {
-		added = added || !existing[task.ID]
-	}
 	stage, err := u.stageOfSet(ctx, eventStageRepo.New(repo), link)
 	if err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
-	if err = eventModel.CheckSetChange(stage, added, len(removed) > 0, now); err != nil {
+	if err = eventModel.CheckSetChange(stage, len(match.Added) > 0, len(removed) > 0, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
 	attempted, err := challenges.WithAttempts(ctx, removed)
@@ -632,10 +629,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 	if err != nil {
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read challenge order").Err()
 	}
-	for _, task := range tasks {
-		if existing[task.ID] {
-			continue
-		}
+	for _, task := range match.Added {
 		order++
 		challenge, newErr := eventChallengeModel.New(link.ID, task, order, now)
 		if newErr != nil {
@@ -647,7 +641,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
 	}
-	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, terminalLabs, now); err != nil {
+	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, match.Repointed, terminalLabs, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
 	switched, err := attachments.UpdateSource(ctx, eventID, link.ID, version.ExerciseID, version.ID)
@@ -670,7 +664,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 // longer exists), new snapshot and hint texts; the flag of an unsolved static
 // task is re-resolved only when its flag source changed (lab-injected flags
 // stay with the running Lab).
-func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, terminalLabs map[uuid.UUID]bool, now time.Time) error {
+func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, repointed map[uuid.UUID]uuid.UUID, terminalLabs map[uuid.UUID]bool, now time.Time) error {
 	taskOf := make(map[uuid.UUID]uuid.UUID, len(board))
 	ids := make([]uuid.UUID, 0, len(board))
 	for _, challenge := range board {
@@ -743,7 +737,11 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		hints := teamHints(task)
 		changed := !jsonEqual(snapshot, row.Snapshot) || !slices.Equal(hints, row.Hints)
 		if !row.Solved && !task.LinkedDeviceID.Valid {
-			oldTask, hadTask := findTask(previous, row.VariantIndex, taskID)
+			previousTaskID := taskID
+			if old, moved := repointed[row.EventChallengeID]; moved {
+				previousTaskID = old
+			}
+			oldTask, hadTask := findTask(previous, row.VariantIndex, previousTaskID)
 			if !hadTask || variantIndex != row.VariantIndex || !slices.Equal(oldTask.Flag, task.Flag) {
 				if row.ExpectedFlag, err = flags.issue(ctx, variantIndex, task); err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()

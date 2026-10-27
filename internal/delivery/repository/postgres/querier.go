@@ -329,6 +329,9 @@ type Querier interface {
 	// Every code of the type issued to the user (the payload names the user): a
 	// password reset revokes the reset links still in the mailbox.
 	DeleteTemporalCodesForUser(ctx context.Context, arg DeleteTemporalCodesForUserParams) (int64, error)
+	// Removes a canonical Lab that never reached the agent and nothing else holds on to (no binding, no archive, no
+	// pin), with its objectives. The main statement counts the Lab row.
+	DeleteUnbornEventTeamLab(ctx context.Context, id uuid.UUID) (int64, error)
 	// GC step 1: drop grace-expired unreferenced files, decrement their blobs.
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]DeleteUnreferencedFilesRow, error)
 	DeleteUserProvider(ctx context.Context, arg DeleteUserProviderParams) (int64, error)
@@ -1654,6 +1657,10 @@ type Querier interface {
 	// and before closed_before (only closed hours are archived, so a chunk never
 	// grows afterwards). No row when nothing is left to archive.
 	NextEventLabObservationArchiveRange(ctx context.Context, arg NextEventLabObservationArchiveRangeParams) ([]NextEventLabObservationArchiveRangeRow, error)
+	// The next free deployment generation of a team's Lab of the exercise the challenge belongs to: above the
+	// binding's own generation and above every canonical Lab the team ever had for that exercise, so a recreate
+	// never collides with (event_team_id, event_exercise_id, generation).
+	NextEventTeamLabGeneration(ctx context.Context, arg NextEventTeamLabGenerationParams) (int32, error)
 	ObserveClusterReservation(ctx context.Context, arg ObserveClusterReservationParams) error
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenReadyEventLabRevealBarriersParams) (int64, error)
@@ -2006,6 +2013,9 @@ type Querier interface {
 	// The same lock for background jobs: false instead of waiting while a request or another job holds it.
 	TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
+	// A Lab that never reached the agent is reset in place: its bindings forget the canonical Lab (the stand engine
+	// prepares a new one from the current version) and go back to pending with their retry state cleared.
+	UnlinkUnbornLabBindings(ctx context.Context, id uuid.UUID) (int64, error)
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	UpdateEmailBlockPreset(ctx context.Context, arg UpdateEmailBlockPresetParams) (NotificationEmailBlockPreset, error)
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (NotificationEmailTemplate, error)
@@ -2018,6 +2028,9 @@ type Querier interface {
 	UpdateEventChallengeContent(ctx context.Context, arg UpdateEventChallengeContentParams) (int64, error)
 	UpdateEventChallengeGroup(ctx context.Context, arg UpdateEventChallengeGroupParams) (EventChallengeGroup, error)
 	UpdateEventChallengeScoring(ctx context.Context, arg UpdateEventChallengeScoringParams) (EventChallenge, error)
+	// A source switch whose version re-issued the task ids (a re-import) keeps the board row and points it at the
+	// task of the new version that replaces the old one.
+	UpdateEventChallengeTask(ctx context.Context, arg UpdateEventChallengeTaskParams) (int64, error)
 	// Whole-aggregate write; excludes event_id/created_at (immutable). Optimistic
 	// lock on updated_at (a fresh config from CreateEventConfig has updated_at set
 	// to created_at, so the lock has a non-null baseline from the first write).

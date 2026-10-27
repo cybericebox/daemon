@@ -710,6 +710,29 @@ func (q *Queries) UpdateEventChallengeScoring(ctx context.Context, arg UpdateEve
 	return i, err
 }
 
+const updateEventChallengeTask = `-- name: UpdateEventChallengeTask :execrows
+UPDATE event_challenges
+SET task_id = $1
+WHERE id = $2
+  AND event_exercise_id = $3
+`
+
+type UpdateEventChallengeTaskParams struct {
+	TaskID          uuid.UUID `json:"task_id"`
+	ID              uuid.UUID `json:"id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+// A source switch whose version re-issued the task ids (a re-import) keeps the board row and points it at the
+// task of the new version that replaces the old one.
+func (q *Queries) UpdateEventChallengeTask(ctx context.Context, arg UpdateEventChallengeTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventChallengeTask, arg.TaskID, arg.ID, arg.EventExerciseID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const vacateEventChallengeOrders = `-- name: VacateEventChallengeOrders :exec
 UPDATE event_challenges
 SET order_index = -order_index - 1

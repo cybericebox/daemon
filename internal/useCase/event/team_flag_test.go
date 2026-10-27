@@ -287,7 +287,7 @@ func TestRefreshTeamAssignments_TeamsMovedOntoOneVariantGetDistinctFlags(t *test
 		return 1, nil
 	}).Times(len(rows))
 	u := &EventUseCase{flagRandomBytes: 20}
-	if err := u.refreshTeamAssignments(context.Background(), q, link, previous, next, board, nil, time.Now()); err != nil {
+	if err := u.refreshTeamAssignments(context.Background(), q, link, previous, next, board, nil, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != len(rows) || store.writes != len(rows) {
@@ -335,7 +335,7 @@ func TestRefreshTeamAssignments_RepickedRowsDrawThroughTheirVariantFilter(t *tes
 		return 1, nil
 	}).Times(len(rows))
 	u := &EventUseCase{flagRandomBytes: 20}
-	if err := u.refreshTeamAssignments(context.Background(), q, link, next, next, board, nil, time.Now()); err != nil {
+	if err := u.refreshTeamAssignments(context.Background(), q, link, next, next, board, nil, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if kept != "ICE{old}" {

@@ -183,3 +183,44 @@ WHERE id=sqlc.arg(id) AND agent_uid='' AND desired_state IN ('Running','Stopped'
 SELECT id FROM event_team_labs
 WHERE event_id = sqlc.arg(event_id) AND lab_group_name = ANY(sqlc.arg(groups)::text[]) AND desired_state = 'Running'
 ORDER BY id;
+
+-- name: NextEventTeamLabGeneration :one
+-- The next free deployment generation of a team's Lab of the exercise the challenge belongs to: above the
+-- binding's own generation and above every canonical Lab the team ever had for that exercise, so a recreate
+-- never collides with (event_team_id, event_exercise_id, generation).
+SELECT (GREATEST(sqlc.arg(current_generation)::int, COALESCE((
+    SELECT max(l.generation) FROM event_team_labs l
+    JOIN event_challenges ec ON ec.event_exercise_id = l.event_exercise_id
+    WHERE l.event_team_id = sqlc.arg(event_team_id) AND ec.id = sqlc.arg(event_challenge_id)), -1)) + 1)::int AS next_generation;
+
+-- name: UnlinkUnbornLabBindings :execrows
+-- A Lab that never reached the agent is reset in place: its bindings forget the canonical Lab (the stand engine
+-- prepares a new one from the current version) and go back to pending with their retry state cleared.
+UPDATE lab_bindings b
+SET lab_id = NULL, readiness = 0, deployed_at = NULL, failure_reason = NULL, failed_at = NULL,
+    retry_attempts = 0, wait_reason = '', wait_since = NULL
+FROM event_team_labs l
+WHERE l.id = sqlc.arg(id) AND b.lab_id = l.id AND b.readiness <> 3
+  AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL;
+
+-- name: DeleteUnbornEventTeamLab :execrows
+-- Removes a canonical Lab that never reached the agent and nothing else holds on to (no binding, no archive, no
+-- pin), with its objectives. The main statement counts the Lab row.
+WITH objectives AS (
+    DELETE FROM event_lab_objectives o
+    USING event_team_labs l
+    WHERE o.lab_id = l.id AND l.id = sqlc.arg(id)
+      AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL
+      AND NOT EXISTS (SELECT 1 FROM lab_bindings b WHERE b.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_lab_generations g WHERE g.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_stage_lab_runtime_memberships m WHERE m.lab_id = l.id)
+    RETURNING o.lab_id
+)
+DELETE FROM event_team_labs l
+WHERE l.id = sqlc.arg(id)
+  AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL
+  AND NOT EXISTS (SELECT 1 FROM lab_bindings b WHERE b.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_lab_generations g WHERE g.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_stage_lab_runtime_memberships m WHERE m.lab_id = l.id);
