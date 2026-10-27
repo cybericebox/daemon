@@ -627,7 +627,7 @@ func (c InflightConfig) Validate() error {
 // policy text.
 type RetentionConfig struct {
 	SessionAfterExpiry       time.Duration `env:"SESSION_AFTER_EXPIRY"         envDefault:"2160h"`  // 90 days
-	LabTelemetry             time.Duration `env:"LAB_TELEMETRY"                envDefault:"2160h"`  // 90 days
+	LabTelemetry             time.Duration `env:"LAB_TELEMETRY"                envDefault:"8760h"`  // 365 days
 	DeliveryLog              time.Duration `env:"DELIVERY_LOG"                 envDefault:"4320h"`  // 180 days
 	FormAnswersAfterEventEnd time.Duration `env:"FORM_ANSWERS_AFTER_EVENT_END" envDefault:"8760h"`  // 365 days
 	InactiveAccount          time.Duration `env:"INACTIVE_ACCOUNT"             envDefault:"26280h"` // 3 x 365 days

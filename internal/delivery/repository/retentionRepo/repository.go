@@ -25,6 +25,12 @@ type Queries interface {
 	PurgeEventActivity(context.Context, postgres.PurgeEventActivityParams) (int64, error)
 	PurgeEventStandTransitions(context.Context, postgres.PurgeEventStandTransitionsParams) (int64, error)
 	PurgeEventVPNSessions(context.Context, postgres.PurgeEventVPNSessionsParams) (int64, error)
+	PurgeEventLabUsageMinutes(context.Context, postgres.PurgeEventLabUsageMinutesParams) (int64, error)
+	PurgeEventLabMinutes(context.Context, postgres.PurgeEventLabMinutesParams) (int64, error)
+	PurgeEventVPNClientMinutes(context.Context, postgres.PurgeEventVPNClientMinutesParams) (int64, error)
+	PurgeEventLabTransitions(context.Context, postgres.PurgeEventLabTransitionsParams) (int64, error)
+	PurgeEventLabJournalStates(context.Context, postgres.PurgeEventLabJournalStatesParams) (int64, error)
+	PurgeEventLabObservationArchives(context.Context, postgres.PurgeEventLabObservationArchivesParams) (int64, error)
 	PurgeEventLabTouches(context.Context, postgres.PurgeEventLabTouchesParams) (int64, error)
 	PurgeEventLabTrafficCoverage(context.Context, postgres.PurgeEventLabTrafficCoverageParams) (int64, error)
 	PurgeEventFormAnswers(context.Context, postgres.PurgeEventFormAnswersParams) (int64, error)
@@ -101,6 +107,42 @@ func (r *Repository) PurgeEventAnalytics(ctx context.Context, endedBefore time.T
 	coverage, err := r.q.PurgeEventLabTrafficCoverage(ctx, postgres.PurgeEventLabTrafficCoverageParams{EndedBefore: endedBefore, BatchSize: batchSize})
 	total := activity + transitions + sessions + touches + coverage
 	return total, err
+}
+
+// PurgeEventLabTelemetry removes the derived lab telemetry (minute tables,
+// transitions journal and states, raw archive) of events whose access closed
+// before closedBefore, and the rows of events with no end older than it: up
+// to batchSize rows of each table per call. The sum reaches batchSize while
+// either table may hold more, so the drain loop runs until all are clear.
+func (r *Repository) PurgeEventLabTelemetry(ctx context.Context, closedBefore time.Time, batchSize int32) (int64, error) {
+	var total int64
+	for _, purge := range []func() (int64, error){
+		func() (int64, error) {
+			return r.q.PurgeEventLabUsageMinutes(ctx, postgres.PurgeEventLabUsageMinutesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabMinutes(ctx, postgres.PurgeEventLabMinutesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventVPNClientMinutes(ctx, postgres.PurgeEventVPNClientMinutesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabTransitions(ctx, postgres.PurgeEventLabTransitionsParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabJournalStates(ctx, postgres.PurgeEventLabJournalStatesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+		func() (int64, error) {
+			return r.q.PurgeEventLabObservationArchives(ctx, postgres.PurgeEventLabObservationArchivesParams{ClosedBefore: closedBefore, BatchSize: batchSize})
+		},
+	} {
+		n, err := purge()
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
 }
 
 func (r *Repository) PurgeEventFormAnswers(ctx context.Context, endedBefore time.Time, batchSize int32) (int64, error) {
