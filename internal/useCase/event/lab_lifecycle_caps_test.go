@@ -430,3 +430,23 @@ type unknownCapsGroupInfra struct{ vpnLifecycleInfra }
 func (*unknownCapsGroupInfra) LabLifecycleCapabilities(context.Context, string) (infraModel.LifecycleCapabilities, bool) {
 	return infraModel.LifecycleCapabilities{}, false
 }
+
+// Production 2026-10-25: a stopped lab that was dispatched (create evidence) but whose agent gives no creation
+// receipt looped «original lab birth identity unavailable» every pass. Without the stop capability it is left
+// to its group's destruction, like any lab of that agent.
+func TestReconcileStoppedLabWithoutReceiptOnAnAgentWithoutCapsIsNotAFailure(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	g, eventID, teamID := capsGroupRow(t)
+	row := capsLabRow(eventID, teamID, g.LabGroupName)
+	row.AgentUid, row.AgentGeneration = "", 0
+	row.CreateEvidence = []byte(`{"Ref":{"Group":"` + g.LabGroupName + `","Lab":"lab-a"},"GroupUID":"group-uid","DefinitionHash":"h","OperationID":"` + uuid.Must(uuid.NewV7()).String() + `","Revision":1}`)
+	infra := &capsInfra{observation: eventLabModel.Observation{UID: "lab-uid", Generation: 1}}
+	u := NewEventUseCase(Dependencies{Repo: q, UoW: vpnLifecycleWorker{q}, Infra: infra})
+	u.SetLifecycleControls(true)
+	q.EXPECT().GetEventTeamLab(gomock.Any(), row.ID).Return(row, nil).AnyTimes()
+	lab, err := u.labs.Get(context.Background(), row.ID)
+	require.NoError(t, err)
+	require.False(t, lab.Unborn(), "the fixture is a dispatched lab")
+	require.ErrorIs(t, u.reconcileStoppedLab(context.Background(), lab), errLifecycleUnsupported)
+	require.Zero(t, infra.labStops)
+}

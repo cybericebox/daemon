@@ -175,6 +175,11 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 			return err
 		}
 		if !adopted {
+			if u.labStopUnsupported(ctx, lab) {
+				// An agent without lifecycle capabilities gives no creation receipt and cannot stop the lab:
+				// it runs until it is destroyed with its group. Not a failure to chase every pass.
+				return errLifecycleUnsupported
+			}
 			return fmt.Errorf("original lab birth identity unavailable")
 		}
 		current, err := u.labs.Get(ctx, lab.ID)
