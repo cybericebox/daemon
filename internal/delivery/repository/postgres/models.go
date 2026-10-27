@@ -904,6 +904,7 @@ type LabTelemetryErasure struct {
 	EventIds   []uuid.UUID `json:"event_ids"`
 	QueuedAt   time.Time   `json:"queued_at"`
 	EraseIp    bool        `json:"erase_ip"`
+	Ips        []string    `json:"ips"`
 }
 
 type MailIdentity struct {

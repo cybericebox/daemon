@@ -87,6 +87,20 @@ func (mr *MockQuerierMockRecorder) AddFileReference(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddFileReference", reflect.TypeOf((*MockQuerier)(nil).AddFileReference), ctx, arg)
 }
 
+// AddLabTelemetryErasureIPs mocks base method.
+func (m *MockQuerier) AddLabTelemetryErasureIPs(ctx context.Context, arg postgres.AddLabTelemetryErasureIPsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddLabTelemetryErasureIPs", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddLabTelemetryErasureIPs indicates an expected call of AddLabTelemetryErasureIPs.
+func (mr *MockQuerierMockRecorder) AddLabTelemetryErasureIPs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddLabTelemetryErasureIPs", reflect.TypeOf((*MockQuerier)(nil).AddLabTelemetryErasureIPs), ctx, arg)
+}
+
 // AdvanceEventResultRevision mocks base method.
 func (m *MockQuerier) AdvanceEventResultRevision(ctx context.Context, arg postgres.AdvanceEventResultRevisionParams) (postgres.AdvanceEventResultRevisionRow, error) {
 	m.ctrl.T.Helper()
@@ -367,6 +381,21 @@ func (m *MockQuerier) ClearReturnedInactivityWarnings(ctx context.Context) (int6
 func (mr *MockQuerierMockRecorder) ClearReturnedInactivityWarnings(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearReturnedInactivityWarnings", reflect.TypeOf((*MockQuerier)(nil).ClearReturnedInactivityWarnings), ctx)
+}
+
+// CollectLabClientIPs mocks base method.
+func (m *MockQuerier) CollectLabClientIPs(ctx context.Context, arg postgres.CollectLabClientIPsParams) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CollectLabClientIPs", ctx, arg)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CollectLabClientIPs indicates an expected call of CollectLabClientIPs.
+func (mr *MockQuerierMockRecorder) CollectLabClientIPs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectLabClientIPs", reflect.TypeOf((*MockQuerier)(nil).CollectLabClientIPs), ctx, arg)
 }
 
 // CompleteEventFormDelivery mocks base method.
