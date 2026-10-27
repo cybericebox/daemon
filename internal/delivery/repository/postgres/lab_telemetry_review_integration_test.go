@@ -352,3 +352,37 @@ func TestRetention_ArchivedRowIdsGoWithTheirChunk(t *testing.T) {
 	require.EqualValues(t, 1, n, "the chunk goes (finished before the cutoff)")
 	require.Zero(t, rtCount(t, db, `SELECT count(*) FROM event_lab_archived_rows`), "its row ids went with it")
 }
+
+// A pod queued long before the first observation (the stands were queued ahead) has an agent time earlier than the
+// archive starts, but it came from an observation the archive holds: that is no gap, the recompute needs no force.
+// Minutes are compared by their bucket; data that really predates the sources still counts as a gap.
+func TestEventLabTelemetry_CoverageComparesObservationTimeNotAgentTime(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventAnalyticsRepo.New(db.Queries)
+	f := anSeed(t, db, "labcoverage")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, f.event)
+	first := anStart.Add(3 * time.Hour).UTC()
+	telemetryObservation(t, db, f.event, f.team, 1, first, telemetryPayload(true, "Running", 10, 1000, "p-a", first, 1, 1))
+	archiveUpTo(t, repo, f.event, first.Add(2*time.Hour))
+	rtExec(t, db, `DELETE FROM event_lab_observations WHERE event_id = $1`, f.event) // only the archive is left
+
+	// The journal of that observation: the pod was queued three hours before it was seen.
+	rtExec(t, db, `INSERT INTO event_lab_transitions (id, event_id, team_id, lab_group_name, lab_name, device_name, kind, at, received_at)
+VALUES ($1, $2, $3, 'grp', 'web', 'app', 'pod_scheduled', $4, $5)`, uuid.Must(uuid.NewV7()), f.event, f.team, first.Add(-3*time.Hour), first.Add(400*time.Millisecond))
+	rtExec(t, db, `INSERT INTO event_lab_minutes (event_id, team_id, lab_group_name, lab_name, bucket_at, samples, ready_samples, vpn_ready_samples)
+VALUES ($1, $2, 'grp', 'web', $3, 1, 1, 1)`, f.event, f.team, first.Truncate(time.Minute))
+
+	dataFrom, coveredFrom, err := repo.LabTelemetryCoverage(ctx, f.event)
+	require.NoError(t, err)
+	require.NotNil(t, dataFrom)
+	require.NotNil(t, coveredFrom)
+	require.False(t, dataFrom.Before(coveredFrom.Add(-2*time.Minute)), "data %s covered from %s: no gap", dataFrom, coveredFrom)
+
+	// Minutes older than the sources are a real gap.
+	rtExec(t, db, `INSERT INTO event_lab_minutes (event_id, team_id, lab_group_name, lab_name, bucket_at, samples, ready_samples, vpn_ready_samples)
+VALUES ($1, $2, 'grp', 'web', $3, 1, 1, 1)`, f.event, f.team, first.Add(-3*time.Hour).Truncate(time.Minute))
+	dataFrom, coveredFrom, err = repo.LabTelemetryCoverage(ctx, f.event)
+	require.NoError(t, err)
+	require.True(t, dataFrom.Before(coveredFrom.Add(-2*time.Minute)), "old minutes are a gap")
+}
