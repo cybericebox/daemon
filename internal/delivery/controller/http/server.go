@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pires/go-proxyproto"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
@@ -35,6 +37,10 @@ type (
 		name string
 		srv  *http.Server
 		tls  bool
+		// proxyFrom are the peers whose PROXY protocol header is used (the HTTPS listener only); empty is off.
+		proxyFrom []netip.Prefix
+		// headerTimeout bounds how long the PROXY header of a connection may take, near the TLS handshake limit.
+		headerTimeout time.Duration
 	}
 
 	// fileStamp is what identifies a version of a file: a renewal swaps the file (or the symlink that points to
@@ -205,7 +211,9 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 		s.listeners = append(s.listeners, &listener{name: "HTTP", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.Port), plain, nil)})
 	}
 	if cfg.TLSEnabled() {
-		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true})
+		// The config is validated at start; an unparsable list would have stopped it.
+		proxyFrom, _ := config.ParseProxyProtocolFrom(cfg.ProxyProtocolFrom)
+		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true, proxyFrom: proxyFrom, headerTimeout: cfg.ReadTimeout})
 	}
 	if cfg.HealthPort != "" {
 		s.listeners = append(s.listeners, &listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)})
@@ -233,7 +241,9 @@ func (s *Server) Start() {
 	for _, l := range s.listeners {
 		go func() {
 			var err error
-			if l.tls {
+			if l.tls && len(l.proxyFrom) > 0 {
+				err = l.serveProxied()
+			} else if l.tls {
 				err = l.srv.ListenAndServeTLS("", "")
 			} else {
 				err = l.srv.ListenAndServe()
@@ -242,6 +252,39 @@ func (s *Server) Start() {
 				log.Error().Err(err).Str("listener", l.name).Msg("Can not start HTTP(S) server")
 			}
 		}()
+	}
+}
+
+// serveProxied serves TLS behind the PROXY protocol: the header comes before the ClientHello, so the TLS
+// configuration (mTLS, certificates) is unchanged.
+func (l *listener) serveProxied() error {
+	ln, err := net.Listen("tcp", l.srv.Addr)
+	if err != nil {
+		return err
+	}
+	return l.srv.ServeTLS(proxyListener(ln, l.proxyFrom, l.headerTimeout), "", "")
+}
+
+// proxyListener wraps ln so a peer in trusted may send a PROXY protocol header (optional: a connection without one
+// keeps the peer address) and the header of any other peer is read and thrown away. Never REQUIRE or REJECT: a stale
+// list must not cut the API off, and a spoofed header must not choose an address.
+func proxyListener(ln net.Listener, trusted []netip.Prefix, headerTimeout time.Duration) net.Listener {
+	return &proxyproto.Listener{Listener: ln, ConnPolicy: proxyPolicy(trusted), ReadHeaderTimeout: headerTimeout}
+}
+
+func proxyPolicy(trusted []netip.Prefix) proxyproto.ConnPolicyFunc {
+	return func(options proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
+		if tcp, ok := options.Upstream.(*net.TCPAddr); ok {
+			if addr, ok := netip.AddrFromSlice(tcp.IP); ok {
+				addr = addr.Unmap()
+				for _, prefix := range trusted {
+					if prefix.Contains(addr) {
+						return proxyproto.USE, nil
+					}
+				}
+			}
+		}
+		return proxyproto.IGNORE, nil
 	}
 }
 

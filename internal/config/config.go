@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -369,6 +370,11 @@ type (
 		InternalPort string `env:"INTERNAL_PORT"`
 		// HTTP3 is the optional HTTP/3 (QUIC, UDP) listener next to the HTTPS one (HTTP_SERVER_HTTP3_*).
 		HTTP3 HTTP3Config `envPrefix:"HTTP3_"`
+		// ProxyProtocolFrom are the networks (CIDRs or addresses) whose connections to the HTTPS listener may carry a
+		// PROXY protocol v2 header with the real client address (HTTP_SERVER_PROXY_PROTOCOL_FROM): the edge
+		// Envoy in front of the daemon. The header is optional for them; any other peer's header is read and
+		// discarded. Empty (default) is off: the listener is not wrapped and the connection address is used.
+		ProxyProtocolFrom []string `env:"PROXY_PROTOCOL_FROM"`
 	}
 
 	// HTTP3Config is the HTTP/3 listener: it serves the same handler with the same certificate as the HTTPS
@@ -679,12 +685,37 @@ func (c HTTPControllerConfig) Validate() error {
 // TLSEnabled reports whether the TLS listener runs: the certificate and the key are both set.
 func (c HTTPServerConfig) TLSEnabled() bool { return c.TLS.CertFile != "" && c.TLS.KeyFile != "" }
 
+// ParseProxyProtocolFrom reads HTTP_SERVER_PROXY_PROTOCOL_FROM: each entry is a CIDR or a bare address (a /32 or
+// /128). Addresses are unmapped, so an IPv4-mapped IPv6 entry means the IPv4 one.
+func ParseProxyProtocolFrom(entries []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(entry)
+			if addrErr != nil {
+				return nil, fmt.Errorf("HTTP_SERVER_PROXY_PROTOCOL_FROM: %q is not an address or a CIDR", entry)
+			}
+			prefix = netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen())
+		}
+		out = append(out, prefix.Masked())
+	}
+	return out, nil
+}
+
 // ClientAuthOn reports whether client certificates are asked for (optional or require).
 func (c HTTPServerConfig) ClientAuthOn() bool {
 	return c.TLSEnabled() && (c.TLS.ClientAuth == "optional" || c.TLS.ClientAuth == "require")
 }
 
 func (c HTTPServerConfig) validate() error {
+	if _, err := ParseProxyProtocolFrom(c.ProxyProtocolFrom); err != nil {
+		return err
+	}
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return errors.New("HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE must be set together")
 	}
