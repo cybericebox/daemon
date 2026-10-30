@@ -9,15 +9,17 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
-// A lab made before node profiles stored the hash of a topology with the type container. The same device as a node
-// with the container profile (what migration 0207 writes) must hash the same, or every such lab would look changed.
-func TestDefinitionHash_ContainerNodeHashesAsTheFormerContainer(t *testing.T) {
+// The hash is taken from the topology as it is stored: a container node and a microVM node differ, the same
+// topology hashes the same, and so do the version and the generation.
+func TestDefinitionHash_FollowsTheNodeProfile(t *testing.T) {
 	version := uuid.Must(uuid.NewV7())
-	former := exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1"}}}
-	migrated := exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileContainer, Image: "nginx:1"}}}
-	assert.Equal(t, definitionHash(version, 1, former), definitionHash(version, 1, migrated))
+	node := func(profile exerciseModel.NodeProfile) exerciseModel.Topology {
+		return exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeNode, Profile: profile, Image: "nginx:1"}}}
+	}
+	container, microvm := node(exerciseModel.NodeProfileContainer), node(exerciseModel.NodeProfileMicroVM)
 
-	microvm := exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileMicroVM, Image: "nginx:1"}}}
-	assert.NotEqual(t, definitionHash(version, 1, former), definitionHash(version, 1, microvm))
-	assert.Equal(t, exerciseModel.NodeProfileContainer, migrated.Devices[0].Profile, "the caller's topology is not changed")
+	assert.Equal(t, definitionHash(version, 1, container), definitionHash(version, 1, node(exerciseModel.NodeProfileContainer)))
+	assert.NotEqual(t, definitionHash(version, 1, container), definitionHash(version, 1, microvm))
+	assert.NotEqual(t, definitionHash(version, 1, container), definitionHash(version, 2, container))
+	assert.NotEqual(t, definitionHash(version, 1, container), definitionHash(uuid.Must(uuid.NewV7()), 1, container))
 }
