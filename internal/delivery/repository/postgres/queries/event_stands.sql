@@ -106,15 +106,18 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
                  WHERE lb.event_team_id = team.id
                    AND (lb.readiness = 2 OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> ''))), '')::text AS failure_reason,
        -- Labs waiting for something other than the reservation to appear since before stuck_before: the organizers must hear it.
+       -- A team outside the frozen reveal cohort (eligible only after the start) is not given the grace: its wait counts at once.
        (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
         JOIN event_challenges stuck_ec ON stuck_ec.id = lb.event_challenge_id
         WHERE lb.event_team_id = team.id AND lb.readiness = 0 AND lb.deployed_at IS NULL
-          AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= sqlc.arg(stuck_before)::timestamptz
+          AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= CASE WHEN EXISTS(SELECT 1 FROM event_lab_reveal_barriers late_barrier WHERE late_barrier.event_exercise_id = stuck_ec.event_exercise_id AND team.id <> ALL (late_barrier.eligible_team_ids))
+                                   THEN now() ELSE sqlc.arg(stuck_before)::timestamptz END
           AND stuck_ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[]))::bigint AS stuck_labs,
        COALESCE((SELECT min(lb.wait_reason) FROM lab_bindings lb
                  JOIN event_challenges stuck_ec ON stuck_ec.id = lb.event_challenge_id
                  WHERE lb.event_team_id = team.id AND lb.readiness = 0 AND lb.deployed_at IS NULL
-                   AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= sqlc.arg(stuck_before)::timestamptz
+                   AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= CASE WHEN EXISTS(SELECT 1 FROM event_lab_reveal_barriers late_barrier WHERE late_barrier.event_exercise_id = stuck_ec.event_exercise_id AND team.id <> ALL (late_barrier.eligible_team_ids))
+                                   THEN now() ELSE sqlc.arg(stuck_before)::timestamptz END
                    AND stuck_ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])), '')::text AS stuck_reason,
        (SELECT COALESCE(max(lb.generation), 0) FROM lab_bindings lb WHERE lb.event_team_id = team.id)::integer AS lab_generation,
        (SELECT count(*)

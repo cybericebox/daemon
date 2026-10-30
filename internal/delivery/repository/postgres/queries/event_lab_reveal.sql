@@ -1,5 +1,6 @@
 -- name: FreezeEventLabRevealBarrier :one
--- An empty eligible roster is deferred, not an immutable prepared cohort.
+-- An empty eligible roster is deferred, not an immutable prepared cohort. Until the event starts an unopened cohort is
+-- recomputed on every call (a team that becomes eligible joins it); from the start it is frozen.
 WITH candidate AS (
  SELECT ee.event_id,ee.id AS event_exercise_id,ee.revision,ec.task_reveal_mode AS mode,
  COALESCE((SELECT array_agg(team.id ORDER BY team.id) FROM event_teams team WHERE team.event_id=ee.event_id
@@ -12,7 +13,8 @@ WITH candidate AS (
  WHERE cardinality(eligible_team_ids)>0
  ON CONFLICT(event_exercise_id) DO UPDATE SET
  revision=EXCLUDED.revision,mode=EXCLUDED.mode,
- eligible_team_ids=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode OR (event_lab_reveal_barriers.opened_at IS NULL AND cardinality(event_lab_reveal_barriers.eligible_team_ids)=0) THEN EXCLUDED.eligible_team_ids ELSE event_lab_reveal_barriers.eligible_team_ids END,
+ eligible_team_ids=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode OR (event_lab_reveal_barriers.opened_at IS NULL AND cardinality(event_lab_reveal_barriers.eligible_team_ids)=0)
+  OR (event_lab_reveal_barriers.opened_at IS NULL AND EXISTS(SELECT 1 FROM events ev WHERE ev.id=event_lab_reveal_barriers.event_id AND ev.lifecycle_configured AND ev.start_at>sqlc.arg(now))) THEN EXCLUDED.eligible_team_ids ELSE event_lab_reveal_barriers.eligible_team_ids END,
  opened_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN NULL ELSE event_lab_reveal_barriers.opened_at END,
  created_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode OR (event_lab_reveal_barriers.opened_at IS NULL AND cardinality(event_lab_reveal_barriers.eligible_team_ids)=0) THEN EXCLUDED.created_at ELSE event_lab_reveal_barriers.created_at END
  RETURNING eligible_team_ids
