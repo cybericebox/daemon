@@ -177,7 +177,7 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 			ip = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic, AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: spec.Host}}
 		}
 		built := exerciseModel.Device{
-			ID: id, Name: spec.Name, Type: exerciseModel.DeviceTypeContainer, Image: spec.Image, SecurityPreset: spec.Preset,
+			ID: id, Name: spec.Name, Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileContainer, Image: spec.Image, SecurityPreset: spec.Preset,
 			ResourcePreset: "small",
 			Interfaces:     []exerciseModel.Interface{{Name: "eth0", IP: ip}},
 			EnvVars:        []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},

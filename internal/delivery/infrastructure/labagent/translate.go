@@ -44,8 +44,11 @@ type (
 	}
 
 	labDevice struct {
-		Name           string         `json:"name"`
-		Type           string         `json:"type"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+		// Profile is how the device runs: absent is the container; microvm runs it in a microVM. Only for type
+		// container (a node).
+		Profile        string         `json:"profile,omitempty"`
 		Image          string         `json:"image,omitempty"`
 		SecurityPreset string         `json:"securityPreset,omitempty"`
 		Resources      *labResources  `json:"resources,omitempty"`
@@ -183,7 +186,8 @@ func buildNetwork(n exerciseModel.NetworkSpec) labNetwork {
 func buildDevice(d exerciseModel.Device, labName string) labDevice {
 	out := labDevice{
 		Name:           labName,
-		Type:           string(d.Type),
+		Type:           wireDeviceType(d),
+		Profile:        wireProfile(d),
 		Image:          d.Image,
 		SecurityPreset: string(d.SecurityPreset),
 		WaitReadyFile:  d.WaitReadyFile,
@@ -274,4 +278,22 @@ func buildDeviceEnv(d exerciseModel.Device) *labpb.DeviceEnv {
 		vars[ev.Name] = ev.Value
 	}
 	return &labpb.DeviceEnv{Device: d.Name, Vars: vars}
+}
+
+// wireDeviceType is the device type the agent knows. A node with the container profile is the agent's "container";
+// the other profiles reach the agent through its microVM contract.
+func wireDeviceType(d exerciseModel.Device) string {
+	if d.IsNode() {
+		return string(exerciseModel.DeviceTypeContainer)
+	}
+	return string(d.Type)
+}
+
+// wireProfile is the profile the agent is sent: none for the container (the agent's default, so an old agent and
+// every stored lab spec stay as they are).
+func wireProfile(d exerciseModel.Device) string {
+	if profile := d.EffectiveProfile(); profile != "" && profile != exerciseModel.NodeProfileContainer {
+		return string(profile)
+	}
+	return ""
 }

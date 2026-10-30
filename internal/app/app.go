@@ -28,8 +28,10 @@ import (
 	"github.com/cybericebox/daemon/internal/limits"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labMonitoringModel "github.com/cybericebox/daemon/internal/model/labMonitoring"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/useCase"
@@ -79,6 +81,8 @@ func Run(cfg *config.Config) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Invalid device resources settings")
 	}
+	// The agents report what a node profile adds to a pod; the policy (shared by value) reads it.
+	resourcesPolicy.Overheads = resourcesModel.NewProfileOverheads()
 
 	// ── sessions ──
 	// The cookie is the session: it is decrypted with this key and trusted while its session is not in the
@@ -158,6 +162,13 @@ func Run(cfg *config.Config) {
 					v := capacity.GetMemoryQuotaBytes()
 					memory = &v
 				}
+				profiles := labagent.ProfilesOf(capacity)
+				member.Profiles.Set(profiles)
+				overheads := make(map[exerciseModel.NodeProfile]resourcesModel.Amount, len(profiles))
+				for profile, reported := range profiles {
+					overheads[profile] = reported.Overhead
+				}
+				resourcesPolicy.Overheads.Set(member.ID, overheads)
 				if err := ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt); err != nil {
 					return err
 				}

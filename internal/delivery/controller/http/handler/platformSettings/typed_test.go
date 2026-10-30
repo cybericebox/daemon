@@ -62,6 +62,20 @@ func (f *fakeUseCase) ResetTestRunSettings(context.Context) (platformSettingsUse
 	return f.typed("reset test runs", nil)
 }
 
+func (f *fakeUseCase) nodeProfiles(call string, in platformSettingsModel.Values) (platformSettingsUseCase.NodeProfilesView, error) {
+	view, err := f.typed(call, in)
+	return platformSettingsUseCase.NodeProfilesView{TypedView: view, RunnableNow: map[string]bool{"Container": true, "MicroVM": false, "VM": false}}, err
+}
+func (f *fakeUseCase) GetNodeProfileSettings(context.Context) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("get node profiles", nil)
+}
+func (f *fakeUseCase) SaveNodeProfileSettings(_ context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("save node profiles", in)
+}
+func (f *fakeUseCase) ResetNodeProfileSettings(context.Context) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("reset node profiles", nil)
+}
+
 // grantProt grants one permission and refuses the rest with 403.
 type grantProt struct{ granted rbac.Permission }
 
@@ -98,6 +112,9 @@ func TestTypedRoutes_Gated(t *testing.T) {
 		{http.MethodGet, "/api/settings/test-runs", "", "get test runs", rbac.PermPlatformSettingsRead},
 		{http.MethodPut, "/api/settings/test-runs", body, "save test runs", rbac.PermPlatformSettingsWrite},
 		{http.MethodDelete, "/api/settings/test-runs", "", "reset test runs", rbac.PermPlatformSettingsWrite},
+		{http.MethodGet, "/api/settings/node-profiles", "", "get node profiles", rbac.PermPlatformSettingsRead},
+		{http.MethodPut, "/api/settings/node-profiles", body, "save node profiles", rbac.PermPlatformSettingsWrite},
+		{http.MethodDelete, "/api/settings/node-profiles", "", "reset node profiles", rbac.PermPlatformSettingsWrite},
 	}
 	for _, r := range routes {
 		denied := rbac.PermPlatformSettingsRead
@@ -164,4 +181,16 @@ func TestTypedPut_DomainRefusalKeepsTheField(t *testing.T) {
 	var got response.Response
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, "LeaseMax", got.Status.Context["field"])
+}
+
+// The node profile setting answers like a typed one plus, per profile, whether an agent can run it now.
+func TestNodeProfilesGet_SaysWhichProfileRunsNow(t *testing.T) {
+	w := serve(newEngine(&fakeUseCase{}, &fakeProt{allow: true}), http.MethodGet, "/api/settings/node-profiles", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var got struct {
+		Data map[string]any
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, map[string]any{"Container": true, "MicroVM": false, "VM": false}, got.Data["RunnableNow"])
+	assert.Len(t, got.Data["Fields"], 1)
 }

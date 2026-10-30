@@ -35,4 +35,5 @@ const (
 	ImageRegistryObjectCode
 	ExerciseImportObjectCode
 	LinkedVariantObjectCode
+	NodeProfileObjectCode
 )

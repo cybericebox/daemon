@@ -156,3 +156,83 @@ func (l TestRunLeases) WithValues(v platformSettingsModel.Values) (TestRunLeases
 	}
 	return l, nil
 }
+
+// SupportedProfiles are the node profiles the platform promises (the setting «Профілі вузлів»). The catalog accepts
+// a node only with a ticked profile; whether an agent can run one right now is a separate, live question.
+type SupportedProfiles struct {
+	Container bool
+	MicroVM   bool
+	VM        bool
+}
+
+// NodeProfileFields are the profile ticks in the platform settings: 1 is ticked, 0 is not.
+var NodeProfileFields = []platformSettingsModel.FieldSpec{
+	{Key: "Container", Kind: platformSettingsModel.KindCount, Min: 0, Max: 1},
+	{Key: "MicroVM", Kind: platformSettingsModel.KindCount, Min: 0, Max: 1},
+	{Key: "VM", Kind: platformSettingsModel.KindCount, Min: 0, Max: 1},
+}
+
+// DefaultSupportedProfiles is the container only.
+func DefaultSupportedProfiles() SupportedProfiles { return SupportedProfiles{Container: true} }
+
+// Has reports whether the profile is ticked.
+func (s SupportedProfiles) Has(profile NodeProfile) bool {
+	switch profile {
+	case NodeProfileContainer:
+		return s.Container
+	case NodeProfileMicroVM:
+		return s.MicroVM
+	case NodeProfileVM:
+		return s.VM
+	}
+	return false
+}
+
+// List is the ticked profiles in the order of NodeProfiles.
+func (s SupportedProfiles) List() []NodeProfile {
+	var out []NodeProfile
+	for _, profile := range NodeProfiles {
+		if s.Has(profile) {
+			out = append(out, profile)
+		}
+	}
+	return out
+}
+
+// Values are the ticks keyed as NodeProfileFields.
+func (s SupportedProfiles) Values() platformSettingsModel.Values {
+	tick := func(on bool) int64 {
+		if on {
+			return 1
+		}
+		return 0
+	}
+	return platformSettingsModel.Values{"Container": tick(s.Container), "MicroVM": tick(s.MicroVM), "VM": tick(s.VM)}
+}
+
+// WithValues returns the ticks of v, refusing an unknown or missing field, a value other than 0 or 1, and no tick at
+// all.
+func (s SupportedProfiles) WithValues(v platformSettingsModel.Values) (SupportedProfiles, error) {
+	if err := platformSettingsModel.ValidateValues(NodeProfileFields, v); err != nil {
+		return SupportedProfiles{}, err
+	}
+	out := SupportedProfiles{Container: v["Container"] == 1, MicroVM: v["MicroVM"] == 1, VM: v["VM"] == 1}
+	if len(out.List()) == 0 {
+		return SupportedProfiles{}, platformSettingsModel.ErrNodeProfilesNoneSupported.WithPublicContext("field", "Container").Err()
+	}
+	return out, nil
+}
+
+// UnsupportedProfile finds the first node of the variants whose profile is not ticked and returns the error that
+// names it (variant by 1-based position, device by name, the profile).
+func (s SupportedProfiles) UnsupportedProfile(variants []Variant) error {
+	for vi, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if profile := device.EffectiveProfile(); profile != "" && !s.Has(profile) {
+				return ErrNodeProfileNotSupported.WithPublicContext("variant", vi+1).
+					WithPublicContext("device", device.Name).WithPublicContext("profile", string(profile)).Err()
+			}
+		}
+	}
+	return nil
+}

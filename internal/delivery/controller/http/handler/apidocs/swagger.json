@@ -7749,7 +7749,7 @@
         },
         "/events/{id}/manage/exercises/{exerciseID}/update": {
             "post": {
-                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nTeams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.",
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nBoard challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.",
                 "consumes": [
                     "application/json"
                 ],
@@ -7797,6 +7797,65 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/event.eventExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/{exerciseID}/update/preview": {
+            "post": {
+                "description": "Returns how many stands of how many teams would be recreated (StandsRecreated, TeamsAffected, Teams), how many labs are re-prepared in place because they have not started (StandsReset) or are kept as they are (StandsKept), the tasks added, removed or kept under a new task id, removed tasks with attempts that block the update, and whether the reservation is short. RequiresConfirmation is true when the update recreates running stands: repeat the update with RecreateStands=true only after the organizer confirmed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Dry run of «Оновити до нової версії»: what the update would do, nothing is changed",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event exercise attachment ID",
+                        "name": "exerciseID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "target version (default: latest published)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.updateEventExerciseRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.eventExerciseUpdatePreviewResponse"
                                         }
                                     }
                                 }
@@ -25561,6 +25620,115 @@
                 }
             }
         },
+        "/settings/node-profiles": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the node profiles the platform supports (default: the container only), with, per profile, whether a connected laboratory agent can run it now",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.nodeProfilesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save the supported node profiles (Container, MicroVM, VM: 1 or 0 each); a missing or unknown field, a value other than 0 or 1 or no profile at all is a 400 (Context.field)",
+                "parameters": [
+                    {
+                        "description": "Container, MicroVM and VM, 1 or 0",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformSettings.saveTypedRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.nodeProfilesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the saved node profiles: the container only applies again",
+                "responses": {
+                    "200": {
+                        "description": "the defaults",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.nodeProfilesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/settings/participant-preview": {
             "get": {
                 "produces": [
@@ -28684,6 +28852,73 @@
                 }
             }
         },
+        "event.eventExerciseUpdatePreviewResponse": {
+            "type": "object",
+            "properties": {
+                "RequiresConfirmation": {
+                    "type": "boolean"
+                },
+                "ReservationShort": {
+                    "type": "boolean"
+                },
+                "StandsKept": {
+                    "type": "integer"
+                },
+                "StandsRecreated": {
+                    "type": "integer"
+                },
+                "StandsReset": {
+                    "type": "integer"
+                },
+                "TargetVersionID": {
+                    "type": "string"
+                },
+                "TasksAdded": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TasksBlocking": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TasksRemoved": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TasksRepointed": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Teams": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.eventExerciseUpdateTeamResponse"
+                    }
+                },
+                "TeamsAffected": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.eventExerciseUpdateTeamResponse": {
+            "type": "object",
+            "properties": {
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "event.eventFormAssignmentSwaggerRequest": {
             "type": "object",
             "properties": {
@@ -30326,7 +30561,7 @@
                     "type": "string"
                 },
                 "RecreateStands": {
-                    "description": "RecreateStands confirms recreating the stand Labs of teams whose stage is already running.",
+                    "description": "RecreateStands confirms recreating running stand Labs (the preview says whether the update does).",
                     "type": "boolean"
                 }
             }
@@ -31247,7 +31482,7 @@
                     "type": "string"
                 },
                 "RecreateStands": {
-                    "description": "RecreateStands confirms recreating the stand Labs of teams whose stage is already running.",
+                    "description": "RecreateStands confirms recreating running stand Labs (the preview says whether the update does).",
                     "type": "boolean"
                 }
             }
@@ -34554,6 +34789,10 @@
                 "Ready": {
                     "type": "boolean"
                 },
+                "State": {
+                    "description": "State: ready | starting | restarting | unavailable | failed | closed. Access holds addresses only when ready.",
+                    "type": "string"
+                },
                 "VPNCIDR": {
                     "type": "string"
                 }
@@ -36120,6 +36359,10 @@
         "exercise.deployDeviceResponse": {
             "type": "object",
             "properties": {
+                "Limit": {
+                    "description": "Limit is the code of a resource limit the device hits (\"device_cpu_limit\": more than half of its CPU periods\nare throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.",
+                    "type": "string"
+                },
                 "Name": {
                     "type": "string"
                 },
@@ -36410,6 +36653,15 @@
                         }
                     ]
                 },
+                "Profile": {
+                    "description": "Profile (a node only) is container, microvm or vm; empty is the container. Only the profiles the platform\nsupports can be saved.",
+                    "type": "string",
+                    "enum": [
+                        "container",
+                        "microvm",
+                        "vm"
+                    ]
+                },
                 "ResourcePreset": {
                     "description": "ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty\nthe device gets the default preset. There is no custom size.",
                     "type": "string"
@@ -36427,6 +36679,7 @@
                     "type": "string"
                 },
                 "Type": {
+                    "description": "Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container\nprofile.",
                     "type": "string"
                 },
                 "WaitReadyFile": {
@@ -38256,6 +38509,11 @@
         "exerciseModel.LabDeployedDevice": {
             "type": "object",
             "properties": {
+                "cputhrottledPercent": {
+                    "description": "CPUThrottledPercent is the share of CPU periods the device was throttled in the agent's window (0: no data).",
+                    "type": "integer",
+                    "format": "int32"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -42092,6 +42350,35 @@
                     "type": "integer"
                 },
                 "Role": {
+                    "type": "string"
+                }
+            }
+        },
+        "platformSettings.nodeProfilesResponse": {
+            "type": "object",
+            "properties": {
+                "Custom": {
+                    "description": "Custom: a value is saved; false: the defaults apply.",
+                    "type": "boolean"
+                },
+                "Fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformSettings.typedFieldResponse"
+                    }
+                },
+                "Ignored": {
+                    "description": "Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are\nin force; reset or save again.",
+                    "type": "boolean"
+                },
+                "RunnableNow": {
+                    "description": "RunnableNow is keyed by field (Container, MicroVM, VM). A ticked profile with false here is the one to warn\nabout; it changes nothing else.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
+                },
+                "UpdatedAt": {
                     "type": "string"
                 }
             }

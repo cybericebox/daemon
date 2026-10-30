@@ -13,6 +13,7 @@ const (
 	RetentionKey     = "retention_policy"
 	ArchiveLimitsKey = "exercise_archive_limits"
 	TestRunsKey      = "exercise_test_runs"
+	NodeProfilesKey  = "node_profiles"
 )
 
 // Kind is how a field's integer is read: durations in seconds, sizes in bytes, counts as is.
@@ -42,7 +43,7 @@ type (
 // IsTypedKey tells whether key is a typed setting, never saved through the generic setting path.
 func IsTypedKey(key string) bool {
 	switch key {
-	case RetentionKey, ArchiveLimitsKey, TestRunsKey:
+	case RetentionKey, ArchiveLimitsKey, TestRunsKey, NodeProfilesKey:
 		return true
 	}
 	return false

@@ -238,7 +238,7 @@ func (m *Manager) member(r infraModel.AgentRecord) *running {
 		log.Error().Err(err).Str("agent", r.Name).Msg("Agent fleet: cannot connect to the agent, it is skipped")
 		return nil
 	}
-	member := &labagent.Member{ID: r.ID, Name: r.Name, Priority: r.Priority, Enabled: r.Enabled, Client: client, Tenant: r.Tenant, AccessKeyID: r.AccessKeyID, Features: labagent.NewFeatureCell(r.Features)}
+	member := &labagent.Member{ID: r.ID, Name: r.Name, Priority: r.Priority, Enabled: r.Enabled, Client: client, Tenant: r.Tenant, AccessKeyID: r.AccessKeyID, Features: labagent.NewFeatureCell(r.Features), Profiles: labagent.NewProfileCell()}
 	if r.AccessPrivateKeyCiphertext != "" {
 		plain, openErr := m.cfg.Cipher.DecryptWithContext(r.AccessPrivateKeyCiphertext, infraModel.AgentSecretContext(r.ID, "access"))
 		if openErr == nil {

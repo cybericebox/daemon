@@ -15,6 +15,10 @@ import (
 type DeviceType string
 
 const (
+	// DeviceTypeNode is the «Вузол»: a machine of the lab that runs as the container, microVM or VM of its Profile.
+	DeviceTypeNode DeviceType = "node"
+	// DeviceTypeContainer is the former type of a container device. It is only read: Device.Normalize (run by the
+	// JSON decoding and by every import) turns it into a node with the container profile, and nothing writes it.
 	DeviceTypeContainer       DeviceType = "container"
 	DeviceTypeUnmanagedSwitch DeviceType = "unmanaged-switch"
 	DeviceTypeHub             DeviceType = "hub"
@@ -22,7 +26,31 @@ const (
 
 func (t DeviceType) Valid() bool {
 	switch t {
-	case DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub:
+	case DeviceTypeNode, DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub:
+		return true
+	}
+	return false
+}
+
+// IsNode reports whether the device runs a workload (a node, or a not yet normalized former container).
+func (t DeviceType) IsNode() bool { return t == DeviceTypeNode || t == DeviceTypeContainer }
+
+// NodeProfile is how a node runs: «Контейнер», «Мікро-VM» or «VM».
+type NodeProfile string
+
+const (
+	NodeProfileContainer NodeProfile = "container"
+	NodeProfileMicroVM   NodeProfile = "microvm"
+	// NodeProfileVM is reserved in the model: it is refused where a lab would be deployed.
+	NodeProfileVM NodeProfile = "vm"
+)
+
+// NodeProfiles lists every profile of the model in display order.
+var NodeProfiles = []NodeProfile{NodeProfileContainer, NodeProfileMicroVM, NodeProfileVM}
+
+func (p NodeProfile) Valid() bool {
+	switch p {
+	case NodeProfileContainer, NodeProfileMicroVM, NodeProfileVM:
 		return true
 	}
 	return false
@@ -113,9 +141,11 @@ type (
 	}
 
 	Device struct {
-		ID             uuid.UUID      `json:"id"`
-		Name           string         `json:"name"` // logical lab name; DNS label
-		Type           DeviceType     `json:"type"`
+		ID   uuid.UUID  `json:"id"`
+		Name string     `json:"name"` // logical lab name; DNS label
+		Type DeviceType `json:"type"`
+		// Profile (a node only) is how the node runs; empty counts as the container.
+		Profile        NodeProfile    `json:"profile,omitempty"`
 		Image          string         `json:"image,omitempty"`
 		SecurityPreset SecurityPreset `json:"security_preset,omitempty"` // empty = standard
 		// ResourcePreset is a platform preset id (micro, small, medium, large); when empty the device
@@ -231,7 +261,7 @@ func (t Topology) validateStructure() error {
 	}
 	usedAddressRefs := make(map[NetworkIPRef]bool)
 	for _, d := range t.Devices {
-		if d.Type == DeviceTypeContainer {
+		if d.Type.IsNode() {
 			if !dnsLabelRe.MatchString(d.Name) {
 				return ErrDeviceNameInvalid.WithContext("device", d.Name).Err()
 			}
@@ -244,6 +274,9 @@ func (t Topology) validateStructure() error {
 		}
 		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
+		}
+		if d.Profile != "" && (!d.Type.IsNode() || !d.Profile.Valid()) {
+			return ErrNodeProfileInvalid.WithPublicContext("device", d.Name).WithPublicContext("profile", string(d.Profile)).Err()
 		}
 		if reason := invalidPersistence(d); reason != "" {
 			return ErrDevicePersistenceInvalid.WithContext("device", d.Name).WithContext("reason", reason).Err()
@@ -651,7 +684,7 @@ func invalidPersistence(d Device) string {
 	if d.Persistence == nil {
 		return ""
 	}
-	if d.Type != DeviceTypeContainer {
+	if !d.Type.IsNode() {
 		return "device_type"
 	}
 	if d.Persistence.Debounce != "" {
@@ -661,4 +694,64 @@ func invalidPersistence(d Device) string {
 		}
 	}
 	return ""
+}
+
+// EffectiveProfile is the profile a node runs as: an unset profile is the container. "" for a switch or a hub.
+func (d Device) EffectiveProfile() NodeProfile {
+	if !d.Type.IsNode() {
+		return ""
+	}
+	if d.Profile == "" {
+		return NodeProfileContainer
+	}
+	return d.Profile
+}
+
+// IsNode reports whether the device is a node (it runs a workload, whatever its profile).
+func (d Device) IsNode() bool { return d.Type.IsNode() }
+
+// Normalize rewrites the former container type as a node with the container profile and gives a node without a
+// profile the container profile. Idempotent.
+func (d *Device) Normalize() {
+	if d.Type == DeviceTypeContainer {
+		d.Type = DeviceTypeNode
+		if d.Profile == "" {
+			d.Profile = NodeProfileContainer
+		}
+	}
+	if d.Type == DeviceTypeNode && d.Profile == "" {
+		d.Profile = NodeProfileContainer
+	}
+}
+
+// UnmarshalJSON reads a device and normalizes it, so stored data and archives in the former form (type container)
+// load as nodes.
+func (d *Device) UnmarshalJSON(data []byte) error {
+	type plain Device
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = Device(decoded)
+	d.Normalize()
+	return nil
+}
+
+// NodeProfilesUsed lists the profiles of the nodes of the variants, in the order of NodeProfiles.
+func NodeProfilesUsed(variants []Variant) []NodeProfile {
+	seen := make(map[NodeProfile]bool, len(NodeProfiles))
+	for _, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if profile := device.EffectiveProfile(); profile != "" {
+				seen[profile] = true
+			}
+		}
+	}
+	var out []NodeProfile
+	for _, profile := range NodeProfiles {
+		if seen[profile] {
+			out = append(out, profile)
+		}
+	}
+	return out
 }

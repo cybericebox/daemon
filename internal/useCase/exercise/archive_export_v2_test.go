@@ -341,6 +341,7 @@ func TestExportExerciseArchive_EnumsByName(t *testing.T) {
 				Topology struct {
 					Devices []struct {
 						Type           any `json:"type"`
+						Profile        any `json:"profile"`
 						SecurityPreset any `json:"security_preset"`
 					} `json:"devices"`
 					Connections []struct {
@@ -359,7 +360,8 @@ func TestExportExerciseArchive_EnumsByName(t *testing.T) {
 	variant := doc.Versions[0].Variants[0]
 	require.Equal(t, "medium", variant.Tasks[0].Difficulty)
 	require.Equal(t, "steps", variant.Tasks[0].Hints[0].Level)
-	require.Equal(t, "container", variant.Topology.Devices[0].Type)
+	require.Equal(t, "node", variant.Topology.Devices[0].Type)
+	require.Equal(t, "container", variant.Topology.Devices[0].Profile)
 	require.Equal(t, "standard", variant.Topology.Devices[0].SecurityPreset)
 	require.Equal(t, "vpn", variant.Topology.Connections[0].Endpoints[0].Kind)
 	require.Equal(t, "device", variant.Topology.Connections[0].Endpoints[1].Kind)

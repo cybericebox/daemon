@@ -1541,6 +1541,50 @@ definitions:
       VersionNumber:
         type: integer
     type: object
+  event.eventExerciseUpdatePreviewResponse:
+    properties:
+      RequiresConfirmation:
+        type: boolean
+      ReservationShort:
+        type: boolean
+      StandsKept:
+        type: integer
+      StandsRecreated:
+        type: integer
+      StandsReset:
+        type: integer
+      TargetVersionID:
+        type: string
+      TasksAdded:
+        items:
+          type: string
+        type: array
+      TasksBlocking:
+        items:
+          type: string
+        type: array
+      TasksRemoved:
+        items:
+          type: string
+        type: array
+      TasksRepointed:
+        items:
+          type: string
+        type: array
+      Teams:
+        items:
+          $ref: '#/definitions/event.eventExerciseUpdateTeamResponse'
+        type: array
+      TeamsAffected:
+        type: integer
+    type: object
+  event.eventExerciseUpdateTeamResponse:
+    properties:
+      ID:
+        type: string
+      Name:
+        type: string
+    type: object
   event.eventFormAssignmentSwaggerRequest:
     properties:
       Enabled:
@@ -2660,8 +2704,8 @@ definitions:
       ExerciseVersionID:
         type: string
       RecreateStands:
-        description: RecreateStands confirms recreating the stand Labs of teams whose
-          stage is already running.
+        description: RecreateStands confirms recreating running stand Labs (the preview
+          says whether the update does).
         type: boolean
     type: object
   event.rescueDeviceRequest:
@@ -3290,8 +3334,8 @@ definitions:
         description: ExerciseVersionID nil = the exercise's latest published version.
         type: string
       RecreateStands:
-        description: RecreateStands confirms recreating the stand Labs of teams whose
-          stage is already running.
+        description: RecreateStands confirms recreating running stand Labs (the preview
+          says whether the update does).
         type: boolean
     type: object
   event.updateEventRequest:
@@ -5518,6 +5562,10 @@ definitions:
         type: string
       Ready:
         type: boolean
+      State:
+        description: 'State: ready | starting | restarting | unavailable | failed
+          | closed. Access holds addresses only when ready.'
+        type: string
       VPNCIDR:
         type: string
     type: object
@@ -6608,6 +6656,11 @@ definitions:
     type: object
   exercise.deployDeviceResponse:
     properties:
+      Limit:
+        description: |-
+          Limit is the code of a resource limit the device hits ("device_cpu_limit": more than half of its CPU periods
+          are throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.
+        type: string
       Name:
         type: string
       Ready:
@@ -6820,6 +6873,15 @@ definitions:
         allOf:
         - $ref: '#/definitions/exercise.persistenceDTO'
         description: Persistence is absent when the device keeps no state.
+      Profile:
+        description: |-
+          Profile (a node only) is container, microvm or vm; empty is the container. Only the profiles the platform
+          supports can be saved.
+        enum:
+        - container
+        - microvm
+        - vm
+        type: string
       ResourcePreset:
         description: |-
           ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty
@@ -6836,6 +6898,9 @@ definitions:
           NET_ADMIN and /dev/net/tun). Any other value is refused.
         type: string
       Type:
+        description: |-
+          Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
+          profile.
         type: string
       WaitReadyFile:
         description: |-
@@ -8142,6 +8207,11 @@ definitions:
     type: object
   exerciseModel.LabDeployedDevice:
     properties:
+      cputhrottledPercent:
+        description: 'CPUThrottledPercent is the share of CPU periods the device was
+          throttled in the agent''s window (0: no data).'
+        format: int32
+        type: integer
       name:
         type: string
       ready:
@@ -10743,6 +10813,30 @@ definitions:
       Count:
         type: integer
       Role:
+        type: string
+    type: object
+  platformSettings.nodeProfilesResponse:
+    properties:
+      Custom:
+        description: 'Custom: a value is saved; false: the defaults apply.'
+        type: boolean
+      Fields:
+        items:
+          $ref: '#/definitions/platformSettings.typedFieldResponse'
+        type: array
+      Ignored:
+        description: |-
+          Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are
+          in force; reset or save again.
+        type: boolean
+      RunnableNow:
+        additionalProperties:
+          type: boolean
+        description: |-
+          RunnableNow is keyed by field (Container, MicroVM, VM). A ticked profile with false here is the one to warn
+          about; it changes nothing else.
+        type: object
+      UpdatedAt:
         type: string
     type: object
   platformSettings.saveTypedRequest:
@@ -16685,7 +16779,7 @@ paths:
       - application/json
       description: |-
         On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
-        Teams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.
+        Board challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.
       parameters:
       - description: event ID
         in: path
@@ -16716,6 +16810,49 @@ paths:
               type: object
       summary: '«Оновити»: switch the attachment in place to the latest (or given)
         published version, keeping event overrides'
+      tags:
+      - events
+  /events/{id}/manage/exercises/{exerciseID}/update/preview:
+    post:
+      consumes:
+      - application/json
+      description: 'Returns how many stands of how many teams would be recreated (StandsRecreated,
+        TeamsAffected, Teams), how many labs are re-prepared in place because they
+        have not started (StandsReset) or are kept as they are (StandsKept), the tasks
+        added, removed or kept under a new task id, removed tasks with attempts that
+        block the update, and whether the reservation is short. RequiresConfirmation
+        is true when the update recreates running stands: repeat the update with RecreateStands=true
+        only after the organizer confirmed.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      - description: 'target version (default: latest published)'
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/event.updateEventExerciseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventExerciseUpdatePreviewResponse'
+              type: object
+      summary: 'Dry run of «Оновити до нової версії»: what the update would do, nothing
+        is changed'
       tags:
       - events
   /events/{id}/manage/exercises/{exerciseID}/visibility:
@@ -28383,6 +28520,72 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: List the repositories a registry token can see
+      tags:
+      - settings
+  /settings/node-profiles:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+      summary: 'Remove the saved node profiles: the container only applies again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+      summary: 'Get the node profiles the platform supports (default: the container
+        only), with, per profile, whether a connected laboratory agent can run it
+        now'
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Container, MicroVM and VM, 1 or 0
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'Save the supported node profiles (Container, MicroVM, VM: 1 or 0 each);
+        a missing or unknown field, a value other than 0 or 1 or no profile at all
+        is a 400 (Context.field)'
       tags:
       - settings
   /settings/participant-preview:

@@ -98,7 +98,7 @@ func (u *ExerciseUseCase) PreviewArchiveImport(ctx context.Context, actor Actor,
 		return ArchiveImportPreview{}, err
 	}
 	for i := range tasks {
-		if err = u.validateImportContent(&tasks[i], protected); err != nil {
+		if err = u.validateImportContent(ctx, &tasks[i], protected); err != nil {
 			return ArchiveImportPreview{}, importItemError(err, tasks[i].ItemKey, "")
 		}
 		// The archive's published snapshots must remain valid portable snapshots.

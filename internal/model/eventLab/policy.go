@@ -47,7 +47,7 @@ func (p Policy) ValidatePreparation(t exerciseModel.Topology, captureSupported b
 	}
 	missing := !captureSupported
 	for _, d := range t.Devices {
-		if d.Type == exerciseModel.DeviceTypeContainer && (d.Persistence == nil || !d.Persistence.Enabled) {
+		if d.IsNode() && (d.Persistence == nil || !d.Persistence.Enabled) {
 			missing = true
 		}
 	}

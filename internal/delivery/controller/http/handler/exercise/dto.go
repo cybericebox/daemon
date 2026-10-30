@@ -426,10 +426,15 @@ type persistenceDTO struct {
 }
 
 type deviceDTO struct {
-	ID    *uuid.UUID `json:"ID,omitempty"`
-	Name  string     `json:"Name"`
-	Type  string     `json:"Type"`
-	Image string     `json:"Image,omitempty"`
+	ID   *uuid.UUID `json:"ID,omitempty"`
+	Name string     `json:"Name"`
+	// Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
+	// profile.
+	Type string `json:"Type"`
+	// Profile (a node only) is container, microvm or vm; empty is the container. Only the profiles the platform
+	// supports can be saved.
+	Profile string `json:"Profile,omitempty" enums:"container,microvm,vm"`
+	Image   string `json:"Image,omitempty"`
 	// SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
 	// NET_ADMIN and /dev/net/tun). Any other value is refused.
 	SecurityPreset string `json:"SecurityPreset,omitempty"`
@@ -823,7 +828,8 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
-		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
+		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Profile: exerciseModel.NodeProfile(dev.Profile), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
+		domainDev.Normalize()
 		if dev.Resources != nil {
 			domainDev.Resources = &exerciseModel.DeviceResources{
 				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
@@ -943,7 +949,7 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	}
 	for _, dev := range t.Devices {
 		id := dev.ID
-		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
+		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Profile: string(dev.Profile), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
 				Name: iface.Name, MAC: iface.MAC,

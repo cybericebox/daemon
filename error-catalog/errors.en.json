@@ -9,6 +9,7 @@
   "20109": "One archive file may not be larger than the file upload limit",
   "20110": "Unknown setting access level",
   "20111": "The participants' lab data period may not be longer than the lab telemetry period",
+  "20112": "At least one node profile must be supported",
   "20205": "Invalid template status",
   "20206": "Template references unavailable notification variables",
   "20207": "Notification type is not available for event-scoped templates",
@@ -267,6 +268,8 @@
   "22910": "The password does not open the archive",
   "23001": "A linked variant has no files for a subtask whose base variant has files",
   "23002": "A linked variant must differ from its base variant",
+  "23101": "Unknown node profile, or a profile on a device that is not a node",
+  "23102": "The platform does not support this node profile",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -524,5 +527,7 @@
   "72830": "A platform image cannot be exported: the image registry is not configured, not responding or does not have it",
   "72832": "The image registry refused the platform token: check the registry token in the platform panel",
   "72906": "The source or target changed; preview and confirm again",
-  "72907": "This archive source already has a different running or completed import"
+  "72907": "This archive source already has a different running or completed import",
+  "73103": "No connected laboratory agent can run this node profile now",
+  "73104": "The VM profile cannot be run yet"
 }

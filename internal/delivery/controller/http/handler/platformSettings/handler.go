@@ -39,6 +39,9 @@ type (
 		GetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
 		SaveTestRunSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
 		ResetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetNodeProfileSettings(ctx context.Context) (platformSettingsUseCase.NodeProfilesView, error)
+		SaveNodeProfileSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.NodeProfilesView, error)
+		ResetNodeProfileSettings(ctx context.Context) (platformSettingsUseCase.NodeProfilesView, error)
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.

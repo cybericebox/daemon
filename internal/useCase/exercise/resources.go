@@ -174,7 +174,7 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 	policy := u.Policy()
 	for _, v := range variants {
 		for _, d := range v.Topology.Devices {
-			if d.Type == exerciseModel.DeviceTypeContainer && policy.InvalidPreset(d) {
+			if d.IsNode() && policy.InvalidPreset(d) {
 				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", v.ID.String()).
 					WithPublicContext("device", d.Name).WithPublicContext("preset", d.ResourcePreset).Err()
 			}

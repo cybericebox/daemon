@@ -234,6 +234,8 @@ func (t testDeployExpiry) ScheduleTestDeployRemovalCheck(ctx context.Context, ow
 }
 
 func NewUseCase(deps Dependencies) *UseCase {
+	// Which node profiles an agent can run now: the fleet knows, a test double without it reports none.
+	profiles, _ := deps.LabAgent.(platformSettingsUseCase.IProfileAvailability)
 	// The platform settings come first: the retention periods, the archive limits and the test run leases saved in
 	// them are read live by the use cases below (the env values are their defaults).
 	platformSettingsUC := platformSettingsUseCase.NewPlatformSettingsUseCase(
@@ -242,6 +244,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			RetentionDefaults: deps.RetentionPolicy,
 			TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
 			MaxUploadBytes:    deps.MediaConfig.MaxUploadBytes,
+			Profiles:          profiles,
 		},
 	)
 

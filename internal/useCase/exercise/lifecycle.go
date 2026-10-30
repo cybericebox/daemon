@@ -52,6 +52,9 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
 		return VersionView{}, err
 	}
+	if err = u.requireProfilesSupported(ctx, version.Variants); err != nil {
+		return VersionView{}, err
+	}
 	// The client names the attached files by id: it may attach only what it uploaded or what the exercise
 	// already holds, never another user's file (the table of files is shared by every event).
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
@@ -216,6 +219,9 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 // yet created has none).
 func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseModel.Exercise, version *exerciseModel.ExerciseVersion) error {
 	if err := version.ValidateForPublish(); err != nil {
+		return err
+	}
+	if err := u.requireProfilesSupported(ctx, version.Variants); err != nil {
 		return err
 	}
 	if err := u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {

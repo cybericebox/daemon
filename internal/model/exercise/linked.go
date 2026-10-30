@@ -88,7 +88,7 @@ func applyImageOverrides(topology *Topology, overrides []ImageOverride) []ImageO
 	for di := range topology.Devices {
 		device := &topology.Devices[di]
 		image, ok := images[device.ID]
-		if !ok || device.Type != DeviceTypeContainer {
+		if !ok || !device.IsNode() {
 			continue
 		}
 		delete(images, device.ID) // a repeated device id takes the override once

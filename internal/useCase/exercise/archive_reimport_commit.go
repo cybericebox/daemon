@@ -155,7 +155,7 @@ func (u *ExerciseUseCase) prepareArchiveCommit(ctx context.Context, actor Actor,
 		return nil, err
 	}
 	for i := range tasks {
-		if err = u.validateImportContent(&tasks[i], read.protected); err != nil {
+		if err = u.validateImportContent(ctx, &tasks[i], read.protected); err != nil {
 			return nil, importItemError(err, tasks[i].ItemKey, "")
 		}
 		for vi := range tasks[i].Versions {
@@ -209,7 +209,7 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 		return ArchiveImportStart{}, err
 	}
 	for i := range staged {
-		if err = u.validateImportContent(&staged[i], read.protected); err != nil {
+		if err = u.validateImportContent(ctx, &staged[i], read.protected); err != nil {
 			return ArchiveImportStart{}, err
 		}
 		if choices[staged[i].ItemKey].Mode == "update" {

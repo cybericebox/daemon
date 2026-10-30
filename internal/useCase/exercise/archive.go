@@ -199,7 +199,7 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
 // statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
 func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
-	if err := u.validateImportContent(parsed, protected); err != nil {
+	if err := u.validateImportContent(ctx, parsed, protected); err != nil {
 		return err
 	}
 	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
@@ -210,13 +210,19 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 
 // validateImportContent is the write-free parse/content preparation shared by
 // preview and commit. Destination policy and random secret encryption follow it.
-func (u *ExerciseUseCase) validateImportContent(parsed *ParsedExerciseArchive, protected bool) error {
+func (u *ExerciseUseCase) validateImportContent(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
 	}
 	if err := validateImportedVersions(parsed.Versions); err != nil {
 		return err
+	}
+	// Every version, drafts and history included, may carry only the profiles the platform supports.
+	for i := range parsed.Versions {
+		if err := u.requireProfilesSupported(ctx, parsed.Versions[i].Variants); err != nil {
+			return withImportedPath(err, i, parsed.Versions[i].Variants)
+		}
 	}
 	// Every authored snapshot is validated, including history that an update
 	// would not select. Never create a first task before discovering invalid

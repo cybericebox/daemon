@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -43,6 +44,9 @@ const (
 	ReasonReservationFull     = "RESERVATION_FULL"
 	ReasonReservationMismatch = "RESERVATION_MISMATCH"
 	ReasonOverQuota           = "OVER_QUOTA"
+	// The profile of a node cannot run: the agent does not offer it (or it is vm), or no node can run it now.
+	ReasonProfileUnsupported = "PROFILE_UNSUPPORTED"
+	ReasonProfileUnavailable = "PROFILE_UNAVAILABLE"
 )
 
 // The agent's refusals of an item, by reason.
@@ -74,6 +78,8 @@ func ReasonError(reason string) error {
 		return ErrReservationMismatch
 	case ReasonOverQuota:
 		return ErrReservationOverQuota
+	case ReasonProfileUnsupported, ReasonProfileUnavailable:
+		return exerciseModel.ErrNodeProfileUnavailable.Err()
 	}
 	return nil
 }

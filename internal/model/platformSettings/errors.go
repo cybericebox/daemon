@@ -11,7 +11,7 @@ import (
 // typed value carries the public context `field` (and `min`/`max` for a range)
 // so the admin form shows the error under that field.
 //
-// SettingObjectCode — next free detail code: 11
+// SettingObjectCode — next free detail code: 13
 var (
 	ErrSettingNotFound = err.ErrObjectNotFound.WithObjectCode(model.SettingObjectCode).
 				WithMessage("Setting not found").
@@ -29,6 +29,9 @@ var (
 	// inactivity period itself.
 	ErrRetentionGraceNotShorter = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
 					WithMessage("The deletion grace must be shorter than the inactivity period").WithDetailCode(5)
+	// ErrNodeProfilesNoneSupported: the platform must support at least one node profile.
+	ErrNodeProfilesNoneSupported = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
+					WithMessage("At least one node profile must be supported").WithDetailCode(12)
 	// ErrRetentionParticipantsNotShorter: the period for the lab data of participants may not be longer than the period
 	// for the lab data of teams and containers.
 	ErrRetentionParticipantsNotShorter = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).

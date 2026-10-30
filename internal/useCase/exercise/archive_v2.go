@@ -103,6 +103,7 @@ type (
 		ID             string                           `json:"id,omitempty"`
 		Name           string                           `json:"name"`
 		Type           exerciseModel.DeviceType         `json:"type"`
+		Profile        exerciseModel.NodeProfile        `json:"profile,omitempty"`
 		Image          archiveImageV2                   `json:"image,omitzero"`
 		SecurityPreset exerciseModel.SecurityPreset     `json:"security_preset,omitempty"`
 		ResourcePreset string                           `json:"resource_preset,omitempty"`
@@ -683,6 +684,9 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 		if device.Type != "" && !device.Type.Valid() {
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".type", string(device.Type))
 		}
+		if device.Profile != "" && !device.Profile.Valid() {
+			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".profile", string(device.Profile))
+		}
 		if device.SecurityPreset != "" && !device.SecurityPreset.Valid() {
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".security_preset", string(device.SecurityPreset))
 		}
@@ -713,12 +717,14 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 		} else {
 			deviceIDs[device.Name] = id
 		}
-		topology.Devices = append(topology.Devices, exerciseModel.Device{
-			ID: id, Name: device.Name, Type: device.Type, Image: image,
+		domainDevice := exerciseModel.Device{
+			ID: id, Name: device.Name, Type: device.Type, Profile: device.Profile, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
 			Interfaces: device.Interfaces, EnvVars: envVarsToDomain(device.EnvVars),
 			External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
-		})
+		}
+		domainDevice.Normalize() // the former type container is a node with the container profile
+		topology.Devices = append(topology.Devices, domainDevice)
 	}
 	for ci, connection := range t.Connections {
 		mapped := exerciseModel.Connection{}
@@ -782,7 +788,7 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
 	for _, device := range variant.Topology.Devices {
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
-			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
+			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Profile: device.Profile, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
 			EnvVars: exportEnvVarsV2(device.EnvVars), External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})

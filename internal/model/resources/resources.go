@@ -103,6 +103,9 @@ type Policy struct {
 	// Frame and Ceiling are the same limits as amounts.
 	Frame   Amount
 	Ceiling Amount
+	// Overheads are the fixed cost a microVM node adds to its pod, as the agents report it. Shared by the copies
+	// of the policy; nil adds nothing.
+	Overheads *ProfileOverheads
 }
 
 // DefaultPolicy is the owner's default settings: nano 32Mi/7m, micro 64Mi/15m (default), small 128Mi/31m,
@@ -344,7 +347,7 @@ func (p Policy) Explicitly(t exerciseModel.Topology) exerciseModel.Topology {
 	devices := make([]exerciseModel.Device, len(t.Devices))
 	copy(devices, t.Devices)
 	for i, d := range devices {
-		if d.Type != exerciseModel.DeviceTypeContainer {
+		if !d.IsNode() {
 			continue
 		}
 		devices[i].Resources = p.Explicit(d)
@@ -366,11 +369,18 @@ type DeviceUsage struct {
 func (p Policy) Devices(t exerciseModel.Topology) []DeviceUsage {
 	var out []DeviceUsage
 	for _, d := range t.Devices {
-		if d.Type != exerciseModel.DeviceTypeContainer {
+		if !d.IsNode() {
 			continue
 		}
 		preset := p.resolvePreset(d)
-		out = append(out, DeviceUsage{DeviceID: d.ID, Name: d.Name, Blocks: preset.Blocks, Amount: preset.Amount})
+		usage := DeviceUsage{DeviceID: d.ID, Name: d.Name, Blocks: preset.Blocks, Amount: preset.Amount}
+		// The author sets only the device's own size; the platform adds what the profile costs on top (a microVM's
+		// guest and its monitor), in the amount and in whole blocks.
+		if overhead := p.Overheads.Get(d.EffectiveProfile()); overhead != (Amount{}) {
+			usage.Amount = usage.Amount.Add(overhead)
+			usage.Blocks += p.BlocksOf(overhead)
+		}
+		out = append(out, usage)
 	}
 	return out
 }

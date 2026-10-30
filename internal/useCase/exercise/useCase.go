@@ -150,6 +150,7 @@ type Dependencies struct {
 type ISettings interface {
 	ArchiveLimits(ctx context.Context) (exerciseModel.ArchiveLimits, error)
 	TestRunLeases(ctx context.Context) (exerciseModel.TestRunLeases, error)
+	NodeProfiles(ctx context.Context) (exerciseModel.SupportedProfiles, error)
 }
 
 type FlagPolicy struct {

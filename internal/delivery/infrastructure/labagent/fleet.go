@@ -37,6 +37,8 @@ type Member struct {
 	AccessKey   ed25519.PrivateKey
 	// Features is what the agent last reported it offers the platform; shared by the copies of the member.
 	Features *FeatureCell
+	// Profiles is what the agent last reported about the node profiles it can run; shared by the copies of the member.
+	Profiles *ProfileCell
 }
 
 // PlacementStore remembers which agent holds a lab group. A group lives on exactly one agent for
@@ -346,8 +348,14 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if !meta.GroupReservation.Empty() {
 		ctx = infraModel.WithGroupReservation(ctx, meta.GroupReservation)
 	}
+	if err := f.requireProfilesSomewhere(topo); err != nil {
+		return err
+	}
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
+		return err
+	}
+	if err = requireProfiles(m, topo); err != nil {
 		return err
 	}
 	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the

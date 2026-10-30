@@ -94,6 +94,10 @@ func (u *PlatformSettingsUseCase) testRunSetting() typedSetting[exerciseModel.Te
 	return typedSetting[exerciseModel.TestRunLeases]{key: platformSettingsModel.TestRunsKey, specs: exerciseModel.TestRunFields, defaults: u.testRunDefaults}
 }
 
+func (u *PlatformSettingsUseCase) nodeProfileSetting() typedSetting[exerciseModel.SupportedProfiles] {
+	return typedSetting[exerciseModel.SupportedProfiles]{key: platformSettingsModel.NodeProfilesKey, specs: exerciseModel.NodeProfileFields, defaults: exerciseModel.DefaultSupportedProfiles()}
+}
+
 // specMax is the spec's own upper bound of the field key.
 func specMax(specs []platformSettingsModel.FieldSpec, key string) int64 {
 	for _, spec := range specs {
@@ -138,6 +142,62 @@ func (u *PlatformSettingsUseCase) SaveTestRunSettings(ctx context.Context, in pl
 
 func (u *PlatformSettingsUseCase) ResetTestRunSettings(ctx context.Context) (TypedView, error) {
 	return resetTyped(ctx, u, u.testRunSetting())
+}
+
+// IProfileAvailability tells which node profiles a connected laboratory agent can run now.
+type IProfileAvailability interface {
+	RunnableNodeProfiles(ctx context.Context) map[exerciseModel.NodeProfile]bool
+}
+
+// NodeProfilesView is the setting «Профілі вузлів» with, per profile, whether a connected agent can run it now: a
+// ticked profile that none can is the one to warn about.
+type NodeProfilesView struct {
+	TypedView
+
+	// RunnableNow is keyed by field key (Container, MicroVM, VM).
+	RunnableNow map[string]bool
+}
+
+var nodeProfileFieldKeys = map[exerciseModel.NodeProfile]string{
+	exerciseModel.NodeProfileContainer: "Container",
+	exerciseModel.NodeProfileMicroVM:   "MicroVM",
+	exerciseModel.NodeProfileVM:        "VM",
+}
+
+func (u *PlatformSettingsUseCase) nodeProfilesView(ctx context.Context, v TypedView, err error) (NodeProfilesView, error) {
+	if err != nil {
+		return NodeProfilesView{}, err
+	}
+	out := NodeProfilesView{TypedView: v, RunnableNow: make(map[string]bool, len(nodeProfileFieldKeys))}
+	var runnable map[exerciseModel.NodeProfile]bool
+	if u.profiles != nil {
+		runnable = u.profiles.RunnableNodeProfiles(ctx)
+	}
+	for profile, key := range nodeProfileFieldKeys {
+		out.RunnableNow[key] = runnable[profile]
+	}
+	return out, nil
+}
+
+func (u *PlatformSettingsUseCase) GetNodeProfileSettings(ctx context.Context) (NodeProfilesView, error) {
+	v, err := getTyped(ctx, u, u.nodeProfileSetting())
+	return u.nodeProfilesView(ctx, v, err)
+}
+
+func (u *PlatformSettingsUseCase) SaveNodeProfileSettings(ctx context.Context, in platformSettingsModel.Values) (NodeProfilesView, error) {
+	v, err := saveTyped(ctx, u, u.nodeProfileSetting(), in)
+	return u.nodeProfilesView(ctx, v, err)
+}
+
+func (u *PlatformSettingsUseCase) ResetNodeProfileSettings(ctx context.Context) (NodeProfilesView, error) {
+	v, err := resetTyped(ctx, u, u.nodeProfileSetting())
+	return u.nodeProfilesView(ctx, v, err)
+}
+
+// NodeProfiles are the node profiles the platform supports: the ticks saved over the default (the container only).
+func (u *PlatformSettingsUseCase) NodeProfiles(ctx context.Context) (exerciseModel.SupportedProfiles, error) {
+	p, _, _, err := loadTyped(ctx, u, u.nodeProfileSetting())
+	return p, err
 }
 
 // RetentionPolicy is the retention policy in force: the saved periods over the defaults, BatchSize from the defaults.
