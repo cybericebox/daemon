@@ -420,7 +420,6 @@ func boardViews(rows []teamChallengeRepo.PublishedChallenge, prerequisites map[u
 			}
 			view.Snapshot = locked
 		} else if attachments, err := teamChallengeModel.SnapshotAttachments(challenge.Snapshot); err == nil {
-			attachments = withBoardAttachments(attachments, row)
 			for _, attachment := range attachments {
 				view.Files = append(view.Files, ChallengeFileView{FileID: attachment.FileID, Name: attachment.Name})
 			}
@@ -524,28 +523,4 @@ func (u *EventUseCase) resolveModeratorsTeamInTransaction(ctx context.Context, r
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
 	}
 	return team.ID, nil
-}
-
-// withBoardAttachments adds the files the event task has now to the files of the team's pinned copy. A file added
-// to a published task after a team's copy was pinned reaches that team without anyone editing the copy; the
-// pinned content (flag, variant, text) is untouched, and only a team that plays the canonical variant gets the
-// canonical variant's files. A file the team's copy has stays.
-func withBoardAttachments(own []teamChallengeModel.Attachment, row teamChallengeRepo.PublishedChallenge) []teamChallengeModel.Attachment {
-	if !row.CanonicalVariant || len(row.BoardSnapshot) == 0 {
-		return own
-	}
-	board, err := teamChallengeModel.SnapshotAttachments(row.BoardSnapshot)
-	if err != nil {
-		return own
-	}
-	have := make(map[uuid.UUID]bool, len(own))
-	for _, a := range own {
-		have[a.FileID] = true
-	}
-	for _, a := range board {
-		if !have[a.FileID] {
-			own = append(own, a)
-		}
-	}
-	return own
 }

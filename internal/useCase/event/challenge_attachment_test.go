@@ -87,35 +87,3 @@ func TestOwnChallengeAttachmentRequiresPublishedSnapshotReference(t *testing.T) 
 		})
 	}
 }
-
-// khctf 2026-10-26: a binary added to a published task after the team copy was pinned never reached 11 teams.
-func TestOwnChallengeAttachmentAddedAfterThePinReachesTheTeam(t *testing.T) {
-	eventID, userID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	challengeID, teamChallengeID, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	for _, canonical := range []bool{true, false} {
-		q := newFormGateMock(gomock.NewController(t))
-		q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{
-			EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), TeamID: uuid.NullUUID{UUID: teamID, Valid: true},
-		}, nil)
-		q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil)
-		q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{{
-			ID: teamChallengeID, EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID,
-			Readiness: int16(teamChallengeModel.ReadinessPublished), Snapshot: []byte(`{"name":"Pwn"}`),
-			BoardSnapshot:    []byte(`{"name":"Pwn","attachments":[{"file_id":"` + fileID.String() + `","name":"pwn.bin"}]}`),
-			CanonicalVariant: canonical,
-		}}, nil)
-		q.EXPECT().ListTeamChallengePrerequisites(gomock.Any(), teamID).Return(nil, nil)
-		if canonical {
-			q.EXPECT().CreateEventActivity(gomock.Any(), gomock.Any()).Return(nil)
-		}
-		media := &brandMediaFake{file: mediaModel.File{ID: fileID, Name: "pwn.bin", SizeBytes: 3}, blob: []byte("pwn")}
-		uc := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
-		reader, _, err := uc.StreamOwnChallengeAttachment(context.Background(), eventID, userID, challengeID, fileID)
-		if !canonical {
-			require.Error(t, err, "another variant keeps its own pinned files")
-			continue
-		}
-		require.NoError(t, err)
-		reader.Close()
-	}
-}
