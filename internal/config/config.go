@@ -375,6 +375,12 @@ type (
 		// Envoy in front of the daemon. The header is optional for them; any other peer's header is read and
 		// discarded. Empty (default) is off: the listener is not wrapped and the connection address is used.
 		ProxyProtocolFrom []string `env:"PROXY_PROTOCOL_FROM"`
+		// ProxyProtocolSecret (HTTP_SERVER_PROXY_PROTOCOL_SECRET) is the shared secret the edge puts in the custom
+		// TLV 0xE0 of the PROXY header; the daemon takes the header's address only from a trusted peer whose TLV equals
+		// this or ProxyProtocolSecretNext (rotation: the edge switches to the new value, then the old one is
+		// dropped). Empty: the TLV is not required (the list alone decides) and a warning is logged at start.
+		ProxyProtocolSecret     string `env:"PROXY_PROTOCOL_SECRET"`
+		ProxyProtocolSecretNext string `env:"PROXY_PROTOCOL_SECRET_NEXT"`
 	}
 
 	// HTTP3Config is the HTTP/3 listener: it serves the same handler with the same certificate as the HTTPS
@@ -685,6 +691,9 @@ func (c HTTPControllerConfig) Validate() error {
 // TLSEnabled reports whether the TLS listener runs: the certificate and the key are both set.
 func (c HTTPServerConfig) TLSEnabled() bool { return c.TLS.CertFile != "" && c.TLS.KeyFile != "" }
 
+// MinProxyProtocolSecretLen is the shortest PROXY protocol secret accepted.
+const MinProxyProtocolSecretLen = 16
+
 // ParseProxyProtocolFrom reads HTTP_SERVER_PROXY_PROTOCOL_FROM: each entry is a CIDR or a bare address (a /32 or
 // /128). Addresses are unmapped, so an IPv4-mapped IPv6 entry means the IPv4 one.
 func ParseProxyProtocolFrom(entries []string) ([]netip.Prefix, error) {
@@ -715,6 +724,14 @@ func (c HTTPServerConfig) ClientAuthOn() bool {
 func (c HTTPServerConfig) validate() error {
 	if _, err := ParseProxyProtocolFrom(c.ProxyProtocolFrom); err != nil {
 		return err
+	}
+	if c.ProxyProtocolSecret == "" && c.ProxyProtocolSecretNext != "" {
+		return errors.New("HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT needs HTTP_SERVER_PROXY_PROTOCOL_SECRET")
+	}
+	for name, secret := range map[string]string{"HTTP_SERVER_PROXY_PROTOCOL_SECRET": c.ProxyProtocolSecret, "HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT": c.ProxyProtocolSecretNext} {
+		if secret != "" && len(secret) < MinProxyProtocolSecretLen {
+			return fmt.Errorf("%s must be at least %d characters", name, MinProxyProtocolSecretLen)
+		}
 	}
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return errors.New("HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE must be set together")

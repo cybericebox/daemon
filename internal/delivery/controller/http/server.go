@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -39,6 +40,8 @@ type (
 		tls  bool
 		// proxyFrom are the peers whose PROXY protocol header is used (the HTTPS listener only); empty is off.
 		proxyFrom []netip.Prefix
+		// proxySecrets are the accepted values of the secret TLV (current, next); empty: no TLV is required.
+		proxySecrets [][]byte
 		// headerTimeout bounds how long the PROXY header of a connection may take, near the TLS handshake limit.
 		headerTimeout time.Duration
 	}
@@ -213,7 +216,10 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 	if cfg.TLSEnabled() {
 		// The config is validated at start; an unparsable list would have stopped it.
 		proxyFrom, _ := config.ParseProxyProtocolFrom(cfg.ProxyProtocolFrom)
-		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true, proxyFrom: proxyFrom, headerTimeout: cfg.ReadTimeout})
+		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true, proxyFrom: proxyFrom, proxySecrets: proxySecrets(cfg), headerTimeout: cfg.ReadTimeout})
+		if len(proxyFrom) > 0 && cfg.ProxyProtocolSecret == "" {
+			log.Warn().Msg("HTTP_SERVER_PROXY_PROTOCOL_FROM is set without HTTP_SERVER_PROXY_PROTOCOL_SECRET: any process at a listed address can choose the client address")
+		}
 	}
 	if cfg.HealthPort != "" {
 		s.listeners = append(s.listeners, &listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)})
@@ -262,14 +268,86 @@ func (l *listener) serveProxied() error {
 	if err != nil {
 		return err
 	}
-	return l.srv.ServeTLS(proxyListener(ln, l.proxyFrom, l.headerTimeout), "", "")
+	return l.srv.ServeTLS(proxyListener(ln, l.proxyFrom, l.proxySecrets, l.headerTimeout), "", "")
+}
+
+// ProxySecretTLV is the custom PROXY v2 TLV type that carries the shared secret from the edge.
+const ProxySecretTLV = proxyproto.PP2_TYPE_MIN_CUSTOM
+
+func proxySecrets(cfg *config.HTTPServerConfig) [][]byte {
+	var out [][]byte
+	for _, secret := range []string{cfg.ProxyProtocolSecret, cfg.ProxyProtocolSecretNext} {
+		if secret != "" {
+			out = append(out, []byte(secret))
+		}
+	}
+	return out
 }
 
 // proxyListener wraps ln so a peer in trusted may send a PROXY protocol header (optional: a connection without one
-// keeps the peer address) and the header of any other peer is read and thrown away. Never REQUIRE or REJECT: a stale
-// list must not cut the API off, and a spoofed header must not choose an address.
-func proxyListener(ln net.Listener, trusted []netip.Prefix, headerTimeout time.Duration) net.Listener {
-	return &proxyproto.Listener{Listener: ln, ConnPolicy: proxyPolicy(trusted), ReadHeaderTimeout: headerTimeout}
+// keeps the peer address) and the header of any other peer is read and thrown away. With secrets, the header's
+// address is also used only when its secret TLV equals one of them; any other header leaves the peer address.
+// Never REQUIRE or REJECT: a stale list must not cut the API off, and a spoofed header must not choose an address.
+func proxyListener(ln net.Listener, trusted []netip.Prefix, secrets [][]byte, headerTimeout time.Duration) net.Listener {
+	return &secretListener{
+		Listener: &proxyproto.Listener{Listener: ln, ConnPolicy: proxyPolicy(trusted), ReadHeaderTimeout: headerTimeout},
+		secrets:  secrets,
+	}
+}
+
+// secretListener wraps the accepted connections so the secret is checked when the address is asked for (in the
+// connection's own goroutine, after the header is read, never in the accept loop).
+type secretListener struct {
+	net.Listener
+	secrets [][]byte
+}
+
+func (l *secretListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil || len(l.secrets) == 0 {
+		return conn, err
+	}
+	if proxied, ok := conn.(*proxyproto.Conn); ok {
+		return &secretConn{Conn: proxied, secrets: l.secrets}, nil
+	}
+	return conn, nil
+}
+
+type secretConn struct {
+	*proxyproto.Conn
+	secrets [][]byte
+	once    sync.Once
+	addr    net.Addr
+}
+
+// RemoteAddr is the address of the PROXY header when the header carries a secret TLV that matches, else the peer's.
+func (c *secretConn) RemoteAddr() net.Addr {
+	c.once.Do(func() {
+		c.addr = c.Conn.Raw().RemoteAddr()
+		if header := c.Conn.ProxyHeader(); header != nil && secretMatches(header, c.secrets) {
+			c.addr = c.Conn.RemoteAddr()
+		}
+	})
+	return c.addr
+}
+
+// secretMatches reports whether the header has the secret TLV and its value equals one of secrets. Every secret is
+// compared (constant time), whichever matched first.
+func secretMatches(header *proxyproto.Header, secrets [][]byte) bool {
+	tlvs, err := header.TLVs()
+	if err != nil {
+		return false
+	}
+	matched := 0
+	for _, tlv := range tlvs {
+		if tlv.Type != ProxySecretTLV {
+			continue
+		}
+		for _, secret := range secrets {
+			matched |= subtle.ConstantTimeCompare(tlv.Value, secret)
+		}
+	}
+	return matched == 1
 }
 
 func proxyPolicy(trusted []netip.Prefix) proxyproto.ConnPolicyFunc {
