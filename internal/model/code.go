@@ -34,4 +34,5 @@ const (
 	ParticipantPreviewObjectCode
 	ImageRegistryObjectCode
 	ExerciseImportObjectCode
+	LinkedVariantObjectCode
 )

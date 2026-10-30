@@ -2,6 +2,7 @@ package exerciseModel
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -196,6 +197,50 @@ func validateLinkedFlags(variants []Variant) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// validateLinkedContent is the publish gate for linked variants (variants are already rebuilt from their bases, so
+// the subtasks line up by position): a linked variant has files for every subtask whose base has files, and it
+// differs from its base in a flag, files or an image.
+func validateLinkedContent(variants []Variant) error {
+	positions := make(map[uuid.UUID]int, len(variants))
+	for i, variant := range variants {
+		if _, seen := positions[variant.ID]; !seen {
+			positions[variant.ID] = i
+		}
+	}
+	for i, variant := range variants {
+		if !variant.LinkedTo.Valid {
+			continue
+		}
+		if basePosition, ok := positions[variant.LinkedTo.UUID]; ok {
+			if err := validateLinkedVariant(i+1, variant, variants[basePosition]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateLinkedVariant checks one linked variant against its base; number is its 1-based position in the version.
+func validateLinkedVariant(number int, linked, base Variant) error {
+	differs := len(linked.ImageOverrides) > 0
+	for taskIndex, baseTask := range base.Tasks {
+		if taskIndex >= len(linked.Tasks) {
+			break
+		}
+		own := linked.Tasks[taskIndex]
+		if len(baseTask.Attachments) > 0 && len(own.Attachments) == 0 {
+			return ErrLinkedAttachmentMissing.WithPublicContext("variant", number).WithPublicContext("task", baseTask.Name).Err()
+		}
+		if len(own.Attachments) > 0 || !slices.Equal(own.Flag, baseTask.Flag) {
+			differs = true
+		}
+	}
+	if !differs {
+		return ErrLinkedVariantIdentical.WithPublicContext("variant", number).Err()
 	}
 	return nil
 }

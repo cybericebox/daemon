@@ -341,7 +341,7 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 			}
 		}
 	}
-	return nil
+	return validateLinkedContent(v.Variants)
 }
 
 // HasInfrastructure reports whether any variant has a lab topology (devices):
