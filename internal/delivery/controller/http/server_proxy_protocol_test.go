@@ -279,3 +279,11 @@ func captureServerLog(t *testing.T) *bytes.Buffer {
 	t.Cleanup(func() { log.Logger = previous })
 	return &buf
 }
+
+func TestProxyProtocolSecret_TLVTypeIsConfigurable(t *testing.T) {
+	st := startProxiedWith(t, "off", func(cfg *config.HTTPServerConfig) { withSecrets(cfg); cfg.ProxyProtocolSecretTLV = 225 }, "127.0.0.1")
+	got, err := st.ipOverTLV(t, "198.51.100.7", strPtr(secretNow), nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1", got, "the secret in the default type 0xE0 is not the configured 0xE1")
+	require.Error(t, config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(config.HTTPServerConfig{Port: "8080", ProxyProtocolSecretTLV: 100})}.Validate())
+}

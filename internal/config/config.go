@@ -381,6 +381,9 @@ type (
 		// dropped). Empty: the TLV is not required (the list alone decides) and a warning is logged at start.
 		ProxyProtocolSecret     string `env:"PROXY_PROTOCOL_SECRET"`
 		ProxyProtocolSecretNext string `env:"PROXY_PROTOCOL_SECRET_NEXT"`
+		// ProxyProtocolSecretTLV is the PROXY v2 TLV type that carries the secret (HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV):
+		// 224 (0xE0), within the custom range 224-239.
+		ProxyProtocolSecretTLV int `env:"PROXY_PROTOCOL_SECRET_TLV" envDefault:"224"`
 	}
 
 	// HTTP3Config is the HTTP/3 listener: it serves the same handler with the same certificate as the HTTPS
@@ -724,6 +727,9 @@ func (c HTTPServerConfig) ClientAuthOn() bool {
 func (c HTTPServerConfig) validate() error {
 	if _, err := ParseProxyProtocolFrom(c.ProxyProtocolFrom); err != nil {
 		return err
+	}
+	if c.ProxyProtocolSecretTLV != 0 && (c.ProxyProtocolSecretTLV < 224 || c.ProxyProtocolSecretTLV > 239) {
+		return errors.New("HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV must be in the custom range 224-239")
 	}
 	if c.ProxyProtocolSecret == "" && c.ProxyProtocolSecretNext != "" {
 		return errors.New("HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT needs HTTP_SERVER_PROXY_PROTOCOL_SECRET")
