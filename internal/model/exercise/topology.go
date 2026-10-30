@@ -755,3 +755,46 @@ func NodeProfilesUsed(variants []Variant) []NodeProfile {
 	}
 	return out
 }
+
+// NodeProfileSet is a set of node profiles, small and comparable (a field of the placement need).
+type NodeProfileSet uint8
+
+func profileBit(profile NodeProfile) NodeProfileSet {
+	for i, known := range NodeProfiles {
+		if known == profile {
+			return 1 << i
+		}
+	}
+	return 0
+}
+
+// Add returns the set with the profile.
+func (s NodeProfileSet) Add(profile NodeProfile) NodeProfileSet { return s | profileBit(profile) }
+
+// Union returns the profiles of both sets.
+func (s NodeProfileSet) Union(o NodeProfileSet) NodeProfileSet { return s | o }
+
+// Has reports whether the profile is in the set.
+func (s NodeProfileSet) Has(profile NodeProfile) bool {
+	return profile != "" && s&profileBit(profile) != 0
+}
+
+// List is the profiles of the set in the order of NodeProfiles.
+func (s NodeProfileSet) List() []NodeProfile {
+	var out []NodeProfile
+	for _, profile := range NodeProfiles {
+		if s.Has(profile) {
+			out = append(out, profile)
+		}
+	}
+	return out
+}
+
+// NodeProfileSetOf is the profiles the nodes of the variants run as.
+func NodeProfileSetOf(variants []Variant) NodeProfileSet {
+	var set NodeProfileSet
+	for _, profile := range NodeProfilesUsed(variants) {
+		set = set.Add(profile)
+	}
+	return set
+}

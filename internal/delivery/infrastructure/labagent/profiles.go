@@ -2,6 +2,7 @@ package labagent
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -157,4 +158,44 @@ func (f *Fleet) requireProfilesSomewhere(topo exerciseModel.Topology) error {
 		}
 	}
 	return nil
+}
+
+// profileRunners keeps the members that can run every profile of the set (an agent that has not reported is kept: it
+// answers for itself). When none is left the error names the first profile no member can run.
+func profileRunners(members []*Member, profiles exerciseModel.NodeProfileSet) ([]*Member, error) {
+	var kept []*Member
+	for _, m := range members {
+		if canRunAll(m, profiles) {
+			kept = append(kept, m)
+		}
+	}
+	if len(kept) > 0 || profiles == 0 {
+		return kept, nil
+	}
+	for _, profile := range profiles.List() {
+		if profile == exerciseModel.NodeProfileVM {
+			return nil, exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("profile", string(profile)).Err()
+		}
+		if !slices.ContainsFunc(members, func(m *Member) bool { return canRunAll(m, exerciseModel.NodeProfileSet(0).Add(profile)) }) {
+			return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(profile)).Err()
+		}
+	}
+	// Every profile runs somewhere, but no single agent runs them all.
+	first := profiles.List()[0]
+	return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(first)).Err()
+}
+
+func canRunAll(m *Member, profiles exerciseModel.NodeProfileSet) bool {
+	for _, profile := range profiles.List() {
+		switch profile {
+		case exerciseModel.NodeProfileContainer:
+		case exerciseModel.NodeProfileVM:
+			return false
+		default:
+			if capacity, known := m.Profiles.Get(profile); known && !capacity.Runnable() {
+				return false
+			}
+		}
+	}
+	return true
 }

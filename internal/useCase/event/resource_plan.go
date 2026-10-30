@@ -57,6 +57,8 @@ type PlanTask struct {
 	deviceMax  resourcesModel.Amount
 	labDevices int
 	hasLab     bool
+	// profiles are the node profiles of the planned variants.
+	profiles exerciseModel.NodeProfileSet
 }
 
 // GroupOverhead is a team's lab group's own pods, computed with the agents' formula for the plan.
@@ -107,12 +109,13 @@ type planInputs struct {
 	internetLab      int
 	activeLabs       int
 	allowedRelations int
+	profiles         exerciseModel.NodeProfileSet
 }
 
 // placementNeed is what a team's group asks of an agent.
 func (p planInputs) placementNeed() infraModel.PlacementNeed {
 	return infraModel.PlacementNeed{
-		Device: p.maxDevice, LabDevices: p.maxLabSize,
+		Device: p.maxDevice, LabDevices: p.maxLabSize, Profiles: p.profiles,
 		Plan: infraModel.GroupPlan{MaxUsers: p.maxUsers, InternetLabs: p.internetLab, MaxActiveLabs: p.activeLabs, AllowedRelations: p.allowedRelations},
 	}
 }
@@ -179,6 +182,7 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		in.tasks = append(in.tasks, task)
 		in.maxLabSize = max(in.maxLabSize, task.labDevices)
 		in.maxDevice = in.maxDevice.Max(task.deviceMax)
+		in.profiles = in.profiles.Union(task.profiles)
 		if task.hasLab {
 			in.activeLabs++
 		}
@@ -212,6 +216,7 @@ func planTask(policy resourcesModel.Policy, link eventExerciseModel.EventExercis
 	if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && int(*link.FixedVariantIndex) >= 0 && int(*link.FixedVariantIndex) < len(variants) {
 		plannedVariants = variants[*link.FixedVariantIndex : *link.FixedVariantIndex+1]
 	}
+	task.profiles = exerciseModel.NodeProfileSetOf(plannedVariants)
 	for _, v := range plannedVariants {
 		if len(v.Topology.Devices) > 0 {
 			task.hasLab = true

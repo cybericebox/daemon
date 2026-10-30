@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"math"
 
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -129,6 +130,8 @@ type PlacementNeed struct {
 	Device     resourcesModel.Amount
 	LabDevices int
 	Plan       GroupPlan
+	// Profiles are the node profiles the devices of the tasks use: the agent of the group must be able to run each.
+	Profiles exerciseModel.NodeProfileSet
 }
 
 // Known is true when the need says anything about the labs.

@@ -10,6 +10,7 @@ import (
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
 func nodeOf(profile exerciseModel.NodeProfile) exerciseModel.Topology {
@@ -79,4 +80,68 @@ func TestBuildDevice_Profile(t *testing.T) {
 	sw := buildDevice(exerciseModel.Device{Name: "sw", Type: exerciseModel.DeviceTypeHub}, "sw-1")
 	assert.Equal(t, "hub", sw.Type)
 	assert.Empty(t, sw.Profile)
+}
+
+func profileSet(profiles ...exerciseModel.NodeProfile) exerciseModel.NodeProfileSet {
+	var set exerciseModel.NodeProfileSet
+	for _, p := range profiles {
+		set = set.Add(p)
+	}
+	return set
+}
+
+// A new group goes to an agent that can run every profile of the event's tasks, even when another agent has the
+// higher priority; with no such agent nothing is created and the reason is the profile.
+func TestFleetPlacesANewGroupOnAnAgentThatRunsTheProfiles(t *testing.T) {
+	f := newFleetFixture(t)
+	f.am.Profiles = NewProfileCell() // a: highest priority, container only
+	f.am.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+	f.bm.Profiles = NewProfileCell()
+	f.bm.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileContainer: {AvailableNow: true}, exerciseModel.NodeProfileMicroVM: {AvailableNow: true},
+	})
+	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)})
+	require.NoError(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"))
+	assert.Equal(t, f.bm.ID, f.store.groups["e-1-t-1"], "a cannot run microvm")
+	assert.NotNil(t, f.b.createGroup)
+
+	// Without a microvm task the priority decides, as before.
+	require.NoError(t, f.fleet.EnsureVPNGroup(context.Background(), "e-1-t-2"))
+	assert.Equal(t, f.am.ID, f.store.groups["e-1-t-2"])
+}
+
+func TestFleetRefusesANewGroupWhenNoAgentRunsTheProfiles(t *testing.T) {
+	f := newFleetFixture(t)
+	for _, m := range []*Member{f.am, f.bm} {
+		m.Profiles = NewProfileCell()
+		m.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+	}
+	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)})
+	err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1")
+	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileUnavailable.Err())
+	assert.Nil(t, f.a.createGroup)
+	assert.Nil(t, f.b.createGroup)
+	assert.Empty(t, f.store.groups, "nothing is placed")
+
+	ctx = infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileVM)})
+	require.ErrorIs(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-2"), exerciseModel.ErrNodeProfileVMUnsupported.Err())
+}
+
+// A group that lives on an agent stays; a lab of a task added later with a profile that agent cannot run is refused
+// and the group does not move.
+func TestFleetDoesNotMoveAnExistingGroupForANewProfile(t *testing.T) {
+	f := newFleetFixture(t)
+	f.am.Profiles = NewProfileCell()
+	f.am.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+	f.bm.Profiles = NewProfileCell()
+	f.bm.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}, exerciseModel.NodeProfileMicroVM: {AvailableNow: true}})
+	ctx := context.Background()
+	require.NoError(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"))
+	require.Equal(t, f.am.ID, f.store.groups["e-1-t-1"])
+
+	err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, nodeOf(exerciseModel.NodeProfileMicroVM))
+	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileUnavailable.Err())
+	assert.Equal(t, f.am.ID, f.store.groups["e-1-t-1"], "the group stays")
+	assert.Nil(t, f.b.createLabs)
+	assert.Nil(t, f.a.createLabs)
 }
