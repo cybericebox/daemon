@@ -3,6 +3,9 @@ package labagent
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/gofrs/uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +14,7 @@ import (
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
 func nodeOf(profile exerciseModel.NodeProfile) exerciseModel.Topology {
@@ -144,4 +148,48 @@ func TestFleetDoesNotMoveAnExistingGroupForANewProfile(t *testing.T) {
 	assert.Equal(t, f.am.ID, f.store.groups["e-1-t-1"], "the group stays")
 	assert.Nil(t, f.b.createLabs)
 	assert.Nil(t, f.a.createLabs)
+}
+
+func TestProfilesEncodeDecodeRoundTrip(t *testing.T) {
+	in := map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileContainer: {AvailableNow: true},
+		exerciseModel.NodeProfileMicroVM: {
+			ScaleUpKnown: true, AvailableAfterScaleUp: true,
+			Overhead: resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 120 << 20},
+		},
+	}
+	out, err := DecodeProfiles(EncodeProfiles(in))
+	require.NoError(t, err)
+	assert.Equal(t, in, out)
+	_, err = DecodeProfiles([]byte(`{`))
+	require.Error(t, err)
+	out, err = DecodeProfiles([]byte(`[{"profile":"wasm","available_now":true}]`))
+	require.NoError(t, err)
+	assert.Empty(t, out, "a profile this build does not know is dropped")
+}
+
+// A report is taken only when it is not older than the one held; the dependants hear about taken reports only.
+func TestProfileCells_NewerReportWinsAndStoredOnesApplyAtStart(t *testing.T) {
+	var heard int
+	cells := NewProfileCells(func(uuid.UUID, map[exerciseModel.NodeProfile]ProfileCapacity) { heard++ })
+	agent := uuid.Must(uuid.NewV7())
+	now := time.Now()
+	microvm := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileMicroVM: {AvailableNow: true}}
+	none := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}}
+
+	cells.Update(agent, microvm, now)
+	cells.Update(agent, none, now.Add(-time.Hour)) // a stale stored report does not undo the live one
+	capacity, known := cells.Cell(agent).Get(exerciseModel.NodeProfileMicroVM)
+	assert.True(t, known && capacity.AvailableNow)
+	assert.Equal(t, 1, heard)
+
+	// A restart: the cell is empty and takes the stored report.
+	restarted := NewProfileCells(nil)
+	restarted.ApplyStored([]infraModel.AgentProfileReport{
+		{AgentID: agent, Data: EncodeProfiles(microvm), ReceivedAt: now},
+		{AgentID: uuid.Must(uuid.NewV7()), Data: []byte(`not json`), ReceivedAt: now},
+	})
+	capacity, known = restarted.Cell(agent).Get(exerciseModel.NodeProfileMicroVM)
+	assert.True(t, known && capacity.AvailableNow)
+	assert.Same(t, restarted.Cell(agent), restarted.Cell(agent), "a rebuilt member keeps its cell")
 }

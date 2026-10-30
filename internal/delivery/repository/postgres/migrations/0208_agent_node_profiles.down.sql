@@ -1,0 +1,1 @@
+DROP TABLE infrastructure_agent_node_profiles;

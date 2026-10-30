@@ -2,14 +2,18 @@ package labagent
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"sync"
+	"time"
 
+	"github.com/gofrs/uuid"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -35,6 +39,7 @@ func (c ProfileCapacity) Runnable() bool {
 type ProfileCell struct {
 	mu       sync.RWMutex
 	reported bool
+	at       time.Time
 	v        map[exerciseModel.NodeProfile]ProfileCapacity
 }
 
@@ -48,6 +53,20 @@ func (c *ProfileCell) Set(v map[exerciseModel.NodeProfile]ProfileCapacity) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.reported, c.v = true, v
+}
+
+// SetAt stores a report received at the time unless the cell holds a newer one; it tells whether it was stored.
+func (c *ProfileCell) SetAt(v map[exerciseModel.NodeProfile]ProfileCapacity, at time.Time) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reported && c.at.After(at) {
+		return false
+	}
+	c.reported, c.at, c.v = true, at, v
+	return true
 }
 
 // Get reports what the agent said about the profile: known is false before the first report, then a profile the
@@ -198,4 +217,93 @@ func canRunAll(m *Member, profiles exerciseModel.NodeProfileSet) bool {
 		}
 	}
 	return true
+}
+
+type storedProfile struct {
+	Profile               string `json:"profile"`
+	AvailableNow          bool   `json:"available_now"`
+	ScaleUpKnown          bool   `json:"scale_up_known"`
+	AvailableAfterScaleUp bool   `json:"available_after_scale_up"`
+	OverheadCPUMillicores int64  `json:"overhead_cpu_millicores"`
+	OverheadMemoryBytes   int64  `json:"overhead_memory_bytes"`
+}
+
+// EncodeProfiles is the stored form of a report.
+func EncodeProfiles(v map[exerciseModel.NodeProfile]ProfileCapacity) []byte {
+	items := make([]storedProfile, 0, len(v))
+	for _, profile := range exerciseModel.NodeProfiles {
+		if c, ok := v[profile]; ok {
+			items = append(items, storedProfile{
+				Profile: string(profile), AvailableNow: c.AvailableNow, ScaleUpKnown: c.ScaleUpKnown,
+				AvailableAfterScaleUp: c.AvailableAfterScaleUp, OverheadCPUMillicores: c.Overhead.CPUMillicores, OverheadMemoryBytes: c.Overhead.MemoryBytes,
+			})
+		}
+	}
+	data, _ := json.Marshal(items)
+	return data
+}
+
+// DecodeProfiles reads a stored report; an unreadable one is an error and a profile this build does not know is dropped.
+func DecodeProfiles(data []byte) (map[exerciseModel.NodeProfile]ProfileCapacity, error) {
+	var items []storedProfile
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, err
+	}
+	out := make(map[exerciseModel.NodeProfile]ProfileCapacity, len(items))
+	for _, item := range items {
+		profile := exerciseModel.NodeProfile(item.Profile)
+		if !profile.Valid() {
+			continue
+		}
+		out[profile] = ProfileCapacity{
+			AvailableNow: item.AvailableNow, ScaleUpKnown: item.ScaleUpKnown, AvailableAfterScaleUp: item.AvailableAfterScaleUp,
+			Overhead: resourcesModel.Amount{CPUMillicores: item.OverheadCPUMillicores, MemoryBytes: item.OverheadMemoryBytes},
+		}
+	}
+	return out, nil
+}
+
+// ProfileCells holds the profile cell of every agent by id, so a member that is rebuilt keeps its report, and
+// applies the reports read from the database (this replica may not be the one that monitors). onChange runs after a
+// report is taken, for what depends on it (the overhead of the plans).
+type ProfileCells struct {
+	mu       sync.Mutex
+	cells    map[uuid.UUID]*ProfileCell
+	onChange func(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity)
+}
+
+func NewProfileCells(onChange func(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity)) *ProfileCells {
+	return &ProfileCells{cells: map[uuid.UUID]*ProfileCell{}, onChange: onChange}
+}
+
+// Cell is the cell of the agent; a nil registry gives a fresh one.
+func (r *ProfileCells) Cell(agent uuid.UUID) *ProfileCell {
+	if r == nil {
+		return NewProfileCell()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cells[agent] == nil {
+		r.cells[agent] = NewProfileCell()
+	}
+	return r.cells[agent]
+}
+
+// Update takes a report received at the time unless the agent's cell has a newer one.
+func (r *ProfileCells) Update(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity, at time.Time) {
+	if r == nil || !r.Cell(agent).SetAt(v, at) {
+		return
+	}
+	if r.onChange != nil {
+		r.onChange(agent, v)
+	}
+}
+
+// ApplyStored takes the stored reports (a malformed one is skipped).
+func (r *ProfileCells) ApplyStored(reports []infraModel.AgentProfileReport) {
+	for _, report := range reports {
+		if v, err := DecodeProfiles(report.Data); err == nil {
+			r.Update(report.AgentID, v, report.ReceivedAt)
+		}
+	}
 }

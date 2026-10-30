@@ -182,7 +182,7 @@ func TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan(t *testing.T) {
 	need, err := u.eventPlacementNeed(context.Background(), eventID)
 	require.NoError(t, err)
 	assert.Equal(t, infraModel.PlacementNeed{
-		Device: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}, LabDevices: 2,
+		Device: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}, LabDevices: 2, Profiles: exerciseModel.NodeProfileSet(0).Add(exerciseModel.NodeProfileContainer),
 		Plan: infraModel.GroupPlan{MaxUsers: 6, InternetLabs: 1, MaxActiveLabs: 1, AllowedRelations: 6},
 	}, need)
 	// A second read in the TTL is served from the cache (no more query expectations).

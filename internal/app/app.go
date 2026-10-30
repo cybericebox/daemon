@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/infrastructure/agentfleet"
 	"github.com/cybericebox/daemon/internal/delivery/infrastructure/labagent"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/delivery/repository/agentProfileRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
@@ -41,6 +42,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/telegram"
 	"github.com/cybericebox/daemon/pkg/worker"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
+	"github.com/gofrs/uuid"
 )
 
 func Run(cfg *config.Config) {
@@ -139,12 +141,22 @@ func Run(cfg *config.Config) {
 	fleet.SetPolicy(resourcesPolicy)
 	trafficIngest := labMonitoring.NewTrafficIngest(labTrafficRepo.New(repo.Queries))
 	observations := eventLabObservationRepo.New(repo.Queries)
+	agentProfiles := agentProfileRepo.New(repo.Pool())
+	profileCells := labagent.NewProfileCells(func(agent uuid.UUID, v map[exerciseModel.NodeProfile]labagent.ProfileCapacity) {
+		overheads := make(map[exerciseModel.NodeProfile]resourcesModel.Amount, len(v))
+		for profile, reported := range v {
+			overheads[profile] = reported.Overhead
+		}
+		resourcesPolicy.Overheads.Set(agent, overheads)
+	})
 	agentManager := agentfleet.New(agentfleet.Config{
-		Instance: cfg.Infrastructure.Agent.InstanceID,
-		Registry: infrastructureAgentRepo.New(repo.Queries),
-		Cipher:   cipherOrNil(cls.platformCipher),
-		Fleet:    fleet,
-		Enroll:   labagent.Enroll,
+		Profiles:      profileCells,
+		ProfileSource: agentProfiles,
+		Instance:      cfg.Infrastructure.Agent.InstanceID,
+		Registry:      infrastructureAgentRepo.New(repo.Queries),
+		Cipher:        cipherOrNil(cls.platformCipher),
+		Fleet:         fleet,
+		Enroll:        labagent.Enroll,
 		Monitor: func(ctx context.Context, member *labagent.Member) error {
 			runner := labMonitoring.NewRunner(repo.Pool(), func(ctx context.Context, request *labpb.MonitoringRequest) (labMonitoring.Stream, error) {
 				return member.Client.Monitoring(ctx, request)
@@ -163,12 +175,10 @@ func Run(cfg *config.Config) {
 					memory = &v
 				}
 				profiles := labagent.ProfilesOf(capacity)
-				member.Profiles.Set(profiles)
-				overheads := make(map[exerciseModel.NodeProfile]resourcesModel.Amount, len(profiles))
-				for profile, reported := range profiles {
-					overheads[profile] = reported.Overhead
+				profileCells.Update(member.ID, profiles, observedAt)
+				if err := agentProfiles.Save(ctx, member.ID, labagent.EncodeProfiles(profiles), observedAt); err != nil {
+					log.Warn().Err(err).Str("agent", member.Name).Msg("Failed to store the node profile report of the agent")
 				}
-				resourcesPolicy.Overheads.Set(member.ID, overheads)
 				if err := ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt); err != nil {
 					return err
 				}

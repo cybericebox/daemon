@@ -310,3 +310,11 @@ func AgentSecretContext(id uuid.UUID, field string) []byte {
 var ErrEnrollmentDenied = errors.New("the agent denied the enrollment")
 
 type LifecycleCapabilities struct{ PerLabStop, RequiredSnapshot, ConfirmedRuntime, RetainedRestart, FullGroupStop bool }
+
+// AgentProfileReport is the stored node profile report of an agent: the report as the daemon encoded it, and when it
+// was received.
+type AgentProfileReport struct {
+	AgentID    uuid.UUID
+	Data       []byte
+	ReceivedAt time.Time
+}
