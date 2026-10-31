@@ -606,6 +606,83 @@
                 }
             }
         },
+        "/analytics/events/table": {
+            "get": {
+                "description": "Every event of the period with participants, teams, solves and completion; search over the tag and the name; sortBy start, name, tag, status, participants, teams, solves or teamsSolved. Not cut at the newest N. from/to are RFC 3339.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-analytics"
+                ],
+                "summary": "Platform analytics: the per-event table (searched, sorted, paged)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "period start (RFC 3339); absent = all time",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "period end, exclusive (RFC 3339); absent = now",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "tag or name",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "start | name | tag | status | participants | teams | solves | teamsSolved",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc",
+                        "name": "sortDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page",
+                        "name": "page",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/pagination.OffsetPage-platformAnalytics_eventRowResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/analytics/infrastructure": {
             "get": {
                 "description": "Stand-hours per event and by lab kind (event teams, the moderators team, catalog test labs), peaks of concurrently active stands and test labs (per hour up to 14 days, else per day), failures by reason code and the cluster capacity over time. A stand is active while creating or ready; a test lab from its creation to its removal. Stands, TotalHours and Peaks count team stands only; test labs are reported next to them. Failures of test labs are not recorded. Aggregates only.",
@@ -1019,6 +1096,95 @@
                         "description": "CSV",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/analytics/tasks/table": {
+            "get": {
+                "description": "Every catalog task used in the period (not the first 200), filtered by category and level, searched over the exercise and task names; sortBy exercise, task, level, eventsUsed, attempts, teamsTried, solves, solveRate, medianSolveSeconds or hintRate.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "platform-analytics"
+                ],
+                "summary": "Platform analytics: the task usage table (searched, sorted, paged)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "period start (RFC 3339); absent = all time",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "period end, exclusive (RFC 3339); absent = now",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "exercise tag",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "difficulty",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "exercise or task name",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "column",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc",
+                        "name": "sortDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page",
+                        "name": "page",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/pagination.OffsetPage-platformAnalytics_taskRowResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -42882,6 +43048,46 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/infrastructure.testLabResponse"
+                    }
+                },
+                "Page": {
+                    "type": "integer"
+                },
+                "PageSize": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pagination.OffsetPage-platformAnalytics_eventRowResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformAnalytics.eventRowResponse"
+                    }
+                },
+                "Page": {
+                    "type": "integer"
+                },
+                "PageSize": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pagination.OffsetPage-platformAnalytics_taskRowResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformAnalytics.taskRowResponse"
                     }
                 },
                 "Page": {

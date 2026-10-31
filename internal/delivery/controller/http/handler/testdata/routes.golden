@@ -10,6 +10,7 @@ POST   /api/admin/errors/settings/test | gate: platform.errors.write | layers: -
 GET    /api/admin/errors/stream | gate: platform.errors.read | layers: -
 GET    /api/analytics/events | gate: analytics.read | layers: -
 GET    /api/analytics/events/export.csv | gate: analytics.read | layers: -
+GET    /api/analytics/events/table | gate: analytics.read | layers: -
 GET    /api/analytics/infrastructure | gate: analytics.read | layers: -
 GET    /api/analytics/infrastructure/export.csv | gate: analytics.read | layers: -
 GET    /api/analytics/mail | gate: analytics.read | layers: -
@@ -18,6 +19,7 @@ GET    /api/analytics/overview | gate: analytics.read | layers: -
 GET    /api/analytics/overview/export.csv | gate: analytics.read | layers: -
 GET    /api/analytics/tasks | gate: analytics.read | layers: -
 GET    /api/analytics/tasks/export.csv | gate: analytics.read | layers: -
+GET    /api/analytics/tasks/table | gate: analytics.read | layers: -
 GET    /api/analytics/users | gate: analytics.read | layers: -
 GET    /api/analytics/users/export.csv | gate: analytics.read | layers: -
 GET    /api/analytics/users/people | gate: analytics.users.read | layers: -

@@ -282,6 +282,173 @@ func (q *Queries) ListPlatformAnalyticsEvents(ctx context.Context, arg ListPlatf
 	return items, nil
 }
 
+const listPlatformAnalyticsEventsPage = `-- name: ListPlatformAnalyticsEventsPage :many
+WITH scoped AS (
+    SELECT e.id, e.tag, e.name, e.start_at, e.lifecycle_configured,
+           e.publish_at, e.finish_at, e.withdraw_at, e.manual_finished_at, e.created_at
+    FROM events e
+    WHERE ((e.lifecycle_configured
+           AND e.start_at < $6::timestamptz
+           AND COALESCE(LEAST(e.finish_at, e.manual_finished_at), 'infinity'::timestamptz) > $7::timestamptz)
+       OR (NOT e.lifecycle_configured
+           AND e.created_at >= $7::timestamptz AND e.created_at < $6::timestamptz))
+      AND ($8::text = '' OR e.tag ILIKE '%' || $8::text || '%' OR e.name ILIKE '%' || $8::text || '%')
+), participants AS (
+    SELECT p.event_id, count(*) AS n
+    FROM event_participants p
+    LEFT JOIN event_teams t ON t.id = p.team_id
+    WHERE p.event_id IN (SELECT id FROM scoped)
+      AND NOT (p.invited AND p.status = 1)
+      AND NOT COALESCE(t.moderators, false)
+    GROUP BY p.event_id
+), teams AS (
+    SELECT t.event_id, count(*) AS n
+    FROM event_teams t
+    WHERE t.event_id IN (SELECT id FROM scoped) AND NOT t.moderators
+    GROUP BY t.event_id
+), solves AS (
+    SELECT tc.event_id, count(*) AS n, count(DISTINCT tc.event_team_id) AS teams
+    FROM team_challenge_solves s
+    JOIN team_challenges tc ON tc.id = s.team_challenge_id
+    JOIN event_teams t ON t.id = tc.event_team_id AND NOT t.moderators
+    WHERE tc.event_id IN (SELECT id FROM scoped)
+    GROUP BY tc.event_id
+)
+SELECT s.id                                                AS event_id,
+       s.tag::text                                         AS tag,
+       s.name::text                                        AS name,
+       (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= $1::timestamptz THEN 4
+            WHEN $1::timestamptz < s.publish_at THEN 0
+            WHEN $1::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= $1::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= $1::timestamptz) THEN 3
+            ELSE 2
+        END)::smallint                                     AS status,
+       s.lifecycle_configured::boolean                     AS configured,
+       s.start_at::timestamptz                             AS start_at,
+       COALESCE(LEAST(s.finish_at, s.manual_finished_at), 'epoch'::timestamptz)::timestamptz AS finish_at,
+       COALESCE(pa.n, 0)::bigint                           AS participants,
+       COALESCE(te.n, 0)::bigint                           AS teams,
+       COALESCE(so.n, 0)::bigint                           AS solves,
+       COALESCE(so.teams, 0)::bigint                       AS teams_solved,
+       count(*) OVER ()::bigint                            AS total
+FROM scoped s
+LEFT JOIN participants pa ON pa.event_id = s.id
+LEFT JOIN teams te ON te.event_id = s.id
+LEFT JOIN solves so ON so.event_id = s.id
+ORDER BY
+  CASE WHEN $2::text = 'start' AND $3::text = 'asc' THEN s.start_at END ASC,
+  CASE WHEN $2::text = 'start' AND $3::text = 'desc' THEN s.start_at END DESC,
+  CASE WHEN $2::text = 'name' AND $3::text = 'asc' THEN lower(s.name) END ASC,
+  CASE WHEN $2::text = 'name' AND $3::text = 'desc' THEN lower(s.name) END DESC,
+  CASE WHEN $2::text = 'tag' AND $3::text = 'asc' THEN lower(s.tag) END ASC,
+  CASE WHEN $2::text = 'tag' AND $3::text = 'desc' THEN lower(s.tag) END DESC,
+  CASE WHEN $2::text = 'status' AND $3::text = 'asc' THEN (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= $1::timestamptz THEN 4
+            WHEN $1::timestamptz < s.publish_at THEN 0
+            WHEN $1::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= $1::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= $1::timestamptz) THEN 3
+            ELSE 2
+        END) END ASC,
+  CASE WHEN $2::text = 'status' AND $3::text = 'desc' THEN (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= $1::timestamptz THEN 4
+            WHEN $1::timestamptz < s.publish_at THEN 0
+            WHEN $1::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= $1::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= $1::timestamptz) THEN 3
+            ELSE 2
+        END) END DESC,
+  CASE WHEN $2::text = 'participants' AND $3::text = 'asc' THEN COALESCE(pa.n, 0) END ASC,
+  CASE WHEN $2::text = 'participants' AND $3::text = 'desc' THEN COALESCE(pa.n, 0) END DESC,
+  CASE WHEN $2::text = 'teams' AND $3::text = 'asc' THEN COALESCE(te.n, 0) END ASC,
+  CASE WHEN $2::text = 'teams' AND $3::text = 'desc' THEN COALESCE(te.n, 0) END DESC,
+  CASE WHEN $2::text = 'solves' AND $3::text = 'asc' THEN COALESCE(so.n, 0) END ASC,
+  CASE WHEN $2::text = 'solves' AND $3::text = 'desc' THEN COALESCE(so.n, 0) END DESC,
+  CASE WHEN $2::text = 'teamsSolved' AND $3::text = 'asc' THEN COALESCE(so.teams, 0) END ASC,
+  CASE WHEN $2::text = 'teamsSolved' AND $3::text = 'desc' THEN COALESCE(so.teams, 0) END DESC,
+  s.start_at DESC, s.id DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListPlatformAnalyticsEventsPageParams struct {
+	AsOf      time.Time `json:"as_of"`
+	SortBy    string    `json:"sort_by"`
+	SortDir   string    `json:"sort_dir"`
+	OffsetVal int32     `json:"offset_val"`
+	LimitVal  int32     `json:"limit_val"`
+	ToAt      time.Time `json:"to_at"`
+	FromAt    time.Time `json:"from_at"`
+	Search    string    `json:"search"`
+}
+
+type ListPlatformAnalyticsEventsPageRow struct {
+	EventID      uuid.UUID `json:"event_id"`
+	Tag          string    `json:"tag"`
+	Name         string    `json:"name"`
+	Status       int16     `json:"status"`
+	Configured   bool      `json:"configured"`
+	StartAt      time.Time `json:"start_at"`
+	FinishAt     time.Time `json:"finish_at"`
+	Participants int64     `json:"participants"`
+	Teams        int64     `json:"teams"`
+	Solves       int64     `json:"solves"`
+	TeamsSolved  int64     `json:"teams_solved"`
+	Total        int64     `json:"total"`
+}
+
+// The events of the period (same scope as the status counts), filtered by a search over the tag and the name,
+// sorted by a column of the table and cut to one page. total is the size of the filtered scope. The figures
+// are aggregates per event: registered participants, teams (the moderators
+// team excluded), solves and the teams with at least one solve. The
+// effective finish is the earlier of the scheduled and the manual finish
+// (the epoch when there is none).
+func (q *Queries) ListPlatformAnalyticsEventsPage(ctx context.Context, arg ListPlatformAnalyticsEventsPageParams) ([]ListPlatformAnalyticsEventsPageRow, error) {
+	rows, err := q.db.Query(ctx, listPlatformAnalyticsEventsPage,
+		arg.AsOf,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+		arg.ToAt,
+		arg.FromAt,
+		arg.Search,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPlatformAnalyticsEventsPageRow{}
+	for rows.Next() {
+		var i ListPlatformAnalyticsEventsPageRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.Tag,
+			&i.Name,
+			&i.Status,
+			&i.Configured,
+			&i.StartAt,
+			&i.FinishAt,
+			&i.Participants,
+			&i.Teams,
+			&i.Solves,
+			&i.TeamsSolved,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlatformAnalyticsUpcomingEvents = `-- name: ListPlatformAnalyticsUpcomingEvents :many
 WITH next AS (
     SELECT e.id, e.tag, e.name, e.start_at, e.publish_at

@@ -10524,6 +10524,32 @@ definitions:
       Total:
         type: integer
     type: object
+  pagination.OffsetPage-platformAnalytics_eventRowResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/platformAnalytics.eventRowResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  pagination.OffsetPage-platformAnalytics_taskRowResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/platformAnalytics.taskRowResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
   platformAnalytics.capacityPointResponse:
     properties:
       Agents:
@@ -13204,6 +13230,58 @@ paths:
       summary: Export a table of the events analytics as CSV (UTF-8 with BOM)
       tags:
       - platform-analytics
+  /analytics/events/table:
+    get:
+      description: Every event of the period with participants, teams, solves and
+        completion; search over the tag and the name; sortBy start, name, tag, status,
+        participants, teams, solves or teamsSolved. Not cut at the newest N. from/to
+        are RFC 3339.
+      parameters:
+      - description: period start (RFC 3339); absent = all time
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339); absent = now
+        in: query
+        name: to
+        type: string
+      - description: tag or name
+        in: query
+        name: search
+        type: string
+      - description: start | name | tag | status | participants | teams | solves |
+          teamsSolved
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
+      - description: 1-based page
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: page size
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pagination.OffsetPage-platformAnalytics_eventRowResponse'
+              type: object
+      summary: 'Platform analytics: the per-event table (searched, sorted, paged)'
+      tags:
+      - platform-analytics
   /analytics/infrastructure:
     get:
       description: Stand-hours per event and by lab kind (event teams, the moderators
@@ -13488,6 +13566,65 @@ paths:
           schema:
             type: string
       summary: Export a table of the catalog task analytics as CSV (UTF-8 with BOM)
+      tags:
+      - platform-analytics
+  /analytics/tasks/table:
+    get:
+      description: Every catalog task used in the period (not the first 200), filtered
+        by category and level, searched over the exercise and task names; sortBy exercise,
+        task, level, eventsUsed, attempts, teamsTried, solves, solveRate, medianSolveSeconds
+        or hintRate.
+      parameters:
+      - description: period start (RFC 3339); absent = all time
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339); absent = now
+        in: query
+        name: to
+        type: string
+      - description: exercise tag
+        in: query
+        name: category
+        type: string
+      - description: difficulty
+        in: query
+        name: level
+        type: string
+      - description: exercise or task name
+        in: query
+        name: search
+        type: string
+      - description: column
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
+      - description: 1-based page
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: page size
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pagination.OffsetPage-platformAnalytics_taskRowResponse'
+              type: object
+      summary: 'Platform analytics: the task usage table (searched, sorted, paged)'
       tags:
       - platform-analytics
   /analytics/users:

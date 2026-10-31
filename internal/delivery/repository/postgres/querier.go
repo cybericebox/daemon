@@ -1356,6 +1356,13 @@ type Querier interface {
 	// effective finish is the earlier of the scheduled and the manual finish
 	// (the epoch when there is none).
 	ListPlatformAnalyticsEvents(ctx context.Context, arg ListPlatformAnalyticsEventsParams) ([]ListPlatformAnalyticsEventsRow, error)
+	// The events of the period (same scope as the status counts), filtered by a search over the tag and the name,
+	// sorted by a column of the table and cut to one page. total is the size of the filtered scope. The figures
+	// are aggregates per event: registered participants, teams (the moderators
+	// team excluded), solves and the teams with at least one solve. The
+	// effective finish is the earlier of the scheduled and the manual finish
+	// (the epoch when there is none).
+	ListPlatformAnalyticsEventsPage(ctx context.Context, arg ListPlatformAnalyticsEventsPageParams) ([]ListPlatformAnalyticsEventsPageRow, error)
 	// Platform analytics «Каталог завдань» (docs/EVENT-ANALYTICS.md §8). Usage and
 	// calibration of catalog tasks across the events that start in the period
 	// [from_at, to_at). The catalog is the exercises table (scope 0); a task is
@@ -1499,6 +1506,10 @@ type Querier interface {
 	// counted for these rows only (distinct team tasks with an effectively
 	// correct attempt of the account). Per-user data: super_admin only.
 	ListPlatformUsersPeople(ctx context.Context, limitVal int32) ([]ListPlatformUsersPeopleRow, error)
+	// Every account that joined an event (approved, the moderators team excluded), filtered by a search over the name and
+	// the email, sorted by a column and cut to one page; total is the size of the filtered list. Solves are the distinct
+	// team tasks with an effectively correct attempt of the account. Per-user data: super_admin only.
+	ListPlatformUsersPeoplePage(ctx context.Context, arg ListPlatformUsersPeoplePageParams) ([]ListPlatformUsersPeoplePageRow, error)
 	// What the resource totals of a page of exercises need from their published versions: per variant its id and
 	// the container-device fields that decide a device's size (never the image, env vars or secrets).
 	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListPublishedVariantDevicesRow, error)

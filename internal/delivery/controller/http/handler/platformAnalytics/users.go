@@ -18,6 +18,7 @@ type UsersUseCase interface {
 	GetUsers(ctx context.Context, from, to *time.Time) (platformAnalyticsUseCase.UsersView, error)
 	// GetUsersPeople holds personal data: only behind analytics.users.read.
 	GetUsersPeople(ctx context.Context) ([]platformAnalyticsUseCase.UsersPersonView, error)
+	GetUsersPeoplePage(ctx context.Context, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.PeopleTable, error)
 }
 
 type (
@@ -129,12 +130,10 @@ func (h *Handler) users(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.GetUsers(ctx, from, to)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, toUsersResponse(v))
+	answer(ctx, from, to, func(from, to *time.Time) (usersResponse, error) {
+		v, err := h.useCase.GetUsers(ctx, from, to)
+		return toUsersResponse(v), err
+	})
 }
 
 // usersPeople godoc
@@ -145,6 +144,10 @@ func (h *Handler) users(ctx *gin.Context) {
 // @Success 200 {object} response.Response{data=[]usersPersonResponse}
 // @Router /analytics/users/people [get]
 func (h *Handler) usersPeople(ctx *gin.Context) {
+	if ctx.Query("page") != "" {
+		h.usersPeopleTable(ctx)
+		return
+	}
 	rows, err := h.useCase.GetUsersPeople(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -173,13 +176,18 @@ func (h *Handler) exportUsers(ctx *gin.Context) {
 		if ctx.IsAborted() {
 			return
 		}
-		rows, err := h.useCase.GetUsersPeople(ctx)
+		// Everyone who matches the search, in the sorting of the screen (not only the most active 100).
+		q, valid := parseTableQuery(ctx, platformAnalyticsUseCase.PeopleSortColumns, false)
+		if !valid {
+			return
+		}
+		all, err := h.useCase.GetUsersPeoplePage(ctx, q)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
 		w := startCSV(ctx, "users-people")
-		writeUsersPeople(w, rows)
+		writeUsersPeople(w, all.Rows)
 		w.Flush()
 		return
 	default:

@@ -136,6 +136,104 @@ LEFT JOIN teams te ON te.event_id = s.id
 LEFT JOIN solves so ON so.event_id = s.id
 ORDER BY s.start_at DESC, s.id DESC;
 
+-- name: ListPlatformAnalyticsEventsPage :many
+-- The events of the period (same scope as the status counts), filtered by a search over the tag and the name,
+-- sorted by a column of the table and cut to one page. total is the size of the filtered scope. The figures
+-- are aggregates per event: registered participants, teams (the moderators
+-- team excluded), solves and the teams with at least one solve. The
+-- effective finish is the earlier of the scheduled and the manual finish
+-- (the epoch when there is none).
+WITH scoped AS (
+    SELECT e.id, e.tag, e.name, e.start_at, e.lifecycle_configured,
+           e.publish_at, e.finish_at, e.withdraw_at, e.manual_finished_at, e.created_at
+    FROM events e
+    WHERE ((e.lifecycle_configured
+           AND e.start_at < sqlc.arg(to_at)::timestamptz
+           AND COALESCE(LEAST(e.finish_at, e.manual_finished_at), 'infinity'::timestamptz) > sqlc.arg(from_at)::timestamptz)
+       OR (NOT e.lifecycle_configured
+           AND e.created_at >= sqlc.arg(from_at)::timestamptz AND e.created_at < sqlc.arg(to_at)::timestamptz))
+      AND (sqlc.arg(search)::text = '' OR e.tag ILIKE '%' || sqlc.arg(search)::text || '%' OR e.name ILIKE '%' || sqlc.arg(search)::text || '%')
+), participants AS (
+    SELECT p.event_id, count(*) AS n
+    FROM event_participants p
+    LEFT JOIN event_teams t ON t.id = p.team_id
+    WHERE p.event_id IN (SELECT id FROM scoped)
+      AND NOT (p.invited AND p.status = 1)
+      AND NOT COALESCE(t.moderators, false)
+    GROUP BY p.event_id
+), teams AS (
+    SELECT t.event_id, count(*) AS n
+    FROM event_teams t
+    WHERE t.event_id IN (SELECT id FROM scoped) AND NOT t.moderators
+    GROUP BY t.event_id
+), solves AS (
+    SELECT tc.event_id, count(*) AS n, count(DISTINCT tc.event_team_id) AS teams
+    FROM team_challenge_solves s
+    JOIN team_challenges tc ON tc.id = s.team_challenge_id
+    JOIN event_teams t ON t.id = tc.event_team_id AND NOT t.moderators
+    WHERE tc.event_id IN (SELECT id FROM scoped)
+    GROUP BY tc.event_id
+)
+SELECT s.id                                                AS event_id,
+       s.tag::text                                         AS tag,
+       s.name::text                                        AS name,
+       (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= sqlc.arg(as_of)::timestamptz THEN 4
+            WHEN sqlc.arg(as_of)::timestamptz < s.publish_at THEN 0
+            WHEN sqlc.arg(as_of)::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= sqlc.arg(as_of)::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= sqlc.arg(as_of)::timestamptz) THEN 3
+            ELSE 2
+        END)::smallint                                     AS status,
+       s.lifecycle_configured::boolean                     AS configured,
+       s.start_at::timestamptz                             AS start_at,
+       COALESCE(LEAST(s.finish_at, s.manual_finished_at), 'epoch'::timestamptz)::timestamptz AS finish_at,
+       COALESCE(pa.n, 0)::bigint                           AS participants,
+       COALESCE(te.n, 0)::bigint                           AS teams,
+       COALESCE(so.n, 0)::bigint                           AS solves,
+       COALESCE(so.teams, 0)::bigint                       AS teams_solved,
+       count(*) OVER ()::bigint                            AS total
+FROM scoped s
+LEFT JOIN participants pa ON pa.event_id = s.id
+LEFT JOIN teams te ON te.event_id = s.id
+LEFT JOIN solves so ON so.event_id = s.id
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'start' AND sqlc.arg(sort_dir)::text = 'asc' THEN s.start_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'start' AND sqlc.arg(sort_dir)::text = 'desc' THEN s.start_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(s.name) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(s.name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(s.tag) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(s.tag) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= sqlc.arg(as_of)::timestamptz THEN 4
+            WHEN sqlc.arg(as_of)::timestamptz < s.publish_at THEN 0
+            WHEN sqlc.arg(as_of)::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= sqlc.arg(as_of)::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= sqlc.arg(as_of)::timestamptz) THEN 3
+            ELSE 2
+        END) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN (CASE
+            WHEN NOT s.lifecycle_configured THEN 0
+            WHEN s.withdraw_at IS NOT NULL AND s.withdraw_at <= sqlc.arg(as_of)::timestamptz THEN 4
+            WHEN sqlc.arg(as_of)::timestamptz < s.publish_at THEN 0
+            WHEN sqlc.arg(as_of)::timestamptz < s.start_at THEN 1
+            WHEN (s.manual_finished_at IS NOT NULL AND s.manual_finished_at <= sqlc.arg(as_of)::timestamptz)
+                 OR (s.finish_at IS NOT NULL AND s.finish_at <= sqlc.arg(as_of)::timestamptz) THEN 3
+            ELSE 2
+        END) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'participants' AND sqlc.arg(sort_dir)::text = 'asc' THEN COALESCE(pa.n, 0) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'participants' AND sqlc.arg(sort_dir)::text = 'desc' THEN COALESCE(pa.n, 0) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teams' AND sqlc.arg(sort_dir)::text = 'asc' THEN COALESCE(te.n, 0) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teams' AND sqlc.arg(sort_dir)::text = 'desc' THEN COALESCE(te.n, 0) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'solves' AND sqlc.arg(sort_dir)::text = 'asc' THEN COALESCE(so.n, 0) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'solves' AND sqlc.arg(sort_dir)::text = 'desc' THEN COALESCE(so.n, 0) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teamsSolved' AND sqlc.arg(sort_dir)::text = 'asc' THEN COALESCE(so.teams, 0) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teamsSolved' AND sqlc.arg(sort_dir)::text = 'desc' THEN COALESCE(so.teams, 0) END DESC,
+  s.start_at DESC, s.id DESC
+LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
+
 -- name: ListPlatformAnalyticsUpcomingEvents :many
 -- The next events by start date (scheduled, not started and not withdrawn),
 -- with the registrations so far. Not bound to the period.

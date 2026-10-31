@@ -193,12 +193,10 @@ func (h *Handler) infrastructure(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	view, err := h.useCase.GetInfrastructure(ctx.Request.Context(), from, to)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, toInfrastructureResponse(view))
+	answer(ctx, from, to, func(from, to *time.Time) (infrastructureResponse, error) {
+		view, err := h.useCase.GetInfrastructure(ctx.Request.Context(), from, to)
+		return toInfrastructureResponse(view), err
+	})
 }
 
 // exportInfrastructure godoc

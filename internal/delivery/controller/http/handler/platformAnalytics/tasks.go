@@ -17,11 +17,13 @@ import (
 // TasksUseCase is the port of the tasks section.
 type TasksUseCase interface {
 	GetTasks(ctx context.Context, from, to *time.Time, category, level string) (platformAnalyticsUseCase.TasksView, error)
+	GetTasksTable(ctx context.Context, from, to *time.Time, category, level string, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.TasksTable, error)
 }
 
 func (h *Handler) initTasks(router *gin.RouterGroup) {
 	analytics := router.Group("analytics", h.prot.RequirePermission(rbac.PermAnalyticsRead))
 	analytics.GET("tasks", h.tasks)
+	analytics.GET("tasks/table", h.tasksTable)
 	analytics.GET("tasks/export.csv", h.exportTasks)
 }
 
@@ -133,12 +135,10 @@ func (h *Handler) tasks(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.GetTasks(ctx, from, to, ctx.Query("category"), ctx.Query("level"))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, toTasksResponse(v))
+	answer(ctx, from, to, func(from, to *time.Time) (tasksResponse, error) {
+		v, err := h.useCase.GetTasks(ctx, from, to, ctx.Query("category"), ctx.Query("level"))
+		return toTasksResponse(v), err
+	})
 }
 
 // exportTasks godoc
@@ -163,16 +163,28 @@ func (h *Handler) exportTasks(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.GetTasks(ctx, from, to, ctx.Query("category"), ctx.Query("level"))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
+	var rows []platformAnalyticsUseCase.TaskRowView
+	if table == "unsolved" {
+		v, err := h.useCase.GetTasks(ctx, from, to, ctx.Query("category"), ctx.Query("level"))
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		rows = v.Unsolved
+	} else {
+		// Every used task that matches the filters and the search, in the sorting of the screen (not the first 200).
+		q, valid := parseTableQuery(ctx, platformAnalyticsUseCase.TaskSortColumns, false)
+		if !valid {
+			return
+		}
+		all, err := h.useCase.GetTasksTable(ctx, from, to, ctx.Query("category"), ctx.Query("level"), q)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		rows = all.Rows
 	}
 	w := startCSV(ctx, "tasks-"+table)
-	rows := v.Tasks
-	if table == "unsolved" {
-		rows = v.Unsolved
-	}
 	_ = w.Write([]string{"Завдання", "Підзавдання", "Рівень", "Категорії", "Заходів", "Спроби", "Команд пробувало", "Команд відкривало або пробувало", "Розвʼязань",
 		"Частка розвʼязань", "Медіана розвʼязання (с)", "Команд із підказкою", "Частка підказок", "Калібрування"})
 	for _, t := range rows {

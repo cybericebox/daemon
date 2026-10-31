@@ -9858,6 +9858,21 @@ func (mr *MockQuerierMockRecorder) ListPlatformAnalyticsEvents(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformAnalyticsEvents", reflect.TypeOf((*MockQuerier)(nil).ListPlatformAnalyticsEvents), ctx, arg)
 }
 
+// ListPlatformAnalyticsEventsPage mocks base method.
+func (m *MockQuerier) ListPlatformAnalyticsEventsPage(ctx context.Context, arg postgres.ListPlatformAnalyticsEventsPageParams) ([]postgres.ListPlatformAnalyticsEventsPageRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPlatformAnalyticsEventsPage", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListPlatformAnalyticsEventsPageRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPlatformAnalyticsEventsPage indicates an expected call of ListPlatformAnalyticsEventsPage.
+func (mr *MockQuerierMockRecorder) ListPlatformAnalyticsEventsPage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformAnalyticsEventsPage", reflect.TypeOf((*MockQuerier)(nil).ListPlatformAnalyticsEventsPage), ctx, arg)
+}
+
 // ListPlatformAnalyticsTaskCatalog mocks base method.
 func (m *MockQuerier) ListPlatformAnalyticsTaskCatalog(ctx context.Context, arg postgres.ListPlatformAnalyticsTaskCatalogParams) ([]postgres.ListPlatformAnalyticsTaskCatalogRow, error) {
 	m.ctrl.T.Helper()
@@ -10291,6 +10306,21 @@ func (m *MockQuerier) ListPlatformUsersPeople(ctx context.Context, limitVal int3
 func (mr *MockQuerierMockRecorder) ListPlatformUsersPeople(ctx, limitVal any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformUsersPeople", reflect.TypeOf((*MockQuerier)(nil).ListPlatformUsersPeople), ctx, limitVal)
+}
+
+// ListPlatformUsersPeoplePage mocks base method.
+func (m *MockQuerier) ListPlatformUsersPeoplePage(ctx context.Context, arg postgres.ListPlatformUsersPeoplePageParams) ([]postgres.ListPlatformUsersPeoplePageRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPlatformUsersPeoplePage", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListPlatformUsersPeoplePageRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPlatformUsersPeoplePage indicates an expected call of ListPlatformUsersPeoplePage.
+func (mr *MockQuerierMockRecorder) ListPlatformUsersPeoplePage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformUsersPeoplePage", reflect.TypeOf((*MockQuerier)(nil).ListPlatformUsersPeoplePage), ctx, arg)
 }
 
 // ListPublishedVariantDevices mocks base method.

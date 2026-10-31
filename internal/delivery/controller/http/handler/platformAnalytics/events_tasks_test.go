@@ -26,11 +26,24 @@ type catalogUseCase struct {
 	tasks           platformAnalyticsUseCase.TasksView
 	calls           int
 	category, level string
+	tableQuery      platformAnalyticsUseCase.TableQuery
 }
 
 func (f *catalogUseCase) GetEvents(context.Context, *time.Time, *time.Time) (platformAnalyticsUseCase.EventsView, error) {
 	f.calls++
 	return f.events, nil
+}
+
+func (f *catalogUseCase) GetEventsTable(_ context.Context, _, _ *time.Time, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.EventsTable, error) {
+	f.calls++
+	f.tableQuery = q
+	return platformAnalyticsUseCase.EventsTable{Rows: f.events.Events, Total: int64(len(f.events.Events))}, nil
+}
+
+func (f *catalogUseCase) GetTasksTable(_ context.Context, _, _ *time.Time, category, level string, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.TasksTable, error) {
+	f.calls++
+	f.category, f.level, f.tableQuery = category, level, q
+	return platformAnalyticsUseCase.TasksTable{Rows: f.tasks.Tasks, Total: int64(len(f.tasks.Tasks))}, nil
 }
 
 func (f *catalogUseCase) GetTasks(_ context.Context, _, _ *time.Time, category, level string) (platformAnalyticsUseCase.TasksView, error) {
@@ -194,5 +207,52 @@ func TestTasksResponseAndCSV(t *testing.T) {
 	uc.calls = 0
 	if w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/tasks/export.csv?table=events"); w.Code != http.StatusBadRequest || uc.calls != 0 {
 		t.Fatalf("unknown table: status = %d, calls = %d", w.Code, uc.calls)
+	}
+}
+
+// Every report can come with the previous period; the tables are paged and sorted on the server and the CSV of the
+// same filters is not cut.
+func TestCompareWithThePreviousPeriodAndTheEventTables(t *testing.T) {
+	uc := &catalogUseCase{events: platformAnalyticsUseCase.EventsView{Events: []platformAnalyticsUseCase.EventRowView{{Tag: "ctf", Name: "CTF", Status: "finished"}}}}
+
+	w := serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events?from=2026-09-08T00:00:00Z&to=2026-09-15T00:00:00Z&compare=previous")
+	var body struct {
+		Data struct {
+			Current        json.RawMessage
+			Previous       json.RawMessage
+			PreviousPeriod struct{ From, To time.Time }
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("status = %d err = %v body = %s", w.Code, err, w.Body)
+	}
+	if len(body.Data.Current) == 0 || len(body.Data.Previous) == 0 || body.Data.PreviousPeriod.From.Day() != 1 || body.Data.PreviousPeriod.To.Day() != 8 {
+		t.Fatalf("envelope = %s", w.Body)
+	}
+	// all time has no previous period
+	w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events?compare=previous")
+	if !strings.Contains(w.Body.String(), `"Previous":null`) {
+		t.Fatalf("all time: %s", w.Body)
+	}
+	// without compare the answer is the report itself
+	w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events?from=2026-09-08T00:00:00Z")
+	if strings.Contains(w.Body.String(), "PreviousPeriod") {
+		t.Fatalf("no compare, got an envelope: %s", w.Body)
+	}
+
+	w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events/table?page=3&pageSize=10&search=ctf&sortBy=participants&sortDir=asc")
+	if w.Code != http.StatusOK || uc.tableQuery.Page != 3 || uc.tableQuery.Search != "ctf" || uc.tableQuery.SortBy != "participants" {
+		t.Fatalf("table: status = %d query = %+v", w.Code, uc.tableQuery)
+	}
+	if w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events/table?page=1&sortBy=nope"); w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown column: status = %d", w.Code)
+	}
+	w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/events/export.csv?table=events&search=ctf&sortBy=name")
+	if w.Code != http.StatusOK || uc.tableQuery.Page != 0 || uc.tableQuery.Search != "ctf" {
+		t.Fatalf("csv: status = %d query = %+v", w.Code, uc.tableQuery)
+	}
+	w = serveCatalog(t, uc, &catalogProt{}, "/api/analytics/tasks/table?page=1&category=web&level=easy&search=sql&sortBy=solveRate")
+	if w.Code != http.StatusOK || uc.category != "web" || uc.level != "easy" || uc.tableQuery.SortBy != "solveRate" {
+		t.Fatalf("tasks table: status = %d", w.Code)
 	}
 }
