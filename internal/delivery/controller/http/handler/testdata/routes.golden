@@ -1,4 +1,5 @@
 GET    /api/admin/audit-log | gate: platform.audit.read | layers: -
+GET    /api/admin/dashboard | gate: self | layers: -
 GET    /api/admin/errors | gate: platform.errors.read | layers: -
 GET    /api/admin/errors/:groupID | gate: platform.errors.read | layers: -
 PATCH  /api/admin/errors/:groupID/status | gate: platform.errors.write | layers: -

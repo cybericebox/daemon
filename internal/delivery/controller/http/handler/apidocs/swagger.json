@@ -113,6 +113,38 @@
                 }
             }
         },
+        "/admin/dashboard": {
+            "get": {
+                "description": "One answer with the blocks the caller may see: Attention (what needs the admin, with where to fix it), CurrentAndUpcoming (running events and those starting within 7 days), Trends7d (sign-ups, active users, solves) and Infrastructure (cluster CPU and memory, active stands). A block without the permission is null.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "The platform admin dashboard",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.dashboardResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/admin/errors": {
             "get": {
                 "produces": [
@@ -27631,6 +27663,156 @@
                 },
                 "Name": {
                     "type": "string"
+                }
+            }
+        },
+        "dashboard.attentionItemResponse": {
+            "type": "object",
+            "properties": {
+                "At": {
+                    "type": "string"
+                },
+                "Count": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Label": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.attentionResponse": {
+            "type": "object",
+            "properties": {
+                "Count": {
+                    "type": "integer"
+                },
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.attentionItemResponse"
+                    }
+                },
+                "Kind": {
+                    "type": "string"
+                },
+                "Target": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.currentEventResponse": {
+            "type": "object",
+            "properties": {
+                "EventID": {
+                    "type": "string"
+                },
+                "FinishAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Participants": {
+                    "type": "integer"
+                },
+                "Running": {
+                    "type": "boolean"
+                },
+                "StandsReady": {
+                    "type": "integer"
+                },
+                "StandsTotal": {
+                    "type": "integer"
+                },
+                "StartAt": {
+                    "type": "string"
+                },
+                "Tag": {
+                    "type": "string"
+                },
+                "Teams": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.dashboardResponse": {
+            "type": "object",
+            "properties": {
+                "Attention": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.attentionResponse"
+                    }
+                },
+                "CurrentAndUpcoming": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.currentEventResponse"
+                    }
+                },
+                "Infrastructure": {
+                    "$ref": "#/definitions/dashboard.infrastructureResponse"
+                },
+                "Trends7d": {
+                    "$ref": "#/definitions/dashboard.trendsResponse"
+                }
+            }
+        },
+        "dashboard.infrastructureResponse": {
+            "type": "object",
+            "properties": {
+                "ActiveStands": {
+                    "type": "integer"
+                },
+                "Agents": {
+                    "type": "integer"
+                },
+                "CPUAllocatableMillicores": {
+                    "type": "integer"
+                },
+                "CPUReservedMillicores": {
+                    "type": "integer"
+                },
+                "FailedStands": {
+                    "type": "integer"
+                },
+                "MemoryAllocatableBytes": {
+                    "type": "integer"
+                },
+                "MemoryReservedBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.trendsResponse": {
+            "type": "object",
+            "properties": {
+                "ActiveUsers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Days": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Registrations": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Solves": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },

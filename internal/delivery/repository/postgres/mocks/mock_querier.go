@@ -2134,6 +2134,111 @@ func (mr *MockQuerierMockRecorder) CreateUserProvider(ctx, arg any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserProvider", reflect.TypeOf((*MockQuerier)(nil).CreateUserProvider), ctx, arg)
 }
 
+// DashboardCurrentEvents mocks base method.
+func (m *MockQuerier) DashboardCurrentEvents(ctx context.Context, arg postgres.DashboardCurrentEventsParams) ([]postgres.DashboardCurrentEventsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardCurrentEvents", ctx, arg)
+	ret0, _ := ret[0].([]postgres.DashboardCurrentEventsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardCurrentEvents indicates an expected call of DashboardCurrentEvents.
+func (mr *MockQuerierMockRecorder) DashboardCurrentEvents(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardCurrentEvents", reflect.TypeOf((*MockQuerier)(nil).DashboardCurrentEvents), ctx, arg)
+}
+
+// DashboardEventsWithoutReservation mocks base method.
+func (m *MockQuerier) DashboardEventsWithoutReservation(ctx context.Context, arg postgres.DashboardEventsWithoutReservationParams) ([]postgres.DashboardEventsWithoutReservationRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardEventsWithoutReservation", ctx, arg)
+	ret0, _ := ret[0].([]postgres.DashboardEventsWithoutReservationRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardEventsWithoutReservation indicates an expected call of DashboardEventsWithoutReservation.
+func (mr *MockQuerierMockRecorder) DashboardEventsWithoutReservation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardEventsWithoutReservation", reflect.TypeOf((*MockQuerier)(nil).DashboardEventsWithoutReservation), ctx, arg)
+}
+
+// DashboardFailedStands mocks base method.
+func (m *MockQuerier) DashboardFailedStands(ctx context.Context, arg postgres.DashboardFailedStandsParams) ([]postgres.DashboardFailedStandsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardFailedStands", ctx, arg)
+	ret0, _ := ret[0].([]postgres.DashboardFailedStandsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardFailedStands indicates an expected call of DashboardFailedStands.
+func (mr *MockQuerierMockRecorder) DashboardFailedStands(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardFailedStands", reflect.TypeOf((*MockQuerier)(nil).DashboardFailedStands), ctx, arg)
+}
+
+// DashboardMailErrors mocks base method.
+func (m *MockQuerier) DashboardMailErrors(ctx context.Context, since time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardMailErrors", ctx, since)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardMailErrors indicates an expected call of DashboardMailErrors.
+func (mr *MockQuerierMockRecorder) DashboardMailErrors(ctx, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardMailErrors", reflect.TypeOf((*MockQuerier)(nil).DashboardMailErrors), ctx, since)
+}
+
+// DashboardOpenErrors mocks base method.
+func (m *MockQuerier) DashboardOpenErrors(ctx context.Context, rowLimit int32) ([]postgres.DashboardOpenErrorsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardOpenErrors", ctx, rowLimit)
+	ret0, _ := ret[0].([]postgres.DashboardOpenErrorsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardOpenErrors indicates an expected call of DashboardOpenErrors.
+func (mr *MockQuerierMockRecorder) DashboardOpenErrors(ctx, rowLimit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardOpenErrors", reflect.TypeOf((*MockQuerier)(nil).DashboardOpenErrors), ctx, rowLimit)
+}
+
+// DashboardPendingElevations mocks base method.
+func (m *MockQuerier) DashboardPendingElevations(ctx context.Context) (postgres.DashboardPendingElevationsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardPendingElevations", ctx)
+	ret0, _ := ret[0].(postgres.DashboardPendingElevationsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardPendingElevations indicates an expected call of DashboardPendingElevations.
+func (mr *MockQuerierMockRecorder) DashboardPendingElevations(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardPendingElevations", reflect.TypeOf((*MockQuerier)(nil).DashboardPendingElevations), ctx)
+}
+
+// DashboardTrends mocks base method.
+func (m *MockQuerier) DashboardTrends(ctx context.Context, arg postgres.DashboardTrendsParams) ([]postgres.DashboardTrendsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DashboardTrends", ctx, arg)
+	ret0, _ := ret[0].([]postgres.DashboardTrendsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DashboardTrends indicates an expected call of DashboardTrends.
+func (mr *MockQuerierMockRecorder) DashboardTrends(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DashboardTrends", reflect.TypeOf((*MockQuerier)(nil).DashboardTrends), ctx, arg)
+}
+
 // DecideExerciseProposal mocks base method.
 func (m *MockQuerier) DecideExerciseProposal(ctx context.Context, arg postgres.DecideExerciseProposalParams) (int64, error) {
 	m.ctrl.T.Helper()

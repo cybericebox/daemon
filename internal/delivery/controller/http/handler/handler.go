@@ -5,6 +5,7 @@ import (
 	"time"
 
 	adminAuditHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/adminAudit"
+	dashboardHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/dashboard"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
@@ -53,6 +54,7 @@ type (
 		infrastructureHandler.IUseCase
 		resourceCalendarHandler.IUseCase
 		adminAuditHandler.IUseCase
+		dashboardHandler.IUseCase
 		errorJournalHandler.IUseCase
 		mailHandler.IUseCase
 		imageRegistryHandler.IUseCase
@@ -91,6 +93,7 @@ func (h *Handler) Init(router *gin.Engine) {
 		platformSettings.NewSettingAPIHandler(h.useCase, h.prot).Init(baseAPI)
 		imageRegistryHandler.New(h.useCase, h.prot).Init(baseAPI)
 		adminAuditHandler.New(h.useCase, h.prot).Init(baseAPI)
+		dashboardHandler.New(h.useCase, h.prot).Init(baseAPI)
 		errorJournalHandler.New(h.useCase, h.prot).Init(baseAPI)
 
 		user.NewUserAPIHandler(h.useCase, h.prot).Init(baseAPI)

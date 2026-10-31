@@ -210,6 +210,104 @@ definitions:
       Name:
         type: string
     type: object
+  dashboard.attentionItemResponse:
+    properties:
+      At:
+        type: string
+      Count:
+        type: integer
+      ID:
+        type: string
+      Label:
+        type: string
+    type: object
+  dashboard.attentionResponse:
+    properties:
+      Count:
+        type: integer
+      Items:
+        items:
+          $ref: '#/definitions/dashboard.attentionItemResponse'
+        type: array
+      Kind:
+        type: string
+      Target:
+        type: string
+    type: object
+  dashboard.currentEventResponse:
+    properties:
+      EventID:
+        type: string
+      FinishAt:
+        type: string
+      Name:
+        type: string
+      Participants:
+        type: integer
+      Running:
+        type: boolean
+      StandsReady:
+        type: integer
+      StandsTotal:
+        type: integer
+      StartAt:
+        type: string
+      Tag:
+        type: string
+      Teams:
+        type: integer
+    type: object
+  dashboard.dashboardResponse:
+    properties:
+      Attention:
+        items:
+          $ref: '#/definitions/dashboard.attentionResponse'
+        type: array
+      CurrentAndUpcoming:
+        items:
+          $ref: '#/definitions/dashboard.currentEventResponse'
+        type: array
+      Infrastructure:
+        $ref: '#/definitions/dashboard.infrastructureResponse'
+      Trends7d:
+        $ref: '#/definitions/dashboard.trendsResponse'
+    type: object
+  dashboard.infrastructureResponse:
+    properties:
+      ActiveStands:
+        type: integer
+      Agents:
+        type: integer
+      CPUAllocatableMillicores:
+        type: integer
+      CPUReservedMillicores:
+        type: integer
+      FailedStands:
+        type: integer
+      MemoryAllocatableBytes:
+        type: integer
+      MemoryReservedBytes:
+        type: integer
+    type: object
+  dashboard.trendsResponse:
+    properties:
+      ActiveUsers:
+        items:
+          type: integer
+        type: array
+      Days:
+        items:
+          type: string
+        type: array
+      Registrations:
+        items:
+          type: integer
+        type: array
+      Solves:
+        items:
+          type: integer
+        type: array
+    type: object
   dispatchModel.ApplicationFunnel:
     properties:
       Approved:
@@ -12716,6 +12814,28 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Admin audit journal (filtered, keyset-paged, newest first)
+      tags:
+      - admin
+  /admin/dashboard:
+    get:
+      description: 'One answer with the blocks the caller may see: Attention (what
+        needs the admin, with where to fix it), CurrentAndUpcoming (running events
+        and those starting within 7 days), Trends7d (sign-ups, active users, solves)
+        and Infrastructure (cluster CPU and memory, active stands). A block without
+        the permission is null.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.dashboardResponse'
+              type: object
+      summary: The platform admin dashboard
       tags:
       - admin
   /admin/errors:

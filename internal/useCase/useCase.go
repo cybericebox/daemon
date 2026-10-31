@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/dashboardRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventActivityRepo"
@@ -46,6 +47,7 @@ import (
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	"github.com/cybericebox/daemon/internal/session"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	adminDashboardUseCase "github.com/cybericebox/daemon/internal/useCase/adminDashboard"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -106,6 +108,7 @@ type (
 		*pulseUseCase.PulseUseCase
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
+		*adminDashboardUseCase.Dashboard
 		*imageRegistryUseCase.ImageRegistryUseCase
 		// InboxRequests raises the staff inbox requests that come from the monitoring (the CPU throttling alert).
 		InboxRequests *inboxUseCase.RequestRouter
@@ -568,6 +571,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		pulseUseCase.New(pulseUseCase.Dependencies{Banners: bannerUC, Freeze: eventUC, Inbox: inboxUC}),
 		journalUC,
 		calendarUC,
+		adminDashboardUseCase.New(dashboardRepo.New(deps.Repo), platformAnalyticsRepo.New(deps.Repo)),
 		imageRegistryUC,
 		inboxRequests,
 	}

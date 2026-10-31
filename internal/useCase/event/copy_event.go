@@ -270,4 +270,3 @@ func (u *EventUseCase) copyEventMedia(ctx context.Context, sourceID, newID uuid.
 		}
 	}
 }
-

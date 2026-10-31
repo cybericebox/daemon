@@ -255,6 +255,20 @@ type Querier interface {
 	// truth for entity defaults.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserProvider(ctx context.Context, arg CreateUserProviderParams) (UserProvider, error)
+	// Events that run now or start before the horizon, with their counters.
+	DashboardCurrentEvents(ctx context.Context, arg DashboardCurrentEventsParams) ([]DashboardCurrentEventsRow, error)
+	// Events that run stands, have not finished and start within the horizon (or run now), with no active reservation.
+	DashboardEventsWithoutReservation(ctx context.Context, arg DashboardEventsWithoutReservationParams) ([]DashboardEventsWithoutReservationRow, error)
+	// The platform admin dashboard (docs/specs/ADMIN.md §3): every block is a handful of statements, never one per row.
+	// Events with failed stands (events not finished or archived), the worst first, with the totals over all of them.
+	DashboardFailedStands(ctx context.Context, arg DashboardFailedStandsParams) ([]DashboardFailedStandsRow, error)
+	// Deliveries that ended in an error since the given moment.
+	DashboardMailErrors(ctx context.Context, since time.Time) (int64, error)
+	DashboardOpenErrors(ctx context.Context, rowLimit int32) ([]DashboardOpenErrorsRow, error)
+	// oldest_at is 'epoch' without a pending request.
+	DashboardPendingElevations(ctx context.Context) (DashboardPendingElevationsRow, error)
+	// Three daily series for the days from the given day on (UTC days): sign-ups, users with a session, solved tasks.
+	DashboardTrends(ctx context.Context, arg DashboardTrendsParams) ([]DashboardTrendsRow, error)
 	DecideExerciseProposal(ctx context.Context, arg DecideExerciseProposalParams) (int64, error)
 	// Only a pending request can be decided; 0 rows: it was decided meanwhile.
 	DecideExerciseResourceElevation(ctx context.Context, arg DecideExerciseResourceElevationParams) (int64, error)
