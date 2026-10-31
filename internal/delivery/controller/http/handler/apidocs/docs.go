@@ -33165,13 +33165,22 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "RetryAttempts": {
+                    "description": "RetryAttempts counts the automatic retries after failures.",
                     "type": "integer"
                 },
                 "Status": {
                     "type": "string"
                 },
+                "Wait": {
+                    "description": "Wait is what the lab needs and what the event's reservation has left; null when none was recorded.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.standWaitResponse"
+                        }
+                    ]
+                },
                 "WaitReason": {
-                    "description": "WaitReason is the machine code of what a pending Lab waits for (empty: nothing), WaitSince since when.",
+                    "description": "WaitReason is the code of what a pending lab waits for (cluster_reservation, snapshot_quota,\npersistence_unavailable, ...), \"\" when nothing; WaitSince since when.",
                     "type": "string"
                 },
                 "WaitSince": {
@@ -33354,6 +33363,29 @@ const docTemplate = `{
                 },
                 "ProbeURL": {
                     "type": "string"
+                }
+            }
+        },
+        "event.standWaitResponse": {
+            "type": "object",
+            "properties": {
+                "HaveCPUMillicores": {
+                    "type": "integer"
+                },
+                "HaveMemoryBytes": {
+                    "type": "integer"
+                },
+                "HaveStorageBytes": {
+                    "type": "integer"
+                },
+                "NeedCPUMillicores": {
+                    "type": "integer"
+                },
+                "NeedMemoryBytes": {
+                    "type": "integer"
+                },
+                "NeedStorageBytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -39506,7 +39538,7 @@ const docTemplate = `{
                     ]
                 },
                 "State": {
-                    "description": "State is running, done or failed.",
+                    "description": "State is queued (no worker has started it yet), running, done or failed.",
                     "type": "string"
                 }
             }
@@ -40214,7 +40246,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "State": {
-                    "description": "State is running or failed; a failed one says why in Error and is closed with DELETE.",
+                    "description": "State is queued, running or failed; a failed one says why in Error and is closed with DELETE.",
                     "type": "string"
                 },
                 "TasksDone": {

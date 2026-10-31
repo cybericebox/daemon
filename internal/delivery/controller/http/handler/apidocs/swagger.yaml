@@ -3333,12 +3333,19 @@ definitions:
       Reason:
         type: string
       RetryAttempts:
+        description: RetryAttempts counts the automatic retries after failures.
         type: integer
       Status:
         type: string
+      Wait:
+        allOf:
+        - $ref: '#/definitions/event.standWaitResponse'
+        description: Wait is what the lab needs and what the event's reservation has
+          left; null when none was recorded.
       WaitReason:
-        description: 'WaitReason is the machine code of what a pending Lab waits for
-          (empty: nothing), WaitSince since when.'
+        description: |-
+          WaitReason is the code of what a pending lab waits for (cluster_reservation, snapshot_quota,
+          persistence_unavailable, ...), "" when nothing; WaitSince since when.
         type: string
       WaitSince:
         type: string
@@ -3463,6 +3470,21 @@ definitions:
         type: string
       ProbeURL:
         type: string
+    type: object
+  event.standWaitResponse:
+    properties:
+      HaveCPUMillicores:
+        type: integer
+      HaveMemoryBytes:
+        type: integer
+      HaveStorageBytes:
+        type: integer
+      NeedCPUMillicores:
+        type: integer
+      NeedMemoryBytes:
+        type: integer
+      NeedStorageBytes:
+        type: integer
     type: object
   event.standsResponse:
     properties:
@@ -7704,7 +7726,8 @@ definitions:
         description: File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index}
           (done only).
       State:
-        description: State is running, done or failed.
+        description: State is queued (no worker has started it yet), running, done
+          or failed.
         type: string
     type: object
   exercise.exportJobStarted:
@@ -8192,8 +8215,8 @@ definitions:
       Stage:
         type: string
       State:
-        description: State is running or failed; a failed one says why in Error and
-          is closed with DELETE.
+        description: State is queued, running or failed; a failed one says why in
+          Error and is closed with DELETE.
         type: string
       TasksDone:
         type: integer
