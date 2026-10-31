@@ -54,8 +54,8 @@ const (
 	ImportJobRunning ImportJobState = "running"
 	// ImportJobQueued is how a running import that no worker has started yet is shown; it is never stored.
 	ImportJobQueued ImportJobState = "queued"
-	ImportJobDone    ImportJobState = "done"
-	ImportJobFailed  ImportJobState = "failed"
+	ImportJobDone   ImportJobState = "done"
+	ImportJobFailed ImportJobState = "failed"
 )
 
 // ImportJobError is the public part of the error a failed import ended with: the API code, message and public

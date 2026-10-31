@@ -78,6 +78,31 @@ type standLabResponse struct {
 	ChallengeName string    `json:"ChallengeName"`
 	Status        string    `json:"Status"`
 	Reason        string    `json:"Reason"`
+	// WaitReason is the code of what a pending lab waits for (cluster_reservation, snapshot_quota,
+	// persistence_unavailable, ...), "" when nothing; WaitSince since when.
+	WaitReason string     `json:"WaitReason"`
+	WaitSince  *time.Time `json:"WaitSince"`
+	// Wait is what the lab needs and what the event's reservation has left; null when none was recorded.
+	Wait *standWaitResponse `json:"Wait"`
+}
+
+// standWaitResponse: the need and the room of a lab waiting for room (CPU in millicores, memory and storage in bytes;
+// the storage fields are set when the snapshot quota is the short room).
+type standWaitResponse struct {
+	NeedCPUMillicores int64 `json:"NeedCPUMillicores"`
+	NeedMemoryBytes   int64 `json:"NeedMemoryBytes"`
+	HaveCPUMillicores int64 `json:"HaveCPUMillicores"`
+	HaveMemoryBytes   int64 `json:"HaveMemoryBytes"`
+	NeedStorageBytes  int64 `json:"NeedStorageBytes"`
+	HaveStorageBytes  int64 `json:"HaveStorageBytes"`
+}
+
+func toStandWaitResponse(d *eventStandModel.WaitDetail) *standWaitResponse {
+	if d == nil {
+		return nil
+	}
+	return &standWaitResponse{NeedCPUMillicores: d.NeedCPUMillicores, NeedMemoryBytes: d.NeedMemoryBytes, HaveCPUMillicores: d.HaveCPUMillicores,
+		HaveMemoryBytes: d.HaveMemoryBytes, NeedStorageBytes: d.NeedStorageBytes, HaveStorageBytes: d.HaveStorageBytes}
 }
 
 type standSettingsRequest struct {
@@ -143,7 +168,8 @@ func toStandTeamResponse(v eventUseCase.StandTeamView) standTeamResponse {
 		Queue: labview.StandQueue(v.Launch), ImageWarning: v.Launch.ImageWarning,
 		ReservationEndsAt: v.ReservationEndsAt, ReservationEnded: v.ReservationEnded}
 	for _, lab := range v.Labs {
-		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason})
+		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason,
+			WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: toStandWaitResponse(lab.Wait)})
 	}
 	return out
 }

@@ -80,6 +80,8 @@ type Lab struct {
 	WaitSince     *time.Time
 	RetryAttempts int32
 	FailedAt      *time.Time
+	// WaitDetail is what the waiting Lab needs and what the reservation has left, nil when none was recorded.
+	WaitDetail *eventStandModel.WaitDetail
 }
 
 // Assignment is one (team, active exercise) pair still to be prepared.
@@ -232,6 +234,7 @@ func (r *Repository) ListLabs(ctx context.Context, eventID uuid.UUID) ([]Lab, er
 			Readiness: labBindingModel.Readiness(row.Readiness), FailureReason: row.FailureReason.String,
 			WaitReason: row.WaitReason, RetryAttempts: row.RetryAttempts}
 		lab.WaitSince, lab.FailedAt = timePtr(row.WaitSince), timePtr(row.FailedAt)
+		lab.WaitDetail = eventStandModel.ParseWaitDetail(row.WaitDetail)
 		out = append(out, lab)
 	}
 	return out, nil

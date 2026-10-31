@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/waitDetailRepo"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
+	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
 // The need and the room of a Lab that waits for the reservation reach the stand counters, so the reason the
@@ -40,6 +41,22 @@ func TestStandCounters_StuckDetailCarriesTheNeedAndTheRoom(t *testing.T) {
 	row := read()
 	assert.Equal(t, "not_enough_reserved", row.StuckReason)
 	assert.Contains(t, eventStandModel.WaitDetailText(row.StuckDetail), "needs 1848m CPU and 7168 MiB, has 1352m CPU and 5120 MiB")
+
+	labs, err := f.uc.GetEventStands(ctx, f.eventID)
+	require.NoError(t, err)
+	var waiting *eventUseCase.StandLabView
+	for _, team := range labs.Items {
+		for i := range team.Labs {
+			if team.TeamID == f.blueID && team.Labs[i].ChallengeID == f.infraOne {
+				waiting = &team.Labs[i]
+			}
+		}
+	}
+	require.NotNil(t, waiting, "the stand lists the waiting lab")
+	assert.Equal(t, "not_enough_reserved", waiting.WaitReason)
+	require.NotNil(t, waiting.Wait, "and the structured need and room")
+	assert.Equal(t, int64(1848), waiting.Wait.NeedCPUMillicores)
+	assert.Equal(t, int64(5<<30), waiting.Wait.HaveMemoryBytes)
 
 	require.NoError(t, store.Clear(ctx, bindingID))
 	assert.Empty(t, read().StuckDetail)

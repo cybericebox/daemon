@@ -73,6 +73,11 @@ type StandLabView struct {
 	ChallengeName string
 	Readiness     labBindingModel.Readiness
 	Reason        string
+	// WaitReason is the machine code of what a pending lab waits for ("" when it waits for nothing), WaitSince since
+	// when; Wait is what it needs and what the reservation has left, when the wait is for room.
+	WaitReason string
+	WaitSince  *time.Time
+	Wait       *eventStandModel.WaitDetail
 }
 
 type ModeratorsChallengeView struct {
@@ -124,7 +129,7 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 	}
 	labsByTeam := make(map[uuid.UUID][]StandLabView, len(teams))
 	for _, lab := range labs {
-		labsByTeam[lab.TeamID] = append(labsByTeam[lab.TeamID], StandLabView{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason})
+		labsByTeam[lab.TeamID] = append(labsByTeam[lab.TeamID], StandLabView{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason, WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: lab.WaitDetail})
 	}
 	view := StandsView{
 		InfrastructureAllowed: true,

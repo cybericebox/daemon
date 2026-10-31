@@ -193,7 +193,8 @@ func (q *Queries) GetStandTeam(ctx context.Context, arg GetStandTeamParams) (Eve
 const listEventStandLabs = `-- name: ListEventStandLabs :many
 SELECT lb.event_team_id, lb.event_challenge_id, lb.readiness, lb.failure_reason,
        lb.wait_reason, lb.wait_since, lb.retry_attempts, lb.failed_at,
-       COALESCE(challenge.snapshot->>'name', '')::text AS challenge_name
+       COALESCE(challenge.snapshot->>'name', '')::text AS challenge_name,
+       COALESCE((SELECT row_to_json(wd)::text FROM lab_binding_wait_details wd WHERE wd.lab_binding_id = lb.id), '')::text AS wait_detail
 FROM lab_bindings lb
 JOIN event_challenges challenge ON challenge.id = lb.event_challenge_id
 WHERE lb.event_id = $1
@@ -210,6 +211,7 @@ type ListEventStandLabsRow struct {
 	RetryAttempts    int32              `json:"retry_attempts"`
 	FailedAt         pgtype.Timestamptz `json:"failed_at"`
 	ChallengeName    string             `json:"challenge_name"`
+	WaitDetail       string             `json:"wait_detail"`
 }
 
 func (q *Queries) ListEventStandLabs(ctx context.Context, eventID uuid.UUID) ([]ListEventStandLabsRow, error) {
@@ -231,6 +233,7 @@ func (q *Queries) ListEventStandLabs(ctx context.Context, eventID uuid.UUID) ([]
 			&i.RetryAttempts,
 			&i.FailedAt,
 			&i.ChallengeName,
+			&i.WaitDetail,
 		); err != nil {
 			return nil, err
 		}

@@ -31,3 +31,15 @@ func WaitDetailText(raw string) string {
 	}
 	return fmt.Sprintf(" (needs %dm CPU and %d MiB, has %dm CPU and %d MiB)", d.NeedCPUMillicores, d.NeedMemoryBytes>>20, d.HaveCPUMillicores, d.HaveMemoryBytes>>20)
 }
+
+// ParseWaitDetail reads the stored detail (JSON); nil when there is none or it does not read.
+func ParseWaitDetail(raw string) *WaitDetail {
+	if raw == "" {
+		return nil
+	}
+	var d WaitDetail
+	if json.Unmarshal([]byte(raw), &d) != nil {
+		return nil
+	}
+	return &d
+}
