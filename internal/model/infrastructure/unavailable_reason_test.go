@@ -1,10 +1,14 @@
 package infrastructure_test
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	infra "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
@@ -24,4 +28,37 @@ func TestParseUnavailableReason(t *testing.T) {
 	} {
 		assert.Nil(t, infra.ParseUnavailableReason(bad), bad)
 	}
+}
+
+// The allow-list is the laboratory's (pkg/names.UnavailableReasonCodes): compared when its source is next to the
+// daemon; once the pinned release has the package, import it.
+func TestUnavailableCodesMatchTheLaboratory(t *testing.T) {
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for ; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		var raw []byte
+		for _, candidate := range []string{
+			filepath.Join(dir, "laboratory", "pkg", "names", "unavailable.go"),
+			filepath.Join(dir, "laboratory", ".worktrees", "hardening", "pkg", "names", "unavailable.go"),
+		} {
+			if content, readErr := os.ReadFile(candidate); readErr == nil {
+				raw = content
+				break
+			}
+		}
+		if raw == nil {
+			continue
+		}
+		var codes []string
+		for _, m := range regexp.MustCompile(`Reason\w+\s*=\s*"([A-Z0-9_]+)"`).FindAllSubmatch(raw, -1) {
+			codes = append(codes, string(m[1]))
+		}
+		assert.ElementsMatch(t, codes, infra.UnavailableCodes)
+		return
+	}
+	t.Skip("the laboratory source is not next to the daemon")
+}
+
+func TestReasonErrorMapsThePersistenceReason(t *testing.T) {
+	assert.ErrorIs(t, infra.ReasonError(infra.ReasonPersistenceUnavailable), infra.ErrDevicePersistenceUnavailable.Err())
 }
