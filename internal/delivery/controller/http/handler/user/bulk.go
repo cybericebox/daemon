@@ -1,3 +1,4 @@
+// Package user is the HTTP delivery of the platform users: the table, the card and the bulk actions.
 package user
 
 import (
@@ -47,8 +48,9 @@ type (
 )
 
 // parseUserFilters reads and validates the extra filters of the user table.
-func parseUserFilters(ctx *gin.Context) (emailConfirmed, signIn string, inactiveDays int, retErr error) {
-	emailConfirmed, signIn = ctx.Query("emailConfirmed"), ctx.Query("signIn")
+func parseUserFilters(ctx *gin.Context) (string, string, int, error) {
+	emailConfirmed, signIn := ctx.Query("emailConfirmed"), ctx.Query("signIn")
+	inactiveDays := 0
 	if emailConfirmed != "" && emailConfirmed != "true" && emailConfirmed != "false" {
 		return "", "", 0, errors.New("emailConfirmed must be true or false")
 	}
@@ -86,8 +88,18 @@ func (h *Handler) listParticipations(ctx *gin.Context) {
 	}
 	out := make([]userParticipationResponse, 0, len(items))
 	for _, item := range items {
-		out = append(out, userParticipationResponse{EventID: item.EventID, EventName: item.EventName, EventTag: item.EventTag,
-			TeamID: item.TeamID, TeamName: item.TeamName, Role: item.Role, Status: item.Status})
+		out = append(
+			out,
+			userParticipationResponse{
+				EventID:   item.EventID,
+				EventName: item.EventName,
+				EventTag:  item.EventTag,
+				TeamID:    item.TeamID,
+				TeamName:  item.TeamName,
+				Role:      item.Role,
+				Status:    item.Status,
+			},
+		)
 	}
 	response.AbortWithData(ctx, out)
 }
@@ -213,7 +225,13 @@ func (h *Handler) runBulk(ctx *gin.Context, action string, permission rbac.Permi
 }
 
 // auditBulkItem writes the audit entry of one user of a bulk request.
-func (h *Handler) auditBulkItem(ctx *gin.Context, actor uuid.UUID, permission rbac.Permission, target uuid.UUID, status int) {
+func (h *Handler) auditBulkItem(
+	ctx *gin.Context,
+	actor uuid.UUID,
+	permission rbac.Permission,
+	target uuid.UUID,
+	status int,
+) {
 	_ = h.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
 		ActorID: actor, Permission: string(permission), Method: ctx.Request.Method,
 		Route: ctx.FullPath(), ResponseStatus: status, Target: "user:" + target.String(),
@@ -228,7 +246,10 @@ func describeBulkError(e error) (string, string, int) {
 		inner := coded.UnwrapNotInternalError()
 		if !inner.StatusCode().IsInternal() {
 			full := inner.StatusCode().FullCode()
-			return strconv.Itoa(int(full)), inner.StatusCode().Message(), inner.StatusCode().HTTPCode()
+			return strconv.Itoa(full), inner.StatusCode().
+					Message(),
+				inner.StatusCode().
+					HTTPCode()
 		}
 	}
 	return "", "Internal server error", http.StatusInternalServerError

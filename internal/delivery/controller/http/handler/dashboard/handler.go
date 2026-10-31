@@ -85,11 +85,21 @@ type (
 	}
 )
 
-func New(useCase IUseCase, prot IProtection) *Handler { return &Handler{useCase: useCase, prot: prot} }
+func New(
+	useCase IUseCase,
+	prot IProtection,
+) *Handler {
+	return &Handler{useCase: useCase, prot: prot}
+}
 
 func (h *Handler) Init(router *gin.RouterGroup) {
 	// The admin tier passes the gate; each block then checks its own permission.
-	router.GET("admin/dashboard", h.prot.RequirePermission(rbac.PermSelf), h.requireAdminTier, h.get)
+	router.GET(
+		"admin/dashboard",
+		h.prot.RequirePermission(rbac.PermSelf),
+		h.requireAdminTier,
+		h.get,
+	)
 }
 
 // requireAdminTier lets only the admin roles in: an ordinary account has no dashboard.
@@ -122,26 +132,58 @@ func (h *Handler) get(ctx *gin.Context) {
 func toResponse(v adminDashboard.View) dashboardResponse {
 	out := dashboardResponse{Attention: make([]attentionResponse, 0, len(v.Attention))}
 	for _, a := range v.Attention {
-		item := attentionResponse{Kind: a.Kind, Count: a.Count, Target: a.Target, Items: make([]attentionItemResponse, 0, len(a.Items))}
+		item := attentionResponse{
+			Kind:   a.Kind,
+			Count:  a.Count,
+			Target: a.Target,
+			Items:  make([]attentionItemResponse, 0, len(a.Items)),
+		}
 		for _, i := range a.Items {
-			item.Items = append(item.Items, attentionItemResponse{ID: i.ID, Label: i.Label, Count: i.Count, At: i.At})
+			item.Items = append(
+				item.Items,
+				attentionItemResponse{ID: i.ID, Label: i.Label, Count: i.Count, At: i.At},
+			)
 		}
 		out.Attention = append(out.Attention, item)
 	}
 	if v.CurrentAndUpcoming != nil {
 		out.CurrentAndUpcoming = make([]currentEventResponse, 0, len(v.CurrentAndUpcoming))
 		for _, e := range v.CurrentAndUpcoming {
-			out.CurrentAndUpcoming = append(out.CurrentAndUpcoming, currentEventResponse{EventID: e.ID, Name: e.Name, Tag: e.Tag, StartAt: e.StartAt,
-				FinishAt: e.FinishAt, Running: e.Running, Participants: e.Participants, Teams: e.Teams, StandsReady: e.StandsReady, StandsTotal: e.StandsTotal})
+			out.CurrentAndUpcoming = append(
+				out.CurrentAndUpcoming,
+				currentEventResponse{
+					EventID:      e.ID,
+					Name:         e.Name,
+					Tag:          e.Tag,
+					StartAt:      e.StartAt,
+					FinishAt:     e.FinishAt,
+					Running:      e.Running,
+					Participants: e.Participants,
+					Teams:        e.Teams,
+					StandsReady:  e.StandsReady,
+					StandsTotal:  e.StandsTotal,
+				},
+			)
 		}
 	}
 	if v.Trends7d != nil {
-		out.Trends7d = &trendsResponse{Days: v.Trends7d.Days, Registrations: v.Trends7d.Registrations, ActiveUsers: v.Trends7d.ActiveUsers, Solves: v.Trends7d.Solves}
+		out.Trends7d = &trendsResponse{
+			Days:          v.Trends7d.Days,
+			Registrations: v.Trends7d.Registrations,
+			ActiveUsers:   v.Trends7d.ActiveUsers,
+			Solves:        v.Trends7d.Solves,
+		}
 	}
 	if i := v.Infrastructure; i != nil {
-		out.Infrastructure = &infrastructureResponse{CPUAllocatableMillicores: i.CPUAllocatableMillicores, CPUReservedMillicores: i.CPUReservedMillicores,
-			MemoryAllocatableBytes: i.MemoryAllocatableBytes, MemoryReservedBytes: i.MemoryReservedBytes, Agents: i.Agents,
-			ActiveStands: i.ActiveStands, FailedStands: i.FailedStands}
+		out.Infrastructure = &infrastructureResponse{
+			CPUAllocatableMillicores: i.CPUAllocatableMillicores,
+			CPUReservedMillicores:    i.CPUReservedMillicores,
+			MemoryAllocatableBytes:   i.MemoryAllocatableBytes,
+			MemoryReservedBytes:      i.MemoryReservedBytes,
+			Agents:                   i.Agents,
+			ActiveStands:             i.ActiveStands,
+			FailedStands:             i.FailedStands,
+		}
 	}
 	return out
 }

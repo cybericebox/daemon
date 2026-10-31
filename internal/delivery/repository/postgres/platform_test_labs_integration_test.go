@@ -82,22 +82,41 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 		}
 		return rows, count
 	}
-	if rows, count := filtered(platformStandRepo.TestLabFilter{Status: "active"}); count != 1 || len(rows) != 1 || rows[0].ID != active.ID {
+	if rows, count := filtered(
+		platformStandRepo.TestLabFilter{Status: "active"},
+	); count != 1 || len(rows) != 1 ||
+		rows[0].ID != active.ID {
 		t.Fatalf("active filter: %d %+v", count, rows)
 	}
-	if rows, count := filtered(platformStandRepo.TestLabFilter{Status: "expired"}); count != 1 || len(rows) != 1 || rows[0].AuthorID != second {
+	if rows, count := filtered(
+		platformStandRepo.TestLabFilter{Status: "expired"},
+	); count != 1 || len(rows) != 1 ||
+		rows[0].AuthorID != second {
 		t.Fatalf("expired filter: %d %+v", count, rows)
 	}
-	if rows, count := filtered(platformStandRepo.TestLabFilter{AuthorID: uuid.NullUUID{UUID: first, Valid: true}}); count != 1 || rows[0].AuthorID != first {
+	if rows, count := filtered(
+		platformStandRepo.TestLabFilter{AuthorID: uuid.NullUUID{UUID: first, Valid: true}},
+	); count != 1 ||
+		rows[0].AuthorID != first {
 		t.Fatalf("author filter: %d %+v", count, rows)
 	}
-	if _, count := filtered(platformStandRepo.TestLabFilter{ExerciseID: uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}}); count != 0 {
+	if _, count := filtered(
+		platformStandRepo.TestLabFilter{
+			ExerciseID: uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true},
+		},
+	); count != 0 {
 		t.Fatalf("another exercise: %d", count)
 	}
-	if rows, _ := filtered(platformStandRepo.TestLabFilter{SortBy: "expiresAt", SortDir: "asc"}); len(rows) != 2 || rows[0].AuthorID != second {
+	if rows, _ := filtered(
+		platformStandRepo.TestLabFilter{SortBy: "expiresAt", SortDir: "asc"},
+	); len(rows) != 2 ||
+		rows[0].AuthorID != second {
 		t.Fatalf("expiresAt asc: %+v", rows)
 	}
-	if rows, _ := filtered(platformStandRepo.TestLabFilter{SortBy: "author", SortDir: "desc"}); len(rows) != 2 || rows[0].AuthorEmail != "ptl-second@test.test" {
+	if rows, _ := filtered(
+		platformStandRepo.TestLabFilter{SortBy: "author", SortDir: "desc"},
+	); len(rows) != 2 ||
+		rows[0].AuthorEmail != "ptl-second@test.test" {
 		t.Fatalf("author desc: %+v", rows)
 	}
 	ref, err := repo.GetTestLab(ctx, active.ID)

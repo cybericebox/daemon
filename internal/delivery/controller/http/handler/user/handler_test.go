@@ -428,12 +428,20 @@ func TestListUsersIncludesEmailConfirmationForRecipientSearch(t *testing.T) {
 	}
 }
 
-func (f *fakeUC) ListUserParticipations(context.Context, uuid.UUID) ([]authUseCase.UserParticipationView, error) {
+func (f *fakeUC) ListUserParticipations(
+	context.Context,
+	uuid.UUID,
+) ([]authUseCase.UserParticipationView, error) {
 	return []authUseCase.UserParticipationView{{EventName: "CTF", Role: "captain"}}, nil
 }
 func (f *fakeUC) EndUserSessions(context.Context, uuid.UUID) error      { return f.updateErr }
 func (f *fakeUC) ResendUserInvitation(context.Context, uuid.UUID) error { return f.updateErr }
-func (f *fakeUC) BulkUserAction(_ context.Context, action string, _ []uuid.UUID) ([]authUseCase.BulkUserResult, error) {
+
+func (f *fakeUC) BulkUserAction(
+	_ context.Context,
+	action string,
+	_ []uuid.UUID,
+) ([]authUseCase.BulkUserResult, error) {
 	f.bulkAction = action
 	return f.bulkResults, nil
 }
@@ -444,12 +452,20 @@ func (f *fakeUC) RecordAdminAction(_ context.Context, entry adminAuditUseCase.En
 
 func TestBulkReportsEachUserAndAuditsEachOne(t *testing.T) {
 	uid, ok1, bad := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	uc := &fakeUC{bulkResults: []authUseCase.BulkUserResult{{UserID: ok1}, {UserID: bad, Err: authModel.ErrInsufficientPermission.Err()}}}
+	uc := &fakeUC{
+		bulkResults: []authUseCase.BulkUserResult{
+			{UserID: ok1},
+			{UserID: bad, Err: authModel.ErrInsufficientPermission.Err()},
+		},
+	}
 	r := newEngine(uc, uid)
 
 	body := `{"UserIDs":["` + ok1.String() + `","` + bad.String() + `"]}`
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/users/bulk/block", strings.NewReader(body)))
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(http.MethodPost, "/api/users/bulk/block", strings.NewReader(body)),
+	)
 
 	if w.Code != http.StatusOK || uc.bulkAction != authUseCase.BulkBlock {
 		t.Fatalf("status = %d action = %q body = %s", w.Code, uc.bulkAction, w.Body.String())
@@ -470,8 +486,11 @@ func TestBulkReportsEachUserAndAuditsEachOne(t *testing.T) {
 	if len(res) != 2 || !res[0].Ok || res[1].Ok || res[1].Code == "" || res[0].UserID != ok1 {
 		t.Fatalf("results = %+v", res)
 	}
-	if len(uc.audited) != 2 || uc.audited[0].Target != "user:"+ok1.String() || uc.audited[1].Target != "user:"+bad.String() ||
-		uc.audited[0].ResponseStatus != http.StatusOK || uc.audited[1].ResponseStatus != http.StatusForbidden || uc.audited[0].ActorID != uid {
+	if len(uc.audited) != 2 || uc.audited[0].Target != "user:"+ok1.String() ||
+		uc.audited[1].Target != "user:"+bad.String() ||
+		uc.audited[0].ResponseStatus != http.StatusOK ||
+		uc.audited[1].ResponseStatus != http.StatusForbidden ||
+		uc.audited[0].ActorID != uid {
 		t.Fatalf("audit = %+v", uc.audited)
 	}
 }
@@ -481,13 +500,23 @@ func TestListUsersRejectsUnknownFilters(t *testing.T) {
 	r := newEngine(&fakeUC{}, uid)
 	for _, query := range []string{"signIn=sms", "emailConfirmed=maybe", "inactiveDays=0", "inactiveDays=abc"} {
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&"+query, nil))
+		r.ServeHTTP(
+			w,
+			httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&"+query, nil),
+		)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status = %d", query, w.Code)
 		}
 	}
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&signIn=google&emailConfirmed=true&inactiveDays=30", nil))
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/users?page=1&pageSize=10&signIn=google&emailConfirmed=true&inactiveDays=30",
+			nil,
+		),
+	)
 	if w.Code != http.StatusOK {
 		t.Fatalf("valid filters: status = %d body = %s", w.Code, w.Body.String())
 	}

@@ -17,11 +17,15 @@ import (
 
 type bulkArchiveUC struct {
 	eventCRUDContractUC
+
 	failing uuid.UUID
 	audited []adminAuditUseCase.Entry
 }
 
-func (u *bulkArchiveUC) ArchiveEvent(_ context.Context, id, _ uuid.UUID) (eventUseCase.EventView, error) {
+func (u *bulkArchiveUC) ArchiveEvent(
+	_ context.Context,
+	id, _ uuid.UUID,
+) (eventUseCase.EventView, error) {
 	if id == u.failing {
 		return eventUseCase.EventView{}, eventModel.ErrEventNotFound.Err()
 	}
@@ -41,7 +45,10 @@ func TestBulkArchiveReportsEachEventAndAuditsEachOne(t *testing.T) {
 
 	body := `{"EventIDs":["` + ok.String() + `","` + missing.String() + `","` + ok.String() + `"]}`
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/events/bulk/archive", strings.NewReader(body)))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(http.MethodPost, "/api/events/bulk/archive", strings.NewReader(body)),
+	)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
@@ -59,15 +66,24 @@ func TestBulkArchiveReportsEachEventAndAuditsEachOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := out.Data.Results
-	if len(res) != 2 || !res[0].Ok || res[1].Ok || res[1].Code == "" || res[0].EventID != ok || res[1].EventID != missing {
+	if len(res) != 2 || !res[0].Ok || res[1].Ok || res[1].Code == "" || res[0].EventID != ok ||
+		res[1].EventID != missing {
 		t.Fatalf("results = %+v", res)
 	}
-	if len(u.audited) != 2 || u.audited[0].Target != "event:"+ok.String() || u.audited[1].ResponseStatus != http.StatusNotFound {
+	if len(u.audited) != 2 || u.audited[0].Target != "event:"+ok.String() ||
+		u.audited[1].ResponseStatus != http.StatusNotFound {
 		t.Fatalf("audit = %+v", u.audited)
 	}
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/events/bulk/archive", strings.NewReader(`{"EventIDs":[]}`)))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/events/bulk/archive",
+			strings.NewReader(`{"EventIDs":[]}`),
+		),
+	)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("an empty request: status = %d", w.Code)
 	}
@@ -79,14 +95,25 @@ func TestEventListFiltersAreValidated(t *testing.T) {
 	router := testEventCRUDRouter(u, actor)
 	for _, query := range []string{"startFrom=yesterday", "organizer=nobody", "infrastructure=maybe", "startFrom=2026-10-02T00:00:00Z&startTo=2026-10-01T00:00:00Z"} {
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/events?page=1&pageSize=10&"+query, nil))
+		router.ServeHTTP(
+			w,
+			httptest.NewRequest(http.MethodGet, "/api/events?page=1&pageSize=10&"+query, nil),
+		)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status = %d", query, w.Code)
 		}
 	}
 	org := uuid.Must(uuid.NewV7())
-	eventRequest(t, router, http.MethodGet, "/api/events?page=1&pageSize=10&infrastructure=true&organizer="+org.String()+"&startFrom=2026-10-01T00:00:00Z&startTo=2026-11-01T00:00:00Z", "")
-	if u.listFilter.Infrastructure != "true" || u.listFilter.OrganizerID != org || u.listFilter.StartFrom == nil || u.listFilter.StartTo == nil {
+	eventRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/events?page=1&pageSize=10&infrastructure=true&organizer="+org.String()+"&startFrom=2026-10-01T00:00:00Z&startTo=2026-11-01T00:00:00Z",
+		"",
+	)
+	if u.listFilter.Infrastructure != "true" || u.listFilter.OrganizerID != org ||
+		u.listFilter.StartFrom == nil ||
+		u.listFilter.StartTo == nil {
 		t.Fatalf("filter = %+v", u.listFilter)
 	}
 }

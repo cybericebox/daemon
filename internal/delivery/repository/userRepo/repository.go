@@ -37,8 +37,14 @@ type Queries interface {
 	GetUserByProvider(ctx context.Context, arg postgres.GetUserByProviderParams) (postgres.User, error)
 	CreateUserProvider(ctx context.Context, arg postgres.CreateUserProviderParams) (postgres.UserProvider, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]postgres.UserProvider, error)
-	ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserParticipationsRow, error)
-	ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]postgres.ListUserProvidersForUsersRow, error)
+	ListUserParticipations(
+		ctx context.Context,
+		userID uuid.UUID,
+	) ([]postgres.ListUserParticipationsRow, error)
+	ListUserProvidersForUsers(
+		ctx context.Context,
+		userIds []uuid.UUID,
+	) ([]postgres.ListUserProvidersForUsersRow, error)
 	DeleteUserProvider(ctx context.Context, arg postgres.DeleteUserProviderParams) (int64, error)
 	CountUserLoginMethods(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteUserProviders(ctx context.Context, userID uuid.UUID) (int64, error)
@@ -255,7 +261,10 @@ func (r *Repository) UnlinkProvider(ctx context.Context, userID uuid.UUID, provi
 
 // ListProviders returns the provider names linked to a user.
 // ProvidersOf lists the provider links of many users at once (one query).
-func (r *Repository) ProvidersOf(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+func (r *Repository) ProvidersOf(
+	ctx context.Context,
+	ids []uuid.UUID,
+) (map[uuid.UUID][]string, error) {
 	out := make(map[uuid.UUID][]string, len(ids))
 	if len(ids) == 0 {
 		return out, nil
@@ -432,14 +441,24 @@ type Participation struct {
 }
 
 // Participations lists the events of the user.
-func (r *Repository) Participations(ctx context.Context, userID uuid.UUID) ([]Participation, error) {
+func (r *Repository) Participations(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]Participation, error) {
 	rows, err := r.q.ListUserParticipations(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Participation, 0, len(rows))
 	for _, row := range rows {
-		item := Participation{EventID: row.EventID, EventName: row.EventName, EventTag: row.EventTag, TeamName: row.TeamName, Role: row.Role, Status: row.Status}
+		item := Participation{
+			EventID:   row.EventID,
+			EventName: row.EventName,
+			EventTag:  row.EventTag,
+			TeamName:  row.TeamName,
+			Role:      row.Role,
+			Status:    row.Status,
+		}
 		if row.TeamID.Valid {
 			id := row.TeamID.UUID
 			item.TeamID = &id

@@ -571,7 +571,10 @@ func NewUseCase(deps Dependencies) *UseCase {
 		pulseUseCase.New(pulseUseCase.Dependencies{Banners: bannerUC, Freeze: eventUC, Inbox: inboxUC}),
 		journalUC,
 		calendarUC,
-		adminDashboardUseCase.New(dashboardRepo.New(deps.Repo), platformAnalyticsRepo.New(deps.Repo)),
+		adminDashboardUseCase.New(
+			dashboardRepo.New(deps.Repo),
+			platformAnalyticsRepo.New(deps.Repo),
+		),
 		imageRegistryUC,
 		inboxRequests,
 	}

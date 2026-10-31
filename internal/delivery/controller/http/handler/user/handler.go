@@ -34,7 +34,11 @@ type (
 		ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]authUseCase.UserParticipationView, error)
 		EndUserSessions(ctx context.Context, userID uuid.UUID) error
 		ResendUserInvitation(ctx context.Context, userID uuid.UUID) error
-		BulkUserAction(ctx context.Context, action string, ids []uuid.UUID) ([]authUseCase.BulkUserResult, error)
+		BulkUserAction(
+			ctx context.Context,
+			action string,
+			ids []uuid.UUID,
+		) ([]authUseCase.BulkUserResult, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
 
@@ -145,14 +149,38 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	usersAPI.DELETE(":userID", h.prot.RequirePermission(rbac.PermUsersDelete), h.deleteUser)
 	// Each request can mail up to 200 addresses: bound the requests per admin.
 	usersAPI.POST("invite", h.prot.RequirePermission(rbac.PermUsersInvite), h.invite)
-	usersAPI.GET(":userID/participations", h.prot.RequirePermission(rbac.PermUsersRead), h.listParticipations)
-	usersAPI.POST(":userID/sessions/end", h.prot.RequirePermission(rbac.PermUsersStatusWrite), h.endSessions)
-	usersAPI.POST(":userID/invitation/resend", h.prot.RequirePermission(rbac.PermUsersInvite), h.resendInvitation)
+	usersAPI.GET(
+		":userID/participations",
+		h.prot.RequirePermission(rbac.PermUsersRead),
+		h.listParticipations,
+	)
+	usersAPI.POST(
+		":userID/sessions/end",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.endSessions,
+	)
+	usersAPI.POST(
+		":userID/invitation/resend",
+		h.prot.RequirePermission(rbac.PermUsersInvite),
+		h.resendInvitation,
+	)
 	// One route per action: each is gated by the permission of its single counterpart.
-	usersAPI.POST("bulk/resend-invitation", h.prot.RequirePermission(rbac.PermUsersInvite), h.bulkResend)
+	usersAPI.POST(
+		"bulk/resend-invitation",
+		h.prot.RequirePermission(rbac.PermUsersInvite),
+		h.bulkResend,
+	)
 	usersAPI.POST("bulk/block", h.prot.RequirePermission(rbac.PermUsersStatusWrite), h.bulkBlock)
-	usersAPI.POST("bulk/unblock", h.prot.RequirePermission(rbac.PermUsersStatusWrite), h.bulkUnblock)
-	usersAPI.POST("bulk/end-sessions", h.prot.RequirePermission(rbac.PermUsersStatusWrite), h.bulkEndSessions)
+	usersAPI.POST(
+		"bulk/unblock",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.bulkUnblock,
+	)
+	usersAPI.POST(
+		"bulk/end-sessions",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.bulkEndSessions,
+	)
 }
 
 // listUsers godoc

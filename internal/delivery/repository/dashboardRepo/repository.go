@@ -11,13 +11,28 @@ import (
 )
 
 type Queries interface {
-	DashboardFailedStands(ctx context.Context, arg postgres.DashboardFailedStandsParams) ([]postgres.DashboardFailedStandsRow, error)
-	DashboardEventsWithoutReservation(ctx context.Context, arg postgres.DashboardEventsWithoutReservationParams) ([]postgres.DashboardEventsWithoutReservationRow, error)
+	DashboardFailedStands(
+		ctx context.Context,
+		arg postgres.DashboardFailedStandsParams,
+	) ([]postgres.DashboardFailedStandsRow, error)
+	DashboardEventsWithoutReservation(
+		ctx context.Context,
+		arg postgres.DashboardEventsWithoutReservationParams,
+	) ([]postgres.DashboardEventsWithoutReservationRow, error)
 	DashboardPendingElevations(ctx context.Context) (postgres.DashboardPendingElevationsRow, error)
-	DashboardOpenErrors(ctx context.Context, rowLimit int32) ([]postgres.DashboardOpenErrorsRow, error)
+	DashboardOpenErrors(
+		ctx context.Context,
+		rowLimit int32,
+	) ([]postgres.DashboardOpenErrorsRow, error)
 	DashboardMailErrors(ctx context.Context, since time.Time) (int64, error)
-	DashboardCurrentEvents(ctx context.Context, arg postgres.DashboardCurrentEventsParams) ([]postgres.DashboardCurrentEventsRow, error)
-	DashboardTrends(ctx context.Context, arg postgres.DashboardTrendsParams) ([]postgres.DashboardTrendsRow, error)
+	DashboardCurrentEvents(
+		ctx context.Context,
+		arg postgres.DashboardCurrentEventsParams,
+	) ([]postgres.DashboardCurrentEventsRow, error)
+	DashboardTrends(
+		ctx context.Context,
+		arg postgres.DashboardTrendsParams,
+	) ([]postgres.DashboardTrendsRow, error)
 }
 
 type Repository struct{ q Queries }
@@ -40,22 +55,43 @@ type ItemList struct {
 }
 
 // FailedStands lists the events with failed stands; Total counts the failed stands.
-func (r *Repository) FailedStands(ctx context.Context, now time.Time, limit int32) (ItemList, error) {
-	rows, err := r.q.DashboardFailedStands(ctx, postgres.DashboardFailedStandsParams{Now: now, RowLimit: limit})
+func (r *Repository) FailedStands(
+	ctx context.Context,
+	now time.Time,
+	limit int32,
+) (ItemList, error) {
+	rows, err := r.q.DashboardFailedStands(
+		ctx,
+		postgres.DashboardFailedStandsParams{Now: now, RowLimit: limit},
+	)
 	if err != nil {
 		return ItemList{}, err
 	}
 	list := ItemList{Items: make([]Item, 0, len(rows))}
 	for _, row := range rows {
 		list.Total = row.TotalStands
-		list.Items = append(list.Items, Item{ID: row.EventID, Label: row.EventName, Count: row.Stands})
+		list.Items = append(
+			list.Items,
+			Item{ID: row.EventID, Label: row.EventName, Count: row.Stands},
+		)
 	}
 	return list, nil
 }
 
 // EventsWithoutReservation lists the stand events due before the horizon that have no active reservation.
-func (r *Repository) EventsWithoutReservation(ctx context.Context, now, horizon time.Time, limit int32) (ItemList, error) {
-	rows, err := r.q.DashboardEventsWithoutReservation(ctx, postgres.DashboardEventsWithoutReservationParams{Now: now, Horizon: horizon, RowLimit: limit})
+func (r *Repository) EventsWithoutReservation(
+	ctx context.Context,
+	now, horizon time.Time,
+	limit int32,
+) (ItemList, error) {
+	rows, err := r.q.DashboardEventsWithoutReservation(
+		ctx,
+		postgres.DashboardEventsWithoutReservationParams{
+			Now:      now,
+			Horizon:  horizon,
+			RowLimit: limit,
+		},
+	)
 	if err != nil {
 		return ItemList{}, err
 	}
@@ -91,7 +127,10 @@ func (r *Repository) OpenErrors(ctx context.Context, limit int32) (ItemList, err
 	for _, row := range rows {
 		seen := row.LastSeenAt
 		list.Total = row.TotalGroups
-		list.Items = append(list.Items, Item{ID: row.ID, Label: row.Title, Count: row.Occurrences, At: &seen})
+		list.Items = append(
+			list.Items,
+			Item{ID: row.ID, Label: row.Title, Count: row.Occurrences, At: &seen},
+		)
 	}
 	return list, nil
 }
@@ -112,15 +151,31 @@ type CurrentEvent struct {
 }
 
 // CurrentEvents lists the events that run now or start before the horizon.
-func (r *Repository) CurrentEvents(ctx context.Context, now, horizon time.Time, limit int32) ([]CurrentEvent, error) {
-	rows, err := r.q.DashboardCurrentEvents(ctx, postgres.DashboardCurrentEventsParams{Now: now, Horizon: horizon, RowLimit: limit})
+func (r *Repository) CurrentEvents(
+	ctx context.Context,
+	now, horizon time.Time,
+	limit int32,
+) ([]CurrentEvent, error) {
+	rows, err := r.q.DashboardCurrentEvents(
+		ctx,
+		postgres.DashboardCurrentEventsParams{Now: now, Horizon: horizon, RowLimit: limit},
+	)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]CurrentEvent, 0, len(rows))
 	for _, row := range rows {
-		item := CurrentEvent{ID: row.ID, Name: row.Name, Tag: row.Tag, StartAt: row.StartAt, Running: row.Running,
-			Participants: row.Participants, Teams: row.Teams, StandsReady: row.StandsReady, StandsTotal: row.StandsTotal}
+		item := CurrentEvent{
+			ID:           row.ID,
+			Name:         row.Name,
+			Tag:          row.Tag,
+			StartAt:      row.StartAt,
+			Running:      row.Running,
+			Participants: row.Participants,
+			Teams:        row.Teams,
+			StandsReady:  row.StandsReady,
+			StandsTotal:  row.StandsTotal,
+		}
 		if row.FinishAt.Valid {
 			finish := row.FinishAt.Time
 			item.FinishAt = &finish
@@ -144,7 +199,15 @@ func (r *Repository) Trends(ctx context.Context, from time.Time, days int32) ([]
 	}
 	out := make([]TrendDay, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, TrendDay{Day: row.Day, Registrations: row.Registrations, ActiveUsers: row.ActiveUsers, Solves: row.Solves})
+		out = append(
+			out,
+			TrendDay{
+				Day:           row.Day,
+				Registrations: row.Registrations,
+				ActiveUsers:   row.ActiveUsers,
+				Solves:        row.Solves,
+			},
+		)
 	}
 	return out, nil
 }

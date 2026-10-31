@@ -389,7 +389,12 @@ func toEventCountsResponse(c *eventUseCase.EventCountsView) *eventCountsResponse
 	if c == nil {
 		return nil
 	}
-	return &eventCountsResponse{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
+	return &eventCountsResponse{
+		Participants: c.Participants,
+		Teams:        c.Teams,
+		StandsReady:  c.StandsReady,
+		StandsTotal:  c.StandsTotal,
+	}
 }
 
 type configResponse struct {

@@ -143,11 +143,19 @@ func (f *fakeUseCase) ListTestLabs(_ context.Context, search string, page, pageS
 		Total: 1, Page: page, PageSize: pageSize,
 	}, nil
 }
-func (f *fakeUseCase) ListTestLabsFiltered(ctx context.Context, filter infrastructureUseCase.TestLabsFilter) (infrastructureUseCase.TestLabsPage, error) {
+
+func (f *fakeUseCase) ListTestLabsFiltered(
+	ctx context.Context,
+	filter infrastructureUseCase.TestLabsFilter,
+) (infrastructureUseCase.TestLabsPage, error) {
 	f.testLabsFilter = filter
 	return f.ListTestLabs(ctx, filter.Search, filter.Page, filter.PageSize)
 }
-func (f *fakeUseCase) BulkTerminateTestLabs(context.Context, []uuid.UUID) ([]infrastructureUseCase.BulkTestLabResult, error) {
+
+func (f *fakeUseCase) BulkTerminateTestLabs(
+	context.Context,
+	[]uuid.UUID,
+) ([]infrastructureUseCase.BulkTestLabResult, error) {
 	return f.bulkLabResults, nil
 }
 func (f *fakeUseCase) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {

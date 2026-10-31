@@ -191,10 +191,20 @@ type TestLabFilter struct {
 }
 
 // ListTestLabsFiltered returns one page of the catalog test labs and the total behind the filter.
-func (r *Repository) ListTestLabsFiltered(ctx context.Context, f TestLabFilter) ([]TestLab, int64, error) {
+func (r *Repository) ListTestLabsFiltered(
+	ctx context.Context,
+	f TestLabFilter,
+) ([]TestLab, int64, error) {
 	rows, err := r.q.ListPlatformTestLabs(ctx, postgres.ListPlatformTestLabsParams{
-		Search: f.Search, Status: f.Status, Now: f.Now, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID,
-		SortBy: f.SortBy, SortDir: f.SortDir, LimitVal: f.Limit, OffsetVal: f.Offset,
+		Search:     f.Search,
+		Status:     f.Status,
+		Now:        f.Now,
+		AuthorID:   f.AuthorID,
+		ExerciseID: f.ExerciseID,
+		SortBy:     f.SortBy,
+		SortDir:    f.SortDir,
+		LimitVal:   f.Limit,
+		OffsetVal:  f.Offset,
 	})
 	if err != nil {
 		return nil, 0, err

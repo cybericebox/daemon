@@ -37,7 +37,10 @@ type Queries interface {
 	ListEventsCursor(ctx context.Context, arg postgres.ListEventsCursorParams) ([]postgres.Event, error)
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
-	ListEventCounts(ctx context.Context, eventIds []uuid.UUID) ([]postgres.ListEventCountsRow, error)
+	ListEventCounts(
+		ctx context.Context,
+		eventIds []uuid.UUID,
+	) ([]postgres.ListEventCountsRow, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
 	ListEventScheduleChanges(
 		ctx context.Context,
@@ -129,9 +132,14 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.E
 
 func (r *Repository) CountPage(ctx context.Context, p PageParams) (int64, error) {
 	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{
-		Search: p.Search, Status: p.Status, Now: p.Now,
-		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
-		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
+		Search:           p.Search,
+		Status:           p.Status,
+		Now:              p.Now,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
 	})
 }
 
@@ -158,7 +166,12 @@ func (r *Repository) CountsOf(ctx context.Context, ids []uuid.UUID) (map[uuid.UU
 		return nil, err
 	}
 	for _, row := range rows {
-		out[row.EventID] = Counts{Participants: row.Participants, Teams: row.Teams, StandsReady: row.StandsReady, StandsTotal: row.StandsTotal}
+		out[row.EventID] = Counts{
+			Participants: row.Participants,
+			Teams:        row.Teams,
+			StandsReady:  row.StandsReady,
+			StandsTotal:  row.StandsTotal,
+		}
 	}
 	return out, nil
 }

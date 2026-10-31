@@ -36,5 +36,6 @@ var (
 				WithMessage("First and last name are required").WithDetailCode(5)
 	// ErrUserNotIncomplete: only an unfinished registration can be invited again.
 	ErrUserNotIncomplete = err.ErrConflict.WithObjectCode(model.UserObjectCode).
-				WithMessage("The registration of this account is already finished").WithDetailCode(6)
+				WithMessage("The registration of this account is already finished").
+				WithDetailCode(6)
 )

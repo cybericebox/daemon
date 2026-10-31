@@ -40,7 +40,9 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 			if repositoryTools.IsObjectNotFoundError(err) {
 				return EventView{}, eventModel.ErrEventNotFound.Err()
 			}
-			return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get the event to copy").Err()
+			return EventView{}, model.ErrPlatform.WithError(err).
+				WithMessage("Failed to get the event to copy").
+				Err()
 		}
 		if in.InfrastructureAllowed == nil {
 			copyInfra := source.InfrastructureAllowed
@@ -53,8 +55,13 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 	}
 	if in.CopyFromEventID != uuid.Nil && !allowed {
 		// The copy would carry laboratory tasks the event cannot run.
-		if infra, countErr := u.eventExercises.CountInfrastructure(ctx, in.CopyFromEventID); countErr != nil {
-			return EventView{}, model.ErrPlatform.WithError(countErr).WithMessage("Failed to count infrastructure exercises").Err()
+		if infra, countErr := u.eventExercises.CountInfrastructure(
+			ctx,
+			in.CopyFromEventID,
+		); countErr != nil {
+			return EventView{}, model.ErrPlatform.WithError(countErr).
+				WithMessage("Failed to count infrastructure exercises").
+				Err()
 		} else if infra > 0 {
 			return EventView{}, eventModel.ErrEventInfrastructureUnavailable.Err()
 		}
@@ -91,7 +98,14 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 	}
 	var ownVersions []exerciseModel.ExerciseVersion
 	if in.CopyFromEventID != uuid.Nil {
-		if ownVersions, err = u.copyEventContent(txCtx, txRepo, source, created, in.CreatedBy, now); err != nil {
+		if ownVersions, err = u.copyEventContent(
+			txCtx,
+			txRepo,
+			source,
+			created,
+			in.CreatedBy,
+			now,
+		); err != nil {
 			return EventView{}, err
 		}
 	}
@@ -184,7 +198,16 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "tag", "name", "status", "availableFrom", "archiveAt", "updated", "start", "participants", "teams", "stands":
+		case "tag",
+			"name",
+			"status",
+			"availableFrom",
+			"archiveAt",
+			"updated",
+			"start",
+			"participants",
+			"teams",
+			"stands":
 		default:
 			sortBy = "created"
 		}
@@ -212,13 +235,20 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 		}
 		counts, err := u.events.CountsOf(ctx, ids)
 		if err != nil {
-			return EventsListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count event participants").Err()
+			return EventsListResult{}, model.ErrPlatform.WithError(err).
+				WithMessage("Failed to count event participants").
+				Err()
 		}
 		items := make([]EventView, 0, len(rows))
 		for _, e := range rows {
 			view := toEventView(e, now)
 			c := counts[e.ID]
-			view.Counts = &EventCountsView{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
+			view.Counts = &EventCountsView{
+				Participants: c.Participants,
+				Teams:        c.Teams,
+				StandsReady:  c.StandsReady,
+				StandsTotal:  c.StandsTotal,
+			}
 			items = append(items, view)
 		}
 		total, err := u.events.CountPage(ctx, params)

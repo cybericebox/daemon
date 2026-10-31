@@ -613,15 +613,32 @@ func TestAdminUpdateUserRole_AdminGivesOnlyUser(t *testing.T) {
 func TestBulkUserAction_OneResultPerUserAndTheSingleActionChecks(t *testing.T) {
 	uc, repo := newAdminUC(t)
 	caller := uuid.Must(uuid.NewV7())
-	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdmin})
-	plain, peer, missing := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	ctx := rbac.ContextWithCurrentUserSession(
+		context.Background(),
+		rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdmin},
+	)
+	plain, peer, missing := uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	)
 
-	repo.EXPECT().GetUserByID(gomock.Any(), plain).Return(postgres.User{ID: plain, Role: string(rbac.RoleUser), Status: "active"}, nil)
+	repo.EXPECT().
+		GetUserByID(gomock.Any(), plain).
+		Return(postgres.User{ID: plain, Role: string(rbac.RoleUser), Status: "active"}, nil)
 	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
-	repo.EXPECT().GetUserByID(gomock.Any(), peer).Return(postgres.User{ID: peer, Role: string(rbac.RoleAdmin), Status: "active"}, nil)
+	repo.EXPECT().
+		GetUserByID(gomock.Any(), peer).
+		Return(postgres.User{ID: peer, Role: string(rbac.RoleAdmin), Status: "active"}, nil)
 	repo.EXPECT().GetUserByID(gomock.Any(), missing).Return(postgres.User{}, pgx.ErrNoRows)
 
-	results, err := uc.BulkUserAction(ctx, auth.BulkEndSessions, []uuid.UUID{plain, caller, peer, missing, plain})
+	results, err := uc.BulkUserAction(
+		ctx,
+		auth.BulkEndSessions,
+		[]uuid.UUID{plain, caller, peer, missing, plain},
+	)
 
 	if err != nil {
 		t.Fatal(err)
@@ -646,10 +663,14 @@ func TestBulkUserAction_OneResultPerUserAndTheSingleActionChecks(t *testing.T) {
 func TestBulkUserAction_BlockRefusesOneselfAndBadRequests(t *testing.T) {
 	uc, _ := newAdminUC(t)
 	caller := uuid.Must(uuid.NewV7())
-	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleSuperAdmin})
+	ctx := rbac.ContextWithCurrentUserSession(
+		context.Background(),
+		rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleSuperAdmin},
+	)
 
 	results, err := uc.BulkUserAction(ctx, auth.BulkBlock, []uuid.UUID{caller})
-	if err != nil || len(results) != 1 || !errors.Is(results[0].Err, authModel.ErrInsufficientPermission.Err()) {
+	if err != nil || len(results) != 1 ||
+		!errors.Is(results[0].Err, authModel.ErrInsufficientPermission.Err()) {
 		t.Fatalf("blocking oneself: %+v, %v", results, err)
 	}
 	if _, err = uc.BulkUserAction(ctx, "delete", []uuid.UUID{caller}); err == nil {
@@ -671,9 +692,17 @@ func TestResendUserInvitation_OnlyForAnUnfinishedRegistration(t *testing.T) {
 	uc, repo := newAdminUC(t)
 	ctx := adminCtx(rbac.RoleSuperAdmin)
 	id := uuid.Must(uuid.NewV7())
-	repo.EXPECT().GetUserByID(gomock.Any(), id).Return(postgres.User{ID: id, Email: "done@test.test", Role: string(rbac.RoleUser), Status: "active"}, nil)
+	repo.EXPECT().
+		GetUserByID(gomock.Any(), id).
+		Return(postgres.User{ID: id, Email: "done@test.test", Role: string(rbac.RoleUser), Status: "active"}, nil)
 
-	if err := uc.ResendUserInvitation(ctx, id); !errors.Is(err, userModel.ErrUserNotIncomplete.Err()) {
+	if err := uc.ResendUserInvitation(
+		ctx,
+		id,
+	); !errors.Is(
+		err,
+		userModel.ErrUserNotIncomplete.Err(),
+	) {
 		t.Fatalf("want ErrUserNotIncomplete, got %v", err)
 	}
 }

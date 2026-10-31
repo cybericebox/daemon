@@ -46,8 +46,14 @@ type (
 		RecreateTeamStand(ctx context.Context, eventID, teamID, by uuid.UUID) (eventUseCase.StandTeamView, error)
 		ListTestLabs(ctx context.Context, search string, page, pageSize int) (infrastructureUseCase.TestLabsPage, error)
 		TerminateTestLab(ctx context.Context, id uuid.UUID) error
-		ListTestLabsFiltered(ctx context.Context, f infrastructureUseCase.TestLabsFilter) (infrastructureUseCase.TestLabsPage, error)
-		BulkTerminateTestLabs(ctx context.Context, ids []uuid.UUID) ([]infrastructureUseCase.BulkTestLabResult, error)
+		ListTestLabsFiltered(
+			ctx context.Context,
+			f infrastructureUseCase.TestLabsFilter,
+		) (infrastructureUseCase.TestLabsPage, error)
+		BulkTerminateTestLabs(
+			ctx context.Context,
+			ids []uuid.UUID,
+		) ([]infrastructureUseCase.BulkTestLabResult, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 		GetTeamStandDetail(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.StandDetailView, error)
 		ResetStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string) error
@@ -300,8 +306,16 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	router.POST("infrastructure/agents/:agentID/renew-certificate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.renewAgentCertificate)
 	router.POST("infrastructure/agents/:agentID/rotate-access-key", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.rotateAgentAccessKey)
 	router.GET("infrastructure/stands", read, h.listStands)
-	router.POST("infrastructure/stands/bulk/recreate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.bulkRecreateStands)
-	router.POST("infrastructure/test-labs/bulk/terminate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.bulkTerminateTestLabs)
+	router.POST(
+		"infrastructure/stands/bulk/recreate",
+		h.prot.RequirePermission(rbac.PermInfrastructureWrite),
+		h.bulkRecreateStands,
+	)
+	router.POST(
+		"infrastructure/test-labs/bulk/terminate",
+		h.prot.RequirePermission(rbac.PermInfrastructureWrite),
+		h.bulkTerminateTestLabs,
+	)
 	router.GET("infrastructure/stands/events", read, h.listStandEvents)
 	// The target ids live in the route so the audit entry names the stand.
 	router.POST(
@@ -508,12 +522,27 @@ func (h *Handler) listStands(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if !validSort(query.SortBy, query.SortDir, "event", "team", "status", "updatedAt", "statusChangedAt", "generation") {
+	if !validSort(
+		query.SortBy,
+		query.SortDir,
+		"event",
+		"team",
+		"status",
+		"updatedAt",
+		"statusChangedAt",
+		"generation",
+	) {
 		response.AbortWithBadRequest(ctx, errInvalidSort)
 		return
 	}
 	filter := infrastructureUseCase.StandsFilter{
-		Search: strings.TrimSpace(query.Search), Page: query.Page, PageSize: query.PageSize, SortBy: query.SortBy, SortDir: query.SortDir,
+		Search: strings.TrimSpace(
+			query.Search,
+		),
+		Page:     query.Page,
+		PageSize: query.PageSize,
+		SortBy:   query.SortBy,
+		SortDir:  query.SortDir,
 	}
 	if query.EventID != "" {
 		id, err := uuid.FromString(query.EventID)

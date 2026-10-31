@@ -26,8 +26,15 @@ func TestUsersPage_FiltersBySignInConfirmationAndInactivity(t *testing.T) {
 	seed := func(name string, password, confirmed bool, google bool, lastSeen time.Time) uuid.UUID {
 		id := uuid.Must(uuid.NewV7())
 		params := postgres.CreateUserParams{
-			ID: id, Email: name + "@filters.test", FirstName: name, Role: string(rbac.RoleUser),
-			Status: string(userModel.UserStatusActive), EmailConfirmed: confirmed, CreatedAt: lastSeen,
+			ID:        id,
+			Email:     name + "@filters.test",
+			FirstName: name,
+			Role:      string(rbac.RoleUser),
+			Status: string(
+				userModel.UserStatusActive,
+			),
+			EmailConfirmed: confirmed,
+			CreatedAt:      lastSeen,
 		}
 		if password {
 			params.HashedPassword = pgtype.Text{String: "hash", Valid: true}
@@ -37,8 +44,13 @@ func TestUsersPage_FiltersBySignInConfirmationAndInactivity(t *testing.T) {
 		_, err = db.Pool.Exec(ctx, `UPDATE users SET last_seen = $2 WHERE id = $1`, id, lastSeen)
 		require.NoError(t, err)
 		if google {
-			_, err = db.Pool.Exec(ctx, `INSERT INTO user_providers (id, user_id, provider, provider_user_id, created_at) VALUES ($1, $2, 'google', $3, now())`,
-				uuid.Must(uuid.NewV7()), id, "g-"+name)
+			_, err = db.Pool.Exec(
+				ctx,
+				`INSERT INTO user_providers (id, user_id, provider, provider_user_id, created_at) VALUES ($1, $2, 'google', $3, now())`,
+				uuid.Must(uuid.NewV7()),
+				id,
+				"g-"+name,
+			)
 			require.NoError(t, err)
 		}
 		return id
@@ -67,12 +79,30 @@ func TestUsersPage_FiltersBySignInConfirmationAndInactivity(t *testing.T) {
 	require.ElementsMatch(t, []uuid.UUID{pw, gg}, page(userRepo.PageParams{EmailConfirmed: "true"}))
 	require.ElementsMatch(t, []uuid.UUID{both}, page(userRepo.PageParams{EmailConfirmed: "false"}))
 	require.ElementsMatch(t, []uuid.UUID{both, gg}, page(userRepo.PageParams{InactiveDays: 30}))
-	require.ElementsMatch(t, []uuid.UUID{gg}, page(userRepo.PageParams{InactiveDays: 60, SignIn: "google"}))
+	require.ElementsMatch(
+		t,
+		[]uuid.UUID{gg},
+		page(userRepo.PageParams{InactiveDays: 60, SignIn: "google"}),
+	)
 	require.Equal(t, []uuid.UUID{both, gg, pw}, page(userRepo.PageParams{}), "sorted by email")
 
-	byMethod, err := repo.ListPage(ctx, userRepo.PageParams{Search: "@filters.test", Roles: []string{}, Limit: 50, SortBy: "signIn", SortDir: "asc"})
+	byMethod, err := repo.ListPage(
+		ctx,
+		userRepo.PageParams{
+			Search:  "@filters.test",
+			Roles:   []string{},
+			Limit:   50,
+			SortBy:  "signIn",
+			SortDir: "asc",
+		},
+	)
 	require.NoError(t, err)
-	require.Equal(t, []uuid.UUID{both, pw, gg}, []uuid.UUID{byMethod[0].ID, byMethod[1].ID, byMethod[2].ID}, "password+google, password, google")
+	require.Equal(
+		t,
+		[]uuid.UUID{both, pw, gg},
+		[]uuid.UUID{byMethod[0].ID, byMethod[1].ID, byMethod[2].ID},
+		"password+google, password, google",
+	)
 
 	providers, err := repo.ProvidersOf(ctx, []uuid.UUID{pw, both, gg})
 	require.NoError(t, err)

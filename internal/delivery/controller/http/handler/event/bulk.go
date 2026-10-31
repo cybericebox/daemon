@@ -17,6 +17,9 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
+// valueTrue is the value of a boolean query filter that is switched on.
+const valueTrue = "true"
+
 type (
 	bulkArchiveRequest struct {
 		EventIDs []uuid.UUID `json:"EventIDs"`
@@ -58,13 +61,13 @@ func parseEventListFilters(ctx *gin.Context, f *eventUseCase.ListEventsFilter) e
 		f.OrganizerID = id
 	}
 	switch infra := ctx.Query("infrastructure"); infra {
-	case "", "true", "false":
+	case "", valueTrue, "false":
 		f.Infrastructure = infra
 	default:
 		return errors.New("infrastructure must be true or false")
 	}
 	switch needs := ctx.Query("needsReservation"); needs {
-	case "", "true":
+	case "", valueTrue:
 		f.NeedsReservation = needs
 	default:
 		return errors.New("needsReservation must be true")
@@ -106,14 +109,22 @@ func (h *Handler) bulkArchive(ctx *gin.Context) {
 		seen[id] = struct{}{}
 		item := bulkEventResultResponse{EventID: id, Ok: true}
 		status := http.StatusOK
-		if _, archiveErr := h.useCase.ArchiveEvent(ctx.Request.Context(), id, claims.UserID); archiveErr != nil {
+		if _, archiveErr := h.useCase.ArchiveEvent(
+			ctx.Request.Context(),
+			id,
+			claims.UserID,
+		); archiveErr != nil {
 			item.Ok = false
 			item.Code, item.Error, status = describeBulkError(archiveErr)
 		}
 		out.Results = append(out.Results, item)
 		_ = h.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
-			ActorID: claims.UserID, Permission: string(rbac.PermEventsWrite), Method: ctx.Request.Method,
-			Route: ctx.FullPath(), ResponseStatus: status, Target: "event:" + id.String(),
+			ActorID:        claims.UserID,
+			Permission:     string(rbac.PermEventsWrite),
+			Method:         ctx.Request.Method,
+			Route:          ctx.FullPath(),
+			ResponseStatus: status,
+			Target:         "event:" + id.String(),
 		})
 	}
 	response.AbortWithData(ctx, out)
@@ -126,7 +137,12 @@ func describeBulkError(e error) (string, string, int) {
 	if errors.As(e, &coded) {
 		inner := coded.UnwrapNotInternalError()
 		if !inner.StatusCode().IsInternal() {
-			return strconv.Itoa(int(inner.StatusCode().FullCode())), inner.StatusCode().Message(), inner.StatusCode().HTTPCode()
+			return strconv.Itoa(
+					inner.StatusCode().FullCode(),
+				), inner.StatusCode().
+					Message(),
+				inner.StatusCode().
+					HTTPCode()
 		}
 	}
 	return "", "Internal server error", http.StatusInternalServerError

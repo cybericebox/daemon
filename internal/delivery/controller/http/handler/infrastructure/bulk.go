@@ -1,3 +1,4 @@
+// Package infrastructure is the HTTP delivery of the admin infrastructure tables and actions.
 package infrastructure
 
 import (
@@ -71,7 +72,14 @@ func validSort(by, dir string, columns ...string) bool {
 }
 
 func testLabsFilter(q testLabsQuery) (infrastructureUseCase.TestLabsFilter, error) {
-	filter := infrastructureUseCase.TestLabsFilter{Search: strings.TrimSpace(q.Search), Status: q.Status, SortBy: q.SortBy, SortDir: q.SortDir, Page: q.Page, PageSize: q.PageSize}
+	filter := infrastructureUseCase.TestLabsFilter{
+		Search:   strings.TrimSpace(q.Search),
+		Status:   q.Status,
+		SortBy:   q.SortBy,
+		SortDir:  q.SortDir,
+		Page:     q.Page,
+		PageSize: q.PageSize,
+	}
 	if q.Status != "" && q.Status != "active" && q.Status != "expired" {
 		return filter, errors.New("status must be active or expired")
 	}
@@ -126,12 +134,22 @@ func (h *Handler) bulkRecreateStands(ctx *gin.Context) {
 		seen[item] = struct{}{}
 		result := bulkResult{EventID: item.EventID, TeamID: item.TeamID, Ok: true}
 		status := http.StatusOK
-		if _, recreateErr := h.useCase.RecreateTeamStand(ctx.Request.Context(), item.EventID, item.TeamID, claims.UserID); recreateErr != nil {
+		if _, recreateErr := h.useCase.RecreateTeamStand(
+			ctx.Request.Context(),
+			item.EventID,
+			item.TeamID,
+			claims.UserID,
+		); recreateErr != nil {
 			result.Ok = false
 			result.Code, result.Error, status = describeBulkError(recreateErr)
 		}
 		out.Results = append(out.Results, result)
-		h.auditBulkItem(ctx, claims.UserID, "event:"+item.EventID.String()+" team:"+item.TeamID.String(), status)
+		h.auditBulkItem(
+			ctx,
+			claims.UserID,
+			"event:"+item.EventID.String()+" team:"+item.TeamID.String(),
+			status,
+		)
 	}
 	response.AbortWithData(ctx, out)
 }
@@ -183,8 +201,12 @@ func (h *Handler) bulkTerminateTestLabs(ctx *gin.Context) {
 // auditBulkItem writes the audit entry of one item of a bulk request.
 func (h *Handler) auditBulkItem(ctx *gin.Context, actor uuid.UUID, target string, status int) {
 	_ = h.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
-		ActorID: actor, Permission: string(rbac.PermInfrastructureWrite), Method: ctx.Request.Method,
-		Route: ctx.FullPath(), ResponseStatus: status, Target: target,
+		ActorID:        actor,
+		Permission:     string(rbac.PermInfrastructureWrite),
+		Method:         ctx.Request.Method,
+		Route:          ctx.FullPath(),
+		ResponseStatus: status,
+		Target:         target,
 	})
 }
 
@@ -195,7 +217,12 @@ func describeBulkError(e error) (string, string, int) {
 	if errors.As(e, &coded) {
 		inner := coded.UnwrapNotInternalError()
 		if !inner.StatusCode().IsInternal() {
-			return strconv.Itoa(int(inner.StatusCode().FullCode())), inner.StatusCode().Message(), inner.StatusCode().HTTPCode()
+			return strconv.Itoa(
+					inner.StatusCode().FullCode(),
+				), inner.StatusCode().
+					Message(),
+				inner.StatusCode().
+					HTTPCode()
 		}
 	}
 	return "", "Internal server error", http.StatusInternalServerError

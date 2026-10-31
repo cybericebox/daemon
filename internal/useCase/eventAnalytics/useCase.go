@@ -124,8 +124,15 @@ func New(deps Dependencies) *EventAnalyticsUseCase {
 		settle = 15 * time.Second
 	}
 	return &EventAnalyticsUseCase{
-		store: deps.Store, events: deps.Events, configs: deps.Configs, memberships: deps.Memberships,
-		labTraffic: deps.LabTraffic, reservations: deps.Reservations, cache: newReportCache(now),
-		now: now, newID: newID, settle: settle,
+		store:        deps.Store,
+		events:       deps.Events,
+		configs:      deps.Configs,
+		memberships:  deps.Memberships,
+		labTraffic:   deps.LabTraffic,
+		reservations: deps.Reservations,
+		cache:        newReportCache(now),
+		now:          now,
+		newID:        newID,
+		settle:       settle,
 	}
 }

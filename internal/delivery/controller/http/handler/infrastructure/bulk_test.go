@@ -31,7 +31,14 @@ func TestBulkRecreateReportsEachStandAndAuditsEachOne(t *testing.T) {
 
 	body := `{"Items":[{"EventID":"` + event.String() + `","TeamID":"` + good.String() + `"},{"EventID":"` + event.String() + `","TeamID":"` + bad.String() + `"}]}`
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/infrastructure/stands/bulk/recreate", strings.NewReader(body)))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/infrastructure/stands/bulk/recreate",
+			strings.NewReader(body),
+		),
+	)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
@@ -44,7 +51,9 @@ func TestBulkRecreateReportsEachStandAndAuditsEachOne(t *testing.T) {
 	if len(res) != 2 || !res[0].Ok || res[0].TeamID != good || res[1].Ok || res[1].Code == "" {
 		t.Fatalf("results = %+v", res)
 	}
-	if len(uc.audited) != 2 || uc.audited[0].Target != "event:"+event.String()+" team:"+good.String() || uc.audited[1].ResponseStatus != http.StatusNotFound {
+	if len(uc.audited) != 2 ||
+		uc.audited[0].Target != "event:"+event.String()+" team:"+good.String() ||
+		uc.audited[1].ResponseStatus != http.StatusNotFound {
 		t.Fatalf("audit = %+v", uc.audited)
 	}
 	if prot.gates["POST /api/infrastructure/stands/bulk/recreate"] == "" {
@@ -56,11 +65,22 @@ func TestBulkRecreateRefusesAnEmptyOrOversizedRequest(t *testing.T) {
 	router := newRouter(&fakeUseCase{}, newProtection())
 	items := make([]string, 51)
 	for i := range items {
-		items[i] = `{"EventID":"` + uuid.Must(uuid.NewV7()).String() + `","TeamID":"` + uuid.Must(uuid.NewV7()).String() + `"}`
+		items[i] = `{"EventID":"` + uuid.Must(uuid.NewV7()).
+			String() +
+			`","TeamID":"` + uuid.Must(uuid.NewV7()).
+			String() +
+			`"}`
 	}
 	for _, body := range []string{`{"Items":[]}`, `{"Items":[` + strings.Join(items, ",") + `]}`} {
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/infrastructure/stands/bulk/recreate", strings.NewReader(body)))
+		router.ServeHTTP(
+			w,
+			httptest.NewRequest(
+				http.MethodPost,
+				"/api/infrastructure/stands/bulk/recreate",
+				strings.NewReader(body),
+			),
+		)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d for %.40s", w.Code, body)
 		}
@@ -69,11 +89,23 @@ func TestBulkRecreateRefusesAnEmptyOrOversizedRequest(t *testing.T) {
 
 func TestBulkTerminateTestLabsKeepsTheOrderAndAuditsEach(t *testing.T) {
 	ok, missing := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	uc := &fakeUseCase{bulkLabResults: []infrastructureUseCase.BulkTestLabResult{{ID: ok}, {ID: missing, Err: infraModel.ErrTestLabNotFound.Err()}}}
+	uc := &fakeUseCase{
+		bulkLabResults: []infrastructureUseCase.BulkTestLabResult{
+			{ID: ok},
+			{ID: missing, Err: infraModel.ErrTestLabNotFound.Err()},
+		},
+	}
 	router := newRouter(uc, newProtection())
 
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/infrastructure/test-labs/bulk/terminate", strings.NewReader(`{"IDs":["`+ok.String()+`","`+missing.String()+`"]}`)))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/infrastructure/test-labs/bulk/terminate",
+			strings.NewReader(`{"IDs":["`+ok.String()+`","`+missing.String()+`"]}`),
+		),
+	)
 
 	var out bulkBody
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != http.StatusOK {
@@ -106,13 +138,30 @@ func TestListFiltersAndSortingAreValidated(t *testing.T) {
 	}
 	author := uuid.Must(uuid.NewV7())
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/infrastructure/test-labs?page=1&pageSize=10&status=expired&sortBy=author&sortDir=asc&author="+author.String(), nil))
-	if w.Code != http.StatusOK || uc.testLabsFilter.Status != "expired" || uc.testLabsFilter.SortBy != "author" || uc.testLabsFilter.AuthorID.UUID != author {
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/infrastructure/test-labs?page=1&pageSize=10&status=expired&sortBy=author&sortDir=asc&author="+author.String(),
+			nil,
+		),
+	)
+	if w.Code != http.StatusOK || uc.testLabsFilter.Status != "expired" ||
+		uc.testLabsFilter.SortBy != "author" ||
+		uc.testLabsFilter.AuthorID.UUID != author {
 		t.Fatalf("status = %d filter = %+v", w.Code, uc.testLabsFilter)
 	}
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/infrastructure/stands?page=1&pageSize=10&sortBy=team&sortDir=desc", nil))
-	if w.Code != http.StatusOK || uc.standsFilter.SortBy != "team" || uc.standsFilter.SortDir != "desc" {
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/infrastructure/stands?page=1&pageSize=10&sortBy=team&sortDir=desc",
+			nil,
+		),
+	)
+	if w.Code != http.StatusOK || uc.standsFilter.SortBy != "team" ||
+		uc.standsFilter.SortDir != "desc" {
 		t.Fatalf("status = %d filter = %+v", w.Code, uc.standsFilter)
 	}
 }

@@ -72,7 +72,9 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 		}
 		providers, err := u.users.ProvidersOf(ctx, ids)
 		if err != nil {
-			return UsersListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list user providers").Err()
+			return UsersListResult{}, model.ErrPlatform.WithError(err).
+				WithMessage("Failed to list user providers").
+				Err()
 		}
 		users := make([]UserInfo, 0, len(rows))
 		for _, r := range rows {
@@ -347,7 +349,10 @@ type UserParticipationView = userRepo.Participation
 
 // ListUserParticipations returns the events of the user: participations with the team and the role in it, and the
 // events they manage. Requires PermUsersRead.
-func (u *AuthUseCase) ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]UserParticipationView, error) {
+func (u *AuthUseCase) ListUserParticipations(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]UserParticipationView, error) {
 	if _, err := u.users.GetByID(ctx, userID); err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil, userModel.ErrUserNotFound.Err()
@@ -356,7 +361,9 @@ func (u *AuthUseCase) ListUserParticipations(ctx context.Context, userID uuid.UU
 	}
 	items, err := u.users.Participations(ctx, userID)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list user participations").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to list user participations").
+			Err()
 	}
 	return items, nil
 }
@@ -378,11 +385,13 @@ func (u *AuthUseCase) EndUserSessions(ctx context.Context, userID uuid.UUID) err
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
 	}
-	if err = requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
+	if err = requireManageableTarget(caller.Role, target.Role); err != nil {
 		return err
 	}
 	if _, err = u.revokeAll(ctx, userID); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to end the sessions of the user").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to end the sessions of the user").
+			Err()
 	}
 	return nil
 }
@@ -422,15 +431,23 @@ type BulkUserResult struct {
 // BulkUserAction applies one action to every listed user with the checks of the single action (not oneself, only a
 // higher role, the last super admin stays). A failure of one user never stops the others; the result keeps the
 // request order.
-func (u *AuthUseCase) BulkUserAction(ctx context.Context, action string, ids []uuid.UUID) ([]BulkUserResult, error) {
+func (u *AuthUseCase) BulkUserAction(
+	ctx context.Context,
+	action string,
+	ids []uuid.UUID,
+) ([]BulkUserResult, error) {
 	var apply func(context.Context, uuid.UUID) error
 	switch action {
 	case BulkResendInvitation:
 		apply = u.ResendUserInvitation
 	case BulkBlock:
-		apply = func(c context.Context, id uuid.UUID) error { return u.blockUnlessSelf(c, id, userModel.UserStatusBlocked) }
+		apply = func(c context.Context, id uuid.UUID) error {
+			return u.blockUnlessSelf(c, id, userModel.UserStatusBlocked)
+		}
 	case BulkUnblock:
-		apply = func(c context.Context, id uuid.UUID) error { return u.blockUnlessSelf(c, id, userModel.UserStatusActive) }
+		apply = func(c context.Context, id uuid.UUID) error {
+			return u.blockUnlessSelf(c, id, userModel.UserStatusActive)
+		}
 	case BulkEndSessions:
 		apply = u.EndUserSessions
 	default:
@@ -451,7 +468,11 @@ func (u *AuthUseCase) BulkUserAction(ctx context.Context, action string, ids []u
 	return results, nil
 }
 
-func (u *AuthUseCase) blockUnlessSelf(ctx context.Context, id uuid.UUID, status userModel.UserStatus) error {
+func (u *AuthUseCase) blockUnlessSelf(
+	ctx context.Context,
+	id uuid.UUID,
+	status userModel.UserStatus,
+) error {
 	caller, ok := rbac.CurrentUserSessionFromContext(ctx)
 	if !ok {
 		return authModel.ErrAuthInvalidSession.Err()

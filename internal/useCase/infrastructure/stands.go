@@ -94,7 +94,8 @@ type (
 // ListStands returns one page of stands across events.
 func (u *InfrastructureUseCase) ListStands(ctx context.Context, filter StandsFilter) (StandsPage, error) {
 	items, total, err := u.stands.List(ctx, platformStandRepo.Filter{
-		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search, SortBy: filter.SortBy, SortDir: filter.SortDir,
+		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search,
+		SortBy: filter.SortBy, SortDir: filter.SortDir,
 		Limit: int32(filter.PageSize), Offset: int32((filter.Page - 1) * filter.PageSize),
 	})
 	if err != nil {
