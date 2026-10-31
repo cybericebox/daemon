@@ -88,8 +88,18 @@ type (
 func New(useCase IUseCase, prot IProtection) *Handler { return &Handler{useCase: useCase, prot: prot} }
 
 func (h *Handler) Init(router *gin.RouterGroup) {
-	// Every signed-in user passes the gate; each block checks its own permission, so a role without any sees nothing.
-	router.GET("admin/dashboard", h.prot.RequirePermission(rbac.PermSelf), h.get)
+	// The admin tier passes the gate; each block then checks its own permission.
+	router.GET("admin/dashboard", h.prot.RequirePermission(rbac.PermSelf), h.requireAdminTier, h.get)
+}
+
+// requireAdminTier lets only the admin roles in: an ordinary account has no dashboard.
+func (h *Handler) requireAdminTier(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok || !claims.Role.IsAdminTier() {
+		response.AbortWithForbidden(ctx)
+		return
+	}
+	ctx.Next()
 }
 
 // get godoc
