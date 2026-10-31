@@ -1,12 +1,16 @@
 package messaging
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	broadcastModel "github.com/cybericebox/daemon/internal/model/notification/broadcast"
@@ -14,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	broadcastUseCase "github.com/cybericebox/daemon/internal/useCase/notification/broadcast"
 	"github.com/cybericebox/daemon/pkg/pagination"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 func marshalJSON(v any, fallback string) (json.RawMessage, error) {
@@ -189,9 +194,10 @@ func (h *Handler) getBroadcast(scope scopeFn) gin.HandlerFunc {
 // @Tags     notification-broadcasts
 // @Produce  json
 // @Param    broadcastID  path   string  true   "broadcast ID"
-// @Param    limit        query  int     false  "page size (default 50)"
-// @Param    offset       query  int     false  "offset"
-// @Success  200  {object}  response.Response{data=[]deliveryResponse}
+// @Param    status       query  string  false  "error | done | waiting"
+// @Param    page         query  int     false  "page number (default 1)"
+// @Param    pageSize     query  int     false  "page size (default 50)"
+// @Success  200  {object}  response.Response{data=pagination.OffsetPage[deliveryResponse]}
 // @Router   /notifications/broadcasts/{broadcastID}/deliveries [get]
 // @Router   /events/{id}/manage/broadcasts/{broadcastID}/deliveries [get]
 func (h *Handler) listDeliveries(scope scopeFn) gin.HandlerFunc {
@@ -200,48 +206,134 @@ func (h *Handler) listDeliveries(scope scopeFn) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		limit, err := parseLimit(ctx.Query("limit"), 50)
-		if err != nil {
+		var page pagination.OffsetParams
+		if err := ctx.ShouldBindQuery(&page); err != nil {
 			response.AbortWithBadRequest(ctx, err)
 			return
 		}
-		var offset int
-		if raw := ctx.Query("offset"); raw != "" {
-			if _, err = fmt.Sscanf(raw, "%d", &offset); err != nil || offset < 0 {
-				response.AbortWithBadRequest(ctx, fmt.Errorf("invalid offset"))
-				return
-			}
+		if err := page.Validate(); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
 		}
-		if _, err = h.useCase.GetBroadcast(ctx.Request.Context(), id, eventID); err != nil {
+		if _, err := h.useCase.GetBroadcast(ctx.Request.Context(), id, eventID); err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		items, err := h.useCase.ListBroadcastDeliveries(ctx.Request.Context(), id, int32(limit), int32(offset))
+		items, total, err := h.useCase.ListBroadcastDeliveries(
+			ctx.Request.Context(), id, ctx.Query("status"), int32(page.PageSize), int32(page.Offset()))
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		// An event's read-only moderator sees the recipients' addresses masked (owner decision 2026-10-19).
-		masked := false
-		if eventID != nil {
-			private, err := middleware.SeesEventPersonalData(ctx, *eventID, h.useCase.RequireManageEvent)
-			if err != nil {
-				response.AbortWithError(ctx, err)
-				return
-			}
-			masked = !private
+		masked, err := h.deliveriesMasked(ctx, eventID)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
 		}
 		out := make([]deliveryResponse, 0, len(items))
 		for _, d := range items {
-			row := deliveryResponse(d)
-			if masked {
-				row.Error = dispatchModel.MaskEmailsIn(row.Error, row.RecipientEmail)
-				row.RecipientEmail = dispatchModel.MaskEmail(row.RecipientEmail)
-			}
-			out = append(out, row)
+			out = append(out, maskDelivery(deliveryResponse(d), masked))
 		}
-		response.AbortWithData(ctx, out)
+		response.AbortWithData(ctx, pagination.NewOffsetPage(out, total, page.Page, page.PageSize))
 	}
+}
+
+// exportDeliveries godoc
+// @Summary  Recipients of a broadcast with their outcome as CSV
+// @Tags     notification-broadcasts
+// @Produce  text/csv
+// @Param    broadcastID  path   string  true   "broadcast ID"
+// @Param    status       query  string  false  "error | done | waiting"
+// @Success  200  {file}  file
+// @Router   /notifications/broadcasts/{broadcastID}/deliveries/export [get]
+// @Router   /events/{id}/manage/broadcasts/{broadcastID}/deliveries/export [get]
+func (h *Handler) exportDeliveries(scope scopeFn) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		id, eventID, ok := h.broadcastRef(ctx, scope)
+		if !ok {
+			return
+		}
+		status := ctx.Query("status")
+		if !broadcastModel.ValidDeliveryStatus(status) {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid status"))
+			return
+		}
+		if _, err := h.useCase.GetBroadcast(ctx.Request.Context(), id, eventID); err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		masked, err := h.deliveriesMasked(ctx, eventID)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		download.ExtendDeadline(ctx)
+		ctx.Header("Content-Type", "text/csv; charset=utf-8")
+		ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="broadcast-%s-deliveries.csv"`, id))
+		ctx.Header("Cache-Control", "private, no-store")
+		ctx.Status(http.StatusOK)
+		_, _ = ctx.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+		w := csv.NewWriter(ctx.Writer)
+		_ = w.Write([]string{"DispatchID", "RecipientUserID", "RecipientEmail", "DispatchStatus", "Channel", "TargetStatus", "Error"})
+		err = h.useCase.ExportBroadcastDeliveries(ctx.Request.Context(), id, status, func(d broadcastModel.Delivery) error {
+			row := maskDelivery(deliveryResponse(d), masked)
+			return w.Write([]string{
+				row.DispatchID.String(), row.RecipientUserID.String(), tools.CSVText(row.RecipientEmail),
+				row.DispatchStatus, row.Channel, row.TargetStatus, tools.CSVText(row.Error),
+			})
+		})
+		w.Flush()
+		if err != nil {
+			// The download has started: the status line is sent, so the failure can only be logged.
+			log.Error().Err(err).Str("broadcast", id.String()).Msg("broadcast deliveries export interrupted")
+		}
+	}
+}
+
+// cancelBroadcast godoc
+// @Summary  Stop a broadcast that is still being sent
+// @Tags     notification-broadcasts
+// @Produce  json
+// @Param    broadcastID  path  string  true  "broadcast ID"
+// @Success  200  {object}  response.Response{data=broadcastResponse}
+// @Failure  404  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /notifications/broadcasts/{broadcastID}/cancel [post]
+// @Router   /events/{id}/manage/broadcasts/{broadcastID}/cancel [post]
+func (h *Handler) cancelBroadcast(scope scopeFn) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		id, eventID, ok := h.broadcastRef(ctx, scope)
+		if !ok {
+			return
+		}
+		b, err := h.useCase.CancelBroadcast(ctx.Request.Context(), id, eventID)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		response.AbortWithData(ctx, toBroadcastResponse(b))
+	}
+}
+
+// deliveriesMasked reports whether the viewer sees recipients' addresses masked: an event's read-only
+// moderator does (owner decision 2026-10-19).
+func (h *Handler) deliveriesMasked(ctx *gin.Context, eventID *uuid.UUID) (bool, error) {
+	if eventID == nil {
+		return false, nil
+	}
+	private, err := middleware.SeesEventPersonalData(ctx, *eventID, h.useCase.RequireManageEvent)
+	if err != nil {
+		return false, err
+	}
+	return !private, nil
+}
+
+func maskDelivery(row deliveryResponse, masked bool) deliveryResponse {
+	if masked {
+		row.Error = dispatchModel.MaskEmailsIn(row.Error, row.RecipientEmail)
+		row.RecipientEmail = dispatchModel.MaskEmail(row.RecipientEmail)
+	}
+	return row
 }
 
 func (h *Handler) broadcastRef(ctx *gin.Context, scope scopeFn) (uuid.UUID, *uuid.UUID, bool) {

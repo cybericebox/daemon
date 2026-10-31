@@ -382,6 +382,7 @@
   "62625": "A solved laboratory is terminal",
   "70219": "Inbox request is already resolved",
   "70228": "A broadcast template with this name already exists",
+  "70229": "The broadcast is not being sent",
   "70303": "User was modified concurrently",
   "70306": "The registration of this account is already finished",
   "70428": "Too many attempts, try again later",

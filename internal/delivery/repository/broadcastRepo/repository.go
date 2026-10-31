@@ -22,6 +22,8 @@ type Queries interface {
 	FinishNotificationBroadcast(ctx context.Context, arg postgres.FinishNotificationBroadcastParams) error
 	ListBroadcastQueuedUserIDs(ctx context.Context, broadcastID uuid.NullUUID) ([]uuid.UUID, error)
 	ListBroadcastDeliveries(ctx context.Context, arg postgres.ListBroadcastDeliveriesParams) ([]postgres.ListBroadcastDeliveriesRow, error)
+	CountBroadcastDeliveries(ctx context.Context, arg postgres.CountBroadcastDeliveriesParams) (int64, error)
+	CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error)
 	ListPlatformBroadcastAudience(ctx context.Context, arg postgres.ListPlatformBroadcastAudienceParams) ([]postgres.ListPlatformBroadcastAudienceRow, error)
 	ListEventBroadcastAudience(ctx context.Context, arg postgres.ListEventBroadcastAudienceParams) ([]postgres.ListEventBroadcastAudienceRow, error)
 }
@@ -123,10 +125,23 @@ func (r *Repository) QueuedUserIDs(ctx context.Context, id uuid.UUID) (map[uuid.
 	return out, nil
 }
 
-// Deliveries lists the recipients' outcomes, failures first.
-func (r *Repository) Deliveries(ctx context.Context, id uuid.UUID, limit, offset int32) ([]broadcastModel.Delivery, error) {
+// Cancel stops a running broadcast; false when it was not running.
+func (r *Repository) Cancel(ctx context.Context, id uuid.UUID) (bool, error) {
+	n, err := r.q.CancelNotificationBroadcast(ctx, id)
+	return n > 0, err
+}
+
+// CountDeliveries is the number of delivery rows matching the status filter.
+func (r *Repository) CountDeliveries(ctx context.Context, id uuid.UUID, status string) (int64, error) {
+	return r.q.CountBroadcastDeliveries(ctx, postgres.CountBroadcastDeliveriesParams{
+		BroadcastID: uuid.NullUUID{UUID: id, Valid: true}, StatusFilter: status,
+	})
+}
+
+// Deliveries lists the recipients' outcomes, failures first. status is "", "error", "done" or "waiting".
+func (r *Repository) Deliveries(ctx context.Context, id uuid.UUID, status string, limit, offset int32) ([]broadcastModel.Delivery, error) {
 	rows, err := r.q.ListBroadcastDeliveries(ctx, postgres.ListBroadcastDeliveriesParams{
-		BroadcastID: uuid.NullUUID{UUID: id, Valid: true}, LimitVal: limit, OffsetVal: offset,
+		BroadcastID: uuid.NullUUID{UUID: id, Valid: true}, StatusFilter: status, LimitVal: limit, OffsetVal: offset,
 	})
 	if err != nil {
 		return nil, err

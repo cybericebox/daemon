@@ -5697,6 +5697,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/broadcasts/{broadcastID}/cancel": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Stop a broadcast that is still being sent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "broadcast ID",
+                        "name": "broadcastID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.broadcastResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/broadcasts/{broadcastID}/deliveries": {
             "get": {
                 "produces": [
@@ -5715,15 +5767,21 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "type": "integer",
-                        "description": "page size (default 50)",
-                        "name": "limit",
+                        "type": "string",
+                        "description": "error | done | waiting",
+                        "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "offset",
-                        "name": "offset",
+                        "description": "page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50)",
+                        "name": "pageSize",
                         "in": "query"
                     }
                 ],
@@ -5739,14 +5797,45 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/messaging.deliveryResponse"
-                                            }
+                                            "$ref": "#/definitions/pagination.OffsetPage-messaging_deliveryResponse"
                                         }
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/broadcasts/{broadcastID}/deliveries/export": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Recipients of a broadcast with their outcome as CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "broadcast ID",
+                        "name": "broadcastID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "error | done | waiting",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -23634,6 +23723,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/notifications/broadcasts/{broadcastID}/cancel": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Stop a broadcast that is still being sent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "broadcast ID",
+                        "name": "broadcastID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/messaging.broadcastResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/notifications/broadcasts/{broadcastID}/deliveries": {
             "get": {
                 "produces": [
@@ -23652,15 +23793,21 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "type": "integer",
-                        "description": "page size (default 50)",
-                        "name": "limit",
+                        "type": "string",
+                        "description": "error | done | waiting",
+                        "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "offset",
-                        "name": "offset",
+                        "description": "page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50)",
+                        "name": "pageSize",
                         "in": "query"
                     }
                 ],
@@ -23676,14 +23823,45 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/messaging.deliveryResponse"
-                                            }
+                                            "$ref": "#/definitions/pagination.OffsetPage-messaging_deliveryResponse"
                                         }
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/broadcasts/{broadcastID}/deliveries/export": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "notification-broadcasts"
+                ],
+                "summary": "Recipients of a broadcast with their outcome as CSV",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "broadcast ID",
+                        "name": "broadcastID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "error | done | waiting",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -23739,6 +23917,24 @@ const docTemplate = `{
                         "type": "string",
                         "description": "email route (event, platform, env)",
                         "name": "transport",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "part of the recipient email or name",
+                        "name": "recipient",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "created at or after (RFC 3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "created before (RFC 3339)",
+                        "name": "to",
                         "in": "query"
                     },
                     {
@@ -43055,6 +43251,26 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/infrastructure.testLabResponse"
+                    }
+                },
+                "Page": {
+                    "type": "integer"
+                },
+                "PageSize": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pagination.OffsetPage-messaging_deliveryResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/messaging.deliveryResponse"
                     }
                 },
                 "Page": {

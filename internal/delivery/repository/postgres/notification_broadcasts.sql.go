@@ -13,6 +13,44 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelNotificationBroadcast = `-- name: CancelNotificationBroadcast :execrows
+UPDATE notification_broadcasts
+SET status      = 'canceled',
+    finished_at = now()
+WHERE id = $1
+  AND status = 'sending'
+`
+
+// Only a running broadcast can be canceled; the sender stops queuing recipients.
+func (q *Queries) CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelNotificationBroadcast, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const countBroadcastDeliveries = `-- name: CountBroadcastDeliveries :one
+SELECT count(*)
+FROM notification_dispatches d
+LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
+WHERE d.broadcast_id = $1
+  AND ($2::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = $2::text)
+`
+
+type CountBroadcastDeliveriesParams struct {
+	BroadcastID  uuid.NullUUID `json:"broadcast_id"`
+	StatusFilter string        `json:"status_filter"`
+}
+
+func (q *Queries) CountBroadcastDeliveries(ctx context.Context, arg CountBroadcastDeliveriesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBroadcastDeliveries, arg.BroadcastID, arg.StatusFilter)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNotificationBroadcast = `-- name: CreateNotificationBroadcast :one
 INSERT INTO notification_broadcasts (id, scope_event_id, created_by, channels, subject, preheader, email_body, email_styling,
                                      inapp_title, inapp_body, inapp_link, audience, recipient_count, status)
@@ -82,6 +120,7 @@ SET status          = $1,
     recipient_count = $2,
     finished_at     = now()
 WHERE id = $3
+  AND status = 'sending'
 `
 
 type FinishNotificationBroadcastParams struct {
@@ -176,14 +215,17 @@ FROM notification_dispatches d
 LEFT JOIN users u ON u.id = d.recipient_user_id
 LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
 WHERE d.broadcast_id = $1
+  AND ($2::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = $2::text)
 ORDER BY (t.status = 'error') DESC NULLS LAST, d.created_at, d.id, t.channel
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListBroadcastDeliveriesParams struct {
-	BroadcastID uuid.NullUUID `json:"broadcast_id"`
-	OffsetVal   int32         `json:"offset_val"`
-	LimitVal    int32         `json:"limit_val"`
+	BroadcastID  uuid.NullUUID `json:"broadcast_id"`
+	StatusFilter string        `json:"status_filter"`
+	OffsetVal    int32         `json:"offset_val"`
+	LimitVal     int32         `json:"limit_val"`
 }
 
 type ListBroadcastDeliveriesRow struct {
@@ -197,9 +239,15 @@ type ListBroadcastDeliveriesRow struct {
 }
 
 // One row per recipient and channel target of the broadcast (recipients still
-// waiting for their first attempt have a NULL channel).
+// waiting for their first attempt have a NULL channel). status_filter is
+// ” (all), 'error', 'done' or 'waiting' (no attempt yet).
 func (q *Queries) ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error) {
-	rows, err := q.db.Query(ctx, listBroadcastDeliveries, arg.BroadcastID, arg.OffsetVal, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listBroadcastDeliveries,
+		arg.BroadcastID,
+		arg.StatusFilter,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}

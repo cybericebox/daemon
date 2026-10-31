@@ -32,6 +32,9 @@ var (
 				WithMessage("Invalid broadcast").WithDetailCode(21)
 	ErrBroadcastNoRecipients = err.ErrInvalidData.WithObjectCode(model.NotificationObjectCode).
 					WithMessage("The audience has no recipients").WithDetailCode(22)
+	// ErrBroadcastNotRunning: only a broadcast that is still sending can be canceled.
+	ErrBroadcastNotRunning = err.ErrConflict.WithObjectCode(model.NotificationObjectCode).
+				WithMessage("The broadcast is not being sent").WithDetailCode(29)
 )
 
 // Broadcast template errors: a saved broadcast message of one scope (the

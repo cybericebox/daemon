@@ -47,6 +47,8 @@ type Querier interface {
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	BlobExists(ctx context.Context, contentHash string) (bool, error)
+	// Only a running broadcast can be canceled; the sender stops queuing recipients.
+	CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error)
 	// Records the file as the task's copy of its content and returns the task's canonical file. On conflict the
 	// stored file stays canonical while the GC would keep it; a GC-eligible one is replaced by the given file.
 	ClaimExerciseFile(ctx context.Context, arg ClaimExerciseFileParams) (uuid.UUID, error)
@@ -78,6 +80,7 @@ type Querier interface {
 	CopyEventSettings(ctx context.Context, arg CopyEventSettingsParams) error
 	CountActiveExerciseTestDeploys(ctx context.Context, arg CountActiveExerciseTestDeploysParams) (int64, error)
 	CountApprovedEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
+	CountBroadcastDeliveries(ctx context.Context, arg CountBroadcastDeliveriesParams) (int64, error)
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
@@ -792,7 +795,8 @@ type Querier interface {
 	// The approved values of every approved elevation of the given exercises.
 	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]ListApprovedExerciseResourceElevationsRow, error)
 	// One row per recipient and channel target of the broadcast (recipients still
-	// waiting for their first attempt have a NULL channel).
+	// waiting for their first attempt have a NULL channel). status_filter is
+	// '' (all), 'error', 'done' or 'waiting' (no attempt yet).
 	ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error)
 	ListBroadcastQueuedUserIDs(ctx context.Context, broadcastID uuid.NullUUID) ([]uuid.UUID, error)
 	// Every agent that holds a part (for the periodic reconcile).

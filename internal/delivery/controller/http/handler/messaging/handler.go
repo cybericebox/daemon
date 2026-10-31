@@ -39,7 +39,9 @@ type (
 		SendBroadcast(ctx context.Context, in broadcastUseCase.SendInput) (broadcastModel.Broadcast, error)
 		ListBroadcasts(ctx context.Context, f broadcastModel.ListFilter) ([]broadcastModel.Broadcast, error)
 		GetBroadcast(ctx context.Context, id uuid.UUID, scopeEventID *uuid.UUID) (broadcastModel.Broadcast, error)
-		ListBroadcastDeliveries(ctx context.Context, id uuid.UUID, limit, offset int32) ([]broadcastModel.Delivery, error)
+		ListBroadcastDeliveries(ctx context.Context, id uuid.UUID, status string, limit, offset int32) ([]broadcastModel.Delivery, int64, error)
+		ExportBroadcastDeliveries(ctx context.Context, id uuid.UUID, status string, emit func(broadcastModel.Delivery) error) error
+		CancelBroadcast(ctx context.Context, id uuid.UUID, scopeEventID *uuid.UUID) (broadcastModel.Broadcast, error)
 
 		ListBroadcastTemplates(ctx context.Context, scopeEventID *uuid.UUID) ([]broadcastModel.Template, error)
 		GetBroadcastTemplate(ctx context.Context, scopeEventID *uuid.UUID, id uuid.UUID) (broadcastModel.Template, error)
@@ -174,6 +176,8 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	bc.GET("", h.listBroadcasts(platform))
 	bc.GET(":broadcastID", h.getBroadcast(platform))
 	bc.GET(":broadcastID/deliveries", h.listDeliveries(platform))
+	bc.GET(":broadcastID/deliveries/export", h.exportDeliveries(platform))
+	bc.POST(":broadcastID/cancel", h.cancelBroadcast(platform))
 
 	// Custom templates (saved broadcast messages, not bound to any platform action) sit beside the triggered
 	// templates under notifications/templates; whoever may send platform broadcasts manages them.
@@ -197,6 +201,8 @@ func (h *Handler) Init(api *gin.RouterGroup) {
 	manage.GET("broadcasts", h.requireRead, h.listBroadcasts(eventScope))
 	manage.GET("broadcasts/:broadcastID", h.requireRead, h.getBroadcast(eventScope))
 	manage.GET("broadcasts/:broadcastID/deliveries", h.requireRead, h.listDeliveries(eventScope))
+	manage.GET("broadcasts/:broadcastID/deliveries/export", h.requireRead, h.exportDeliveries(eventScope))
+	manage.POST("broadcasts/:broadcastID/cancel", h.requireManage, h.cancelBroadcast(eventScope))
 	manage.GET("notification-templates/custom", h.requireRead, h.listTemplates(eventScope))
 	manage.GET("notification-templates/custom/:templateID", h.requireRead, h.getTemplate(eventScope))
 	manage.POST("notification-templates/custom", h.requireManage, h.createTemplate(eventScope))

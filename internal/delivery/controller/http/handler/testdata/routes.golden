@@ -114,7 +114,9 @@ POST   /api/events/:id/manage/brand-drafts/:kind | gate: self | layers: event.re
 GET    /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireRead
 POST   /api/events/:id/manage/broadcasts | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts/:broadcastID | gate: self | layers: messaging.requireRead
+POST   /api/events/:id/manage/broadcasts/:broadcastID/cancel | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/broadcasts/:broadcastID/deliveries | gate: self | layers: messaging.requireRead
+GET    /api/events/:id/manage/broadcasts/:broadcastID/deliveries/export | gate: self | layers: messaging.requireRead
 POST   /api/events/:id/manage/broadcasts/audience-count | gate: self | layers: messaging.requireManage
 GET    /api/events/:id/manage/challenge-groups | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/challenge-groups | gate: self | layers: event.requireManage
@@ -538,7 +540,9 @@ PATCH  /api/notifications/banners/:id/dismiss | gate: notifications.self | layer
 GET    /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 POST   /api/notifications/broadcasts | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts/:broadcastID | gate: notifications.broadcast | layers: -
+POST   /api/notifications/broadcasts/:broadcastID/cancel | gate: notifications.broadcast | layers: -
 GET    /api/notifications/broadcasts/:broadcastID/deliveries | gate: notifications.broadcast | layers: -
+GET    /api/notifications/broadcasts/:broadcastID/deliveries/export | gate: notifications.broadcast | layers: -
 POST   /api/notifications/broadcasts/audience-count | gate: notifications.broadcast | layers: -
 GET    /api/notifications/dispatches | gate: notifications.templates.read | layers: -
 GET    /api/notifications/dispatches/:id | gate: notifications.templates.read | layers: -

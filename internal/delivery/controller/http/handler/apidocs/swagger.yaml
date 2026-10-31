@@ -10524,6 +10524,19 @@ definitions:
       Total:
         type: integer
     type: object
+  pagination.OffsetPage-messaging_deliveryResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/messaging.deliveryResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
   pagination.OffsetPage-platformAnalytics_eventRowResponse:
     properties:
       Items:
@@ -16058,6 +16071,37 @@ paths:
       summary: Get a broadcast
       tags:
       - notification-broadcasts
+  /events/{id}/manage/broadcasts/{broadcastID}/cancel:
+    post:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.broadcastResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Stop a broadcast that is still being sent
+      tags:
+      - notification-broadcasts
   /events/{id}/manage/broadcasts/{broadcastID}/deliveries:
     get:
       parameters:
@@ -16066,13 +16110,17 @@ paths:
         name: broadcastID
         required: true
         type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      - description: page number (default 1)
+        in: query
+        name: page
+        type: integer
       - description: page size (default 50)
         in: query
-        name: limit
-        type: integer
-      - description: offset
-        in: query
-        name: offset
+        name: pageSize
         type: integer
       produces:
       - application/json
@@ -16084,11 +16132,31 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/messaging.deliveryResponse'
-                  type: array
+                  $ref: '#/definitions/pagination.OffsetPage-messaging_deliveryResponse'
               type: object
       summary: Recipients of a broadcast with their outcome, failures first
+      tags:
+      - notification-broadcasts
+  /events/{id}/manage/broadcasts/{broadcastID}/deliveries/export:
+    get:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Recipients of a broadcast with their outcome as CSV
       tags:
       - notification-broadcasts
   /events/{id}/manage/broadcasts/audience-count:
@@ -27796,6 +27864,37 @@ paths:
       summary: Get a broadcast
       tags:
       - notification-broadcasts
+  /notifications/broadcasts/{broadcastID}/cancel:
+    post:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.broadcastResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Stop a broadcast that is still being sent
+      tags:
+      - notification-broadcasts
   /notifications/broadcasts/{broadcastID}/deliveries:
     get:
       parameters:
@@ -27804,13 +27903,17 @@ paths:
         name: broadcastID
         required: true
         type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      - description: page number (default 1)
+        in: query
+        name: page
+        type: integer
       - description: page size (default 50)
         in: query
-        name: limit
-        type: integer
-      - description: offset
-        in: query
-        name: offset
+        name: pageSize
         type: integer
       produces:
       - application/json
@@ -27822,11 +27925,31 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/messaging.deliveryResponse'
-                  type: array
+                  $ref: '#/definitions/pagination.OffsetPage-messaging_deliveryResponse'
               type: object
       summary: Recipients of a broadcast with their outcome, failures first
+      tags:
+      - notification-broadcasts
+  /notifications/broadcasts/{broadcastID}/deliveries/export:
+    get:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Recipients of a broadcast with their outcome as CSV
       tags:
       - notification-broadcasts
   /notifications/broadcasts/audience-count:
@@ -27885,6 +28008,18 @@ paths:
       - description: email route (event, platform, env)
         in: query
         name: transport
+        type: string
+      - description: part of the recipient email or name
+        in: query
+        name: recipient
+        type: string
+      - description: created at or after (RFC 3339)
+        in: query
+        name: from
+        type: string
+      - description: created before (RFC 3339)
+        in: query
+        name: to
         type: string
       - description: page size (default 50)
         in: query

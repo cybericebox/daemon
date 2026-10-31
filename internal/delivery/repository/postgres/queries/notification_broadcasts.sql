@@ -54,7 +54,16 @@ UPDATE notification_broadcasts
 SET status          = sqlc.arg(status),
     recipient_count = sqlc.arg(recipient_count),
     finished_at     = now()
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND status = 'sending';
+
+-- name: CancelNotificationBroadcast :execrows
+-- Only a running broadcast can be canceled; the sender stops queuing recipients.
+UPDATE notification_broadcasts
+SET status      = 'canceled',
+    finished_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'sending';
 
 -- name: ListBroadcastQueuedUserIDs :many
 SELECT recipient_user_id
@@ -63,7 +72,8 @@ WHERE broadcast_id = sqlc.arg(broadcast_id);
 
 -- name: ListBroadcastDeliveries :many
 -- One row per recipient and channel target of the broadcast (recipients still
--- waiting for their first attempt have a NULL channel).
+-- waiting for their first attempt have a NULL channel). status_filter is
+-- '' (all), 'error', 'done' or 'waiting' (no attempt yet).
 SELECT d.id                             AS dispatch_id,
        d.recipient_user_id,
        COALESCE(u.email, '')::text      AS recipient_email,
@@ -75,8 +85,18 @@ FROM notification_dispatches d
 LEFT JOIN users u ON u.id = d.recipient_user_id
 LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
 WHERE d.broadcast_id = sqlc.arg(broadcast_id)
+  AND (sqlc.arg(status_filter)::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = sqlc.arg(status_filter)::text)
 ORDER BY (t.status = 'error') DESC NULLS LAST, d.created_at, d.id, t.channel
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
+
+-- name: CountBroadcastDeliveries :one
+SELECT count(*)
+FROM notification_dispatches d
+LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
+WHERE d.broadcast_id = sqlc.arg(broadcast_id)
+  AND (sqlc.arg(status_filter)::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = sqlc.arg(status_filter)::text);
 
 -- name: ListPlatformBroadcastAudience :many
 -- kind: all | roles | users. Only active, non-deleted accounts with an email.

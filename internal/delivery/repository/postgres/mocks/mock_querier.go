@@ -279,6 +279,21 @@ func (mr *MockQuerierMockRecorder) BlobExists(ctx, contentHash any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlobExists", reflect.TypeOf((*MockQuerier)(nil).BlobExists), ctx, contentHash)
 }
 
+// CancelNotificationBroadcast mocks base method.
+func (m *MockQuerier) CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelNotificationBroadcast", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelNotificationBroadcast indicates an expected call of CancelNotificationBroadcast.
+func (mr *MockQuerierMockRecorder) CancelNotificationBroadcast(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelNotificationBroadcast", reflect.TypeOf((*MockQuerier)(nil).CancelNotificationBroadcast), ctx, id)
+}
+
 // ClaimExerciseFile mocks base method.
 func (m *MockQuerier) ClaimExerciseFile(ctx context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -543,6 +558,21 @@ func (m *MockQuerier) CountApprovedEventTeams(ctx context.Context, eventID uuid.
 func (mr *MockQuerierMockRecorder) CountApprovedEventTeams(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountApprovedEventTeams", reflect.TypeOf((*MockQuerier)(nil).CountApprovedEventTeams), ctx, eventID)
+}
+
+// CountBroadcastDeliveries mocks base method.
+func (m *MockQuerier) CountBroadcastDeliveries(ctx context.Context, arg postgres.CountBroadcastDeliveriesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountBroadcastDeliveries", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountBroadcastDeliveries indicates an expected call of CountBroadcastDeliveries.
+func (mr *MockQuerierMockRecorder) CountBroadcastDeliveries(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountBroadcastDeliveries", reflect.TypeOf((*MockQuerier)(nil).CountBroadcastDeliveries), ctx, arg)
 }
 
 // CountDispatches mocks base method.

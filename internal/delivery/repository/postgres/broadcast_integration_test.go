@@ -174,7 +174,7 @@ func TestBroadcast_DispatchesLinkAndCounters(t *testing.T) {
 	if err != nil || !queued[a] || !queued[b] {
 		t.Fatalf("queued = %v err %v", queued, err)
 	}
-	deliveries, err := repo.Deliveries(ctx, bc.ID, 10, 0)
+	deliveries, err := repo.Deliveries(ctx, bc.ID, "", 10, 0)
 	if err != nil || len(deliveries) != 2 || deliveries[0].TargetStatus != "error" || deliveries[0].Error != "mailbox full" {
 		t.Fatalf("deliveries = %+v err %v (failures must come first)", deliveries, err)
 	}
