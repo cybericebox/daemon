@@ -26,6 +26,7 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
@@ -143,7 +144,9 @@ type (
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
 		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
 		GetElevation(ctx context.Context, id uuid.UUID) (exerciseUseCase.ElevationView, error)
-		ListElevations(ctx context.Context, status string) ([]exerciseUseCase.ElevationView, error)
+		ListElevations(ctx context.Context, status string, author uuid.UUID) ([]exerciseUseCase.ElevationView, error)
+		CountPendingElevations(ctx context.Context) (int64, error)
+		ClusterFreeCapacity(ctx context.Context) (calendarUseCase.FreeCapacityView, error)
 		DecideElevation(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error)
 		ProposeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
 		ListProposals(ctx context.Context, status string) ([]exerciseUseCase.ProposalView, error)
@@ -229,6 +232,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		// resource elevations: a platform admin lists and decides the requests to take devices above the frame
 		ex.GET("elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
+		ex.GET("elevations/pending-count", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.pendingElevationCount)
 		ex.GET("elevations/:elevationID", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.getElevation)
 		ex.POST("elevations/:elevationID/approve", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.approveElevation)
 		ex.POST("elevations/:elevationID/reject", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.rejectElevation)

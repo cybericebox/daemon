@@ -84,6 +84,7 @@ type Queries interface {
 	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (postgres.ExerciseResourceElevation, error)
 	DecideExerciseResourceElevation(ctx context.Context, arg postgres.DecideExerciseResourceElevationParams) (int64, error)
 	ListExerciseResourceElevations(ctx context.Context, arg postgres.ListExerciseResourceElevationsParams) ([]postgres.ListExerciseResourceElevationsRow, error)
+	CountPendingExerciseResourceElevations(ctx context.Context) (int64, error)
 	GetLatestExerciseResourceElevation(ctx context.Context, exerciseID uuid.UUID) (postgres.ExerciseResourceElevation, error)
 	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListApprovedExerciseResourceElevationsRow, error)
 	DeletePendingExerciseResourceElevation(ctx context.Context, id uuid.UUID) (int64, error)

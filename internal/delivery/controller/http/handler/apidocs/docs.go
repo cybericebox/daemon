@@ -325,6 +325,144 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/errors/bulk/ignore": {
+            "post": {
+                "description": "1 to 200 groups; one result per group in request order; a group that fails never stops the others; one audit entry per group. The routes are /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Resolve, ignore or reopen many error groups",
+                "parameters": [
+                    {
+                        "description": "groups",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.bulkGroupsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.bulkGroupsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/bulk/reopen": {
+            "post": {
+                "description": "1 to 200 groups; one result per group in request order; a group that fails never stops the others; one audit entry per group. The routes are /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Resolve, ignore or reopen many error groups",
+                "parameters": [
+                    {
+                        "description": "groups",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.bulkGroupsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.bulkGroupsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/bulk/resolve": {
+            "post": {
+                "description": "1 to 200 groups; one result per group in request order; a group that fails never stops the others; one audit entry per group. The routes are /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Resolve, ignore or reopen many error groups",
+                "parameters": [
+                    {
+                        "description": "groups",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.bulkGroupsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.bulkGroupsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/admin/errors/not-found": {
             "get": {
                 "description": "A handler 404 is counted per route template; every unmatched path (bots scanning) is one counter with an empty route. Paths are never stored.",
@@ -17932,6 +18070,12 @@ const docTemplate = `{
                         "description": "pending | decided (approved or rejected) | approved | rejected; empty lists all",
                         "name": "status",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "user ID: only the requests this person made (their history)",
+                        "name": "author",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -17959,16 +18103,47 @@ const docTemplate = `{
                 }
             }
         },
-        "/exercises/elevations/{elevationID}": {
+        "/exercises/elevations/pending-count": {
             "get": {
-                "description": "Requires exercises.elevations.read (super_admin only).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "exercises"
                 ],
-                "summary": "One resource elevation request (platform admin)",
+                "summary": "How many resource elevation requests wait for a decision (the menu badge)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.pendingElevationCountResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/elevations/{elevationID}": {
+            "get": {
+                "description": "Requires exercises.elevations.read (super_admin only). Capacity is null when it cannot be read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "One resource elevation request with the free cluster capacity beside it (platform admin)",
                 "parameters": [
                     {
                         "type": "string",
@@ -28662,6 +28837,46 @@ const docTemplate = `{
                 }
             }
         },
+        "errorJournal.bulkGroupResultResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the catalog code of the refusal (empty when Ok); Error its English text.",
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "GroupID": {
+                    "type": "string"
+                },
+                "Ok": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "errorJournal.bulkGroupsRequest": {
+            "type": "object",
+            "properties": {
+                "GroupIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "errorJournal.bulkGroupsResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.bulkGroupResultResponse"
+                    }
+                }
+            }
+        },
         "errorJournal.chatRequest": {
             "type": "object",
             "properties": {
@@ -38787,6 +39002,39 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.elevationCapacityResponse": {
+            "type": "object",
+            "properties": {
+                "AskedCPUMillicores": {
+                    "type": "integer"
+                },
+                "AskedMemoryBytes": {
+                    "type": "integer"
+                },
+                "CPUUnlimited": {
+                    "type": "boolean"
+                },
+                "CapacityCPUMillicores": {
+                    "type": "integer"
+                },
+                "CapacityMemoryBytes": {
+                    "type": "integer"
+                },
+                "Fits": {
+                    "description": "Fits: the free room covers what the request asks.",
+                    "type": "boolean"
+                },
+                "FreeCPUMillicores": {
+                    "type": "integer"
+                },
+                "FreeMemoryBytes": {
+                    "type": "integer"
+                },
+                "MemoryUnlimited": {
+                    "type": "boolean"
+                }
+            }
+        },
         "exercise.elevationDeviceResponse": {
             "type": "object",
             "properties": {
@@ -38815,6 +39063,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.elevationDeviceResponse"
                     }
+                },
+                "Capacity": {
+                    "description": "Capacity is the room the cluster has now beside what the request asks; only the single-request read fills it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.elevationCapacityResponse"
+                        }
+                    ]
                 },
                 "DecidedAt": {
                     "type": "string"
@@ -39706,6 +39962,14 @@ const docTemplate = `{
             "properties": {
                 "Network": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.pendingElevationCountResponse": {
+            "type": "object",
+            "properties": {
+                "Pending": {
+                    "type": "integer"
                 }
             }
         },

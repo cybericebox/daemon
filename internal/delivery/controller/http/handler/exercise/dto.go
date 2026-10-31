@@ -650,6 +650,27 @@ type elevationResponse struct {
 	DecidedBy       *uuid.UUID                `json:"DecidedBy"`
 	DecidedByName   string                    `json:"DecidedByName"`
 	DecidedAt       *time.Time                `json:"DecidedAt"`
+	// Capacity is the room the cluster has now beside what the request asks; only the single-request read fills it.
+	Capacity *elevationCapacityResponse `json:"Capacity"`
+}
+
+// elevationCapacityResponse sets the cluster's free room against a request. A resource an agent puts no limit on
+// has its Unlimited flag set and the figures count only the limited part.
+type elevationCapacityResponse struct {
+	CapacityCPUMillicores int64 `json:"CapacityCPUMillicores"`
+	CapacityMemoryBytes   int64 `json:"CapacityMemoryBytes"`
+	FreeCPUMillicores     int64 `json:"FreeCPUMillicores"`
+	FreeMemoryBytes       int64 `json:"FreeMemoryBytes"`
+	CPUUnlimited          bool  `json:"CPUUnlimited"`
+	MemoryUnlimited       bool  `json:"MemoryUnlimited"`
+	AskedCPUMillicores    int64 `json:"AskedCPUMillicores"`
+	AskedMemoryBytes      int64 `json:"AskedMemoryBytes"`
+	// Fits: the free room covers what the request asks.
+	Fits bool `json:"Fits"`
+}
+
+type pendingElevationCountResponse struct {
+	Pending int64 `json:"Pending"`
 }
 
 func elevationDevicesToResponse(in []exerciseUseCase.ElevationDevice) []elevationDeviceResponse {

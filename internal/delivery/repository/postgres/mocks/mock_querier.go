@@ -1040,6 +1040,21 @@ func (mr *MockQuerierMockRecorder) CountLiveEventsWithTag(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountLiveEventsWithTag", reflect.TypeOf((*MockQuerier)(nil).CountLiveEventsWithTag), ctx, arg)
 }
 
+// CountPendingExerciseResourceElevations mocks base method.
+func (m *MockQuerier) CountPendingExerciseResourceElevations(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPendingExerciseResourceElevations", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPendingExerciseResourceElevations indicates an expected call of CountPendingExerciseResourceElevations.
+func (mr *MockQuerierMockRecorder) CountPendingExerciseResourceElevations(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPendingExerciseResourceElevations", reflect.TypeOf((*MockQuerier)(nil).CountPendingExerciseResourceElevations), ctx)
+}
+
 // CountPendingResourceChangeRequests mocks base method.
 func (m *MockQuerier) CountPendingResourceChangeRequests(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()

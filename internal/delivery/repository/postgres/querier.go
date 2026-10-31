@@ -140,6 +140,7 @@ type Querier interface {
 	// Conflict means overlapping HALF-OPEN platform windows, not merely a reused
 	// tag. The exclusion constraint closes the race between concurrent writers.
 	CountLiveEventsWithTag(ctx context.Context, arg CountLiveEventsWithTagParams) (int64, error)
+	CountPendingExerciseResourceElevations(ctx context.Context) (int64, error)
 	CountPendingResourceChangeRequests(ctx context.Context) (int64, error)
 	CountPendingTeamInvitations(ctx context.Context, arg CountPendingTeamInvitationsParams) (int64, error)
 	// The stand counts split by kind: moderators = the moderators team stand, else an event team stand.
@@ -1184,7 +1185,7 @@ type Querier interface {
 	// Which of the files the task stores as its copy of a content (a co-author's upload found by the hash lookup).
 	ListExerciseHeldFiles(ctx context.Context, arg ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]ListExerciseProposalsRow, error)
-	// Newest first; status and exercise narrow the list (a null argument does not filter).
+	// Newest first; status, exercise and author narrow the list (a null argument does not filter).
 	ListExerciseResourceElevations(ctx context.Context, arg ListExerciseResourceElevationsParams) ([]ListExerciseResourceElevationsRow, error)
 	// Tags of existing exercises by use; an empty prefix returns the most used.
 	// Prefix matching is literal (%, _ are not LIKE wildcards) and

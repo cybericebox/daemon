@@ -375,6 +375,33 @@ definitions:
       Started:
         type: integer
     type: object
+  errorJournal.bulkGroupResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      GroupID:
+        type: string
+      Ok:
+        type: boolean
+    type: object
+  errorJournal.bulkGroupsRequest:
+    properties:
+      GroupIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  errorJournal.bulkGroupsResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/errorJournal.bulkGroupResultResponse'
+        type: array
+    type: object
   errorJournal.chatRequest:
     properties:
       ChatID:
@@ -7322,6 +7349,28 @@ definitions:
       Start:
         type: integer
     type: object
+  exercise.elevationCapacityResponse:
+    properties:
+      AskedCPUMillicores:
+        type: integer
+      AskedMemoryBytes:
+        type: integer
+      CPUUnlimited:
+        type: boolean
+      CapacityCPUMillicores:
+        type: integer
+      CapacityMemoryBytes:
+        type: integer
+      Fits:
+        description: 'Fits: the free room covers what the request asks.'
+        type: boolean
+      FreeCPUMillicores:
+        type: integer
+      FreeMemoryBytes:
+        type: integer
+      MemoryUnlimited:
+        type: boolean
+    type: object
   exercise.elevationDeviceResponse:
     properties:
       Blocks:
@@ -7341,6 +7390,11 @@ definitions:
         items:
           $ref: '#/definitions/exercise.elevationDeviceResponse'
         type: array
+      Capacity:
+        allOf:
+        - $ref: '#/definitions/exercise.elevationCapacityResponse'
+        description: Capacity is the room the cluster has now beside what the request
+          asks; only the single-request read fills it.
       DecidedAt:
         type: string
       DecidedBy:
@@ -7971,6 +8025,11 @@ definitions:
     properties:
       Network:
         type: string
+    type: object
+  exercise.pendingElevationCountResponse:
+    properties:
+      Pending:
+        type: integer
     type: object
   exercise.persistenceDTO:
     properties:
@@ -13185,6 +13244,93 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Resolve, ignore or reopen an error group (super admin)
+      tags:
+      - error-journal
+  /admin/errors/bulk/ignore:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
+      tags:
+      - error-journal
+  /admin/errors/bulk/reopen:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
+      tags:
+      - error-journal
+  /admin/errors/bulk/resolve:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
       tags:
       - error-journal
   /admin/errors/not-found:
@@ -25195,6 +25341,10 @@ paths:
         in: query
         name: status
         type: string
+      - description: 'user ID: only the requests this person made (their history)'
+        in: query
+        name: author
+        type: string
       produces:
       - application/json
       responses:
@@ -25214,7 +25364,8 @@ paths:
       - exercises
   /exercises/elevations/{elevationID}:
     get:
-      description: Requires exercises.elevations.read (super_admin only).
+      description: Requires exercises.elevations.read (super_admin only). Capacity
+        is null when it cannot be read.
       parameters:
       - description: request ID
         in: path
@@ -25233,7 +25384,8 @@ paths:
                 data:
                   $ref: '#/definitions/exercise.elevationResponse'
               type: object
-      summary: One resource elevation request (platform admin)
+      summary: One resource elevation request with the free cluster capacity beside
+        it (platform admin)
       tags:
       - exercises
   /exercises/elevations/{elevationID}/approve:
@@ -25302,6 +25454,24 @@ paths:
                   $ref: '#/definitions/exercise.elevationResponse'
               type: object
       summary: Reject a resource elevation request
+      tags:
+      - exercises
+  /exercises/elevations/pending-count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.pendingElevationCountResponse'
+              type: object
+      summary: How many resource elevation requests wait for a decision (the menu
+        badge)
       tags:
       - exercises
   /exercises/export:

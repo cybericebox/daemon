@@ -27,6 +27,7 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
@@ -44,6 +45,8 @@ type fakeUC struct {
 	archiveExport         archiveExportCalls
 	elevation             exerciseUseCase.ElevationView
 	elevationReason       string
+	elevationAuthor       uuid.UUID
+	freeCapacity          calendarUseCase.FreeCapacityView
 	elevationStatus       string
 	elevationDecision     exerciseUseCase.DecideElevationInput
 	deviceCall            string
@@ -1967,9 +1970,14 @@ func (f *fakeUC) LatestElevation(_ context.Context, _ uuid.UUID) (*exerciseUseCa
 func (f *fakeUC) GetElevation(_ context.Context, _ uuid.UUID) (exerciseUseCase.ElevationView, error) {
 	return f.elevation, f.err
 }
-func (f *fakeUC) ListElevations(_ context.Context, status string) ([]exerciseUseCase.ElevationView, error) {
+func (f *fakeUC) ListElevations(_ context.Context, status string, author uuid.UUID) ([]exerciseUseCase.ElevationView, error) {
 	f.elevationStatus = status
+	f.elevationAuthor = author
 	return []exerciseUseCase.ElevationView{f.elevation}, f.err
+}
+func (f *fakeUC) CountPendingElevations(context.Context) (int64, error) { return 3, f.err }
+func (f *fakeUC) ClusterFreeCapacity(context.Context) (calendarUseCase.FreeCapacityView, error) {
+	return f.freeCapacity, f.err
 }
 func (f *fakeUC) DecideElevation(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error) {
 	f.elevationDecision = in
@@ -2336,5 +2344,75 @@ func TestLookupFile_Route(t *testing.T) {
 				t.Fatalf("got %d body=%s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+// The elevation card shows the cluster's free room beside the request, the menu gets a pending count, and an
+// author's history is the same list narrowed by author.
+func TestElevationCardCapacityHistoryAndPendingCount(t *testing.T) {
+	elevationID, exID, author := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUC{
+		elevation: exerciseUseCase.ElevationView{ID: elevationID, ExerciseID: exID, Status: "pending",
+			Requested: []exerciseUseCase.ElevationDevice{{Name: "db", CPUMillicores: 4000, MemoryBytes: 8 << 30}, {Name: "web", CPUMillicores: 1000, MemoryBytes: 1 << 30}}},
+		freeCapacity: calendarUseCase.FreeCapacityView{
+			Capacity: calendarUseCase.Amount{CPUMillicores: 20000, MemoryBytes: 64 << 30},
+			Free:     calendarUseCase.Amount{CPUMillicores: 6000, MemoryBytes: 8 << 30},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleSuperAdmin}).Init(r.Group("api"))
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+
+	var card struct {
+		Data struct {
+			Capacity *struct {
+				FreeCPUMillicores  int64
+				AskedCPUMillicores int64
+				AskedMemoryBytes   int64
+				Fits               bool
+			}
+		}
+	}
+	w := get("/api/exercises/elevations/" + elevationID.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &card); err != nil || card.Data.Capacity == nil {
+		t.Fatalf("card: %d %s", w.Code, w.Body.String())
+	}
+	if c := card.Data.Capacity; c.FreeCPUMillicores != 6000 || c.AskedCPUMillicores != 5000 || c.AskedMemoryBytes != 9<<30 || c.Fits {
+		t.Fatalf("5 CPU fit into 6 free, but 9 GiB of memory does not fit into 8: %+v", c)
+	}
+	uc.freeCapacity.Free.MemoryBytes = 16 << 30
+	_ = json.Unmarshal(get("/api/exercises/elevations/"+elevationID.String()).Body.Bytes(), &card)
+	if !card.Data.Capacity.Fits {
+		t.Fatalf("it fits when both resources have room: %+v", card.Data.Capacity)
+	}
+	uc.freeCapacity = calendarUseCase.FreeCapacityView{CPUUnlimited: true, MemoryUnlimited: true}
+	_ = json.Unmarshal(get("/api/exercises/elevations/"+elevationID.String()).Body.Bytes(), &card)
+	if !card.Data.Capacity.Fits {
+		t.Fatal("an unlimited cluster always fits")
+	}
+
+	if w = get("/api/exercises/elevations?author=" + author.String()); w.Code != http.StatusOK || uc.elevationAuthor != author {
+		t.Fatalf("history: %d author=%s", w.Code, uc.elevationAuthor)
+	}
+	if w = get("/api/exercises/elevations?author=nope"); w.Code != http.StatusBadRequest {
+		t.Fatalf("a bad author id is refused: %d", w.Code)
+	}
+	if w = get("/api/exercises/elevations/pending-count"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Pending":3`) {
+		t.Fatalf("pending count: %d %s", w.Code, w.Body.String())
+	}
+	// the badge route must not be swallowed by the single-request route
+	admin := gin.New()
+	admin.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleAdmin}).Init(admin.Group("api"))
+	rec := httptest.NewRecorder()
+	admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/elevations/pending-count", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("only a platform admin sees the count: %d", rec.Code)
 	}
 }

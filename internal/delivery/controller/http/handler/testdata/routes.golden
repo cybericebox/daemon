@@ -4,6 +4,9 @@ GET    /api/admin/dashboard | gate: self | layers: dashboard.requireAdminTier
 GET    /api/admin/errors | gate: platform.errors.read | layers: -
 GET    /api/admin/errors/:groupID | gate: platform.errors.read | layers: -
 PATCH  /api/admin/errors/:groupID/status | gate: platform.errors.write | layers: -
+POST   /api/admin/errors/bulk/ignore | gate: platform.errors.write | layers: -
+POST   /api/admin/errors/bulk/reopen | gate: platform.errors.write | layers: -
+POST   /api/admin/errors/bulk/resolve | gate: platform.errors.write | layers: -
 GET    /api/admin/errors/not-found | gate: platform.errors.read | layers: -
 GET    /api/admin/errors/settings | gate: platform.errors.read | layers: -
 PUT    /api/admin/errors/settings | gate: platform.errors.write | layers: -
@@ -450,6 +453,7 @@ GET    /api/exercises/elevations | gate: exercises.elevations.read | layers: -
 GET    /api/exercises/elevations/:elevationID | gate: exercises.elevations.read | layers: -
 POST   /api/exercises/elevations/:elevationID/approve | gate: exercises.elevations.write | layers: -
 POST   /api/exercises/elevations/:elevationID/reject | gate: exercises.elevations.write | layers: -
+GET    /api/exercises/elevations/pending-count | gate: exercises.elevations.read | layers: -
 POST   /api/exercises/export | gate: self | layers: -
 GET    /api/exercises/export/jobs/:jobID | gate: self | layers: -
 POST   /api/exercises/files | gate: self | layers: -
