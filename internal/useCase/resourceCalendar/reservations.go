@@ -61,12 +61,19 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 	}
 	if in.WindowEnd != nil {
 		end = *in.WindowEnd
+	} else if withdraw := withdrawAt(e); withdraw != nil && end.After(*withdraw) {
+		// The default end (event end + tail) follows the schedule but never passes the withdrawal; a fixed end that
+		// does is refused below.
+		end = *withdraw
 	}
 	if start.IsZero() || end.IsZero() {
 		return calModel.Window{}, 0, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
 	}
 	w, err := calModel.NewWindow(start, end)
 	if err != nil {
+		return calModel.Window{}, 0, err
+	}
+	if err = requireEndBeforeWithdraw(e, w.End); err != nil {
 		return calModel.Window{}, 0, err
 	}
 	if !eventEnd.IsZero() {

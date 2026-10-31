@@ -66,6 +66,9 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 	if e.Lifecycle.Configured && !now.Before(e.Lifecycle.PublishAt) && !lifecycle.PublishAt.Equal(e.Lifecycle.PublishAt) {
 		return EventLifecycleView{}, eventModel.ErrEventLifecycleInvalid.Err()
 	}
+	if err = u.requireWithdrawAfterReservation(ctx, id, lifecycle.WithdrawAt); err != nil {
+		return EventLifecycleView{}, err
+	}
 	config, err := u.configs.Get(ctx, id)
 	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
 		return EventLifecycleView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()

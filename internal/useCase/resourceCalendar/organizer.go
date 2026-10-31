@@ -117,6 +117,11 @@ func (u *ResourceCalendarUseCase) RequestResourceChange(ctx context.Context, eve
 			current := r.Size
 			size = &current
 		}
+		if in.WindowEnd != nil && r.EventID != nil {
+			if err = u.requireReservationEndBeforeWithdraw(ctx, *r.EventID, *in.WindowEnd); err != nil {
+				return err
+			}
+		}
 		c, err := calModel.NewChangeRequest(r, by, size, in.Dynamic, in.WindowStart, in.WindowEnd, in.Reason, now)
 		if err != nil {
 			return err
@@ -239,6 +244,11 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 			}
 			if aErr := u.applyChange(r, *c, now); aErr != nil {
 				return aErr
+			}
+			if r.EventID != nil {
+				if wErr := u.requireReservationEndBeforeWithdraw(ctx, *r.EventID, r.Window.End); wErr != nil {
+					return wErr
+				}
 			}
 
 			if u.usage != nil {

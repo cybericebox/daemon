@@ -7,7 +7,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 19
+// next free detail code: 21
 
 var (
 	// ErrWindowInvalid: the time range of a reservation or a booking is empty, reversed or out of bounds.
@@ -109,4 +109,17 @@ var (
 					WithMessage("The resources are not ready yet, try again in a minute").
 					WithDetailCode(18).
 					WithHTTPCode(http.StatusServiceUnavailable)
+
+	// ErrReservationEndsAfterWithdraw: the end of an event's reservation window may not be later than the withdrawal
+	// of the event (the end of the window is the only point where the cluster deletes the labs). The public context
+	// has reservationEnd and withdrawAt (RFC 3339).
+	ErrReservationEndsAfterWithdraw = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
+					WithMessage("The reservation must end before the event is withdrawn").
+					WithDetailCode(19)
+
+	// ErrWithdrawBeforeReservationEnd: the event cannot be withdrawn before its reservation ends; shorten the
+	// reservation first. The public context has reservationEnd and withdrawAt (RFC 3339).
+	ErrWithdrawBeforeReservationEnd = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
+					WithMessage("The event cannot be withdrawn before its reservation ends: shorten the reservation first").
+					WithDetailCode(20)
 )

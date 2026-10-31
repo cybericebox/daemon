@@ -5,12 +5,14 @@ import (
 	"errors"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
@@ -107,5 +109,32 @@ func TestCleanupQueuedLabGroups_AgentErrorIsRetriedForDeletedEvent(t *testing.T)
 	}
 	if len(infra.groups) != 1 || infra.groups[0] != group {
 		t.Fatalf("destroy calls = %#v, want %s once", infra.groups, group)
+	}
+}
+
+// calendarGate is a resource gate that knows reservations: the labs of the event end with its reservation window.
+type calendarGate struct{ end time.Time }
+
+func (calendarGate) HoldsForAllTeams(context.Context, uuid.UUID, resourcesModel.Amount, int, resourcesModel.Amount) error {
+	return nil
+}
+func (calendarGate) HasEventReservation(context.Context, uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+// With a resource calendar the withdrawal deletes nothing: the end of the reservation window is the only point of
+// deletion (no query, no destroy call: the mock fails on any).
+func TestCleanupWithdrawnLaboratories_DoesNothingWhenReservationsEndTheLabs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	infra := &recordingCleanupInfrastructure{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: infra})
+	uc.SetResourceGate(calendarGate{})
+
+	if err := uc.CleanupWithdrawnLaboratories(context.Background()); err != nil {
+		t.Fatalf("CleanupWithdrawnLaboratories: %v", err)
+	}
+	if len(infra.groups) != 0 {
+		t.Fatalf("destroy calls = %#v, want none", infra.groups)
 	}
 }

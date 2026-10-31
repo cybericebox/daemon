@@ -8,7 +8,8 @@ import (
 )
 
 // CleanupWithdrawnLaboratories performs the irreversible part of an event's
-// lifecycle. Finish deliberately retains labs and VPN credentials for review;
+// lifecycle on a deployment without a resource calendar (with one, the end of the reservation window is the single
+// point of deletion and this does nothing). Finish deliberately retains labs and VPN credentials for review;
 // withdrawal removes each event-team LabGroup (and therefore every contained
 // challenge lab and VPN client) before recording the durable terminal state.
 //
@@ -16,6 +17,11 @@ import (
 // delete is intentionally de-duplicated. If the agent call or persistence
 // fails, the binding stays eligible for the next periodic pass.
 func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
+	if u.labsEndWithReservation() {
+		// Withdrawal only hides the event. The labs and groups are deleted at the end of the reservation window
+		// (ReservationPartEnded), which cannot be later than the withdrawal.
+		return nil
+	}
 	if err := u.labBindings.QueueWithdrawnEmptyGroups(ctx, time.Now()); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to queue withdrawn VPN-only groups").Err()
 	}

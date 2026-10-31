@@ -262,6 +262,10 @@ func (u *EventUseCase) ReconcileLabRetention(ctx context.Context, now time.Time)
 	}
 	// Labs and their snapshots live until the end of the reservation window (owner decision 2026-10-19): the
 	// cluster deletes them there. A retention deadline never retires a lab or a group; it is kept but ignored.
+	// Owner decision 2026-10-31: the end of the reservation window is the single point of deletion. Neither the
+	// withdrawal nor the teardown delay deletes anything (a deployment without a calendar keeps the older
+	// teardown), and the window may not end later than the withdrawal: the reservation is refused (ErrReservationEndsAfterWithdraw)
+	// and the withdrawal is refused (WithdrawBeforeReservationEnd) when either would leave the labs without an end.
 	retiring, err := repo.Retiring(ctx, u.labLifecycleBatch)
 	if err != nil {
 		return err
