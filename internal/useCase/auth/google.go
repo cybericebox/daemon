@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -93,10 +94,14 @@ func (u *AuthUseCase) GoogleAuth(
 
 	user, err := u.users.GetByProvider(ctx, userModel.GoogleProvider, googleUser.GoogleID)
 	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return "", safeRedirect, authModel.ErrAuthGoogleNotRegistered.Err()
+		if !repositoryTools.IsObjectNotFoundError(err) {
+			return "", safeRedirect, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by provider").Err()
 		}
-		return "", safeRedirect, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by provider").Err()
+		// The identity is not linked yet: it may still belong to an existing account by its verified address.
+		user, err = u.linkGoogleByVerifiedEmail(ctx, googleUser)
+		if err != nil {
+			return "", safeRedirect, err
+		}
 	}
 	if err = refuseBlocked(&user); err != nil {
 		return "", safeRedirect, err
@@ -107,6 +112,44 @@ func (u *AuthUseCase) GoogleAuth(
 		return "", safeRedirect, err
 	}
 	return cookie, safeRedirect, nil
+}
+
+// linkGoogleByVerifiedEmail links an unlinked Google identity to the existing account of the same address and returns
+// that account, so the sign-in goes on (owner, 2026-10-31). It links only when Google vouches for the address
+// (email_verified) and the account is active with a confirmed address that equals Google's, compared normalized; a
+// deleted account is not found by its address, a blocked, incomplete or unconfirmed one, an account that already
+// has another Google, and any other case get the plain «not registered» answer, as before. No mail is sent.
+func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser *oauth.GoogleUser) (userModel.User, error) {
+	email := normalizeEmail(googleUser.Email)
+	if !googleUser.EmailVerified || email == "" {
+		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+	}
+	account, err := u.users.GetByEmail(ctx, email)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+		}
+		return userModel.User{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
+	}
+	if account.Status != userModel.UserStatusActive || !account.EmailConfirmed || normalizeEmail(account.Email) != email {
+		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+	}
+	// An account that already has a Google identity is not given a second one by the address alone: the address
+	// of a Google account can change hands, the identity cannot.
+	providers, err := u.users.ListProviders(ctx, account.ID)
+	if err != nil {
+		return userModel.User{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list user providers").Err()
+	}
+	if slices.Contains(providers, userModel.GoogleProvider) {
+		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+	}
+	if err = u.linkGoogleProvider(ctx, account.ID, googleUser.GoogleID); err != nil {
+		if errors.Is(err, userModel.ErrUserExists.Err()) {
+			return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+		}
+		return userModel.User{}, err
+	}
+	return account, nil
 }
 
 // BeginGoogleRegistration provisions or links an incomplete account from a verified
