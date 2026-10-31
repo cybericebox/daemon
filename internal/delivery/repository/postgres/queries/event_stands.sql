@@ -95,16 +95,36 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
        stand.updated_at AS stand_updated_at,
        (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
         JOIN event_challenges due_ec ON due_ec.id = lb.event_challenge_id
-        WHERE lb.event_team_id = team.id AND lb.readiness = 0
+        WHERE lb.event_team_id = team.id AND (lb.readiness = 0 OR (lb.readiness = 2 AND lb.deployed_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM event_lab_auto_recreate ar JOIN event_challenges pec ON pec.id = lb.event_challenge_id
+                      WHERE ar.event_team_id = lb.event_team_id AND ar.event_exercise_id = pec.event_exercise_id AND ar.attempts < 3)
+          AND EXISTS (SELECT 1 FROM event_team_labs plab WHERE plab.id = lb.lab_id AND plab.desired_state = 'Running'
+                      AND plab.logical_closed_at IS NULL AND plab.close_reason IS DISTINCT FROM 'solved')
+          AND EXISTS (SELECT 1 FROM events pev WHERE pev.id = lb.event_id AND pev.manual_finished_at IS NULL
+                      AND (pev.finish_at IS NULL OR pev.finish_at > now()))))
           AND due_ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[]))::bigint AS pending_labs,
+       -- A Lab the agent accepted that failed and is tracked for automatic recreation (fewer than 3 attempts, still
+       -- running, the event not finished) counts as pending, not failed: the organizers hear only after the last attempt.
        -- A Lab that failed and is being retried (pending again, never accepted by the agent) still counts as failed,
        -- so the stand does not flicker between failed and creating and the organizers hear about it once.
        (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
         WHERE lb.event_team_id = team.id
-          AND (lb.readiness = 2 OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> '')))::bigint AS failed_labs,
+          AND ((lb.readiness = 2 AND NOT (lb.readiness = 2 AND lb.deployed_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM event_lab_auto_recreate ar JOIN event_challenges pec ON pec.id = lb.event_challenge_id
+                      WHERE ar.event_team_id = lb.event_team_id AND ar.event_exercise_id = pec.event_exercise_id AND ar.attempts < 3)
+          AND EXISTS (SELECT 1 FROM event_team_labs plab WHERE plab.id = lb.lab_id AND plab.desired_state = 'Running'
+                      AND plab.logical_closed_at IS NULL AND plab.close_reason IS DISTINCT FROM 'solved')
+          AND EXISTS (SELECT 1 FROM events pev WHERE pev.id = lb.event_id AND pev.manual_finished_at IS NULL
+                      AND (pev.finish_at IS NULL OR pev.finish_at > now())))) OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> '')))::bigint AS failed_labs,
        COALESCE((SELECT min(lb.failure_reason) FROM lab_bindings lb
                  WHERE lb.event_team_id = team.id
-                   AND (lb.readiness = 2 OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> ''))), '')::text AS failure_reason,
+                   AND ((lb.readiness = 2 AND NOT (lb.readiness = 2 AND lb.deployed_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM event_lab_auto_recreate ar JOIN event_challenges pec ON pec.id = lb.event_challenge_id
+                      WHERE ar.event_team_id = lb.event_team_id AND ar.event_exercise_id = pec.event_exercise_id AND ar.attempts < 3)
+          AND EXISTS (SELECT 1 FROM event_team_labs plab WHERE plab.id = lb.lab_id AND plab.desired_state = 'Running'
+                      AND plab.logical_closed_at IS NULL AND plab.close_reason IS DISTINCT FROM 'solved')
+          AND EXISTS (SELECT 1 FROM events pev WHERE pev.id = lb.event_id AND pev.manual_finished_at IS NULL
+                      AND (pev.finish_at IS NULL OR pev.finish_at > now())))) OR (lb.readiness = 0 AND lb.retry_attempts > 0 AND lb.deployed_at IS NULL AND COALESCE(lb.failure_reason, '') <> ''))), '')::text AS failure_reason,
        -- Labs waiting for something other than the reservation to appear since before stuck_before: the organizers must hear it.
        -- A team outside the frozen reveal cohort (eligible only after the start) is not given the grace: its wait counts at once.
        (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb

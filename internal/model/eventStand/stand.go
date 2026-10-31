@@ -137,6 +137,19 @@ func RetryBackoff(attempts int32) time.Duration {
 	return steps[attempts]
 }
 
+// AutoRecreateBackoff is how long a failed Lab the agent accepted waits before it is recreated by itself, after
+// attempts earlier recreations: 1 minute, 5 minutes, 15 minutes (three attempts in all).
+func AutoRecreateBackoff(attempts int) time.Duration {
+	steps := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
+	if attempts < 0 {
+		attempts = 0
+	}
+	if attempts >= len(steps) {
+		return steps[len(steps)-1]
+	}
+	return steps[attempts]
+}
+
 // DeployTimeout fails a Lab that the agent accepted but never reported
 // ready, so a stuck image pull or crash loop reaches the moderators
 // (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).

@@ -6,6 +6,7 @@ package event
 import (
 	"context"
 	"errors"
+	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
 	"io"
 	"time"
 
@@ -250,11 +251,24 @@ type EventUseCase struct {
 	tagListener TagListener
 	// resources is the platform's device resources settings (zero: the owner's defaults, see resourcePolicy);
 	// elevations reads the approved elevations of exercises (nil: none exist).
-	resources  resourcesModel.Policy
-	elevations ApprovalStore
+	resources resourcesModel.Policy
+	// autoRecreate counts the automatic recreations of failed Labs (nil: off).
+	autoRecreate AutoRecreateStore
+	elevations   ApprovalStore
+}
+
+// AutoRecreateStore counts the automatic recreations of failed team Labs. Nil: a failed Lab is not recreated by itself.
+type AutoRecreateStore interface {
+	Candidates(ctx context.Context, eventID uuid.UUID, now time.Time) ([]autoRecreateRepo.Candidate, error)
+	Track(ctx context.Context, teamID, exerciseID uuid.UUID, reason string, now time.Time) error
+	Bump(ctx context.Context, teamID, exerciseID uuid.UUID, reason string, now time.Time) error
+	Reset(ctx context.Context, teamID, exerciseID uuid.UUID) error
+	ResetTeam(ctx context.Context, teamID uuid.UUID) error
 }
 
 type Dependencies struct {
+	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
+	AutoRecreate                               AutoRecreateStore
 	PreviewLabs                                PreviewTestLabs
 	LabLifecycleBatch                          int32
 	LabLifecycleRetryMin, LabLifecycleRetryMax time.Duration
@@ -379,6 +393,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		results:                  eventResultRepo.New(deps.Repo),
 		scoreboard:               scoreboardRepo.New(deps.Repo),
 		labBindings:              labBindingRepo.New(deps.Repo),
+		autoRecreate:             deps.AutoRecreate,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),
 		labAccessSyncs:           labAccessSyncRepo.New(deps.Repo),

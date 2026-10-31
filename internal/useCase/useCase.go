@@ -9,6 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/advisory"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventActivityRepo"
@@ -302,6 +303,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
+			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
 			LabLifecycleRetryMax:     deps.LabLifecycleConfig.RetryMax,

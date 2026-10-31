@@ -243,6 +243,12 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	if !u.laboratoriesUsable(ctx) {
 		return StandTeamView{}, infraUnavailable()
 	}
+	// The organizer's recreate starts the automatic attempts over.
+	if u.autoRecreate != nil {
+		if err = u.autoRecreate.ResetTeam(ctx, teamID); err != nil {
+			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to reset the automatic recreation count").Err()
+		}
+	}
 	if u.lifecycleControls {
 		if retried, err := u.retryInitialFailedTeam(ctx, eventID, teamID); err != nil {
 			return StandTeamView{}, err

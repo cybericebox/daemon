@@ -154,6 +154,10 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, config.TaskRevealMode, now, schedule.NotDue, awaiting); err != nil {
 				errs = append(errs, err)
 			}
+			// After the observation (it marks the failures), before the stand is assessed.
+			if err = u.autoRecreateFailedLabs(ctx, e, now); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		if allReady, err = u.assessStands(ctx, e, now, schedule.NotDue, awaiting); err != nil {
 			errs = append(errs, err)
@@ -677,6 +681,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				errs = append(errs, model.ErrPlatform.WithError(markErr).WithMessage("Failed to mark stand lab ready").Err())
 			} else if changed {
 				ready[binding.EventTeamID] = struct{}{}
+				u.forgetAutoRecreate(ctx, binding.EventTeamID, lab.EventExerciseID)
 			}
 		case eventStandModel.OutcomeFailed:
 			if _, err = u.failStandLab(ctx, binding, reason, now); err != nil {
