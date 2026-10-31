@@ -294,7 +294,42 @@ func (u *EventUseCase) ListModeratorsBoard(ctx context.Context, eventID uuid.UUI
 	if err = u.fillSolveAwards(ctx, teamID, views); err != nil {
 		return nil, err
 	}
-	return views, nil
+	config, err := u.configs.Get(ctx, eventID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
+	}
+	return applyBoardPresentation(views, config.ShowDifficulty, config.HintsDisabled), nil
+}
+
+// applyBoardPresentation makes the moderators board show what the participants' board shows: «Показувати
+// складність» off hides the difficulty of every task, «Підказки» off hides the hints.
+func applyBoardPresentation(views []OwnChallengeView, showDifficulty, hintsDisabled bool) []OwnChallengeView {
+	for i := range views {
+		if !showDifficulty {
+			views[i].Snapshot = withoutDifficulty(views[i].Snapshot)
+		}
+		if hintsDisabled {
+			views[i].HintsEnabled = false
+			views[i].Hints = nil
+		}
+	}
+	return views
+}
+
+func withoutDifficulty(snapshot json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(snapshot, &fields) != nil {
+		return snapshot
+	}
+	if _, has := fields["difficulty"]; !has {
+		return snapshot
+	}
+	delete(fields, "difficulty")
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return snapshot
+	}
+	return out
 }
 
 // StreamModeratorsChallengeAttachment opens a file of a moderators board

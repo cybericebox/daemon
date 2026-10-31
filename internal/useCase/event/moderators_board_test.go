@@ -37,6 +37,7 @@ func TestModeratorsBoardShowsPreparedChallengesUnlocked(t *testing.T) {
 	q.EXPECT().ListTeamSolveAwards(gomock.Any(), teamID).Return([]postgres.ListTeamSolveAwardsRow{
 		{TeamChallengeID: solvedID, AwardedPoints: 90, HintPenalty: 10, SolverID: solverID, SolverName: "Ada"},
 	}, nil)
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, ShowDifficulty: true}, nil)
 	board, err := uc.ListModeratorsBoard(context.Background(), eventID)
 	if err != nil || len(board) != 2 {
 		t.Fatalf("board = %+v, %v", board, err)
