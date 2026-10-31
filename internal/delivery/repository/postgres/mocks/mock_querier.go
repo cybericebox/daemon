@@ -10478,6 +10478,21 @@ func (mr *MockQuerierMockRecorder) ListUnaccountedEventLabStarts(ctx any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnaccountedEventLabStarts", reflect.TypeOf((*MockQuerier)(nil).ListUnaccountedEventLabStarts), ctx)
 }
 
+// ListUnpublishedEventChallenges mocks base method.
+func (m *MockQuerier) ListUnpublishedEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListUnpublishedEventChallengesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnpublishedEventChallenges", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListUnpublishedEventChallengesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnpublishedEventChallenges indicates an expected call of ListUnpublishedEventChallenges.
+func (mr *MockQuerierMockRecorder) ListUnpublishedEventChallenges(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnpublishedEventChallenges", reflect.TypeOf((*MockQuerier)(nil).ListUnpublishedEventChallenges), ctx, eventID)
+}
+
 // ListUnreferencedPlatformImages mocks base method.
 func (m *MockQuerier) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error) {
 	m.ctrl.T.Helper()

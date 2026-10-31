@@ -12549,6 +12549,47 @@
                 }
             }
         },
+        "/events/{id}/manage/readiness": {
+            "get": {
+                "description": "One look before the start: the tasks participants still do not see and the stands that are not ready, with what each lab waits for.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Readiness of the event: unpublished tasks and stands that are not ready",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.readinessResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/registry-secrets": {
             "get": {
                 "produces": [
@@ -30640,6 +30681,62 @@
                 }
             }
         },
+        "event.readinessResponse": {
+            "type": "object",
+            "properties": {
+                "Ready": {
+                    "description": "Ready: nothing to warn about (every task is published and every stand is ready).",
+                    "type": "boolean"
+                },
+                "Stands": {
+                    "description": "Stands are the stands that are not ready, with their labs (Status, Reason, WaitReason, WaitSince).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.standTeamResponse"
+                    }
+                },
+                "StandsApplicable": {
+                    "description": "StandsApplicable: the event uses stands; StandsTotal / StandsReady count every team stand.",
+                    "type": "boolean"
+                },
+                "StandsReady": {
+                    "type": "integer"
+                },
+                "StandsTotal": {
+                    "type": "integer"
+                },
+                "StartAt": {
+                    "type": "string"
+                },
+                "Started": {
+                    "type": "boolean"
+                },
+                "UnpublishedTasks": {
+                    "description": "UnpublishedTasks are the tasks of the active sets that participants do not see.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.readinessTaskResponse"
+                    }
+                }
+            }
+        },
+        "event.readinessTaskResponse": {
+            "type": "object",
+            "properties": {
+                "ChallengeID": {
+                    "type": "string"
+                },
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "StageID": {
+                    "type": "string"
+                }
+            }
+        },
         "event.recreateStandsRequest": {
             "type": "object",
             "properties": {
@@ -31168,7 +31265,17 @@
                 "Reason": {
                     "type": "string"
                 },
+                "RetryAttempts": {
+                    "type": "integer"
+                },
                 "Status": {
+                    "type": "string"
+                },
+                "WaitReason": {
+                    "description": "WaitReason is the machine code of what a pending Lab waits for (empty: nothing), WaitSince since when.",
+                    "type": "string"
+                },
+                "WaitSince": {
                     "type": "string"
                 }
             }

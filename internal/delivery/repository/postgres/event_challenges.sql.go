@@ -439,6 +439,52 @@ func (q *Queries) ListEventGroupChallengeIDs(ctx context.Context, arg ListEventG
 	return items, nil
 }
 
+const listUnpublishedEventChallenges = `-- name: ListUnpublishedEventChallenges :many
+SELECT ec.id,
+       ec.event_exercise_id,
+       COALESCE(ec.snapshot->>'name', '')::text AS name,
+       ee.stage_id
+FROM event_challenges ec
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+WHERE ee.event_id = $1
+  AND ee.status = 0
+  AND NOT ec.published
+ORDER BY ee.created_at, ec.order_index, ec.id
+`
+
+type ListUnpublishedEventChallengesRow struct {
+	ID              uuid.UUID     `json:"id"`
+	EventExerciseID uuid.UUID     `json:"event_exercise_id"`
+	Name            string        `json:"name"`
+	StageID         uuid.NullUUID `json:"stage_id"`
+}
+
+// The tasks of the event's active sets that are not published to participants yet (the readiness view).
+func (q *Queries) ListUnpublishedEventChallenges(ctx context.Context, eventID uuid.UUID) ([]ListUnpublishedEventChallengesRow, error) {
+	rows, err := q.db.Query(ctx, listUnpublishedEventChallenges, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnpublishedEventChallengesRow{}
+	for rows.Next() {
+		var i ListUnpublishedEventChallengesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventExerciseID,
+			&i.Name,
+			&i.StageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const maxEventChallengeOrder = `-- name: MaxEventChallengeOrder :one
 SELECT COALESCE(max(order_index), -1)::integer
 FROM event_challenges

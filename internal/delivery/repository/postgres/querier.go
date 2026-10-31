@@ -1537,6 +1537,8 @@ type Querier interface {
 	// A historical dispatched generation with no persisted requests is unknown,
 	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.
 	ListUnaccountedEventLabStarts(ctx context.Context) ([]ListUnaccountedEventLabStartsRow, error)
+	// The tasks of the event's active sets that are not published to participants yet (the readiness view).
+	ListUnpublishedEventChallenges(ctx context.Context, eventID uuid.UUID) ([]ListUnpublishedEventChallengesRow, error)
 	// Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
 	// $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
 	// platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or

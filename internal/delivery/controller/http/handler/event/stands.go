@@ -82,6 +82,8 @@ type standLabResponse struct {
 	// persistence_unavailable, ...), "" when nothing; WaitSince since when.
 	WaitReason string     `json:"WaitReason"`
 	WaitSince  *time.Time `json:"WaitSince"`
+	// RetryAttempts counts the automatic retries after failures.
+	RetryAttempts int32 `json:"RetryAttempts"`
 	// Wait is what the lab needs and what the event's reservation has left; null when none was recorded.
 	Wait *standWaitResponse `json:"Wait"`
 }
@@ -169,7 +171,7 @@ func toStandTeamResponse(v eventUseCase.StandTeamView) standTeamResponse {
 		ReservationEndsAt: v.ReservationEndsAt, ReservationEnded: v.ReservationEnded}
 	for _, lab := range v.Labs {
 		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason,
-			WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: toStandWaitResponse(lab.Wait)})
+			WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: toStandWaitResponse(lab.Wait), RetryAttempts: lab.RetryAttempts})
 	}
 	return out
 }

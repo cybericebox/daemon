@@ -44,6 +44,7 @@ type Queries interface {
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	SetEventExerciseChallengesPublished(ctx context.Context, arg postgres.SetEventExerciseChallengesPublishedParams) error
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
+	ListUnpublishedEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListUnpublishedEventChallengesRow, error)
 }
 
 func (r *Repository) UpdateScoring(ctx context.Context, value eventChallengeModel.EventChallenge) (eventChallengeModel.EventChallenge, error) {
@@ -362,4 +363,29 @@ func limitFromDB(value pgtype.Int4) *int32 {
 	}
 	limit := value.Int32
 	return &limit
+}
+
+// Unpublished is a task of an active set that participants do not see yet.
+type Unpublished struct {
+	ID, EventExerciseID uuid.UUID
+	Name                string
+	StageID             *uuid.UUID
+}
+
+// UnpublishedForEvent lists the unpublished tasks of the event's active sets.
+func (r *Repository) UnpublishedForEvent(ctx context.Context, eventID uuid.UUID) ([]Unpublished, error) {
+	rows, err := r.q.ListUnpublishedEventChallenges(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Unpublished, 0, len(rows))
+	for _, row := range rows {
+		item := Unpublished{ID: row.ID, EventExerciseID: row.EventExerciseID, Name: row.Name}
+		if row.StageID.Valid {
+			id := row.StageID.UUID
+			item.StageID = &id
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }

@@ -205,3 +205,16 @@ UPDATE event_challenges
 SET task_id = sqlc.arg(task_id)
 WHERE id = sqlc.arg(id)
   AND event_exercise_id = sqlc.arg(event_exercise_id);
+
+-- name: ListUnpublishedEventChallenges :many
+-- The tasks of the event's active sets that are not published to participants yet (the readiness view).
+SELECT ec.id,
+       ec.event_exercise_id,
+       COALESCE(ec.snapshot->>'name', '')::text AS name,
+       ee.stage_id
+FROM event_challenges ec
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+WHERE ee.event_id = sqlc.arg(event_id)
+  AND ee.status = 0
+  AND NOT ec.published
+ORDER BY ee.created_at, ec.order_index, ec.id;
