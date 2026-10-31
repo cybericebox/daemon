@@ -322,6 +322,17 @@ func TestFleetRefusesPersistenceTheAgentDoesNotOffer(t *testing.T) {
 	if err = f.fleet.DeployLab(ctx, "e-1-t-1", "c-3", infraModel.LabMeta{}, persistentTopology()); err != nil {
 		t.Fatal(err)
 	}
+	// Persistence that became available after the agent started is seen at the refusal, without waiting for the
+	// next poll.
+	late := newFleetFixture(t)
+	late.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
+	late.a.features = &labpb.FeaturesResponse{StatePersistence: &labpb.StatePersistenceFeature{Available: true}}
+	if err = late.fleet.DeployLab(ctx, "e-3-t-1", "c-1", infraModel.LabMeta{}, persistentTopology()); err != nil {
+		t.Fatalf("the agent offers persistence now: %v", err)
+	}
+	if !late.am.Features.Get().Persistence.Available {
+		t.Fatal("the refreshed report is kept")
+	}
 	// An agent that has not reported yet is not second-guessed: it refuses on its own if it must.
 	other := newFleetFixture(t)
 	if err = other.fleet.DeployLab(ctx, "e-2-t-1", "c-1", infraModel.LabMeta{}, persistentTopology()); err != nil {

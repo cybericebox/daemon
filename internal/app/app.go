@@ -196,16 +196,26 @@ func Run(cfg *config.Config) {
 			})
 			// What the agent offers (persistence, image cache, scheduler, endpoints): the live member gets it at
 			// once, the registry keeps the last report.
-			runner = runner.WithFeaturesSink(func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error {
+			applyFeatures := func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error {
 				f := labagent.FeaturesOf(features)
 				member.Features.Set(f)
 				featureGaps.report(ucs.Journal, member.ID, member.Name, f)
 				return ucs.AgentsUseCase.RecordAgentFeatures(ctx, member.ID, f, observedAt)
-			})
+			}
+			runner = runner.WithFeaturesSink(applyFeatures)
 			// The maintenance windows the cluster operator announces are read once a minute (the agent has no change
 			// feed) while the agent is monitored; the calendar gives the agent no capacity inside them.
 			pollCtx, stopPolling := context.WithCancel(ctx)
 			defer stopPolling()
+			// What the agent offers is live (persistence can become available after it started): read it again every
+			// minute, not only when the agent pushes a change.
+			go labagent.PollFeatures(pollCtx, member.Name, labagent.FeaturesInterval,
+				func(ctx context.Context) (*labpb.FeaturesResponse, error) {
+					return member.Client.GetFeatures(ctx, &labpb.Empty{})
+				},
+				func(ctx context.Context, features *labpb.FeaturesResponse) error {
+					return applyFeatures(ctx, features, time.Now().UTC())
+				})
 			go labagent.PollMaintenance(pollCtx, member.Name, labagent.MaintenanceInterval,
 				func(ctx context.Context) (*labpb.MaintenanceWindowList, error) {
 					return member.Client.ListMaintenanceWindows(ctx, &labpb.ListMaintenanceWindowsRequest{})

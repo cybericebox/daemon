@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
+
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
@@ -373,7 +375,12 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
 	if feat := m.Features.Get(); feat != nil && !feat.Persistence.Available && wantsPersistence(topo) {
-		return infraModel.ErrDevicePersistenceUnavailable.Err()
+		// The cached report may be old: persistence can become available after the agent started. Read it again
+		// (once per window) before refusing.
+		feat = refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m))
+		if feat != nil && !feat.Persistence.Available {
+			return infraModel.ErrDevicePersistenceUnavailable.Err()
+		}
 	}
 	if meta.GroupPartID, err = f.partOn(ctx, m, meta.GroupReservation); err != nil {
 		return err
@@ -381,7 +388,12 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if meta.PartID, err = f.partOn(ctx, m, meta.Reservation); err != nil {
 		return err
 	}
-	return m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
+	err = m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
+	if errors.Is(err, infraModel.ErrDevicePersistenceUnavailable.Err()) {
+		// The agent itself refused: what it offers changed since the cached report; the next try sees the truth.
+		refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m))
+	}
+	return err
 }
 
 // EnsureVPNGroup creates a team's group; the reservation it runs under comes with ctx (WithGroupReservation).
@@ -692,4 +704,14 @@ func (f *Fleet) ReconcileLabGroupAccessRevision(ctx context.Context, group strin
 		return err
 	}
 	return c.ReconcileLabGroupAccessRevision(ctx, group, policies, target)
+}
+
+// featuresReader reads the features of the member's agent again; a member without a client reads nothing.
+func featuresReader(m *Member) func(context.Context) (*labpb.FeaturesResponse, error) {
+	return func(ctx context.Context) (*labpb.FeaturesResponse, error) {
+		if m.Client == nil {
+			return nil, errors.New("the agent has no client")
+		}
+		return m.Client.GetFeatures(ctx, &labpb.Empty{})
+	}
 }

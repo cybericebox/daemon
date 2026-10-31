@@ -3,6 +3,7 @@ package labagent
 import (
 	"context"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -22,6 +23,8 @@ type FeatureCell struct {
 	v  *infraModel.AgentFeatures
 	// incompatible: the agent answered UNIMPLEMENTED on the reservation API, so it gets no new groups.
 	incompatible bool
+	// refusalRefreshed is when a refusal last forced a new read of the features.
+	refusalRefreshed time.Time
 }
 
 // MarkIncompatible records an agent without the reservation API; true the first time.

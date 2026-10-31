@@ -34,6 +34,8 @@ type fakeAgent struct {
 	retryable   bool
 	clientCfg   string
 	createGroup *labpb.CreateLabGroupsRequest
+	// features is what GetFeatures answers (an error when nil).
+	features    *labpb.FeaturesResponse
 	createLabs  *labpb.CreateLabsRequest
 	createCl    *labpb.CreateLabGroupClientsRequest
 	access      *labpb.SetLabGroupAccessRequest
@@ -710,4 +712,11 @@ func TestPrewarmImagesForwardsCredentials(t *testing.T) {
 	if _, err := newClient(f).PrewarmImages(context.Background(), []string{"a"}, nil); err != nil || len(f.prewarm.GetRegistryCredentials()) != 0 {
 		t.Fatalf("nil creds send none: %v %+v", err, f.prewarm)
 	}
+}
+
+func (f *fakeAgent) GetFeatures(context.Context, *labpb.Empty, ...grpc.CallOption) (*labpb.FeaturesResponse, error) {
+	if f.features == nil {
+		return nil, errors.New("features are not available")
+	}
+	return f.features, nil
 }
