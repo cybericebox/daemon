@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/delivery/repository/userExportRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -36,6 +37,7 @@ type IRepository interface {
 	sessionRepo.Queries
 	temporalCodeRepo.Queries
 	passkeyRepo.Queries
+	userExportRepo.Queries
 }
 
 // ITokenClient is the crypto port (satisfied by *token.Client).
@@ -89,6 +91,7 @@ type AuthUseCase struct {
 	users    *userRepo.Repository
 	codes    *temporalCodeRepo.Repository
 	passkeys *passkeyRepo.Repository
+	exports  *userExportRepo.Repository
 	// webauthn is the relying party of passkey sign-in; nil when the hosts do not allow one.
 	webauthn           *webauthn.WebAuthn
 	token              ITokenClient
@@ -167,6 +170,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		users:             userRepo.New(deps.Repo),
 		codes:             temporalCodeRepo.New(deps.Repo),
 		passkeys:          passkeyRepo.New(deps.Repo),
+		exports:           userExportRepo.New(deps.Repo),
 		token:             deps.Token,
 		password:          deps.Password,
 		notifier:          deps.Notifier,

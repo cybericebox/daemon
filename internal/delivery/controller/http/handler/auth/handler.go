@@ -14,6 +14,7 @@ import (
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -58,7 +59,11 @@ type (
 		) error
 		GetGoogleLoginURL(redirect, loginHint string) (string, string, error)
 		GetGoogleSetupURL(ctx context.Context, setupToken, redirect string) (string, string, error)
-		StartGoogleLink(ctx context.Context, userID uuid.UUID, currentPassword string) (string, string, error)
+		StartGoogleLink(
+			ctx context.Context,
+			userID uuid.UUID,
+			currentPassword string,
+		) (string, string, error)
 		GoogleAuth(
 			ctx context.Context,
 			code, state string,
@@ -69,17 +74,25 @@ type (
 			code, state string,
 			meta authModel.SessionMetadata,
 		) (authUseCase.GoogleRegistrationResult, error)
-		LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken, code, state string) (string, error)
+		LinkGoogleToSetupFromOAuth(
+			ctx context.Context,
+			setupToken, code, state string,
+		) (string, error)
 
 		// slice 4a — account self-management
 		GetAccount(ctx context.Context, userID uuid.UUID) (*authUseCase.AccountInfo, error)
 		GetSelfProfile(ctx context.Context, userID uuid.UUID) (*authUseCase.UserInfo, error)
+		ExportMyData(ctx context.Context, userID uuid.UUID) (*userModel.DataExport, error)
 		UpdateAccountProfile(
 			ctx context.Context,
 			userID uuid.UUID,
 			firstName, lastName string,
 		) error
-		RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail, currentPassword string) error
+		RequestEmailChange(
+			ctx context.Context,
+			userID uuid.UUID,
+			newEmail, currentPassword string,
+		) error
 		ConfirmEmailChange(ctx context.Context, code string) error
 		UnlinkGoogle(ctx context.Context, userID uuid.UUID, currentPassword string) error
 		DeleteAccount(ctx context.Context, userID uuid.UUID, currentPassword string) error
@@ -133,7 +146,12 @@ type (
 )
 
 func NewAuthAPIHandler(useCase IUseCase, prot IProtection, cfg config.AuthConfig) *Handler {
-	return &Handler{useCase: useCase, prot: prot, hosts: cfg.Hosts, oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds())}
+	return &Handler{
+		useCase:           useCase,
+		prot:              prot,
+		hosts:             cfg.Hosts,
+		oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds()),
+	}
 }
 
 // The public auth routes carry no request-rate guard: a flood is bounded by the use case's per-account
@@ -178,8 +196,15 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	// slice 4a — account self-management
 	sec.GET("account", self, h.getAccount)
 	sec.GET("me", self, h.getSelfProfile)
+	sec.GET("account/export", self, h.exportMyData)
 	sec.PATCH("account/profile", self, h.updateProfile)
-	sec.POST("account/email", self, selfCheck, h.prot.RequireCaptcha("emailChange"), h.requestEmailChange)
+	sec.POST(
+		"account/email",
+		self,
+		selfCheck,
+		h.prot.RequireCaptcha("emailChange"),
+		h.requestEmailChange,
+	)
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)

@@ -3506,6 +3506,96 @@ func (mr *MockQuerierMockRecorder) ExerciseDraftDiffersFromPublished(ctx, exerci
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExerciseDraftDiffersFromPublished", reflect.TypeOf((*MockQuerier)(nil).ExerciseDraftDiffersFromPublished), ctx, exerciseID)
 }
 
+// ExportUserEventStaffRoles mocks base method.
+func (m *MockQuerier) ExportUserEventStaffRoles(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserEventStaffRolesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserEventStaffRoles", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserEventStaffRolesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserEventStaffRoles indicates an expected call of ExportUserEventStaffRoles.
+func (mr *MockQuerierMockRecorder) ExportUserEventStaffRoles(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserEventStaffRoles", reflect.TypeOf((*MockQuerier)(nil).ExportUserEventStaffRoles), ctx, userID)
+}
+
+// ExportUserFlagAttempts mocks base method.
+func (m *MockQuerier) ExportUserFlagAttempts(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserFlagAttemptsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserFlagAttempts", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserFlagAttemptsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserFlagAttempts indicates an expected call of ExportUserFlagAttempts.
+func (mr *MockQuerierMockRecorder) ExportUserFlagAttempts(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserFlagAttempts", reflect.TypeOf((*MockQuerier)(nil).ExportUserFlagAttempts), ctx, userID)
+}
+
+// ExportUserFormAnswers mocks base method.
+func (m *MockQuerier) ExportUserFormAnswers(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserFormAnswersRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserFormAnswers", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserFormAnswersRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserFormAnswers indicates an expected call of ExportUserFormAnswers.
+func (mr *MockQuerierMockRecorder) ExportUserFormAnswers(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserFormAnswers", reflect.TypeOf((*MockQuerier)(nil).ExportUserFormAnswers), ctx, userID)
+}
+
+// ExportUserInbox mocks base method.
+func (m *MockQuerier) ExportUserInbox(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserInboxRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserInbox", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserInboxRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserInbox indicates an expected call of ExportUserInbox.
+func (mr *MockQuerierMockRecorder) ExportUserInbox(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserInbox", reflect.TypeOf((*MockQuerier)(nil).ExportUserInbox), ctx, userID)
+}
+
+// ExportUserNotificationSettings mocks base method.
+func (m *MockQuerier) ExportUserNotificationSettings(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserNotificationSettingsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserNotificationSettings", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserNotificationSettingsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserNotificationSettings indicates an expected call of ExportUserNotificationSettings.
+func (mr *MockQuerierMockRecorder) ExportUserNotificationSettings(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserNotificationSettings", reflect.TypeOf((*MockQuerier)(nil).ExportUserNotificationSettings), ctx, userID)
+}
+
+// ExportUserParticipations mocks base method.
+func (m *MockQuerier) ExportUserParticipations(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserParticipationsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserParticipations", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserParticipationsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserParticipations indicates an expected call of ExportUserParticipations.
+func (mr *MockQuerierMockRecorder) ExportUserParticipations(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserParticipations", reflect.TypeOf((*MockQuerier)(nil).ExportUserParticipations), ctx, userID)
+}
+
 // ExtendLabTrafficCoverage mocks base method.
 func (m *MockQuerier) ExtendLabTrafficCoverage(ctx context.Context, arg postgres.ExtendLabTrafficCoverageParams) (int64, error) {
 	m.ctrl.T.Helper()

@@ -406,6 +406,14 @@ type Querier interface {
 	// the domain (Exercise.HasUnpublishedChanges) without asking.
 	// label is deliberately not compared: it names snapshots, never content.
 	ExerciseDraftDiffersFromPublished(ctx context.Context, exerciseID uuid.UUID) (bool, error)
+	ExportUserEventStaffRoles(ctx context.Context, userID uuid.UUID) ([]ExportUserEventStaffRolesRow, error)
+	ExportUserFlagAttempts(ctx context.Context, userID uuid.UUID) ([]ExportUserFlagAttemptsRow, error)
+	ExportUserFormAnswers(ctx context.Context, userID uuid.UUID) ([]ExportUserFormAnswersRow, error)
+	ExportUserInbox(ctx context.Context, userID uuid.UUID) ([]ExportUserInboxRow, error)
+	ExportUserNotificationSettings(ctx context.Context, userID uuid.UUID) ([]ExportUserNotificationSettingsRow, error)
+	// The "download my data" export. Every query is keyed on the caller's own user id and reads only that person's
+	// rows; names of other people never leave (a team shows only its title).
+	ExportUserParticipations(ctx context.Context, userID uuid.UUID) ([]ExportUserParticipationsRow, error)
 	// Grows the latest segment of the same collector boot when the new span joins
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)

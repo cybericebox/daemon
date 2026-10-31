@@ -33,6 +33,7 @@ DELETE /api/auth/account/avatar | gate: self | layers: -
 POST   /api/auth/account/avatar | gate: self | layers: -
 POST   /api/auth/account/email | gate: self | layers: recaptcha,middleware.RateLimitPerUser.func
 POST   /api/auth/account/email/confirm | gate: - | layers: -
+GET    /api/auth/account/export | gate: self | layers: -
 PATCH  /api/auth/account/profile | gate: self | layers: -
 GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
 GET    /api/auth/google | gate: - | layers: -

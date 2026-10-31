@@ -13,6 +13,7 @@ import (
 
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 )
 
@@ -232,5 +233,63 @@ func TestPasskeyRemove_NotFoundIs404(t *testing.T) {
 	)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", w.Code)
+	}
+}
+
+func TestExportMyData_IsAnAttachmentOfThePersonsOwnJSON(t *testing.T) {
+	r := passkeyRouter(&fakeUC{}, &fakeProt{}, true)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/auth/account/export", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if got := w.Header().
+		Get("Content-Disposition"); got != `attachment; filename="cyber-ice-box-my-data-2026-10-31.json"` {
+		t.Errorf("Content-Disposition: %q", got)
+	}
+	if w.Header().Get("Cache-Control") != "no-store" ||
+		!strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+		t.Errorf("headers: %v", w.Header())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if _, ok := body["Profile"]; !ok {
+		t.Errorf("the file itself, not an envelope: %v", body)
+	}
+}
+
+func TestExportMyData_RefusalsAndSession(t *testing.T) {
+	cases := map[string]struct {
+		err  error
+		want int
+	}{
+		"stale sign-in": {authModel.ErrAuthReauthRequired.Err(), http.StatusForbidden},
+		"too often":     {authModel.ErrAuthTooManyRequests.Err(), http.StatusTooManyRequests},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := passkeyRouter(&fakeUC{exportErr: c.err}, &fakeProt{}, true)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/auth/account/export", nil))
+			if w.Code != c.want || w.Header().Get("Content-Disposition") != "" {
+				t.Fatalf(
+					"want %d without a file, got %d / %q",
+					c.want,
+					w.Code,
+					w.Header().Get("Content-Disposition"),
+				)
+			}
+		})
+	}
+	w := httptest.NewRecorder()
+	passkeyRouter(
+		&fakeUC{},
+		&fakeProt{},
+		false,
+	).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/auth/account/export", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("without a session: want 401, got %d", w.Code)
 	}
 }

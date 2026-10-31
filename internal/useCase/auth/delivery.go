@@ -19,6 +19,9 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+// authDeliveryReset is the Kind of a queued password-reset request.
+const authDeliveryReset = "reset"
+
 type authDeliveryCommand struct {
 	Kind     string
 	Email    string
@@ -47,7 +50,7 @@ func (u *AuthUseCase) queueAuthDelivery(ctx context.Context, command authDeliver
 	}
 	// Apply the public request quota once; a queued command's retries must never consume it again.
 	kind := mailKindSignUp
-	if command.Kind == "reset" {
+	if command.Kind == authDeliveryReset {
 		kind = mailKindReset
 	}
 	allowed, release := u.limits.mail.Reserve(kind, normalizeEmail(command.Email))

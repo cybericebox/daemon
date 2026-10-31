@@ -1744,6 +1744,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/account/export": {
+            "get": {
+                "description": "Needs a sign-in from the last minutes (403 ErrAuthReauthRequired otherwise) and is limited to one download per 10 minutes (429 with RetryAfterSeconds). The answer is the file itself, not the usual envelope.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Download everything the platform stores about the current user (JSON file)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/userModel.DataExport"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/account/profile": {
             "patch": {
                 "consumes": [
@@ -47268,6 +47300,301 @@ const docTemplate = `{
                 },
                 "Total": {
                     "type": "integer"
+                }
+            }
+        },
+        "userModel.DataExport": {
+            "type": "object",
+            "properties": {
+                "ExportedAt": {
+                    "type": "string"
+                },
+                "eventStaffRoles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportEventRole"
+                    }
+                },
+                "flagSubmissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportFlagSubmission"
+                    }
+                },
+                "formAnswers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportFormAnswer"
+                    }
+                },
+                "inbox": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportInboxItem"
+                    }
+                },
+                "notificationSettings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportNotificationSetting"
+                    }
+                },
+                "participations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportParticipation"
+                    }
+                },
+                "profile": {
+                    "$ref": "#/definitions/userModel.ExportProfile"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportSession"
+                    }
+                },
+                "signInMethods": {
+                    "description": "SignInMethods lists how the person can sign in: the kind, the name they gave it, and dates.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportSignInMethod"
+                    }
+                }
+            }
+        },
+        "userModel.ExportEventRole": {
+            "type": "object",
+            "properties": {
+                "eventID": {
+                    "type": "string"
+                },
+                "eventName": {
+                    "type": "string"
+                },
+                "grantedAt": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "integer",
+                    "format": "int32"
+                }
+            }
+        },
+        "userModel.ExportFlagSubmission": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "type": "string"
+                },
+                "challengeName": {
+                    "type": "string"
+                },
+                "correct": {
+                    "type": "boolean"
+                },
+                "eventID": {
+                    "type": "string"
+                },
+                "eventName": {
+                    "type": "string"
+                },
+                "practice": {
+                    "type": "boolean"
+                },
+                "receivedAt": {
+                    "type": "string"
+                },
+                "teamName": {
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportFormAnswer": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "eventID": {
+                    "type": "string"
+                },
+                "eventName": {
+                    "type": "string"
+                },
+                "formVersionID": {
+                    "type": "string"
+                },
+                "submittedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportInboxItem": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "eventName": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "readAt": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportNotificationSetting": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportParticipation": {
+            "type": "object",
+            "properties": {
+                "decidedAt": {
+                    "type": "string"
+                },
+                "eventID": {
+                    "type": "string"
+                },
+                "eventName": {
+                    "type": "string"
+                },
+                "eventTag": {
+                    "type": "string"
+                },
+                "invitationSent": {
+                    "type": "string"
+                },
+                "invited": {
+                    "type": "boolean"
+                },
+                "invitedTeamName": {
+                    "type": "string"
+                },
+                "invitedToTeam": {
+                    "type": "boolean"
+                },
+                "isCaptain": {
+                    "type": "boolean"
+                },
+                "joinedAt": {
+                    "type": "string"
+                },
+                "pseudonym": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "teamName": {
+                    "type": "string"
+                },
+                "teamRole": {
+                    "type": "integer"
+                }
+            }
+        },
+        "userModel.ExportProfile": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "emailConfirmed": {
+                    "type": "boolean"
+                },
+                "firstName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lastName": {
+                    "type": "string"
+                },
+                "lastSeen": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tosAcceptedAt": {
+                    "type": "string"
+                },
+                "tosVersion": {
+                    "type": "integer",
+                    "format": "int32"
+                }
+            }
+        },
+        "userModel.ExportSession": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "ip": {
+                    "type": "string"
+                },
+                "lastSeen": {
+                    "type": "string"
+                },
+                "userAgent": {
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportSignInMethod": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "lastUsedAt": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Type is \"password\", \"google\" or \"passkey\".",
+                    "type": "string"
                 }
             }
         },

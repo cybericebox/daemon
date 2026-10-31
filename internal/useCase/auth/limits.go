@@ -29,16 +29,28 @@ type authLimits struct {
 	mail             *ratelimit.Recipient
 	mailRequests     *ratelimit.Recipient // by normalized address, every kind of sign-in mail together
 	emailChangeUsers *ratelimit.Window
+	dataExport       *ratelimit.Window // by user id
 }
 
 func newAuthLimits() *authLimits {
 	c := limits.Get()
 	return &authLimits{
-		signInAccount:    ratelimit.NewLockout(c.SignInMaxFailures, c.SignInFailureWindow, c.SignInLockBase, c.SignInLockMax),
-		passwordGuess:    ratelimit.NewLockout(c.SignInMaxFailures, c.SignInFailureWindow, c.SignInLockBase, c.SignInLockMax),
+		signInAccount: ratelimit.NewLockout(
+			c.SignInMaxFailures,
+			c.SignInFailureWindow,
+			c.SignInLockBase,
+			c.SignInLockMax,
+		),
+		passwordGuess: ratelimit.NewLockout(
+			c.SignInMaxFailures,
+			c.SignInFailureWindow,
+			c.SignInLockBase,
+			c.SignInLockMax,
+		),
 		mail:             ratelimit.NewRecipient(c.AccountMailGap, c.AccountMailPerHour),
 		mailRequests:     ratelimit.NewRecipient(c.AccountMailGap, c.AccountMailPerHour),
 		emailChangeUsers: ratelimit.NewWindow(c.EmailChangesPerHour, time.Hour),
+		dataExport:       ratelimit.NewWindow(1, dataExportInterval),
 	}
 }
 
@@ -63,7 +75,7 @@ func (u *AuthUseCase) mailAllowed(kind, address string) bool {
 // so the refusal (429 with RetryAfterSeconds) says nothing about whether an account exists.
 //
 // The returned release gives the request back when what followed failed before anything was accepted.
-func (u *AuthUseCase) requestMail(address string) (release func(), err error) {
+func (u *AuthUseCase) requestMail(address string) (func(), error) {
 	ok, wait, release := u.limits.mailRequests.Take(normalizeEmail(address))
 	if !ok {
 		return nil, tooManyRequests(wait)

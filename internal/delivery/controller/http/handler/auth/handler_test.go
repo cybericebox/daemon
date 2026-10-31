@@ -19,6 +19,7 @@ import (
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -46,6 +47,7 @@ type fakeUC struct {
 	loginHint         string
 	setupStartToken   string
 	passkeyErr        error
+	exportErr         error
 	passkeys          []passkeyModel.Passkey
 }
 
@@ -207,6 +209,13 @@ func (f *fakeUC) UploadAvatar(
 func (f *fakeUC) RemoveAvatar(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeUC) GetAvatar(_ context.Context, _ uuid.UUID) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader(f.avatarBody)), f.avatarType, nil
+}
+
+func (f *fakeUC) ExportMyData(_ context.Context, _ uuid.UUID) (*userModel.DataExport, error) {
+	if f.exportErr != nil {
+		return nil, f.exportErr
+	}
+	return &userModel.DataExport{ExportedAt: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}, nil
 }
 
 func (f *fakeUC) BeginPasskeySignIn(_ context.Context) (authUseCase.PasskeyCeremony, error) {

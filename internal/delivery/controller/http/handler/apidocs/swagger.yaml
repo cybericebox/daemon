@@ -12992,6 +12992,202 @@ definitions:
       Total:
         type: integer
     type: object
+  userModel.DataExport:
+    properties:
+      ExportedAt:
+        type: string
+      eventStaffRoles:
+        items:
+          $ref: '#/definitions/userModel.ExportEventRole'
+        type: array
+      flagSubmissions:
+        items:
+          $ref: '#/definitions/userModel.ExportFlagSubmission'
+        type: array
+      formAnswers:
+        items:
+          $ref: '#/definitions/userModel.ExportFormAnswer'
+        type: array
+      inbox:
+        items:
+          $ref: '#/definitions/userModel.ExportInboxItem'
+        type: array
+      notificationSettings:
+        items:
+          $ref: '#/definitions/userModel.ExportNotificationSetting'
+        type: array
+      participations:
+        items:
+          $ref: '#/definitions/userModel.ExportParticipation'
+        type: array
+      profile:
+        $ref: '#/definitions/userModel.ExportProfile'
+      sessions:
+        items:
+          $ref: '#/definitions/userModel.ExportSession'
+        type: array
+      signInMethods:
+        description: 'SignInMethods lists how the person can sign in: the kind, the
+          name they gave it, and dates.'
+        items:
+          $ref: '#/definitions/userModel.ExportSignInMethod'
+        type: array
+    type: object
+  userModel.ExportEventRole:
+    properties:
+      eventID:
+        type: string
+      eventName:
+        type: string
+      grantedAt:
+        type: string
+      role:
+        format: int32
+        type: integer
+    type: object
+  userModel.ExportFlagSubmission:
+    properties:
+      answer:
+        type: string
+      challengeName:
+        type: string
+      correct:
+        type: boolean
+      eventID:
+        type: string
+      eventName:
+        type: string
+      practice:
+        type: boolean
+      receivedAt:
+        type: string
+      teamName:
+        type: string
+    type: object
+  userModel.ExportFormAnswer:
+    properties:
+      answers:
+        items:
+          type: integer
+        type: array
+      eventID:
+        type: string
+      eventName:
+        type: string
+      formVersionID:
+        type: string
+      submittedAt:
+        type: string
+    type: object
+  userModel.ExportInboxItem:
+    properties:
+      body:
+        type: string
+      category:
+        type: string
+      createdAt:
+        type: string
+      eventName:
+        type: string
+      link:
+        type: string
+      readAt:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  userModel.ExportNotificationSetting:
+    properties:
+      channel:
+        type: string
+      enabled:
+        type: boolean
+      type:
+        type: string
+    type: object
+  userModel.ExportParticipation:
+    properties:
+      decidedAt:
+        type: string
+      eventID:
+        type: string
+      eventName:
+        type: string
+      eventTag:
+        type: string
+      invitationSent:
+        type: string
+      invited:
+        type: boolean
+      invitedTeamName:
+        type: string
+      invitedToTeam:
+        type: boolean
+      isCaptain:
+        type: boolean
+      joinedAt:
+        type: string
+      pseudonym:
+        type: string
+      status:
+        format: int32
+        type: integer
+      teamName:
+        type: string
+      teamRole:
+        type: integer
+    type: object
+  userModel.ExportProfile:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      emailConfirmed:
+        type: boolean
+      firstName:
+        type: string
+      id:
+        type: string
+      lastName:
+        type: string
+      lastSeen:
+        type: string
+      role:
+        type: string
+      status:
+        type: string
+      tosAcceptedAt:
+        type: string
+      tosVersion:
+        format: int32
+        type: integer
+    type: object
+  userModel.ExportSession:
+    properties:
+      createdAt:
+        type: string
+      ip:
+        type: string
+      lastSeen:
+        type: string
+      userAgent:
+        type: string
+    type: object
+  userModel.ExportSignInMethod:
+    properties:
+      createdAt:
+        type: string
+      lastUsedAt:
+        type: string
+      name:
+        type: string
+      type:
+        description: Type is "password", "google" or "passkey".
+        type: string
+    type: object
   userModel.UserStatus:
     enum:
     - active
@@ -14139,6 +14335,30 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Confirm an email address change using the code sent to the new address
+      tags:
+      - auth
+  /auth/account/export:
+    get:
+      description: Needs a sign-in from the last minutes (403 ErrAuthReauthRequired
+        otherwise) and is limited to one download per 10 minutes (429 with RetryAfterSeconds).
+        The answer is the file itself, not the usual envelope.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/userModel.DataExport'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Download everything the platform stores about the current user (JSON
+        file)
       tags:
       - auth
   /auth/account/profile:

@@ -27,7 +27,7 @@ func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) erro
 		return err
 	}
 	if u.delivery != nil {
-		if err = u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "reset", Email: normalizeEmail(emailAddr)}); err != nil {
+		if err = u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: authDeliveryReset, Email: normalizeEmail(emailAddr)}); err != nil {
 			release()
 		}
 		return err
