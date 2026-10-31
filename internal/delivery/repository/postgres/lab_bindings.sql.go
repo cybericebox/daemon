@@ -767,6 +767,9 @@ JOIN events event ON event.id = team.event_id
 WHERE event.withdraw_at IS NOT NULL
   AND event.withdraw_at <= $1::timestamptz
   AND NOT EXISTS (SELECT 1 FROM lab_bindings lb WHERE lb.event_team_id = team.id)
+  -- An event with an active reservation that ends by the withdrawal is cleaned up by the end of the reservation.
+  AND NOT EXISTS (SELECT 1 FROM resource_reservations res WHERE res.event_id = event.id AND res.canceled_at IS NULL
+                  AND res.ends_at <= event.withdraw_at)
   -- Already queued (or destroyed) groups are skipped by a primary key lookup, so an idle pass writes nothing.
   AND NOT EXISTS (SELECT 1 FROM lab_group_cleanup_requests r WHERE r.lab_group_name = lab_group_name(team.event_id, team.id))
 ON CONFLICT (lab_group_name) DO NOTHING

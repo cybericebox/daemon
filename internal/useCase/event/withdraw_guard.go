@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/model"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
@@ -38,11 +39,33 @@ func (u *EventUseCase) requireWithdrawAfterReservation(ctx context.Context, even
 	return nil
 }
 
-// labsEndWithReservation: the labs and groups of the event are deleted at the end of its reservation window and at
-// no other time; neither the withdrawal nor the teardown delay of the event deletes anything (owner, 2026-10-31).
-// Only a deployment without a resource calendar (the gate cannot tell about reservations) keeps the older
-// teardown at withdrawal, so that its labs still have a point of deletion.
-func (u *EventUseCase) labsEndWithReservation() bool {
-	_, ok := u.resourceGate.(reservationHolder)
-	return ok
+// labsEndWithReservation says whether the labs of the event are deleted by the end of its reservation window and by
+// nothing else (owner, 2026-10-31): the event has an active reservation that ends no later than its withdrawal.
+// Anything else (no reservation, a cancelled one, one that outlives the withdrawal, a deployment without a calendar)
+// keeps the withdrawal teardown, so the labs, the VPN keys and the access always have a point of deletion. A reservation
+// that cannot be read counts as held for this pass: nothing is deleted on a guess, the next pass asks again.
+func (u *EventUseCase) labsEndWithReservation(ctx context.Context, eventID uuid.UUID, withdrawAt *time.Time) bool {
+	holder, ok := u.resourceGate.(reservationHolder)
+	if !ok {
+		return false
+	}
+	reserved, err := holder.HasEventReservation(ctx, eventID)
+	if err != nil {
+		log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Withdrawal teardown: cannot read the reservation, the pass is skipped")
+		return true
+	}
+	if !reserved {
+		return false
+	}
+	if ender, ok := u.resourceGate.(reservationEnder); ok && withdrawAt != nil {
+		end, found, endErr := ender.EventReservationEnd(ctx, eventID)
+		if endErr != nil {
+			log.Warn().Err(endErr).Str("event_id", eventID.String()).Msg("Withdrawal teardown: cannot read the reservation end, the pass is skipped")
+			return true
+		}
+		if found && end.After(*withdrawAt) {
+			return false
+		}
+	}
+	return true
 }

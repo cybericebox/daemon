@@ -4,12 +4,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/gofrs/uuid"
+
 	"github.com/cybericebox/daemon/internal/model"
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
 // CleanupWithdrawnLaboratories performs the irreversible part of an event's
-// lifecycle on a deployment without a resource calendar (with one, the end of the reservation window is the single
-// point of deletion and this does nothing). Finish deliberately retains labs and VPN credentials for review;
+// lifecycle. An event whose labs end with its active reservation (labsEndWithReservation) is left to the end of the
+// reservation window; every other event, one without a reservation or with a cancelled one included, is cleaned
+// here, so no lab, VPN key or access is left without a point of deletion. Finish deliberately retains labs and VPN credentials for review;
 // withdrawal removes each event-team LabGroup (and therefore every contained
 // challenge lab and VPN client) before recording the durable terminal state.
 //
@@ -17,11 +21,6 @@ import (
 // delete is intentionally de-duplicated. If the agent call or persistence
 // fails, the binding stays eligible for the next periodic pass.
 func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
-	if u.labsEndWithReservation() {
-		// Withdrawal only hides the event. The labs and groups are deleted at the end of the reservation window
-		// (ReservationPartEnded), which cannot be later than the withdrawal.
-		return nil
-	}
 	if err := u.labBindings.QueueWithdrawnEmptyGroups(ctx, time.Now()); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to queue withdrawn VPN-only groups").Err()
 	}
@@ -29,6 +28,7 @@ func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list withdrawn laboratory bindings").Err()
 	}
+	bindings = u.withoutReservedEvents(ctx, bindings)
 	if len(bindings) == 0 {
 		return nil
 	}
@@ -73,6 +73,31 @@ func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// withoutReservedEvents drops the bindings of the events whose labs are deleted by the end of their reservation
+// window (labsEndWithReservation): the withdrawal does not touch them. The decision is made once per event.
+func (u *EventUseCase) withoutReservedEvents(ctx context.Context, bindings []labBindingModel.Binding) []labBindingModel.Binding {
+	if _, ok := u.resourceGate.(reservationHolder); !ok {
+		return bindings // no calendar: every withdrawn event is cleaned up here
+	}
+	decided := map[uuid.UUID]bool{}
+	kept := bindings[:0:0]
+	for _, binding := range bindings {
+		reserved, seen := decided[binding.EventID]
+		if !seen {
+			var withdrawAt *time.Time
+			if e, err := u.events.GetByID(ctx, binding.EventID); err == nil {
+				withdrawAt = e.Lifecycle.WithdrawAt
+			}
+			reserved = u.labsEndWithReservation(ctx, binding.EventID, withdrawAt)
+			decided[binding.EventID] = reserved
+		}
+		if !reserved {
+			kept = append(kept, binding)
+		}
+	}
+	return kept
 }
 
 // CleanupQueuedLabGroups handles teams deleted before their LabGroup can be

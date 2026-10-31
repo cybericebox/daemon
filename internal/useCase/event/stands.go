@@ -110,7 +110,7 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 		if u.lifecycleControls {
 			return u.ReconcileLabRetention(ctx, now)
 		}
-		if u.labsEndWithReservation() {
+		if u.labsEndWithReservation(ctx, e.ID, e.Lifecycle.WithdrawAt) {
 			return nil // the end of the reservation window deletes the labs (ReservationPartEnded), nothing else does
 		}
 		return u.tearDownEventStands(ctx, e, now)
