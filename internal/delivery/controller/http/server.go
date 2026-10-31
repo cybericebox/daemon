@@ -280,7 +280,7 @@ func secretTLVOf(cfg *config.HTTPServerConfig) proxyproto.PP2Type {
 	if cfg.ProxyProtocolSecretTLV == 0 {
 		return ProxySecretTLV
 	}
-	return proxyproto.PP2Type(cfg.ProxyProtocolSecretTLV)
+	return proxyproto.PP2Type(cfg.ProxyProtocolSecretTLV) //nolint:gosec // validated to 224-239 at start
 }
 
 func proxySecrets(cfg *config.HTTPServerConfig) [][]byte {
