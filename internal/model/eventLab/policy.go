@@ -9,9 +9,6 @@ type Policy struct {
 	SnapshotMode         string
 	MaxActiveLabsPerTeam *int32
 	RetentionMinutes     int32
-	// partialCapture: the snapshot is required because the lab has devices that keep state, not by the event's
-	// policy; a device that keeps none is stopped without one. See ForTopology.
-	partialCapture bool
 }
 
 // ForTopology is the policy of one lab: a lab with a device that keeps its state (persistence.enabled) is always
@@ -23,7 +20,7 @@ func (p Policy) ForTopology(t exerciseModel.Topology) Policy {
 	}
 	for _, d := range t.Devices {
 		if d.IsNode() && d.Persistence != nil && d.Persistence.Enabled {
-			p.SnapshotMode, p.partialCapture = "required", true
+			p.SnapshotMode = "required"
 			return p
 		}
 	}
@@ -65,10 +62,19 @@ func (p Policy) ValidatePreparation(t exerciseModel.Topology, captureSupported b
 		return nil
 	}
 	missing := !captureSupported
+	// The snapshot is taken where the task asks for it: it suffices that one device of the lab keeps its state, the
+	// others are stopped without one (owner, 2026-10-31). A lab with devices and none that keeps state is refused.
+	nodes, persistent := 0, 0
 	for _, d := range t.Devices {
-		if !p.partialCapture && d.IsNode() && (d.Persistence == nil || !d.Persistence.Enabled) {
-			missing = true
+		if d.IsNode() {
+			nodes++
+			if d.Persistence != nil && d.Persistence.Enabled {
+				persistent++
+			}
 		}
+	}
+	if nodes > 0 && persistent == 0 {
+		missing = true
 	}
 	if missing {
 		return ErrCaptureUnavailable.Err()

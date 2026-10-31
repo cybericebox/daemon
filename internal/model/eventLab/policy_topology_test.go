@@ -36,5 +36,6 @@ func TestPolicyForTopology(t *testing.T) {
 	assert.Equal(t, "skip", skip.SnapshotMode, "the event's policy is not changed")
 
 	strict := eventLabModel.Policy{SnapshotMode: "required"}
-	require.ErrorIs(t, strict.ForTopology(mixed).ValidatePreparation(mixed, true), eventLabModel.ErrCaptureUnavailable.Err(), "an explicit required policy keeps its own rule")
+	require.NoError(t, strict.ForTopology(mixed).ValidatePreparation(mixed, true), "one device that keeps state is enough for an explicit required policy too")
+	require.ErrorIs(t, strict.ValidatePreparation(plain, true), eventLabModel.ErrCaptureUnavailable.Err(), "a lab with devices and none that keeps state is refused")
 }
