@@ -291,6 +291,13 @@ func invitationExpired(e eventModel.Event, p participantModel.Participant, now t
 	return !e.Lifecycle.RegistrationOpen(now) || (p.InvitedToTeam && !e.Lifecycle.RosterOpen(now))
 }
 
+// teamClosedToInvitees: a formed team takes no more members from invitations. A team forms when its captain confirms
+// it or, in an event that does not accept late joiners, at the start; from then on only an organizer changes the
+// roster.
+func teamClosedToInvitees(team eventTeamModel.EventTeam, e eventModel.Event, now time.Time) bool {
+	return team.Formed(e.Lifecycle.FormsTeamsAtStart(now))
+}
+
 // invitationAwaitingPublication: the event is not published yet, and its join
 // period (registration and roster alike) will be open at publication, so a
 // pending invitation becomes acceptable then. An event without a schedule has
@@ -465,6 +472,11 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 				return JoinInfoView{}, participantModel.ErrTeamInvitationUnavailable.Err()
 			}
 			return JoinInfoView{}, model.ErrPlatform.WithError(lookupErr).WithMessage("Failed to get invited team").Err()
+		}
+		if teamClosedToInvitees(invitedTeam, invitedEvent, time.Now()) {
+			// The captain marked the team formed (or the event formed it at the start): its unaccepted invitations
+			// are expired; only an organizer changes the roster now.
+			return JoinInfoView{}, participantModel.ErrInvitationExpired.Err()
 		}
 		if affected, addErr := teams.TryAddMember(txCtx, eventID, teamID, cfg.MaxTeamSize, time.Now()); addErr != nil {
 			return JoinInfoView{}, model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve invited team membership").Err()
