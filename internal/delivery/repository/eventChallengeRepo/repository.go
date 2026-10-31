@@ -44,7 +44,10 @@ type Queries interface {
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	SetEventExerciseChallengesPublished(ctx context.Context, arg postgres.SetEventExerciseChallengesPublishedParams) error
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
-	ListUnpublishedEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListUnpublishedEventChallengesRow, error)
+	ListUnpublishedEventChallenges(
+		ctx context.Context,
+		eventID uuid.UUID,
+	) ([]postgres.ListUnpublishedEventChallengesRow, error)
 }
 
 func (r *Repository) UpdateScoring(ctx context.Context, value eventChallengeModel.EventChallenge) (eventChallengeModel.EventChallenge, error) {
@@ -373,7 +376,10 @@ type Unpublished struct {
 }
 
 // UnpublishedForEvent lists the unpublished tasks of the event's active sets.
-func (r *Repository) UnpublishedForEvent(ctx context.Context, eventID uuid.UUID) ([]Unpublished, error) {
+func (r *Repository) UnpublishedForEvent(
+	ctx context.Context,
+	eventID uuid.UUID,
+) ([]Unpublished, error) {
 	rows, err := r.q.ListUnpublishedEventChallenges(ctx, eventID)
 	if err != nil {
 		return nil, err

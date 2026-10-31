@@ -33,9 +33,17 @@ type scheduleChangeResponse struct {
 }
 
 func toScheduleResponse(v eventUseCase.ScheduleView) scheduleResponse {
-	return scheduleResponse{JoinPolicy: v.JoinPolicy, PublishAt: v.PublishAt, StartAt: v.StartAt, FinishAt: v.FinishAt, WithdrawAt: v.WithdrawAt, ManualFinishedAt: v.ManualFinishedAt}
+	return scheduleResponse{
+		JoinPolicy:       v.JoinPolicy,
+		PublishAt:        v.PublishAt,
+		StartAt:          v.StartAt,
+		FinishAt:         v.FinishAt,
+		WithdrawAt:       v.WithdrawAt,
+		ManualFinishedAt: v.ManualFinishedAt,
+	}
 }
 
+// listScheduleChanges godoc
 // @Summary Who changed the event schedule, when, and from what to what
 // @Description The latest 200 recorded changes of the schedule (publication, start, finish, withdrawal, manual finish, join policy), newest first. Every change is recorded, including one made outside the application.
 // @Tags events
@@ -55,8 +63,19 @@ func (h *Handler) listScheduleChanges(ctx *gin.Context) {
 	}
 	out := make([]scheduleChangeResponse, 0, len(changes))
 	for _, c := range changes {
-		out = append(out, scheduleChangeResponse{ID: c.ID, ChangedAt: c.ChangedAt, ChangedBy: c.ChangedBy, ChangedByName: c.ChangedByName, ByApplication: c.ByApplication,
-			DBRole: c.DBRole, Before: toScheduleResponse(c.Before), After: toScheduleResponse(c.After)})
+		out = append(
+			out,
+			scheduleChangeResponse{
+				ID:            c.ID,
+				ChangedAt:     c.ChangedAt,
+				ChangedBy:     c.ChangedBy,
+				ChangedByName: c.ChangedByName,
+				ByApplication: c.ByApplication,
+				DBRole:        c.DBRole,
+				Before:        toScheduleResponse(c.Before),
+				After:         toScheduleResponse(c.After),
+			},
+		)
 	}
 	response.AbortWithData(ctx, out)
 }

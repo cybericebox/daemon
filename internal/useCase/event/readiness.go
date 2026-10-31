@@ -39,13 +39,18 @@ type ReadinessTaskView struct {
 }
 
 // GetEventReadiness collects the unpublished tasks and the stands that are not ready for the event.
-func (u *EventUseCase) GetEventReadiness(ctx context.Context, eventID uuid.UUID) (ReadinessView, error) {
+func (u *EventUseCase) GetEventReadiness(
+	ctx context.Context,
+	eventID uuid.UUID,
+) (ReadinessView, error) {
 	e, err := u.events.GetByID(ctx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return ReadinessView{}, eventModel.ErrEventNotFound.Err()
 		}
-		return ReadinessView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+		return ReadinessView{}, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to get event").
+			Err()
 	}
 	now := time.Now()
 	view := ReadinessView{UnpublishedTasks: []ReadinessTaskView{}, Stands: []StandTeamView{}}
@@ -55,10 +60,20 @@ func (u *EventUseCase) GetEventReadiness(ctx context.Context, eventID uuid.UUID)
 	}
 	tasks, err := u.eventChallenges.UnpublishedForEvent(ctx, eventID)
 	if err != nil {
-		return ReadinessView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list unpublished tasks").Err()
+		return ReadinessView{}, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to list unpublished tasks").
+			Err()
 	}
 	for _, task := range tasks {
-		view.UnpublishedTasks = append(view.UnpublishedTasks, ReadinessTaskView{ChallengeID: task.ID, Name: task.Name, ExerciseID: task.EventExerciseID, StageID: task.StageID})
+		view.UnpublishedTasks = append(
+			view.UnpublishedTasks,
+			ReadinessTaskView{
+				ChallengeID: task.ID,
+				Name:        task.Name,
+				ExerciseID:  task.EventExerciseID,
+				StageID:     task.StageID,
+			},
+		)
 	}
 	if e.InfrastructureAllowed {
 		stands, standsErr := u.GetEventStands(ctx, eventID)

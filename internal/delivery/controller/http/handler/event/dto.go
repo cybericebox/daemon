@@ -968,8 +968,18 @@ func toTeamResponse(v eventUseCase.TeamView) teamResponse {
 	}
 	invitations := make([]teamInvitationResponse, 0, len(v.PendingInvitations))
 	for _, i := range v.PendingInvitations {
-		invitations = append(invitations, teamInvitationResponse{UserID: i.UserID, Name: i.Name, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt,
-			InvitationExpired: i.InvitationExpired, InvitationAwaitingPublication: i.InvitationAwaitingPublication})
+		invitations = append(
+			invitations,
+			teamInvitationResponse{
+				UserID:                        i.UserID,
+				Name:                          i.Name,
+				Email:                         i.Email,
+				CreatedAt:                     i.CreatedAt,
+				InvitationSentAt:              i.InvitationSentAt,
+				InvitationExpired:             i.InvitationExpired,
+				InvitationAwaitingPublication: i.InvitationAwaitingPublication,
+			},
+		)
 	}
 	extra := v.ExtraFields
 	if extra == nil {

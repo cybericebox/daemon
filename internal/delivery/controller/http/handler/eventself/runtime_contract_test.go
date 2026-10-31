@@ -71,10 +71,23 @@ func TestParticipantRuntimeOmitsSchedulerDiagnostics(t *testing.T) {
 
 // A poll that refreshes the description addresses must never be answered from a cache.
 func TestParticipantRuntimeIsNeverCached(t *testing.T) {
-	eventID, userID, challengeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	h := NewEventSelfAPIHandler(runtimeContractUseCase{eventID: eventID, userID: userID, challengeID: challengeID}, allowAllProtection{})
+	eventID, userID, challengeID := uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	)
+	h := NewEventSelfAPIHandler(
+		runtimeContractUseCase{eventID: eventID, userID: userID, challengeID: challengeID},
+		allowAllProtection{},
+	)
 	w := httptest.NewRecorder()
-	participantPagesRouter(h, userID, eventID).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/teams/challenges/"+challengeID.String()+"/lab", nil))
+	participantPagesRouter(
+		h,
+		userID,
+		eventID,
+	).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/teams/challenges/"+challengeID.String()+"/lab", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("runtime status=%d body=%s", w.Code, w.Body.String())
 	}

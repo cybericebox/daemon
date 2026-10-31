@@ -90,7 +90,10 @@ type (
 
 	// Reservations reads the start of an event's resource reservation; ok is false without a reservation.
 	Reservations interface {
-		EventReservationStart(ctx context.Context, eventID uuid.UUID) (start time.Time, ok bool, err error)
+		EventReservationStart(
+			ctx context.Context,
+			eventID uuid.UUID,
+		) (start time.Time, ok bool, err error)
 	}
 
 	EventAnalyticsUseCase struct {
@@ -121,7 +124,8 @@ func New(deps Dependencies) *EventAnalyticsUseCase {
 		settle = 15 * time.Second
 	}
 	return &EventAnalyticsUseCase{
-		store: deps.Store, events: deps.Events, configs: deps.Configs, memberships: deps.Memberships, labTraffic: deps.LabTraffic, reservations: deps.Reservations,
-		cache: newReportCache(now), now: now, newID: newID, settle: settle,
+		store: deps.Store, events: deps.Events, configs: deps.Configs, memberships: deps.Memberships,
+		labTraffic: deps.LabTraffic, reservations: deps.Reservations, cache: newReportCache(now),
+		now: now, newID: newID, settle: settle,
 	}
 }

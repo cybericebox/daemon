@@ -22,12 +22,41 @@ func TestEventAnalytics_Submissions(t *testing.T) {
 
 	anAttempt(t, db, f, f.team, f.teamChallenge, false, anStart.Add(10*time.Minute))
 	anAttempt(t, db, f, f.team, f.teamChallenge, true, anStart.Add(20*time.Minute))
-	anAttempt(t, db, f, f.team, f.teamChallenge, true, anStart.Add(30*time.Minute)) // a later repeat is not the first
+	anAttempt(
+		t,
+		db,
+		f,
+		f.team,
+		f.teamChallenge,
+		true,
+		anStart.Add(30*time.Minute),
+	) // a later repeat is not the first
 	anAttempt(t, db, f, f.moderators, f.modChallenge, true, anStart.Add(5*time.Minute))
-	rtExec(t, db, `INSERT INTO team_challenge_solves (team_challenge_id, solved_at) VALUES ($1, $2)`, f.teamChallenge, anStart.Add(20*time.Minute))
-	rtExec(t, db, `UPDATE challenge_attempts SET user_id = $2 WHERE team_challenge_id = $1 AND received_at = $3`, f.teamChallenge, other, anStart.Add(10*time.Minute))
-	rtExec(t, db, `INSERT INTO event_activity (event_id, team_id, user_id, kind, subject_id, at) SELECT $1, $2, $3, 'task_opened', tc.event_challenge_id, $4 FROM team_challenges tc WHERE tc.id = $5`,
-		f.event, f.team, f.user, anStart.Add(5*time.Minute), f.teamChallenge)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO team_challenge_solves (team_challenge_id, solved_at) VALUES ($1, $2)`,
+		f.teamChallenge,
+		anStart.Add(20*time.Minute),
+	)
+	rtExec(
+		t,
+		db,
+		`UPDATE challenge_attempts SET user_id = $2 WHERE team_challenge_id = $1 AND received_at = $3`,
+		f.teamChallenge,
+		other,
+		anStart.Add(10*time.Minute),
+	)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO event_activity (event_id, team_id, user_id, kind, subject_id, at) SELECT $1, $2, $3, 'task_opened', tc.event_challenge_id, $4 FROM team_challenges tc WHERE tc.id = $5`,
+		f.event,
+		f.team,
+		f.user,
+		anStart.Add(5*time.Minute),
+		f.teamChallenge,
+	)
 
 	rows, err := repo.Submissions(ctx, f.event)
 	require.NoError(t, err)
@@ -39,6 +68,11 @@ func TestEventAnalytics_Submissions(t *testing.T) {
 	require.WithinDuration(t, anStart, row.EventStartAt, time.Second)
 	require.NotNil(t, row.FirstOpenAt)
 	require.WithinDuration(t, anStart.Add(5*time.Minute), *row.FirstOpenAt, time.Second)
-	require.EqualValues(t, 0, row.ParticipantWrong, "the earlier wrong attempt was another participant's")
+	require.EqualValues(
+		t,
+		0,
+		row.ParticipantWrong,
+		"the earlier wrong attempt was another participant's",
+	)
 	require.EqualValues(t, 1, row.TeamWrong)
 }

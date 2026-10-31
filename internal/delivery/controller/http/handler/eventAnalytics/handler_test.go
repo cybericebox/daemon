@@ -56,7 +56,10 @@ func (f *fakeUseCase) GetEventAnalyticsUsage(_ context.Context, _ uuid.UUID, tea
 	return f.usage, nil
 }
 
-func (f *fakeUseCase) GetEventAnalyticsSubmissions(context.Context, uuid.UUID) (eventAnalyticsUseCase.SubmissionsView, error) {
+func (f *fakeUseCase) GetEventAnalyticsSubmissions(
+	context.Context,
+	uuid.UUID,
+) (eventAnalyticsUseCase.SubmissionsView, error) {
 	return f.submitted, nil
 }
 func (f *fakeUseCase) GetEventAnalyticsParticipants(context.Context, uuid.UUID, *time.Time, *time.Time) (eventAnalyticsUseCase.ParticipantsView, error) {
@@ -288,20 +291,39 @@ func TestDropOffAddressesMaskedWithoutThePeopleAccess(t *testing.T) {
 // masked, in the report and in its CSV; the teams, tasks and numbers stay.
 func TestSubmissionsHidePeopleWithoutThePeopleAccess(t *testing.T) {
 	user := uuid.Must(uuid.NewV7())
-	submitted := eventAnalyticsUseCase.SubmissionsView{Items: []eventAnalyticsUseCase.SubmissionView{{
-		UserID: user, ParticipantName: "Олена Коваленко", Email: "olena@example.com", TeamName: "Red", ChallengeName: "Web", MinutesFromStart: 25, TeamWrong: 2,
-	}}}
+	submitted := eventAnalyticsUseCase.SubmissionsView{
+		Items: []eventAnalyticsUseCase.SubmissionView{
+			{
+				UserID:           user,
+				ParticipantName:  "Олена Коваленко",
+				Email:            "olena@example.com",
+				TeamName:         "Red",
+				ChallengeName:    "Web",
+				MinutesFromStart: 25,
+				TeamWrong:        2,
+			},
+		},
+	}
 	for _, people := range []bool{false, true} {
 		uc := &fakeUseCase{people: people, submitted: submitted}
 		base := "/api/events/" + uuid.Must(uuid.NewV7()).String() + "/manage/analytics/submissions"
 		for _, target := range []string{base, base + "/export.csv"} {
 			w := serve(t, uc, target)
 			if w.Code != http.StatusOK {
-				t.Fatalf("people=%v %s: status = %d body = %s", people, target, w.Code, w.Body.String())
+				t.Fatalf(
+					"people=%v %s: status = %d body = %s",
+					people,
+					target,
+					w.Code,
+					w.Body.String(),
+				)
 			}
 			out := w.Body.Bytes()
-			sees := bytes.Contains(out, []byte("olena@example.com")) || bytes.Contains(out, []byte("Олена")) || bytes.Contains(out, []byte(user.String()))
-			if sees != people || !bytes.Contains(out, []byte("Red")) || !bytes.Contains(out, []byte("Web")) {
+			sees := bytes.Contains(out, []byte("olena@example.com")) ||
+				bytes.Contains(out, []byte("Олена")) ||
+				bytes.Contains(out, []byte(user.String()))
+			if sees != people || !bytes.Contains(out, []byte("Red")) ||
+				!bytes.Contains(out, []byte("Web")) {
 				t.Fatalf("people=%v %s: body %s", people, target, w.Body.String())
 			}
 			if !people && !bytes.Contains(out, []byte("o***@example.com")) {

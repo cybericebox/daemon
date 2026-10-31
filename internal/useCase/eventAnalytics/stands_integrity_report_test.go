@@ -201,10 +201,15 @@ type eventAnalyticsStore = eventAnalytics.Store
 
 type periodSpy struct {
 	*sectionsStore
+
 	got eventAnalyticsModel.Period
 }
 
-func (s *periodSpy) StandResources(_ context.Context, _ uuid.UUID, p eventAnalyticsModel.Period) ([]eventAnalyticsRepo.StandResources, error) {
+func (s *periodSpy) StandResources(
+	_ context.Context,
+	_ uuid.UUID,
+	p eventAnalyticsModel.Period,
+) ([]eventAnalyticsRepo.StandResources, error) {
 	s.got = p
 	return nil, nil
 }
@@ -224,8 +229,12 @@ func TestGetEventAnalyticsStands_PeriodStartsWithTheReservation(t *testing.T) {
 	reserved := event.Lifecycle.StartAt.Add(-3 * time.Hour)
 	spy := &periodSpy{sectionsStore: &sectionsStore{fakeStore: &fakeStore{}}}
 	uc := eventAnalytics.New(eventAnalytics.Dependencies{
-		Store: spy, Events: fakeEvents{event}, Configs: fakeConfigs{}, Memberships: fakeMemberships{},
-		Reservations: reservationAt{start: reserved}, Now: func() time.Time { return clock },
+		Store:        spy,
+		Events:       fakeEvents{event},
+		Configs:      fakeConfigs{},
+		Memberships:  fakeMemberships{},
+		Reservations: reservationAt{start: reserved},
+		Now:          func() time.Time { return clock },
 	})
 
 	_, err := uc.GetEventAnalyticsStands(context.Background(), event.ID, nil, nil)

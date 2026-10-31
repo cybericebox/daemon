@@ -31,6 +31,7 @@ type readinessTaskResponse struct {
 	StageID     *uuid.UUID `json:"StageID"`
 }
 
+// getReadiness godoc
 // @Summary Readiness of the event: unpublished tasks and stands that are not ready
 // @Description One look before the start: the tasks participants still do not see and the stands that are not ready, with what each lab waits for.
 // @Tags events
@@ -49,13 +50,25 @@ func (h *Handler) getReadiness(ctx *gin.Context) {
 		return
 	}
 	out := readinessResponse{
-		Ready: view.Ready, StartAt: view.StartAt, Started: view.Started,
+		Ready:            view.Ready,
+		StartAt:          view.StartAt,
+		Started:          view.Started,
 		UnpublishedTasks: make([]readinessTaskResponse, 0, len(view.UnpublishedTasks)),
-		StandsApplicable: view.StandsApplicable, StandsTotal: view.StandsTotal, StandsReady: view.StandsReady,
-		Stands: make([]standTeamResponse, 0, len(view.Stands)),
+		StandsApplicable: view.StandsApplicable,
+		StandsTotal:      view.StandsTotal,
+		StandsReady:      view.StandsReady,
+		Stands:           make([]standTeamResponse, 0, len(view.Stands)),
 	}
 	for _, task := range view.UnpublishedTasks {
-		out.UnpublishedTasks = append(out.UnpublishedTasks, readinessTaskResponse{ChallengeID: task.ChallengeID, Name: task.Name, ExerciseID: task.ExerciseID, StageID: task.StageID})
+		out.UnpublishedTasks = append(
+			out.UnpublishedTasks,
+			readinessTaskResponse{
+				ChallengeID: task.ChallengeID,
+				Name:        task.Name,
+				ExerciseID:  task.ExerciseID,
+				StageID:     task.StageID,
+			},
+		)
 	}
 	for _, item := range view.Stands {
 		out.Stands = append(out.Stands, toStandTeamResponse(item))

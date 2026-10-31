@@ -27,9 +27,23 @@ type teamCopyDiffResponse struct {
 }
 
 func toTeamCopiesResponse(v eventUseCase.TeamCopiesView) teamCopiesResponse {
-	out := teamCopiesResponse{Total: v.Total, Outdated: v.Outdated, Items: make([]teamCopyDiffResponse, 0, len(v.Items))}
+	out := teamCopiesResponse{
+		Total:    v.Total,
+		Outdated: v.Outdated,
+		Items:    make([]teamCopyDiffResponse, 0, len(v.Items)),
+	}
 	for _, item := range v.Items {
-		out.Items = append(out.Items, teamCopyDiffResponse{TeamID: item.TeamID, TeamName: item.TeamName, ChallengeID: item.ChallengeID, ChallengeName: item.ChallengeName, Differs: item.Differs, Solved: item.Solved})
+		out.Items = append(
+			out.Items,
+			teamCopyDiffResponse{
+				TeamID:        item.TeamID,
+				TeamName:      item.TeamName,
+				ChallengeID:   item.ChallengeID,
+				ChallengeName: item.ChallengeName,
+				Differs:       item.Differs,
+				Solved:        item.Solved,
+			},
+		)
 	}
 	return out
 }
@@ -47,6 +61,7 @@ func parseEventExerciseIDs(ctx *gin.Context) (uuid.UUID, uuid.UUID, bool) {
 	return eventID, exerciseID, true
 }
 
+// getTeamCopies godoc
 // @Summary Team copies of a set's tasks that differ from the task now
 // @Description Compares every team copy with the task of the version the set is pinned to (for the variant the team plays) and lists the copies that differ: text, attachments, hints.
 // @Tags events
@@ -68,6 +83,7 @@ func (h *Handler) getTeamCopies(ctx *gin.Context) {
 	response.AbortWithData(ctx, toTeamCopiesResponse(view))
 }
 
+// syncTeamCopies godoc
 // @Summary Bring the differing team copies of a set up to date
 // @Description Refreshes text, attachments and hints of the differing copies from the pinned version and marks them updated on the board. The variant and the flag stay; solved copies are left alone. Returns what was updated.
 // @Tags events

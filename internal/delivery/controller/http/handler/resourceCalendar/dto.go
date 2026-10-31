@@ -491,7 +491,10 @@ func eventResources(v calUseCase.OrganizerReservationView) eventResourcesDTO {
 		Unplaced: v.Unplaced, Units: make([]organizerUnitDTO, 0, len(v.Units)),
 	}
 	for _, unit := range v.Units {
-		out.Units = append(out.Units, organizerUnitDTO{TeamID: unit.TeamID, EndsAt: unit.EndsAt, Ended: unit.Ended})
+		out.Units = append(
+			out.Units,
+			organizerUnitDTO{TeamID: unit.TeamID, EndsAt: unit.EndsAt, Ended: unit.Ended},
+		)
 	}
 	for _, c := range v.Changes {
 		out.Changes = append(out.Changes, organizerChange(c))

@@ -43,12 +43,24 @@ type (
 )
 
 func toSubmissionsResponse(v eventAnalyticsUseCase.SubmissionsView) submissionsResponse {
-	out := submissionsResponse{Note: eventAnalyticsUseCase.SubmissionNote, Items: make([]submissionResponse, 0, len(v.Items))}
+	out := submissionsResponse{
+		Note:  eventAnalyticsUseCase.SubmissionNote,
+		Items: make([]submissionResponse, 0, len(v.Items)),
+	}
 	for _, s := range v.Items {
 		out.Items = append(out.Items, submissionResponse{
-			TeamID: s.TeamID, TeamName: s.TeamName, ChallengeID: s.ChallengeID, ChallengeName: s.ChallengeName, UserID: s.UserID,
-			ParticipantName: s.ParticipantName, Email: s.Email, SubmittedAt: s.SubmittedAt, MinutesFromStart: s.MinutesFromStart,
-			MinutesFromOpen: s.MinutesFromOpen, ParticipantWrong: s.ParticipantWrong, TeamWrong: s.TeamWrong,
+			TeamID:           s.TeamID,
+			TeamName:         s.TeamName,
+			ChallengeID:      s.ChallengeID,
+			ChallengeName:    s.ChallengeName,
+			UserID:           s.UserID,
+			ParticipantName:  s.ParticipantName,
+			Email:            s.Email,
+			SubmittedAt:      s.SubmittedAt,
+			MinutesFromStart: s.MinutesFromStart,
+			MinutesFromOpen:  s.MinutesFromOpen,
+			ParticipantWrong: s.ParticipantWrong,
+			TeamWrong:        s.TeamWrong,
 		})
 	}
 	return out
@@ -128,10 +140,37 @@ func (h *Handler) exportSubmissions(ctx *gin.Context) {
 	w := startAnalyticsCSV(ctx, "submissions")
 	n := func(x int64) string { return strconv.FormatInt(x, 10) }
 	_ = w.Write([]string{submissionsNoteText})
-	_ = w.Write([]string{"Учасник", "Пошта", "Команда", "Завдання", "Здано (UTC)", "Хвилин від старту", "Хвилин від відкриття завдання", "Хибних спроб учасника", "Хибних спроб команди"})
+	_ = w.Write(submissionsCSVHeader())
 	for _, s := range v.Items {
-		_ = w.Write([]string{csvCellText(s.ParticipantName), csvCellText(s.Email), csvCellText(s.TeamName), csvCellText(s.ChallengeName),
-			csvTimePtr(&s.SubmittedAt), n(s.MinutesFromStart), csvSeconds(s.MinutesFromOpen), n(s.ParticipantWrong), n(s.TeamWrong)})
+		_ = w.Write(
+			[]string{
+				csvCellText(s.ParticipantName),
+				csvCellText(s.Email),
+				csvCellText(s.TeamName),
+				csvCellText(s.ChallengeName),
+				csvTimePtr(
+					&s.SubmittedAt,
+				),
+				n(s.MinutesFromStart),
+				csvSeconds(s.MinutesFromOpen),
+				n(s.ParticipantWrong),
+				n(s.TeamWrong),
+			},
+		)
 	}
 	w.Flush()
+}
+
+// CSV column titles of the submissions export.
+const (
+	columnParticipant = "Учасник"
+	columnTeam        = "Команда"
+	columnTask        = "Завдання"
+)
+
+func submissionsCSVHeader() []string {
+	return []string{
+		columnParticipant, "Пошта", columnTeam, columnTask, "Здано (UTC)", "Хвилин від старту",
+		"Хвилин від відкриття завдання", "Хибних спроб учасника", "Хибних спроб команди",
+	}
 }

@@ -241,21 +241,33 @@ type SubmissionView struct {
 }
 
 // GetEventAnalyticsSubmissions is the per-participant submission report (K15).
-func (u *EventAnalyticsUseCase) GetEventAnalyticsSubmissions(ctx context.Context, eventID uuid.UUID) (SubmissionsView, error) {
+func (u *EventAnalyticsUseCase) GetEventAnalyticsSubmissions(
+	ctx context.Context,
+	eventID uuid.UUID,
+) (SubmissionsView, error) {
 	if _, err := u.event(ctx, eventID); err != nil {
 		return SubmissionsView{}, err
 	}
 	rows, err := u.store.Submissions(ctx, eventID)
 	if err != nil {
-		return SubmissionsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read submissions").Err()
+		return SubmissionsView{}, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to read submissions").
+			Err()
 	}
 	view := SubmissionsView{Items: make([]SubmissionView, 0, len(rows))}
 	for _, r := range rows {
 		item := SubmissionView{
-			TeamID: r.TeamID, ChallengeID: r.ChallengeID, UserID: r.UserID, TeamName: r.TeamName, ChallengeName: r.ChallengeName,
-			ParticipantName: r.ParticipantName, Email: r.Email, SubmittedAt: r.SubmittedAt,
+			TeamID:           r.TeamID,
+			ChallengeID:      r.ChallengeID,
+			UserID:           r.UserID,
+			TeamName:         r.TeamName,
+			ChallengeName:    r.ChallengeName,
+			ParticipantName:  r.ParticipantName,
+			Email:            r.Email,
+			SubmittedAt:      r.SubmittedAt,
 			MinutesFromStart: max(0, int64(r.SubmittedAt.Sub(r.EventStartAt)/time.Minute)),
-			ParticipantWrong: r.ParticipantWrong, TeamWrong: r.TeamWrong,
+			ParticipantWrong: r.ParticipantWrong,
+			TeamWrong:        r.TeamWrong,
 		}
 		if r.FirstOpenAt != nil && !r.FirstOpenAt.After(r.SubmittedAt) {
 			minutes := int64(r.SubmittedAt.Sub(*r.FirstOpenAt) / time.Minute)

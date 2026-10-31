@@ -370,7 +370,10 @@ func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calMode
 }
 
 // organizerUnits lists the team units that have a place in the reservation with the state of their part.
-func (u *ResourceCalendarUseCase) organizerUnits(ctx context.Context, r *calModel.Reservation) ([]OrganizerUnitView, error) {
+func (u *ResourceCalendarUseCase) organizerUnits(
+	ctx context.Context,
+	r *calModel.Reservation,
+) ([]OrganizerUnitView, error) {
 	units, err := u.store.Units(ctx, r.ID)
 	if err != nil {
 		return nil, platformErr(err, "Failed to read the units of the reservation")

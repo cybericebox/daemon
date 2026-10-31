@@ -26,7 +26,11 @@ type toolsTokens struct {
 	revoked []uuid.UUID
 }
 
-func (t *toolsTokens) GenerateSetupToken(_ context.Context, userID uuid.UUID, _ time.Duration) (string, error) {
+func (t *toolsTokens) GenerateSetupToken(
+	_ context.Context,
+	userID uuid.UUID,
+	_ time.Duration,
+) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.issued = append(t.issued, userID)
@@ -52,11 +56,20 @@ type toolsFixture struct {
 
 func newToolsFixture(t *testing.T) *toolsFixture {
 	t.Helper()
-	f := &toolsFixture{standFixture: newStandFixture(t), tokens: &toolsTokens{}, notifier: &invitationNotifier{}}
+	f := &toolsFixture{
+		standFixture: newStandFixture(t),
+		tokens:       &toolsTokens{},
+		notifier:     &invitationNotifier{},
+	}
 	f.uc = event.NewEventUseCase(event.Dependencies{
-		Repo: f.db.Queries, UoW: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(f.db.Pool)),
+		Repo: f.db.Queries,
+		UoW: postgres.NewUnitOfWorker[event.IRepository](
+			postgres.NewUoWFactory(f.db.Pool),
+		),
 		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now),
-		EventDomain:      "example.test", IDHost: "id.example.test", SetupTokens: f.tokens,
+		EventDomain:      "example.test",
+		IDHost:           "id.example.test",
+		SetupTokens:      f.tokens,
 	})
 	f.uc.SetInvitationNotifier(f.notifier)
 	return f
@@ -64,7 +77,8 @@ func newToolsFixture(t *testing.T) *toolsFixture {
 
 func (f *toolsFixture) user(t *testing.T, email string) uuid.UUID {
 	t.Helper()
-	u, err := userRepo.New(f.db.Queries).Create(context.Background(), userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), email, time.Now()))
+	u, err := userRepo.New(f.db.Queries).
+		Create(context.Background(), userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), email, time.Now()))
 	require.NoError(t, err)
 	return u.ID
 }
@@ -74,9 +88,14 @@ func (f *toolsFixture) approved(t *testing.T, email string) uuid.UUID {
 	t.Helper()
 	id := f.user(t, email)
 	now := time.Now()
-	_, ok, err := participantRepo.New(f.db.Queries).Upsert(context.Background(), participantModel.Participant{
-		EventID: f.eventID, UserID: id, Status: participantModel.StatusApproved, CreatedAt: now, DecidedAt: &now,
-	})
+	_, ok, err := participantRepo.New(f.db.Queries).
+		Upsert(context.Background(), participantModel.Participant{
+			EventID:   f.eventID,
+			UserID:    id,
+			Status:    participantModel.StatusApproved,
+			CreatedAt: now,
+			DecidedAt: &now,
+		})
 	require.NoError(t, err)
 	require.True(t, ok)
 	return id
@@ -105,9 +124,16 @@ func (f *toolsFixture) newTeam(t *testing.T, name string) (uuid.UUID, uuid.UUID)
 // member adds an approved member to the team.
 func (f *toolsFixture) member(t *testing.T, teamID uuid.UUID, email string) uuid.UUID {
 	t.Helper()
-	require.NoError(t, f.uc.AssignParticipantToTeam(context.Background(), f.eventID, teamID, f.approved(t, email)))
+	require.NoError(
+		t,
+		f.uc.AssignParticipantToTeam(context.Background(), f.eventID, teamID, f.approved(t, email)),
+	)
 	var id uuid.UUID
-	require.NoError(t, f.db.Pool.QueryRow(context.Background(), `SELECT id FROM users WHERE email = $1`, email).Scan(&id))
+	require.NoError(
+		t,
+		f.db.Pool.QueryRow(context.Background(), `SELECT id FROM users WHERE email = $1`, email).
+			Scan(&id),
+	)
 	return id
 }
 
@@ -116,8 +142,12 @@ func (f *toolsFixture) placement(t *testing.T, userID uuid.UUID) (*uuid.UUID, *i
 	var teamID *uuid.UUID
 	var role *int16
 	var status int16
-	require.NoError(t, f.db.Pool.QueryRow(context.Background(),
-		`SELECT team_id, team_role, status FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, userID).Scan(&teamID, &role, &status))
+	require.NoError(t, f.db.Pool.QueryRow(
+		context.Background(),
+		`SELECT team_id, team_role, status FROM event_participants WHERE event_id = $1 AND user_id = $2`,
+		f.eventID,
+		userID,
+	).Scan(&teamID, &role, &status))
 	return teamID, role, status
 }
 
@@ -147,7 +177,12 @@ func TestOrganizerMovesAMemberBetweenFormedTeamsAfterTheStart(t *testing.T) {
 	require.NotNil(t, team)
 	require.Equal(t, blueID, *team)
 	require.EqualValues(t, participantModel.TeamRoleMember, *role)
-	require.EqualValues(t, participantModel.StatusApproved, status, "a move keeps the person in the event")
+	require.EqualValues(
+		t,
+		participantModel.StatusApproved,
+		status,
+		"a move keeps the person in the event",
+	)
 	require.Equal(t, 1, f.memberCount(t, redID))
 	require.Equal(t, 2, f.memberCount(t, blueID))
 
@@ -164,7 +199,12 @@ func TestMovingNeedsAMemberASeatAndARealTarget(t *testing.T) {
 	member := f.member(t, redID, "walker@tools.test")
 
 	err := f.uc.MoveParticipantToTeam(ctx, f.eventID, redCaptain, blueID)
-	require.ErrorIs(t, err, eventTeamModel.ErrEventTeamCaptainMustTransfer.Err(), "the captain hands over the captaincy first")
+	require.ErrorIs(
+		t,
+		err,
+		eventTeamModel.ErrEventTeamCaptainMustTransfer.Err(),
+		"the captain hands over the captaincy first",
+	)
 
 	err = f.uc.MoveParticipantToTeam(ctx, f.eventID, member, uuid.Must(uuid.NewV7()))
 	require.ErrorIs(t, err, eventTeamModel.ErrEventTeamNotFound.Err())
@@ -172,17 +212,31 @@ func TestMovingNeedsAMemberASeatAndARealTarget(t *testing.T) {
 	require.Equal(t, redID, *team, "a failed move leaves the person where they were")
 	require.Equal(t, 2, f.memberCount(t, redID))
 
-	_, err = f.db.Pool.Exec(ctx, `UPDATE event_configs SET max_team_size = 2 WHERE event_id = $1`, f.eventID)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_configs SET max_team_size = 2 WHERE event_id = $1`,
+		f.eventID,
+	)
 	require.NoError(t, err)
 	f.member(t, blueID, "blue-two@tools.test")
 	err = f.uc.MoveParticipantToTeam(ctx, f.eventID, member, blueID)
 	require.ErrorIs(t, err, eventTeamModel.ErrEventTeamFull.Err())
 	team, _, _ = f.placement(t, member)
 	require.Equal(t, redID, *team)
-	require.Equal(t, 2, f.memberCount(t, redID), "the source count is not touched by a refused move")
+	require.Equal(
+		t,
+		2,
+		f.memberCount(t, redID),
+		"the source count is not touched by a refused move",
+	)
 
 	err = f.uc.MoveParticipantToTeam(ctx, f.eventID, f.approved(t, "loner@tools.test"), blueID)
-	require.ErrorIs(t, err, participantModel.ErrParticipantTeamInvalid.Err(), "someone without a team is assigned, not moved")
+	require.ErrorIs(
+		t,
+		err,
+		participantModel.ErrParticipantTeamInvalid.Err(),
+		"someone without a team is assigned, not moved",
+	)
 }
 
 func TestAssigningAMemberOfAnotherTeamMovesThem(t *testing.T) {
@@ -191,7 +245,10 @@ func TestAssigningAMemberOfAnotherTeamMovesThem(t *testing.T) {
 	blueID, _ := f.newTeam(t, "Bravo")
 	member := f.member(t, redID, "walker@tools.test")
 
-	require.NoError(t, f.uc.AssignParticipantToTeam(context.Background(), f.eventID, blueID, member))
+	require.NoError(
+		t,
+		f.uc.AssignParticipantToTeam(context.Background(), f.eventID, blueID, member),
+	)
 
 	team, _, _ := f.placement(t, member)
 	require.Equal(t, blueID, *team)
@@ -217,20 +274,41 @@ func TestOrganizerChangesTheCaptainToAMemberOrAPendingInvitee(t *testing.T) {
 
 	// someone who is neither a member nor invited to this team cannot lead it
 	outsider := f.approved(t, "outsider@tools.test")
-	require.ErrorIs(t, f.uc.TransferManagedTeamCaptaincy(ctx, f.eventID, teamID, outsider), eventTeamModel.ErrEventTeamCaptainInvalid.Err())
+	require.ErrorIs(
+		t,
+		f.uc.TransferManagedTeamCaptaincy(ctx, f.eventID, teamID, outsider),
+		eventTeamModel.ErrEventTeamCaptainInvalid.Err(),
+	)
 
 	// a pending invitee of the team takes the seat on accepting
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "invitee@tools.test"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "invitee@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	require.Empty(t, results[0].Code)
 	invitee := results[0].UserID
 	require.NoError(t, f.uc.TransferManagedTeamCaptaincy(ctx, f.eventID, teamID, invitee))
 	_, role, _ = f.placement(t, member)
-	require.EqualValues(t, participantModel.TeamRoleMember, *role, "the former captain becomes a member")
+	require.EqualValues(
+		t,
+		participantModel.TeamRoleMember,
+		*role,
+		"the former captain becomes a member",
+	)
 	_, err = f.uc.AcceptParticipantInvitationFor(ctx, f.eventID, invitee, f.ownerID)
 	require.NoError(t, err)
 	_, role, _ = f.placement(t, invitee)
-	require.EqualValues(t, participantModel.TeamRoleCaptain, *role, "accepting takes the captain's seat")
+	require.EqualValues(
+		t,
+		participantModel.TeamRoleCaptain,
+		*role,
+		"accepting takes the captain's seat",
+	)
 }
 
 // A team an organizer built around a captain who has not accepted yet: the captain is only invited, so there is no
@@ -240,7 +318,8 @@ func TestChangingThePendingCaptainOfATeamNeedsNoSeatToGiveUp(t *testing.T) {
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
 	pendingCaptain := f.user(t, "pending-captain@tools.test")
-	_, ok, err := participantRepo.New(f.db.Queries).Invite(ctx, f.eventID, pendingCaptain, f.ownerID, uuid.NullUUID{UUID: teamID, Valid: true}, time.Now())
+	_, ok, err := participantRepo.New(f.db.Queries).
+		Invite(ctx, f.eventID, pendingCaptain, f.ownerID, uuid.NullUUID{UUID: teamID, Valid: true}, time.Now())
 	require.NoError(t, err)
 	require.True(t, ok)
 	team, err := eventTeamRepo.New(f.db.Queries).GetByID(ctx, f.eventID, teamID)
@@ -266,14 +345,26 @@ func TestOrganizerAcceptsAnInvitationForTheInvitedPersonWhateverTheWindow(t *tes
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "late@tools.test"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "late@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	invitee := results[0].UserID
 	// the event is over: registration is closed and the team is formed
 	f.shiftLifecycle(t, -3*time.Hour, -time.Hour)
 
 	_, err = f.uc.AcceptParticipantInvitation(ctx, f.eventID, invitee)
-	require.ErrorIs(t, err, participantModel.ErrInvitationExpired.Err(), "the person themselves are time-limited")
+	require.ErrorIs(
+		t,
+		err,
+		participantModel.ErrInvitationExpired.Err(),
+		"the person themselves are time-limited",
+	)
 
 	view, err := f.uc.AcceptParticipantInvitationFor(ctx, f.eventID, invitee, f.ownerID)
 	require.NoError(t, err)
@@ -285,18 +376,28 @@ func TestOrganizerAcceptsAnInvitationForTheInvitedPersonWhateverTheWindow(t *tes
 	require.Equal(t, 2, f.memberCount(t, teamID))
 
 	_, err = f.uc.AcceptParticipantInvitationFor(ctx, f.eventID, invitee, f.ownerID)
-	require.ErrorIs(t, err, participantModel.ErrInvitationRequired.Err(), "nothing is pending any more")
+	require.ErrorIs(
+		t,
+		err,
+		participantModel.ErrInvitationRequired.Err(),
+		"nothing is pending any more",
+	)
 }
 
 func TestAcceptingForSomeoneStillRespectsTheTeamSize(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
-	_, err := f.db.Pool.Exec(ctx, `UPDATE event_configs SET max_team_size = 2 WHERE event_id = $1`, f.eventID)
+	_, err := f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_configs SET max_team_size = 2 WHERE event_id = $1`,
+		f.eventID,
+	)
 	require.NoError(t, err)
 	f.member(t, teamID, "walker@tools.test")
 	invitee := f.user(t, "extra@tools.test")
-	_, ok, err := participantRepo.New(f.db.Queries).Invite(ctx, f.eventID, invitee, f.ownerID, uuid.NullUUID{UUID: teamID, Valid: true}, time.Now())
+	_, ok, err := participantRepo.New(f.db.Queries).
+		Invite(ctx, f.eventID, invitee, f.ownerID, uuid.NullUUID{UUID: teamID, Valid: true}, time.Now())
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -304,66 +405,151 @@ func TestAcceptingForSomeoneStillRespectsTheTeamSize(t *testing.T) {
 
 	require.ErrorIs(t, err, eventTeamModel.ErrEventTeamFull.Err())
 	_, _, status := f.placement(t, invitee)
-	require.EqualValues(t, participantModel.StatusPending, status, "a refused acceptance leaves the invitation pending")
+	require.EqualValues(
+		t,
+		participantModel.StatusPending,
+		status,
+		"a refused acceptance leaves the invitation pending",
+	)
 }
 
 func TestOrganizerRevokesAnInviteAndAPendingCaptainHandsTheTeamToTheNext(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, captain := f.newTeam(t, "Alpha")
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "gone@tools.test"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "gone@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	gone := results[0].UserID
 
 	require.NoError(t, f.uc.RevokeParticipantInvitation(ctx, f.eventID, gone, f.ownerID))
-	require.Zero(t, f.count(t, `SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, gone))
-	require.ErrorIs(t, f.uc.RevokeParticipantInvitation(ctx, f.eventID, gone, f.ownerID), participantModel.ErrInvitationRequired.Err())
+	require.Zero(
+		t,
+		f.count(
+			t,
+			`SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2`,
+			f.eventID,
+			gone,
+		),
+	)
+	require.ErrorIs(
+		t,
+		f.uc.RevokeParticipantInvitation(ctx, f.eventID, gone, f.ownerID),
+		participantModel.ErrInvitationRequired.Err(),
+	)
 
 	// an accepted participant is not an invitation
-	require.ErrorIs(t, f.uc.RevokeParticipantInvitation(ctx, f.eventID, captain, f.ownerID), participantModel.ErrInvitationRequired.Err())
+	require.ErrorIs(
+		t,
+		f.uc.RevokeParticipantInvitation(ctx, f.eventID, captain, f.ownerID),
+		participantModel.ErrInvitationRequired.Err(),
+	)
 }
 
 func TestChangingTheEmailOfAPendingInvitationMovesItAndKillsTheOldLink(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "typo@tools.test", FirstName: "Ira", LastName: "Koval"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{
+			{Email: "typo@tools.test", FirstName: "Ira", LastName: "Koval"},
+		},
+		true,
+	)
 	require.NoError(t, err)
 	wrong := results[0].UserID
 
-	result, err := f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, wrong, f.ownerID, "  Right@Tools.Test ", false)
+	result, err := f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		wrong,
+		f.ownerID,
+		"  Right@Tools.Test ",
+		false,
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, "right@tools.test", result.Email)
 	require.NotEqual(t, wrong, result.UserID)
 	require.NotNil(t, result.SentAt)
-	require.Zero(t, f.count(t, `SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, wrong), "the wrong address holds no invitation")
+	require.Zero(
+		t,
+		f.count(
+			t,
+			`SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2`,
+			f.eventID,
+			wrong,
+		),
+		"the wrong address holds no invitation",
+	)
 	team, _, status := f.placement(t, result.UserID)
 	require.Nil(t, team)
 	require.EqualValues(t, participantModel.StatusPending, status)
 	var invitedTeam uuid.UUID
 	var invitedToTeam bool
-	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT invited_team_id, invited_to_team FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, result.UserID).Scan(&invitedTeam, &invitedToTeam))
+	require.NoError(
+		t,
+		f.db.Pool.QueryRow(ctx, `SELECT invited_team_id, invited_to_team FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, result.UserID).
+			Scan(&invitedTeam, &invitedToTeam),
+	)
 	require.True(t, invitedToTeam)
 	require.Equal(t, teamID, invitedTeam, "the team goes with the invitation")
 	require.Equal(t, result.UserID, f.notifier.userID, "the new email goes to the new address")
 	require.Contains(t, f.tokens.issued, result.UserID)
-	require.Equal(t, []uuid.UUID{wrong}, f.tokens.revoked, "the link sent to the wrong address stops working")
+	require.Equal(
+		t,
+		[]uuid.UUID{wrong},
+		f.tokens.revoked,
+		"the link sent to the wrong address stops working",
+	)
 	var first, last string
-	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT first_name, last_name FROM users WHERE id = $1`, result.UserID).Scan(&first, &last))
-	require.Equal(t, [2]string{"Ira", "Koval"}, [2]string{first, last}, "the typed name moves with the invitation")
+	require.NoError(
+		t,
+		f.db.Pool.QueryRow(ctx, `SELECT first_name, last_name FROM users WHERE id = $1`, result.UserID).
+			Scan(&first, &last),
+	)
+	require.Equal(
+		t,
+		[2]string{"Ira", "Koval"},
+		[2]string{first, last},
+		"the typed name moves with the invitation",
+	)
 }
 
 func TestChangingTheEmailOfAPendingCaptainMovesTheCaptaincy(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "typo@tools.test"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "typo@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	wrong := results[0].UserID
 	require.NoError(t, f.uc.TransferManagedTeamCaptaincy(ctx, f.eventID, teamID, wrong))
 
-	result, err := f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, wrong, f.ownerID, "right@tools.test", true)
+	result, err := f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		wrong,
+		f.ownerID,
+		"right@tools.test",
+		true,
+	)
 	require.NoError(t, err)
 
 	team, err := eventTeamRepo.New(f.db.Queries).GetByID(ctx, f.eventID, teamID)
@@ -376,21 +562,76 @@ func TestChangingTheEmailRefusesWhatCannotBeInvited(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, captain := f.newTeam(t, "Alpha")
-	results, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "typo@tools.test"}}, true)
+	results, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "typo@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	wrong := results[0].UserID
 
-	_, err = f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, wrong, f.ownerID, "not an address", true)
+	_, err = f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		wrong,
+		f.ownerID,
+		"not an address",
+		true,
+	)
 	require.ErrorIs(t, err, participantModel.ErrInvitationEmailInvalid.Err())
 
-	_, err = f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, wrong, f.ownerID, "Alpha-captain@tools.test", true)
-	require.ErrorIs(t, err, participantModel.ErrAlreadyParticipant.Err(), "the new address already takes part")
-	require.Equal(t, 1, f.count(t, `SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2 AND invited`, f.eventID, wrong), "a refused change keeps the invitation")
+	_, err = f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		wrong,
+		f.ownerID,
+		"Alpha-captain@tools.test",
+		true,
+	)
+	require.ErrorIs(
+		t,
+		err,
+		participantModel.ErrAlreadyParticipant.Err(),
+		"the new address already takes part",
+	)
+	require.Equal(
+		t,
+		1,
+		f.count(
+			t,
+			`SELECT count(*) FROM event_participants WHERE event_id = $1 AND user_id = $2 AND invited`,
+			f.eventID,
+			wrong,
+		),
+		"a refused change keeps the invitation",
+	)
 
-	_, err = f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, captain, f.ownerID, "other@tools.test", true)
-	require.ErrorIs(t, err, participantModel.ErrInvitationRequired.Err(), "an accepted participant is not an invitation")
+	_, err = f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		captain,
+		f.ownerID,
+		"other@tools.test",
+		true,
+	)
+	require.ErrorIs(
+		t,
+		err,
+		participantModel.ErrInvitationRequired.Err(),
+		"an accepted participant is not an invitation",
+	)
 
-	_, err = f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, uuid.Must(uuid.NewV7()), f.ownerID, "other@tools.test", true)
+	_, err = f.uc.ChangeParticipantInvitationEmail(
+		ctx,
+		f.eventID,
+		uuid.Must(uuid.NewV7()),
+		f.ownerID,
+		"other@tools.test",
+		true,
+	)
 	require.ErrorIs(t, err, participantModel.ErrInvitationRequired.Err())
 }
 
@@ -398,7 +639,14 @@ func TestTeamInvitationsSayWhetherTheyAwaitPublicationOrExpired(t *testing.T) {
 	f := newToolsFixture(t)
 	ctx := context.Background()
 	teamID, _ := f.newTeam(t, "Alpha")
-	_, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "wait@tools.test"}}, true)
+	_, err := f.uc.InviteTeamMembers(
+		ctx,
+		f.eventID,
+		teamID,
+		f.ownerID,
+		[]event.ParticipantInvitationInput{{Email: "wait@tools.test"}},
+		true,
+	)
 	require.NoError(t, err)
 	invitation := func() event.TeamInvitationView {
 		res, listErr := f.uc.ListTeams(ctx, event.ListTeamsFilter{EventID: f.eventID, PageSize: 50})
@@ -418,8 +666,15 @@ func TestTeamInvitationsSayWhetherTheyAwaitPublicationOrExpired(t *testing.T) {
 	require.False(t, got.InvitationAwaitingPublication, "a published event with an open roster")
 
 	// not published yet: the invitation waits for the publication, it is not «expired»
-	_, err = f.db.Pool.Exec(ctx, `UPDATE events SET publish_at = $2, start_at = $3, finish_at = $4, withdraw_at = $5 WHERE id = $1`,
-		f.eventID, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour), time.Now().Add(4*time.Hour), time.Now().Add(6*time.Hour))
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE events SET publish_at = $2, start_at = $3, finish_at = $4, withdraw_at = $5 WHERE id = $1`,
+		f.eventID,
+		time.Now().Add(time.Hour),
+		time.Now().Add(2*time.Hour),
+		time.Now().Add(4*time.Hour),
+		time.Now().Add(6*time.Hour),
+	)
 	require.NoError(t, err)
 	got = invitation()
 	require.True(t, got.InvitationAwaitingPublication)

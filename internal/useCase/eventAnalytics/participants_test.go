@@ -50,7 +50,11 @@ func (p *participantFake) RegistrationFormVersions(context.Context, uuid.UUID) (
 func (p *participantFake) RegistrationAnswers(context.Context, uuid.UUID) ([]eventAnalyticsRepo.FormAnswer, error) {
 	return p.answers, nil
 }
-func (p *participantFake) Submissions(context.Context, uuid.UUID) ([]eventAnalyticsRepo.Submission, error) {
+
+func (p *participantFake) Submissions(
+	context.Context,
+	uuid.UUID,
+) ([]eventAnalyticsRepo.Submission, error) {
 	return p.submissions, nil
 }
 func (p *participantFake) DropOffs(context.Context, uuid.UUID, int32) ([]eventAnalyticsRepo.DropOff, int64, error) {
@@ -389,10 +393,27 @@ func TestCommunications_EmptyFunnelsHaveNoRatesOrMedians(t *testing.T) {
 func TestSubmissions_MinutesFromStartAndFromTheFirstOpen(t *testing.T) {
 	start := time.Date(2026, 10, 26, 11, 0, 0, 0, time.UTC)
 	opened := start.Add(10 * time.Minute)
-	store := &fakeStore{participantFake: participantFake{submissions: []eventAnalyticsRepo.Submission{
-		{ParticipantName: "Ira", TeamName: "Red", ChallengeName: "Web", SubmittedAt: start.Add(25 * time.Minute), EventStartAt: start, FirstOpenAt: &opened, ParticipantWrong: 2, TeamWrong: 3},
-		{ParticipantName: "Max", TeamName: "Blue", ChallengeName: "Pwn", SubmittedAt: start.Add(-time.Minute), EventStartAt: start},
-	}}}
+	store := &fakeStore{
+		participantFake: participantFake{submissions: []eventAnalyticsRepo.Submission{
+			{
+				ParticipantName:  "Ira",
+				TeamName:         "Red",
+				ChallengeName:    "Web",
+				SubmittedAt:      start.Add(25 * time.Minute),
+				EventStartAt:     start,
+				FirstOpenAt:      &opened,
+				ParticipantWrong: 2,
+				TeamWrong:        3,
+			},
+			{
+				ParticipantName: "Max",
+				TeamName:        "Blue",
+				ChallengeName:   "Pwn",
+				SubmittedAt:     start.Add(-time.Minute),
+				EventStartAt:    start,
+			},
+		}},
+	}
 	uc, id := participationUC(store, eventConfigModel.ParticipationTeam)
 
 	v, err := uc.GetEventAnalyticsSubmissions(context.Background(), id)
@@ -400,8 +421,11 @@ func TestSubmissions_MinutesFromStartAndFromTheFirstOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Items) != 2 || v.Items[0].MinutesFromStart != 25 || v.Items[0].MinutesFromOpen == nil || *v.Items[0].MinutesFromOpen != 15 ||
-		v.Items[0].ParticipantWrong != 2 || v.Items[0].TeamWrong != 3 {
+	if len(v.Items) != 2 || v.Items[0].MinutesFromStart != 25 ||
+		v.Items[0].MinutesFromOpen == nil ||
+		*v.Items[0].MinutesFromOpen != 15 ||
+		v.Items[0].ParticipantWrong != 2 ||
+		v.Items[0].TeamWrong != 3 {
 		t.Fatalf("first submission: %+v", v.Items[0])
 	}
 	if v.Items[1].MinutesFromStart != 0 || v.Items[1].MinutesFromOpen != nil {

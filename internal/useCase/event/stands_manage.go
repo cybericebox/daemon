@@ -131,7 +131,19 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 	}
 	labsByTeam := make(map[uuid.UUID][]StandLabView, len(teams))
 	for _, lab := range labs {
-		labsByTeam[lab.TeamID] = append(labsByTeam[lab.TeamID], StandLabView{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason, WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: lab.WaitDetail, RetryAttempts: lab.RetryAttempts})
+		labsByTeam[lab.TeamID] = append(
+			labsByTeam[lab.TeamID],
+			StandLabView{
+				ChallengeID:   lab.ChallengeID,
+				ChallengeName: lab.ChallengeName,
+				Readiness:     lab.Readiness,
+				Reason:        lab.FailureReason,
+				WaitReason:    lab.WaitReason,
+				WaitSince:     lab.WaitSince,
+				Wait:          lab.WaitDetail,
+				RetryAttempts: lab.RetryAttempts,
+			},
+		)
 	}
 	view := StandsView{
 		InfrastructureAllowed: true,

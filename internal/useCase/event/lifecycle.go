@@ -208,7 +208,10 @@ type ScheduleView struct {
 }
 
 // ListEventScheduleChanges returns the latest recorded schedule changes of the event, newest first.
-func (u *EventUseCase) ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ScheduleChangeView, error) {
+func (u *EventUseCase) ListEventScheduleChanges(
+	ctx context.Context,
+	eventID uuid.UUID,
+) ([]ScheduleChangeView, error) {
 	if _, err := u.events.GetByID(ctx, eventID); err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil, eventModel.ErrEventNotFound.Err()
@@ -217,14 +220,35 @@ func (u *EventUseCase) ListEventScheduleChanges(ctx context.Context, eventID uui
 	}
 	changes, err := u.events.ScheduleChanges(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list schedule changes").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to list schedule changes").
+			Err()
 	}
 	out := make([]ScheduleChangeView, 0, len(changes))
 	for _, c := range changes {
 		out = append(out, ScheduleChangeView{
-			ID: c.ID, ChangedAt: c.ChangedAt, ChangedBy: c.ChangedBy, ChangedByName: c.ChangedByName, ByApplication: c.ByApplication, DBRole: c.DBRole,
-			Before: ScheduleView{JoinPolicy: c.OldJoinPolicy, PublishAt: c.OldPublishAt, StartAt: c.OldStartAt, FinishAt: c.OldFinishAt, WithdrawAt: c.OldWithdrawAt, ManualFinishedAt: c.OldManualFinish},
-			After:  ScheduleView{JoinPolicy: c.NewJoinPolicy, PublishAt: c.NewPublishAt, StartAt: c.NewStartAt, FinishAt: c.NewFinishAt, WithdrawAt: c.NewWithdrawAt, ManualFinishedAt: c.NewManualFinish},
+			ID:            c.ID,
+			ChangedAt:     c.ChangedAt,
+			ChangedBy:     c.ChangedBy,
+			ChangedByName: c.ChangedByName,
+			ByApplication: c.ByApplication,
+			DBRole:        c.DBRole,
+			Before: ScheduleView{
+				JoinPolicy:       c.OldJoinPolicy,
+				PublishAt:        c.OldPublishAt,
+				StartAt:          c.OldStartAt,
+				FinishAt:         c.OldFinishAt,
+				WithdrawAt:       c.OldWithdrawAt,
+				ManualFinishedAt: c.OldManualFinish,
+			},
+			After: ScheduleView{
+				JoinPolicy:       c.NewJoinPolicy,
+				PublishAt:        c.NewPublishAt,
+				StartAt:          c.NewStartAt,
+				FinishAt:         c.NewFinishAt,
+				WithdrawAt:       c.NewWithdrawAt,
+				ManualFinishedAt: c.NewManualFinish,
+			},
 		})
 	}
 	return out, nil

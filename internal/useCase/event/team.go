@@ -142,7 +142,15 @@ func (u *EventUseCase) AssignParticipantToTeam(ctx context.Context, eventID, tea
 	if participant.TeamID != nil {
 		// Already in a team: the organizer's "assign" is a move (a no-op for the same team).
 		fromTeamID := *participant.TeamID
-		if moved, moveErr := u.moveMemberInTransaction(txCtx, txRepo, eventID, participant, fromTeamID, teamID, config.MaxTeamSize); moveErr != nil {
+		if moved, moveErr := u.moveMemberInTransaction(
+			txCtx,
+			txRepo,
+			eventID,
+			participant,
+			fromTeamID,
+			teamID,
+			config.MaxTeamSize,
+		); moveErr != nil {
 			return moveErr
 		} else if !moved {
 			return nil
@@ -179,7 +187,10 @@ func (u *EventUseCase) AssignParticipantToTeam(ctx context.Context, eventID, tea
 // a formed team or a started event does not stop the move (members themselves cannot switch teams then). The
 // captain cannot be moved before the captaincy is transferred; the target must have a seat. Both teams get their
 // lab access recomputed.
-func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error {
+func (u *EventUseCase) MoveParticipantToTeam(
+	ctx context.Context,
+	eventID, userID, toTeamID uuid.UUID,
+) error {
 	if u.uow == nil {
 		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}
@@ -187,7 +198,7 @@ func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userI
 	if err != nil {
 		return err
 	}
-	defer unit.Restore()
+	defer restoreUnit(unit)
 	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
 		return err
 	}
@@ -209,7 +220,15 @@ func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userI
 		return participantModel.ErrParticipantTeamInvalid.Err()
 	}
 	fromTeamID := *participant.TeamID
-	moved, err := u.moveMemberInTransaction(txCtx, txRepo, eventID, participant, fromTeamID, toTeamID, config.MaxTeamSize)
+	moved, err := u.moveMemberInTransaction(
+		txCtx,
+		txRepo,
+		eventID,
+		participant,
+		fromTeamID,
+		toTeamID,
+		config.MaxTeamSize,
+	)
 	if err != nil || !moved {
 		return err
 	}
@@ -221,19 +240,32 @@ func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userI
 }
 
 // teamOrNotFound reads a team of the event, a missing one is the coded not-found error.
-func teamOrNotFound(ctx context.Context, teams *eventTeamRepo.Repository, eventID, teamID uuid.UUID) (eventTeamModel.EventTeam, error) {
+func teamOrNotFound(
+	ctx context.Context,
+	teams *eventTeamRepo.Repository,
+	eventID, teamID uuid.UUID,
+) (eventTeamModel.EventTeam, error) {
 	team, err := teams.GetByID(ctx, eventID, teamID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return eventTeamModel.EventTeam{}, eventTeamModel.ErrEventTeamNotFound.Err()
 		}
-		return eventTeamModel.EventTeam{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+		return eventTeamModel.EventTeam{}, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to get event team").
+			Err()
 	}
 	return team, nil
 }
 
 // moveMemberInTransaction does the move under the caller's roster lock; false: nothing to do (already there).
-func (u *EventUseCase) moveMemberInTransaction(ctx context.Context, repo IRepository, eventID uuid.UUID, participant participantModel.Participant, fromTeamID, toTeamID uuid.UUID, maxTeamSize int32) (bool, error) {
+func (u *EventUseCase) moveMemberInTransaction(
+	ctx context.Context,
+	repo IRepository,
+	eventID uuid.UUID,
+	participant participantModel.Participant,
+	fromTeamID, toTeamID uuid.UUID,
+	maxTeamSize int32,
+) (bool, error) {
 	if fromTeamID == toTeamID {
 		return false, nil
 	}
@@ -255,22 +287,46 @@ func (u *EventUseCase) moveMemberInTransaction(ctx context.Context, repo IReposi
 	if participant.Status != participantModel.StatusApproved {
 		return false, participantModel.ErrParticipantNotApproved.Err()
 	}
-	if from.IsCaptain(participant.UserID) || (participant.TeamRole != nil && *participant.TeamRole == participantModel.TeamRoleCaptain) {
+	if from.IsCaptain(participant.UserID) ||
+		(participant.TeamRole != nil && *participant.TeamRole == participantModel.TeamRoleCaptain) {
 		return false, eventTeamModel.ErrEventTeamCaptainMustTransfer.Err()
 	}
 	now := time.Now()
-	if affected, addErr := teams.TryAddMember(ctx, eventID, toTeamID, maxTeamSize, now); addErr != nil {
-		return false, model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve team membership").Err()
+	if affected, addErr := teams.TryAddMember(
+		ctx,
+		eventID,
+		toTeamID,
+		maxTeamSize,
+		now,
+	); addErr != nil {
+		return false, model.ErrPlatform.WithError(addErr).
+			WithMessage("Failed to reserve team membership").
+			Err()
 	} else if affected == 0 {
 		return false, eventTeamModel.ErrEventTeamFull.Err()
 	}
-	if affected, removeErr := teams.TryRemoveMember(ctx, eventID, fromTeamID, now); removeErr != nil {
-		return false, model.ErrPlatform.WithError(removeErr).WithMessage("Failed to remove team member").Err()
+	if affected, removeErr := teams.TryRemoveMember(
+		ctx,
+		eventID,
+		fromTeamID,
+		now,
+	); removeErr != nil {
+		return false, model.ErrPlatform.WithError(removeErr).
+			WithMessage("Failed to remove team member").
+			Err()
 	} else if affected == 0 {
 		return false, participantModel.ErrParticipantTeamInvalid.Err()
 	}
-	if affected, moveErr := participants.MoveTeam(ctx, eventID, participant.UserID, fromTeamID, toTeamID); moveErr != nil {
-		return false, model.ErrPlatform.WithError(moveErr).WithMessage("Failed to move team member").Err()
+	if affected, moveErr := participants.MoveTeam(
+		ctx,
+		eventID,
+		participant.UserID,
+		fromTeamID,
+		toTeamID,
+	); moveErr != nil {
+		return false, model.ErrPlatform.WithError(moveErr).
+			WithMessage("Failed to move team member").
+			Err()
 	} else if affected == 0 {
 		return false, participantModel.ErrParticipantTeamInvalid.Err()
 	}
@@ -637,9 +693,13 @@ func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get new team captain").Err()
 	}
-	seated := newCaptain.TeamID != nil && *newCaptain.TeamID == teamID && newCaptain.TeamRole != nil && *newCaptain.TeamRole == participantModel.TeamRoleMember
-	invitee := newCaptain.Status == participantModel.StatusPending && newCaptain.Invited && newCaptain.InvitedToTeam &&
-		newCaptain.InvitedTeamID != nil && *newCaptain.InvitedTeamID == teamID
+	seated := newCaptain.TeamID != nil && *newCaptain.TeamID == teamID &&
+		newCaptain.TeamRole != nil &&
+		*newCaptain.TeamRole == participantModel.TeamRoleMember
+	invitee := newCaptain.Status == participantModel.StatusPending && newCaptain.Invited &&
+		newCaptain.InvitedToTeam &&
+		newCaptain.InvitedTeamID != nil &&
+		*newCaptain.InvitedTeamID == teamID
 	if !seated && !invitee {
 		return eventTeamModel.ErrEventTeamCaptainInvalid.Err()
 	}
@@ -654,18 +714,36 @@ func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID
 	}
 	previous, err := participants.Get(txCtx, eventID, previousCaptainID)
 	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get previous team captain").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to get previous team captain").
+			Err()
 	}
 	if err == nil && previous.TeamID != nil && *previous.TeamID == teamID {
-		if affected, roleErr := participants.SetTeamRole(txCtx, eventID, previousCaptainID, teamID, participantModel.TeamRoleMember); roleErr != nil {
-			return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to demote previous team captain").Err()
+		if affected, roleErr := participants.SetTeamRole(
+			txCtx,
+			eventID,
+			previousCaptainID,
+			teamID,
+			participantModel.TeamRoleMember,
+		); roleErr != nil {
+			return model.ErrPlatform.WithError(roleErr).
+				WithMessage("Failed to demote previous team captain").
+				Err()
 		} else if affected == 0 {
 			return eventTeamModel.ErrEventTeamCaptainRequired.Err()
 		}
 	}
 	if seated {
-		if affected, roleErr := participants.SetTeamRole(txCtx, eventID, newCaptainID, teamID, participantModel.TeamRoleCaptain); roleErr != nil {
-			return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to promote new team captain").Err()
+		if affected, roleErr := participants.SetTeamRole(
+			txCtx,
+			eventID,
+			newCaptainID,
+			teamID,
+			participantModel.TeamRoleCaptain,
+		); roleErr != nil {
+			return model.ErrPlatform.WithError(roleErr).
+				WithMessage("Failed to promote new team captain").
+				Err()
 		} else if affected == 0 {
 			return eventTeamModel.ErrEventTeamCaptainInvalid.Err()
 		}
@@ -799,7 +877,14 @@ func (u *EventUseCase) ListTeams(ctx context.Context, filter ListTeamsFilter) (T
 
 // buildTeamViews composes the moderator team views: aggregate, answers,
 // admission, members (real name + pseudonym) and pending invitations.
-func buildTeamViews(ctx context.Context, participants *participantRepo.Repository, eventID uuid.UUID, rows []eventTeamRepo.ListedTeam, minTeamSize int32, clock teamClock) ([]TeamView, error) {
+func buildTeamViews(
+	ctx context.Context,
+	participants *participantRepo.Repository,
+	eventID uuid.UUID,
+	rows []eventTeamRepo.ListedTeam,
+	minTeamSize int32,
+	clock teamClock,
+) ([]TeamView, error) {
 	teamIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		teamIDs = append(teamIDs, row.Team.ID)
@@ -819,8 +904,17 @@ func buildTeamViews(ctx context.Context, participants *participantRepo.Repositor
 			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list team invitations").Err()
 		}
 		for _, i := range invitationRows {
-			invitations[i.TeamID] = append(invitations[i.TeamID], TeamInvitationView{UserID: i.UserID, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt,
-				InvitationExpired: clock.invitationExpired, InvitationAwaitingPublication: clock.invitationAwaitingPublication})
+			invitations[i.TeamID] = append(
+				invitations[i.TeamID],
+				TeamInvitationView{
+					UserID:                        i.UserID,
+					Email:                         i.Email,
+					CreatedAt:                     i.CreatedAt,
+					InvitationSentAt:              i.InvitationSentAt,
+					InvitationExpired:             clock.invitationExpired,
+					InvitationAwaitingPublication: clock.invitationAwaitingPublication,
+				},
+			)
 		}
 	}
 	items := make([]TeamView, 0, len(rows))
@@ -1770,7 +1864,11 @@ func teamClockFrom(event eventModel.Event, err error) (teamClock, error) {
 	return teamClock{
 		autoFormedAt:                  formed,
 		invitationAwaitingPublication: invitationAwaitingPublication(event, now),
-		invitationExpired:             invitationExpired(event, participantModel.Participant{InvitedToTeam: true}, now),
+		invitationExpired: invitationExpired(
+			event,
+			participantModel.Participant{InvitedToTeam: true},
+			now,
+		),
 	}, nil
 }
 

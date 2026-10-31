@@ -170,8 +170,19 @@ func toStandTeamResponse(v eventUseCase.StandTeamView) standTeamResponse {
 		Queue: labview.StandQueue(v.Launch), ImageWarning: v.Launch.ImageWarning,
 		ReservationEndsAt: v.ReservationEndsAt, ReservationEnded: v.ReservationEnded}
 	for _, lab := range v.Labs {
-		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason,
-			WaitReason: lab.WaitReason, WaitSince: lab.WaitSince, Wait: toStandWaitResponse(lab.Wait), RetryAttempts: lab.RetryAttempts})
+		out.Labs = append(
+			out.Labs,
+			standLabResponse{
+				ChallengeID:   lab.ChallengeID,
+				ChallengeName: lab.ChallengeName,
+				Status:        labReadinessString(lab.Readiness),
+				Reason:        lab.Reason,
+				WaitReason:    lab.WaitReason,
+				WaitSince:     lab.WaitSince,
+				Wait:          toStandWaitResponse(lab.Wait),
+				RetryAttempts: lab.RetryAttempts,
+			},
+		)
 	}
 	return out
 }

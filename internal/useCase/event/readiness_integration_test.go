@@ -11,7 +11,11 @@ func TestEventReadiness_ListsUnpublishedTasksAndStandsThatAreNotReady(t *testing
 	f := newStandFixture(t)
 	ctx := context.Background()
 	f.pass(t)
-	_, err := f.db.Pool.Exec(ctx, `UPDATE event_challenges SET published = false WHERE id = $1`, f.infraOne)
+	_, err := f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_challenges SET published = false WHERE id = $1`,
+		f.infraOne,
+	)
 	require.NoError(t, err)
 
 	view, err := f.uc.GetEventReadiness(ctx, f.eventID)
@@ -31,7 +35,11 @@ func TestEventReadiness_ListsUnpublishedTasksAndStandsThatAreNotReady(t *testing
 	require.NotEmpty(t, view.UnpublishedTasks[0].Name)
 
 	// everything published and every stand ready: nothing to warn about
-	_, err = f.db.Pool.Exec(ctx, `UPDATE event_challenges ec SET published = true FROM event_exercises ee WHERE ee.id = ec.event_exercise_id AND ee.event_id = $1`, f.eventID)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_challenges ec SET published = true FROM event_exercises ee WHERE ee.id = ec.event_exercise_id AND ee.event_id = $1`,
+		f.eventID,
+	)
 	require.NoError(t, err)
 	f.agent.setAll(f.agent.ready)
 	f.pass(t)
@@ -47,9 +55,17 @@ func TestEventReadiness_ListsUnpublishedTasksAndStandsThatAreNotReady(t *testing
 func TestEventReadiness_AnEventWithoutStandsOnlyChecksTheTasks(t *testing.T) {
 	f := newStandFixture(t)
 	ctx := context.Background()
-	_, err := f.db.Pool.Exec(ctx, `UPDATE events SET infrastructure_allowed = false WHERE id = $1`, f.eventID)
+	_, err := f.db.Pool.Exec(
+		ctx,
+		`UPDATE events SET infrastructure_allowed = false WHERE id = $1`,
+		f.eventID,
+	)
 	require.NoError(t, err)
-	_, err = f.db.Pool.Exec(ctx, `UPDATE event_challenges ec SET published = true FROM event_exercises ee WHERE ee.id = ec.event_exercise_id AND ee.event_id = $1`, f.eventID)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_challenges ec SET published = true FROM event_exercises ee WHERE ee.id = ec.event_exercise_id AND ee.event_id = $1`,
+		f.eventID,
+	)
 	require.NoError(t, err)
 
 	view, err := f.uc.GetEventReadiness(ctx, f.eventID)

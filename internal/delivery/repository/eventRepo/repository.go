@@ -38,7 +38,10 @@ type Queries interface {
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
-	ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventScheduleChangesRow, error)
+	ListEventScheduleChanges(
+		ctx context.Context,
+		eventID uuid.UUID,
+	) ([]postgres.ListEventScheduleChangesRow, error)
 }
 
 func (r *Repository) ListDueForScoringPopulation(ctx context.Context, now time.Time) ([]postgres.ListEventsDueForScoringPopulationRow, error) {
@@ -360,7 +363,10 @@ type ScheduleChange struct {
 }
 
 // ScheduleChanges lists the latest changes of the event's schedule, newest first.
-func (r *Repository) ScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ScheduleChange, error) {
+func (r *Repository) ScheduleChanges(
+	ctx context.Context,
+	eventID uuid.UUID,
+) ([]ScheduleChange, error) {
 	rows, err := r.q.ListEventScheduleChanges(ctx, eventID)
 	if err != nil {
 		return nil, err
@@ -368,12 +374,29 @@ func (r *Repository) ScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]
 	out := make([]ScheduleChange, 0, len(rows))
 	for _, row := range rows {
 		change := ScheduleChange{
-			ID: row.ID, ChangedAt: row.ChangedAt, ChangedByName: row.ChangedByName, ByApplication: row.ByApplication, DBRole: row.DbRole,
-			OldJoinPolicy: row.OldJoinPolicy, NewJoinPolicy: row.NewJoinPolicy,
-			OldPublishAt: row.OldPublishAt, NewPublishAt: row.NewPublishAt, OldStartAt: row.OldStartAt, NewStartAt: row.NewStartAt,
-			OldFinishAt: timestamptzPtr(row.OldFinishAt), NewFinishAt: timestamptzPtr(row.NewFinishAt),
-			OldWithdrawAt: timestamptzPtr(row.OldWithdrawAt), NewWithdrawAt: timestamptzPtr(row.NewWithdrawAt),
-			OldManualFinish: timestamptzPtr(row.OldManualFinishedAt), NewManualFinish: timestamptzPtr(row.NewManualFinishedAt),
+			ID:            row.ID,
+			ChangedAt:     row.ChangedAt,
+			ChangedByName: row.ChangedByName,
+			ByApplication: row.ByApplication,
+			DBRole:        row.DbRole,
+			OldJoinPolicy: row.OldJoinPolicy,
+			NewJoinPolicy: row.NewJoinPolicy,
+			OldPublishAt:  row.OldPublishAt,
+			NewPublishAt:  row.NewPublishAt,
+			OldStartAt:    row.OldStartAt,
+			NewStartAt:    row.NewStartAt,
+			OldFinishAt: timestamptzPtr(
+				row.OldFinishAt,
+			),
+			NewFinishAt: timestamptzPtr(row.NewFinishAt),
+			OldWithdrawAt: timestamptzPtr(
+				row.OldWithdrawAt,
+			),
+			NewWithdrawAt: timestamptzPtr(row.NewWithdrawAt),
+			OldManualFinish: timestamptzPtr(
+				row.OldManualFinishedAt,
+			),
+			NewManualFinish: timestamptzPtr(row.NewManualFinishedAt),
 		}
 		if row.ChangedBy.Valid {
 			id := row.ChangedBy.UUID

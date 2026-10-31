@@ -417,8 +417,16 @@ func (r *Repository) Copies(ctx context.Context, eventExerciseID uuid.UUID) ([]C
 	out := make([]CopyRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, CopyRow{
-			RefreshRow: RefreshRow{ID: row.ID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, VariantIndex: row.VariantIndex,
-				Snapshot: row.Snapshot, Hints: UnmarshalHints(row.Hints), Solved: row.Solved, Moderators: row.Moderators},
+			RefreshRow: RefreshRow{
+				ID:               row.ID,
+				EventTeamID:      row.EventTeamID,
+				EventChallengeID: row.EventChallengeID,
+				VariantIndex:     row.VariantIndex,
+				Snapshot:         row.Snapshot,
+				Hints:            UnmarshalHints(row.Hints),
+				Solved:           row.Solved,
+				Moderators:       row.Moderators,
+			},
 			TeamName: row.TeamName,
 		})
 	}

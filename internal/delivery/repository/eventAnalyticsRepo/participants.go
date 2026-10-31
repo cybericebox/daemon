@@ -283,12 +283,20 @@ func (r *Repository) Submissions(ctx context.Context, eventID uuid.UUID) ([]Subm
 	for _, row := range rows {
 		name := strings.TrimSpace(row.FirstName + " " + row.LastName)
 		submission := Submission{
-			TeamChallengeID: row.TeamChallengeID, TeamID: row.TeamID, ChallengeID: row.ChallengeID, UserID: row.UserID,
-			TeamName: row.TeamName, ChallengeName: row.ChallengeName, ParticipantName: name, Email: row.Email,
-			SubmittedAt: row.SubmittedAt, EventStartAt: row.EventStartAt,
-			ParticipantWrong: row.ParticipantWrong, TeamWrong: row.TeamWrong,
+			TeamChallengeID:  row.TeamChallengeID,
+			TeamID:           row.TeamID,
+			ChallengeID:      row.ChallengeID,
+			UserID:           row.UserID,
+			TeamName:         row.TeamName,
+			ChallengeName:    row.ChallengeName,
+			ParticipantName:  name,
+			Email:            row.Email,
+			SubmittedAt:      row.SubmittedAt,
+			EventStartAt:     row.EventStartAt,
+			ParticipantWrong: row.ParticipantWrong,
+			TeamWrong:        row.TeamWrong,
 		}
-		if row.FirstOpenAt.Year() > 1970 {
+		if row.FirstOpenAt.After(time.Unix(0, 0)) {
 			opened := row.FirstOpenAt
 			submission.FirstOpenAt = &opened
 		}

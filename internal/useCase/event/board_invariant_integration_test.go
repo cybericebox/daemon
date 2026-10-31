@@ -23,7 +23,11 @@ type shownTask struct {
 }
 
 // boardOf reads the team's board as its captain sees it.
-func boardOf(t *testing.T, uc *event.EventUseCase, eventID, userID uuid.UUID) map[uuid.UUID]shownTask {
+func boardOf(
+	t *testing.T,
+	uc *event.EventUseCase,
+	eventID, userID uuid.UUID,
+) map[uuid.UUID]shownTask {
 	t.Helper()
 	board, err := uc.ListOwnBoard(context.Background(), eventID, userID)
 	require.NoError(t, err)
@@ -45,9 +49,14 @@ func TestBoardNeverTakesBackWhatATeamWasShown(t *testing.T) {
 	ctx := context.Background()
 
 	var captain uuid.UUID
-	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT captain_id FROM event_teams WHERE id = $1`, f.blueID).Scan(&captain))
+	require.NoError(
+		t,
+		f.db.Pool.QueryRow(ctx, `SELECT captain_id FROM event_teams WHERE id = $1`, f.blueID).
+			Scan(&captain),
+	)
 	now := time.Now()
-	member, ok, err := participantRepo.New(f.db.Queries).Upsert(ctx, participantModel.Participant{EventID: f.eventID, UserID: captain, Status: participantModel.StatusApproved, CreatedAt: now, DecidedAt: &now})
+	member, ok, err := participantRepo.New(f.db.Queries).
+		Upsert(ctx, participantModel.Participant{EventID: f.eventID, UserID: captain, Status: participantModel.StatusApproved, CreatedAt: now, DecidedAt: &now})
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, member.AssignTeam(f.blueID, participantModel.TeamRoleCaptain))
@@ -57,16 +66,35 @@ func TestBoardNeverTakesBackWhatATeamWasShown(t *testing.T) {
 	// two groups, a file on the first task of the set
 	groupA, groupB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	for i, id := range []uuid.UUID{groupA, groupB} {
-		_, err = f.db.Pool.Exec(ctx, `INSERT INTO event_challenge_groups (id, event_id, name, order_index, created_at) VALUES ($1, $2, $3, $4, now())`, id, f.eventID, fmt.Sprintf("Group %d", i), i)
+		_, err = f.db.Pool.Exec(
+			ctx,
+			`INSERT INTO event_challenge_groups (id, event_id, name, order_index, created_at) VALUES ($1, $2, $3, $4, now())`,
+			id,
+			f.eventID,
+			fmt.Sprintf("Group %d", i),
+			i,
+		)
 		require.NoError(t, err)
 	}
-	_, err = f.db.Pool.Exec(ctx, `UPDATE event_challenges SET group_id = $2 WHERE id = ANY($1)`, []uuid.UUID{set.challenges[0], set.challenges[1]}, groupA)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_challenges SET group_id = $2 WHERE id = ANY($1)`,
+		[]uuid.UUID{set.challenges[0], set.challenges[1]},
+		groupA,
+	)
 	require.NoError(t, err)
-	_, err = f.db.Pool.Exec(ctx, `UPDATE event_challenges SET group_id = $2 WHERE id = $1`, set.challenges[2], groupB)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`UPDATE event_challenges SET group_id = $2 WHERE id = $1`,
+		set.challenges[2],
+		groupB,
+	)
 	require.NoError(t, err)
 	file := uuid.Must(uuid.NewV7())
 	withFile := publishSetVersion(t, f, set, func(v *exerciseModel.ExerciseVersion) {
-		v.Variants[0].Tasks[0].Attachments = []exerciseModel.AttachmentRef{{FileID: file, Name: "binary"}}
+		v.Variants[0].Tasks[0].Attachments = []exerciseModel.AttachmentRef{
+			{FileID: file, Name: "binary"},
+		}
 	})
 	_, err = f.uc.UpdateEventExercise(ctx, f.eventID, set.exerciseID, &withFile, f.ownerID, false)
 	require.NoError(t, err)
@@ -143,7 +171,11 @@ func TestBoardNeverTakesBackWhatATeamWasShown(t *testing.T) {
 	check("another pass")
 }
 
-func exerciseRepoVersionTasks(ctx context.Context, f *standFixture, version uuid.UUID) ([]uuid.UUID, error) {
+func exerciseRepoVersionTasks(
+	ctx context.Context,
+	f *standFixture,
+	version uuid.UUID,
+) ([]uuid.UUID, error) {
 	v, err := exerciseRepo.New(f.db.Queries).GetVersion(ctx, version)
 	if err != nil {
 		return nil, err
