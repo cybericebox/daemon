@@ -195,6 +195,9 @@ func (h *Handler) getStats(ctx *gin.Context) {
 // @Param    channel    query  string  false  "target channel (email, in_app)"
 // @Param    result     query  string  false  "target status (done, error)"
 // @Param    transport  query  string  false  "email route (event, platform, env)"
+// @Param    recipient  query  string  false  "part of the recipient email or name"
+// @Param    from       query  string  false  "created at or after (RFC 3339)"
+// @Param    to         query  string  false  "created before (RFC 3339)"
 // @Param    limit   query  int     false  "page size (default 50)"
 // @Param    cursor  query  string  false  "last dispatch ID from the previous cursor page"
 // @Success  200  {object}  response.Response{data=pagination.CursorPage[dispatchDetailResponse]}
@@ -225,6 +228,14 @@ func ParseJournalFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, i
 			}
 		}
 	}
+	for _, key := range []string{"from", "to"} {
+		if raw := ctx.Query(key); raw != "" {
+			if _, err := time.Parse(time.RFC3339, raw); err != nil {
+				response.AbortWithBadRequest(ctx, fmt.Errorf("invalid %s: %w", key, err))
+				return dispatchModel.ListDispatchesFilter{}, 0, false
+			}
+		}
+	}
 	limit := parseInt(ctx.Query("limit"), 50)
 	if limit < 1 || limit > pagination.MaxPageSize {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("limit must be between 1 and %d", pagination.MaxPageSize))
@@ -235,6 +246,9 @@ func ParseJournalFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, i
 		Status:    ctx.Query("status"),
 		User:      ctx.Query("user"),
 		Event:     ctx.Query("event"),
+		Recipient: strings.TrimSpace(ctx.Query("recipient")),
+		From:      ctx.Query("from"),
+		To:        ctx.Query("to"),
 		Channel:   ctx.Query("channel"),
 		Result:    ctx.Query("result"),
 		Transport: ctx.Query("transport"),

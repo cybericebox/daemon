@@ -139,6 +139,9 @@ func (r *Repository) List(ctx context.Context, f dispatchModel.ListDispatchesFil
 		StatusFilter:    f.Status,
 		UserFilter:      f.User,
 		EventFilter:     f.Event,
+		RecipientFilter: f.Recipient,
+		FromFilter:      f.From,
+		ToFilter:        f.To,
 		ChannelFilter:   f.Channel,
 		ResultFilter:    f.Result,
 		TransportFilter: f.Transport,
@@ -150,6 +153,7 @@ func (r *Repository) List(ctx context.Context, f dispatchModel.ListDispatchesFil
 	}
 	total, err := r.q.CountDispatches(ctx, postgres.CountDispatchesParams{
 		TypeFilter: f.Type, StatusFilter: f.Status, UserFilter: f.User, EventFilter: f.Event,
+		RecipientFilter: f.Recipient, FromFilter: f.From, ToFilter: f.To,
 		ChannelFilter: f.Channel, ResultFilter: f.Result, TransportFilter: f.Transport,
 	})
 	if err != nil {

@@ -19,12 +19,19 @@ WHERE ($1::text = '' OR d.notification_type = $1::text)
   AND ($2::text = '' OR d.status = $2::text)
   AND ($3::text = '' OR d.recipient_user_id = $3::uuid)
   AND ($4::text = '' OR d.scope_event_id = NULLIF($4::text, '')::uuid)
-  AND ($5::text = '' AND $6::text = '' AND $7::text = ''
+  AND ($5::text = '' OR d.created_at >= NULLIF($5::text, '')::timestamptz)
+  AND ($6::text = '' OR d.created_at < NULLIF($6::text, '')::timestamptz)
+  AND ($7::text = '' OR EXISTS (
+    SELECT 1 FROM users ru
+    WHERE ru.id = d.recipient_user_id
+      AND (strpos(lower(ru.email), lower($7::text)) > 0
+           OR strpos(lower(btrim(ru.first_name || ' ' || ru.last_name)), lower($7::text)) > 0)))
+  AND ($8::text = '' AND $9::text = '' AND $10::text = ''
        OR EXISTS (SELECT 1 FROM notification_dispatch_targets t
                   WHERE t.dispatch_id = d.id
-                    AND ($5::text = '' OR t.channel = $5::text)
-                    AND ($6::text = '' OR t.status = $6::text)
-                    AND ($7::text = '' OR t.transport = ANY(string_to_array($7::text, ',')))))
+                    AND ($8::text = '' OR t.channel = $8::text)
+                    AND ($9::text = '' OR t.status = $9::text)
+                    AND ($10::text = '' OR t.transport = ANY(string_to_array($10::text, ',')))))
 `
 
 type CountDispatchesParams struct {
@@ -32,6 +39,9 @@ type CountDispatchesParams struct {
 	StatusFilter    string `json:"status_filter"`
 	UserFilter      string `json:"user_filter"`
 	EventFilter     string `json:"event_filter"`
+	FromFilter      string `json:"from_filter"`
+	ToFilter        string `json:"to_filter"`
+	RecipientFilter string `json:"recipient_filter"`
 	ChannelFilter   string `json:"channel_filter"`
 	ResultFilter    string `json:"result_filter"`
 	TransportFilter string `json:"transport_filter"`
@@ -43,6 +53,9 @@ func (q *Queries) CountDispatches(ctx context.Context, arg CountDispatchesParams
 		arg.StatusFilter,
 		arg.UserFilter,
 		arg.EventFilter,
+		arg.FromFilter,
+		arg.ToFilter,
+		arg.RecipientFilter,
 		arg.ChannelFilter,
 		arg.ResultFilter,
 		arg.TransportFilter,
@@ -349,16 +362,23 @@ WHERE ($1::text = '' OR d.notification_type = $1::text)
   AND ($2::text = '' OR d.status = $2::text)
   AND ($3::text = '' OR d.recipient_user_id = $3::uuid)
   AND ($4::text = '' OR d.scope_event_id = NULLIF($4::text, '')::uuid)
-  AND ($5::text = '' AND $6::text = '' AND $7::text = ''
+  AND ($5::text = '' OR d.created_at >= NULLIF($5::text, '')::timestamptz)
+  AND ($6::text = '' OR d.created_at < NULLIF($6::text, '')::timestamptz)
+  AND ($7::text = '' OR EXISTS (
+    SELECT 1 FROM users ru
+    WHERE ru.id = d.recipient_user_id
+      AND (strpos(lower(ru.email), lower($7::text)) > 0
+           OR strpos(lower(btrim(ru.first_name || ' ' || ru.last_name)), lower($7::text)) > 0)))
+  AND ($8::text = '' AND $9::text = '' AND $10::text = ''
        OR EXISTS (SELECT 1 FROM notification_dispatch_targets t
                   WHERE t.dispatch_id = d.id
-                    AND ($5::text = '' OR t.channel = $5::text)
-                    AND ($6::text = '' OR t.status = $6::text)
-                    AND ($7::text = '' OR t.transport = ANY(string_to_array($7::text, ',')))))
-  AND ($8::text = '' OR (d.created_at, d.id) < (
-    SELECT created_at, id FROM notification_dispatches WHERE id = NULLIF($8::text, '')::uuid
+                    AND ($8::text = '' OR t.channel = $8::text)
+                    AND ($9::text = '' OR t.status = $9::text)
+                    AND ($10::text = '' OR t.transport = ANY(string_to_array($10::text, ',')))))
+  AND ($11::text = '' OR (d.created_at, d.id) < (
+    SELECT created_at, id FROM notification_dispatches WHERE id = NULLIF($11::text, '')::uuid
   ))
-ORDER BY d.created_at DESC, d.id DESC LIMIT $9
+ORDER BY d.created_at DESC, d.id DESC LIMIT $12
 `
 
 type ListDispatchesParams struct {
@@ -366,6 +386,9 @@ type ListDispatchesParams struct {
 	StatusFilter    string `json:"status_filter"`
 	UserFilter      string `json:"user_filter"`
 	EventFilter     string `json:"event_filter"`
+	FromFilter      string `json:"from_filter"`
+	ToFilter        string `json:"to_filter"`
+	RecipientFilter string `json:"recipient_filter"`
 	ChannelFilter   string `json:"channel_filter"`
 	ResultFilter    string `json:"result_filter"`
 	TransportFilter string `json:"transport_filter"`
@@ -396,6 +419,9 @@ func (q *Queries) ListDispatches(ctx context.Context, arg ListDispatchesParams) 
 		arg.StatusFilter,
 		arg.UserFilter,
 		arg.EventFilter,
+		arg.FromFilter,
+		arg.ToFilter,
+		arg.RecipientFilter,
 		arg.ChannelFilter,
 		arg.ResultFilter,
 		arg.TransportFilter,

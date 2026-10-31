@@ -232,6 +232,26 @@ func TestJournalAndInbox_EventScope(t *testing.T) {
 	if rows := list(postgres.ListDispatchesParams{}); len(rows) != 2 {
 		t.Fatalf("no filter: %+v", rows)
 	}
+	if rows := list(postgres.ListDispatchesParams{RecipientFilter: "P@EXAMPLE"}); len(rows) != 2 {
+		t.Fatalf("recipient search is case-insensitive on the email: %+v", rows)
+	}
+	if rows := list(postgres.ListDispatchesParams{RecipientFilter: "nobody"}); len(rows) != 0 {
+		t.Fatalf("recipient search: %+v", rows)
+	}
+	if rows := list(postgres.ListDispatchesParams{FromFilter: now.Add(time.Hour).Format(time.RFC3339)}); len(rows) != 0 {
+		t.Fatalf("from in the future: %+v", rows)
+	}
+	if rows := list(postgres.ListDispatchesParams{
+		FromFilter: now.Add(-time.Hour).Format(time.RFC3339), ToFilter: now.Add(time.Hour).Format(time.RFC3339),
+	}); len(rows) != 2 {
+		t.Fatalf("period around now: %+v", rows)
+	}
+	if rows := list(postgres.ListDispatchesParams{ToFilter: now.Add(-time.Hour).Format(time.RFC3339)}); len(rows) != 0 {
+		t.Fatalf("to in the past: %+v", rows)
+	}
+	if n, err := db.Queries.CountDispatches(ctx, postgres.CountDispatchesParams{RecipientFilter: "p@example.org"}); err != nil || n != 2 {
+		t.Fatalf("count honours the recipient search: %d %v", n, err)
+	}
 	targets, err := db.Queries.ListDispatchTargetsByDispatches(ctx, []uuid.UUID{eventDispatch, platformDispatch})
 	if err != nil || len(targets) != 1 || targets[0].Attempts != 2 || targets[0].FallbackError != "535 auth" {
 		t.Fatalf("targets: %+v %v", targets, err)

@@ -47,6 +47,13 @@ WHERE (sqlc.arg(type_filter)::text = '' OR d.notification_type = sqlc.arg(type_f
   AND (sqlc.arg(status_filter)::text = '' OR d.status = sqlc.arg(status_filter)::text)
   AND (sqlc.arg(user_filter)::text = '' OR d.recipient_user_id = sqlc.arg(user_filter)::uuid)
   AND (sqlc.arg(event_filter)::text = '' OR d.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)
+  AND (sqlc.arg(from_filter)::text = '' OR d.created_at >= NULLIF(sqlc.arg(from_filter)::text, '')::timestamptz)
+  AND (sqlc.arg(to_filter)::text = '' OR d.created_at < NULLIF(sqlc.arg(to_filter)::text, '')::timestamptz)
+  AND (sqlc.arg(recipient_filter)::text = '' OR EXISTS (
+    SELECT 1 FROM users ru
+    WHERE ru.id = d.recipient_user_id
+      AND (strpos(lower(ru.email), lower(sqlc.arg(recipient_filter)::text)) > 0
+           OR strpos(lower(btrim(ru.first_name || ' ' || ru.last_name)), lower(sqlc.arg(recipient_filter)::text)) > 0)))
   AND (sqlc.arg(channel_filter)::text = '' AND sqlc.arg(result_filter)::text = '' AND sqlc.arg(transport_filter)::text = ''
        OR EXISTS (SELECT 1 FROM notification_dispatch_targets t
                   WHERE t.dispatch_id = d.id
@@ -65,6 +72,13 @@ WHERE (sqlc.arg(type_filter)::text = '' OR d.notification_type = sqlc.arg(type_f
   AND (sqlc.arg(status_filter)::text = '' OR d.status = sqlc.arg(status_filter)::text)
   AND (sqlc.arg(user_filter)::text = '' OR d.recipient_user_id = sqlc.arg(user_filter)::uuid)
   AND (sqlc.arg(event_filter)::text = '' OR d.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)
+  AND (sqlc.arg(from_filter)::text = '' OR d.created_at >= NULLIF(sqlc.arg(from_filter)::text, '')::timestamptz)
+  AND (sqlc.arg(to_filter)::text = '' OR d.created_at < NULLIF(sqlc.arg(to_filter)::text, '')::timestamptz)
+  AND (sqlc.arg(recipient_filter)::text = '' OR EXISTS (
+    SELECT 1 FROM users ru
+    WHERE ru.id = d.recipient_user_id
+      AND (strpos(lower(ru.email), lower(sqlc.arg(recipient_filter)::text)) > 0
+           OR strpos(lower(btrim(ru.first_name || ' ' || ru.last_name)), lower(sqlc.arg(recipient_filter)::text)) > 0)))
   AND (sqlc.arg(channel_filter)::text = '' AND sqlc.arg(result_filter)::text = '' AND sqlc.arg(transport_filter)::text = ''
        OR EXISTS (SELECT 1 FROM notification_dispatch_targets t
                   WHERE t.dispatch_id = d.id
