@@ -23972,6 +23972,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/notifications/dispatches/resend": {
+            "post": {
+                "description": "1 to 200 dispatches; the failed channels of each are queued again from the stored content; one result per dispatch in request order; a dispatch that cannot be resent never stops the others; one audit entry per dispatch.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-stats"
+                ],
+                "summary": "Send the failed deliveries of many dispatches again",
+                "parameters": [
+                    {
+                        "description": "dispatches",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/stats.resendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/stats.resendResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/notifications/dispatches/{id}": {
             "get": {
                 "produces": [
@@ -45906,6 +45952,46 @@ const docTemplate = `{
                 },
                 "Key": {
                     "type": "string"
+                }
+            }
+        },
+        "stats.resendRequest": {
+            "type": "object",
+            "properties": {
+                "DispatchIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "stats.resendResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/stats.resendResultResponse"
+                    }
+                }
+            }
+        },
+        "stats.resendResultResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the catalog code of the refusal (empty when Ok); Error its English text.",
+                    "type": "string"
+                },
+                "DispatchID": {
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "Ok": {
+                    "type": "boolean"
                 }
             }
         },

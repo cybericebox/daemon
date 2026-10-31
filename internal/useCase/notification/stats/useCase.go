@@ -13,16 +13,51 @@ import (
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 )
 
+// MaxBulkResend is the most dispatches one resend request takes.
+const MaxBulkResend = 200
+
+// Resender queues the failed channels of one dispatch again (the dispatcher).
+type Resender interface {
+	ResendDispatch(ctx context.Context, dispatchID uuid.UUID) error
+}
+
 type Dependencies struct {
-	Repo dispatchRepo.Queries
+	Repo     dispatchRepo.Queries
+	Resender Resender
 }
 
 type NotificationStatsUseCase struct {
 	dispatches *dispatchRepo.Repository
+	resender   Resender
 }
 
 func NewNotificationStatsUseCase(deps Dependencies) *NotificationStatsUseCase {
-	return &NotificationStatsUseCase{dispatches: dispatchRepo.New(deps.Repo)}
+	return &NotificationStatsUseCase{dispatches: dispatchRepo.New(deps.Repo), resender: deps.Resender}
+}
+
+// ResendResult is the outcome of resending one dispatch; Err is nil when it was queued again.
+type ResendResult struct {
+	DispatchID uuid.UUID
+	Err        error
+}
+
+// ResendDispatches sends the failed channels of each dispatch again. One result per distinct id in request
+// order; a dispatch that cannot be resent never stops the others.
+func (u *NotificationStatsUseCase) ResendDispatches(ctx context.Context, ids []uuid.UUID) []ResendResult {
+	out := make([]ResendResult, 0, len(ids))
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		if u.resender == nil {
+			out = append(out, ResendResult{DispatchID: id, Err: model.ErrPlatform.WithMessage("Resending is not configured").Err()})
+			continue
+		}
+		out = append(out, ResendResult{DispatchID: id, Err: u.resender.ResendDispatch(ctx, id)})
+	}
+	return out
 }
 
 func (u *NotificationStatsUseCase) ListDispatches(ctx context.Context, f dispatchModel.ListDispatchesFilter) ([]dispatchModel.DispatchDetail, int64, error) {

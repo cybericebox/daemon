@@ -12,6 +12,8 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	statsUseCase "github.com/cybericebox/daemon/internal/useCase/notification/stats"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
@@ -32,6 +34,8 @@ type (
 		) ([]dispatchModel.DispatchDetail, int64, error)
 		GetDispatch(ctx context.Context, id uuid.UUID) (*dispatchModel.DispatchDetail, error)
 		GetStats(ctx context.Context, since time.Time) (*dispatchModel.Stats, error)
+		ResendDispatches(ctx context.Context, ids []uuid.UUID) []statsUseCase.ResendResult
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
 
 	dispatchResponse struct {
@@ -102,6 +106,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	)
 	dispatches.GET("", h.listDispatches)
 	dispatches.GET(":id", h.getDispatch)
+	router.POST("dispatches/resend", h.prot.RequirePermission(rbac.PermNotificationsBroadcast), h.resendDispatches)
 }
 
 func toDispatchResponse(d dispatchModel.DispatchInfo) dispatchResponse {

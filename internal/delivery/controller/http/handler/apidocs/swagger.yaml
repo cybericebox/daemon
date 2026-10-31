@@ -12331,6 +12331,33 @@ definitions:
       Key:
         type: string
     type: object
+  stats.resendRequest:
+    properties:
+      DispatchIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  stats.resendResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/stats.resendResultResponse'
+        type: array
+    type: object
+  stats.resendResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      DispatchID:
+        type: string
+      Error:
+        type: string
+      Ok:
+        type: boolean
+    type: object
   stats.statsResponse:
     properties:
       ByChannel:
@@ -28069,6 +28096,35 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get a dispatch with its targets
+      tags:
+      - notification-stats
+  /notifications/dispatches/resend:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 dispatches; the failed channels of each are queued again
+        from the stored content; one result per dispatch in request order; a dispatch
+        that cannot be resent never stops the others; one audit entry per dispatch.
+      parameters:
+      - description: dispatches
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/stats.resendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/stats.resendResponse'
+              type: object
+      summary: Send the failed deliveries of many dispatches again
       tags:
       - notification-stats
   /notifications/inbox:

@@ -542,7 +542,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		emailTemplateUC,
 		emailUseCase.NewNotificationEmailPresetUseCase(deps.Repo, mediaUC),
 		inAppUseCase.NewNotificationInAppTemplateUseCase(deps.Repo),
-		statsUseCase.NewNotificationStatsUseCase(statsUseCase.Dependencies{Repo: deps.Repo}),
+		statsUseCase.NewNotificationStatsUseCase(statsUseCase.Dependencies{Repo: deps.Repo, Resender: notificationDispatcher}),
 		mediaUC,
 		exerciseUC,
 		eventUC,

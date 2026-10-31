@@ -546,6 +546,7 @@ GET    /api/notifications/broadcasts/:broadcastID/deliveries/export | gate: noti
 POST   /api/notifications/broadcasts/audience-count | gate: notifications.broadcast | layers: -
 GET    /api/notifications/dispatches | gate: notifications.templates.read | layers: -
 GET    /api/notifications/dispatches/:id | gate: notifications.templates.read | layers: -
+POST   /api/notifications/dispatches/resend | gate: notifications.broadcast | layers: -
 GET    /api/notifications/inbox | gate: notifications.self | layers: middleware.(*SiteResolver).ResolveSite.func
 PATCH  /api/notifications/inbox/:id/read | gate: notifications.self | layers: -
 POST   /api/notifications/inbox/:id/resolve | gate: notifications.self | layers: -
