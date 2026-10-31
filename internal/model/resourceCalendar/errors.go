@@ -7,7 +7,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 21
+// next free detail code: 23 (20 was retired)
 
 var (
 	// ErrWindowInvalid: the time range of a reservation or a booking is empty, reversed or out of bounds.
@@ -112,14 +112,21 @@ var (
 
 	// ErrReservationEndsAfterWithdraw: the end of an event's reservation window may not be later than the withdrawal
 	// of the event (the end of the window is the only point where the cluster deletes the labs). The public context
-	// has reservationEnd and withdrawAt (RFC 3339).
+	// has bound (the withdrawal) and requested (the end), RFC 3339; reservationEnd and withdrawAt repeat them.
 	ErrReservationEndsAfterWithdraw = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
 					WithMessage("The reservation must end before the event is withdrawn").
 					WithDetailCode(19)
 
-	// ErrWithdrawBeforeReservationEnd: the event cannot be withdrawn before its reservation ends; shorten the
-	// reservation first. The public context has reservationEnd and withdrawAt (RFC 3339).
-	ErrWithdrawBeforeReservationEnd = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
-					WithMessage("The event cannot be withdrawn before its reservation ends: shorten the reservation first").
-					WithDetailCode(20)
+	// ErrReservationStartTooLate: the window of an event's reservation starts later than the lead before the event
+	// start allows (the capacity must be connected that long before). The public context has bound (the latest
+	// start) and requested (the start), RFC 3339.
+	ErrReservationStartTooLate = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
+					WithMessage("The reservation must start earlier, before the lead of the event start").
+					WithDetailCode(21)
+
+	// ErrReservationEndsBeforeEventEnd: the window of an event's reservation ends before the event does. The public
+	// context has bound (the event end) and requested (the end), RFC 3339.
+	ErrReservationEndsBeforeEventEnd = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
+						WithMessage("The reservation must not end before the event ends").
+						WithDetailCode(22)
 )

@@ -53,7 +53,8 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 		start = e.Lifecycle.StartAt.Add(-lead)
 		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil {
 			eventEnd = *finish
-			end = eventEnd.Add(max(tail, u.cfg.TailGap))
+			// The tail is only the default end; the end may be as early as the event end.
+			end = eventEnd.Add(tail)
 		}
 	}
 	if in.WindowStart != nil {
@@ -62,8 +63,7 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 	if in.WindowEnd != nil {
 		end = *in.WindowEnd
 	} else if withdraw := withdrawAt(e); withdraw != nil && end.After(*withdraw) {
-		// The default end (event end + tail) follows the schedule but never passes the withdrawal; a fixed end that
-		// does is refused below.
+		// The default end (event end + tail) never passes the withdrawal; a fixed end that does is refused below.
 		end = *withdraw
 	}
 	if start.IsZero() || end.IsZero() {
@@ -73,7 +73,13 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 	if err != nil {
 		return calModel.Window{}, 0, err
 	}
-	if err = requireEndBeforeWithdraw(e, w.End); err != nil {
+	if withdraw := withdrawAt(e); in.WindowEnd == nil && withdraw != nil && w.End.After(*withdraw) {
+		// The slot rounding of a default end must not push it past the withdrawal.
+		if floor := calModel.SlotFloor(*withdraw); floor.After(w.Start) {
+			w.End = floor
+		}
+	}
+	if err = u.requireWindowBounds(e, w); err != nil {
 		return calModel.Window{}, 0, err
 	}
 	if !eventEnd.IsZero() {
@@ -132,8 +138,8 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			// Teams is the admin's maximum: the reserve is granted for it and does not follow the registrations.
 			teams = existing.Teams
 			buffer, dynamic, tail = existing.BufferPercent, existing.Dynamic, existing.TailGap
-			if l := startLead(e, existing); l > 0 {
-				lead = l
+			if l := startLead(e, existing); l > lead {
+				lead = l // a reservation that starts earlier keeps it; the lead is never shorter than the minimum
 			}
 		}
 		if in.StartLead != nil {

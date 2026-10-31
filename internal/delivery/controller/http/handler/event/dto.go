@@ -138,6 +138,11 @@ type lifecycleResponse struct {
 	Status         string                     `json:"Status"`
 	UpdatedAt      time.Time                  `json:"UpdatedAt"`
 	Infrastructure infrastructurePlanResponse `json:"Infrastructure"`
+	// ReservationShortenedTo is set only in the answer to a schedule change that ended the event's reservation
+	// earlier (the withdrawal is before the old end): the new end of the reservation, where the labs are stopped and
+	// deleted. RunningLabs is how many labs ran at that moment. The UI confirms before saving.
+	ReservationShortenedTo *time.Time `json:"ReservationShortenedTo" extensions:"x-nullable"`
+	RunningLabs            int32      `json:"RunningLabs"`
 }
 
 type infrastructurePlanResponse struct {
@@ -290,6 +295,9 @@ func toLifecycleResponse(v eventUseCase.EventLifecycleView) lifecycleResponse {
 		Status:         lifecycleStatusToString(v.Status),
 		UpdatedAt:      v.UpdatedAt,
 		Infrastructure: toInfrastructurePlanResponse(v.Infrastructure),
+
+		ReservationShortenedTo: v.ReservationShortenedTo,
+		RunningLabs:            v.RunningLabs,
 	}
 	if v.Configured {
 		result.PublishAt = &v.PublishAt

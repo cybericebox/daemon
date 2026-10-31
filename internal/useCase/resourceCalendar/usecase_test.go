@@ -96,11 +96,12 @@ func TestEventReservationSizeWindowAndPlacement(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
-func TestTailGapNeverShorterAndAdminMaySetMore(t *testing.T) {
+// The tail after the event end is only the default of the window end: the admin may set a shorter or a longer one.
+func TestTailGapIsOnlyTheDefaultEnd(t *testing.T) {
 	h := newHarness(t)
 	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(5 * time.Minute)}, uuid.Nil)
 	require.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC), res.Reservation.To)
+	assert.Equal(t, time.Date(2026, 10, 5, 12, 15, 0, 0, time.UTC), res.Reservation.To, "5 minutes after the event end, rounded to the slot")
 	res, err = h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(3 * time.Hour)}, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC), res.Reservation.To)

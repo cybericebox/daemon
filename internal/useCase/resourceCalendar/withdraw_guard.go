@@ -7,11 +7,19 @@ import (
 	"github.com/gofrs/uuid"
 
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 )
 
-// The end of an event's reservation window is the only point where the labs and groups of the event are deleted, so
-// it may not be later than the withdrawal of the event (the owner's decision of 2026-10-31).
+// The window of an event's reservation (owner, 2026-10-31):
+//   - it starts at least the lead before the event start (earlier is fine, later is not);
+//   - it ends no earlier than the event ends (the tail after it is only the default) and no later than the
+//     withdrawal of the event: the end of the window is the only point where the labs are deleted.
+
+// minLead is the least time before the event start the window may start.
+func (u *ResourceCalendarUseCase) minLead() time.Duration {
+	return eventStandModel.PlanningLead + u.cfg.LeadMargin
+}
 
 // withdrawAt is the scheduled withdrawal of a configured event; nil when there is none.
 func withdrawAt(e eventModel.Event) *time.Time {
@@ -21,18 +29,31 @@ func withdrawAt(e eventModel.Event) *time.Time {
 	return e.Lifecycle.WithdrawAt
 }
 
-// requireEndBeforeWithdraw refuses a window that ends after the event is withdrawn.
-func requireEndBeforeWithdraw(e eventModel.Event, end time.Time) error {
-	if withdraw := withdrawAt(e); withdraw != nil && end.After(*withdraw) {
+func rfc3339(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+// requireWindowBounds refuses a window that starts too late, ends before the event or ends after its withdrawal.
+func (u *ResourceCalendarUseCase) requireWindowBounds(e eventModel.Event, w calModel.Window) error {
+	if !e.Lifecycle.Configured {
+		return nil
+	}
+	if latest := e.Lifecycle.StartAt.Add(-u.minLead()); w.Start.After(latest) {
+		return calModel.ErrReservationStartTooLate.
+			WithPublicContext("bound", rfc3339(latest)).WithPublicContext("requested", rfc3339(w.Start)).Err()
+	}
+	if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && w.End.Before(*finish) {
+		return calModel.ErrReservationEndsBeforeEventEnd.
+			WithPublicContext("bound", rfc3339(*finish)).WithPublicContext("requested", rfc3339(w.End)).Err()
+	}
+	if withdraw := withdrawAt(e); withdraw != nil && w.End.After(*withdraw) {
 		return calModel.ErrReservationEndsAfterWithdraw.
-			WithPublicContext("reservationEnd", end.UTC().Format(time.RFC3339)).
-			WithPublicContext("withdrawAt", withdraw.UTC().Format(time.RFC3339)).Err()
+			WithPublicContext("bound", rfc3339(*withdraw)).WithPublicContext("requested", rfc3339(w.End)).
+			WithPublicContext("reservationEnd", rfc3339(w.End)).WithPublicContext("withdrawAt", rfc3339(*withdraw)).Err()
 	}
 	return nil
 }
 
-// requireReservationEndBeforeWithdraw is the same check for a change of a reservation of an event, found by id.
-func (u *ResourceCalendarUseCase) requireReservationEndBeforeWithdraw(ctx context.Context, eventID uuid.UUID, end time.Time) error {
+// requireReservationBounds is the same check for the window of a reservation of an event, found by id.
+func (u *ResourceCalendarUseCase) requireReservationBounds(ctx context.Context, eventID uuid.UUID, w calModel.Window) error {
 	e, err := u.events.GetByID(ctx, eventID)
 	if err != nil {
 		if notFound(err) {
@@ -40,11 +61,11 @@ func (u *ResourceCalendarUseCase) requireReservationEndBeforeWithdraw(ctx contex
 		}
 		return platformErr(err, "Failed to get the event for its reservation")
 	}
-	return requireEndBeforeWithdraw(e, end)
+	return u.requireWindowBounds(e, w)
 }
 
 // EventReservationEnd tells when the window of the event's active reservation ends; found is false when the event
-// has none. The event lifecycle uses it so an event is not withdrawn before its reservation ends.
+// has none.
 func (u *ResourceCalendarUseCase) EventReservationEnd(ctx context.Context, eventID uuid.UUID) (time.Time, bool, error) {
 	r, err := u.store.GetEventReservation(ctx, eventID)
 	if err != nil {
@@ -54,4 +75,18 @@ func (u *ResourceCalendarUseCase) EventReservationEnd(ctx context.Context, event
 		return time.Time{}, false, platformErr(err, "Failed to read the event reservation")
 	}
 	return r.Window.End, true, nil
+}
+
+// ShortenEventReservation ends the event's reservation window at newEnd when it ends later (the event is withdrawn
+// earlier than the window ends): the labs under it are stopped and deleted at the new end. It reports the old end,
+// or the zero time when nothing changed (no reservation, or it already ends by newEnd). The sizes are not touched.
+func (u *ResourceCalendarUseCase) ShortenEventReservation(ctx context.Context, eventID uuid.UUID, newEnd time.Time, by uuid.UUID) (oldEnd time.Time, err error) {
+	current, found, err := u.EventReservationEnd(ctx, eventID)
+	if err != nil || !found || !current.After(newEnd) {
+		return time.Time{}, err
+	}
+	if _, err = u.SetEventResourceReservation(ctx, eventID, EventReservationInput{WindowEnd: &newEnd, ForceShrink: true}, by); err != nil {
+		return time.Time{}, err
+	}
+	return current, nil
 }

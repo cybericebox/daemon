@@ -118,7 +118,7 @@ func TestSyncNeverShrinksBelowUsed(t *testing.T) {
 
 func TestSyncNeverEndsEarlierThanNotice(t *testing.T) {
 	h, port := syncHarness(t)
-	h.clock = time.Date(2026, 10, 5, 9, 12, 0, 0, time.UTC) // the event runs; a window end is slot aligned (9:15)
+	h.clock = time.Date(2026, 10, 5, 12, 12, 0, 0, time.UTC) // the event has ended (12:00), its tail runs; a window end is slot aligned (12:15)
 	res := setEvent(t, h, EventReservationInput{})
 	p := partsOf(t, h, res.Reservation.ID)[agentOne]
 	port.running(agentOne, p.ID, 2, Amount{CPUMillicores: 1000, MemoryBytes: 1}, calModel.PartActive)
@@ -130,7 +130,7 @@ func TestSyncNeverEndsEarlierThanNotice(t *testing.T) {
 
 func TestForcedShrinkIsSent(t *testing.T) {
 	h, port := syncHarness(t)
-	h.clock = time.Date(2026, 10, 5, 9, 12, 0, 0, time.UTC)
+	h.clock = time.Date(2026, 10, 5, 12, 12, 0, 0, time.UTC) // the tail after the event end (12:00)
 	res := setEvent(t, h, EventReservationInput{})
 	p := partsOf(t, h, res.Reservation.ID)[agentOne]
 	held := port.held[agentOne][p.ID]

@@ -66,9 +66,6 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 	if e.Lifecycle.Configured && !now.Before(e.Lifecycle.PublishAt) && !lifecycle.PublishAt.Equal(e.Lifecycle.PublishAt) {
 		return EventLifecycleView{}, eventModel.ErrEventLifecycleInvalid.Err()
 	}
-	if err = u.requireWithdrawAfterReservation(ctx, id, lifecycle.WithdrawAt); err != nil {
-		return EventLifecycleView{}, err
-	}
 	config, err := u.configs.Get(ctx, id)
 	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
 		return EventLifecycleView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
@@ -96,6 +93,12 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 		return EventLifecycleView{}, eventModel.ErrEventModified.Err()
 	}
 	u.invalidateLeadPlan(id)
+	// A withdrawal earlier than the end of the reservation ends the reservation there too: the labs are deleted at the
+	// end of the reservation window and at no other time.
+	shortenedTo, runningLabs, err := u.shortenReservationToWithdrawal(ctx, id, lifecycle.WithdrawAt, updatedBy)
+	if err != nil {
+		return EventLifecycleView{}, err
+	}
 	if u.supportsLabAccessPolicy() {
 		if err = u.RequestEventLabAccessSyncs(ctx, id); err != nil {
 			return EventLifecycleView{}, err
@@ -105,7 +108,9 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 	if err != nil {
 		return EventLifecycleView{}, err
 	}
-	return toEventLifecycleView(e, now, plan), nil
+	view := toEventLifecycleView(e, now, plan)
+	view.ReservationShortenedTo, view.RunningLabs = shortenedTo, runningLabs
+	return view, nil
 }
 
 // saveLifecycleWithStages writes the event schedule after validating the stages within its new bounds.

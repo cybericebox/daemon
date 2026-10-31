@@ -117,8 +117,15 @@ func (u *ResourceCalendarUseCase) RequestResourceChange(ctx context.Context, eve
 			current := r.Size
 			size = &current
 		}
-		if in.WindowEnd != nil && r.EventID != nil {
-			if err = u.requireReservationEndBeforeWithdraw(ctx, *r.EventID, *in.WindowEnd); err != nil {
+		if (in.WindowStart != nil || in.WindowEnd != nil) && r.EventID != nil {
+			wanted := r.Window
+			if in.WindowStart != nil {
+				wanted.Start = *in.WindowStart
+			}
+			if in.WindowEnd != nil {
+				wanted.End = *in.WindowEnd
+			}
+			if err = u.requireReservationBounds(ctx, *r.EventID, wanted); err != nil {
 				return err
 			}
 		}
@@ -246,7 +253,7 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 				return aErr
 			}
 			if r.EventID != nil {
-				if wErr := u.requireReservationEndBeforeWithdraw(ctx, *r.EventID, r.Window.End); wErr != nil {
+				if wErr := u.requireReservationBounds(ctx, *r.EventID, r.Window); wErr != nil {
 					return wErr
 				}
 			}

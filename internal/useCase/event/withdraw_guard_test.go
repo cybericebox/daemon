@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -25,24 +24,42 @@ func (g endingGate) EventReservationEnd(context.Context, uuid.UUID) (time.Time, 
 	return g.end, g.found, nil
 }
 
-// The event cannot be withdrawn before its reservation ends; with no reservation, no withdrawal or no calendar there
-// is nothing to protect.
-func TestRequireWithdrawAfterReservation(t *testing.T) {
-	end := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	withdrawAt := func(d time.Duration) *time.Time { w := end.Add(d); return &w }
+type shorteningGate struct {
+	endingGate
+	oldEnd time.Time
+	called *time.Time
+}
+
+func (g shorteningGate) ShortenEventReservation(_ context.Context, _ uuid.UUID, newEnd time.Time, _ uuid.UUID) (time.Time, error) {
+	*g.called = newEnd
+	return g.oldEnd, nil
+}
+
+// Saving a withdrawal earlier than the reservation end shortens the reservation to it, in the same action; nothing
+// to report when the window was not touched, there is no withdrawal or no calendar.
+func TestShortenReservationToWithdrawal(t *testing.T) {
+	withdraw := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	var called time.Time
 	u := &EventUseCase{}
-	u.SetResourceGate(endingGate{end: end, found: true})
+	u.SetResourceGate(shorteningGate{oldEnd: withdraw.Add(time.Hour), called: &called})
 
-	require.NoError(t, u.requireWithdrawAfterReservation(context.Background(), uuid.Nil, withdrawAt(0)), "at the end is fine")
-	require.NoError(t, u.requireWithdrawAfterReservation(context.Background(), uuid.Nil, withdrawAt(time.Hour)))
-	require.NoError(t, u.requireWithdrawAfterReservation(context.Background(), uuid.Nil, nil), "no withdrawal")
+	end, _, err := u.shortenReservationToWithdrawal(context.Background(), uuid.Nil, &withdraw, uuid.Nil)
+	require.NoError(t, err)
+	require.NotNil(t, end)
+	assert.True(t, end.Equal(withdraw))
+	assert.True(t, called.Equal(withdraw))
 
-	err := u.requireWithdrawAfterReservation(context.Background(), uuid.Nil, withdrawAt(-time.Minute))
-	require.ErrorIs(t, err, calModel.ErrWithdrawBeforeReservationEnd.Err())
+	u.SetResourceGate(shorteningGate{called: &called}) // zero old end: the window already ended by then
+	end, _, err = u.shortenReservationToWithdrawal(context.Background(), uuid.Nil, &withdraw, uuid.Nil)
+	require.NoError(t, err)
+	assert.Nil(t, end)
 
-	u.SetResourceGate(endingGate{found: false})
-	require.NoError(t, u.requireWithdrawAfterReservation(context.Background(), uuid.Nil, withdrawAt(-time.Hour)), "no reservation")
-	require.NoError(t, (&EventUseCase{}).requireWithdrawAfterReservation(context.Background(), uuid.Nil, withdrawAt(-time.Hour)), "no calendar")
+	end, _, err = u.shortenReservationToWithdrawal(context.Background(), uuid.Nil, nil, uuid.Nil)
+	require.NoError(t, err)
+	assert.Nil(t, end, "no withdrawal")
+	end, _, err = (&EventUseCase{}).shortenReservationToWithdrawal(context.Background(), uuid.Nil, &withdraw, uuid.Nil)
+	require.NoError(t, err)
+	assert.Nil(t, end, "no calendar")
 }
 
 type holderGate struct {

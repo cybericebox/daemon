@@ -1974,6 +1974,15 @@ definitions:
         type: integer
       PublishAt:
         type: string
+      ReservationShortenedTo:
+        description: |-
+          ReservationShortenedTo is set only in the answer to a schedule change that ended the event's reservation
+          earlier (the withdrawal is before the old end): the new end of the reservation, where the labs are stopped and
+          deleted. RunningLabs is how many labs ran at that moment. The UI confirms before saving.
+        type: string
+        x-nullable: true
+      RunningLabs:
+        type: integer
       StartAt:
         type: string
       Status:

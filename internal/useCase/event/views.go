@@ -58,6 +58,10 @@ type EventLifecycleView struct {
 	Status         eventModel.LifecycleStatus
 	UpdatedAt      time.Time
 	Infrastructure EventInfrastructurePlan
+	// ReservationShortenedTo is set when saving the schedule ended the event's reservation earlier (the withdrawal is
+	// before the old end): the new end, when the labs are stopped and deleted. RunningLabs is how many labs ran then.
+	ReservationShortenedTo *time.Time
+	RunningLabs            int32
 }
 
 type EventScoringProfileView struct {

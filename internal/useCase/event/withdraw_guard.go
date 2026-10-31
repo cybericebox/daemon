@@ -7,8 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
-	"github.com/cybericebox/daemon/internal/model"
-	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
 )
 
 // reservationEnder is the optional part of the resource gate that tells when the event's reservation window ends.
@@ -16,27 +15,39 @@ type reservationEnder interface {
 	EventReservationEnd(ctx context.Context, eventID uuid.UUID) (endsAt time.Time, found bool, err error)
 }
 
-// requireWithdrawAfterReservation refuses a withdrawal earlier than the end of the event's reservation: the end of
-// the reservation window is the only point where the labs of the event are deleted, so the reservation is
-// shortened first. An event without a reservation, or a gate that cannot say, has nothing to protect.
-func (u *EventUseCase) requireWithdrawAfterReservation(ctx context.Context, eventID uuid.UUID, withdrawAt *time.Time) error {
-	if withdrawAt == nil {
-		return nil
+// reservationShortener is the optional part of the resource gate that ends the event's reservation window earlier.
+type reservationShortener interface {
+	ShortenEventReservation(ctx context.Context, eventID uuid.UUID, newEnd time.Time, by uuid.UUID) (oldEnd time.Time, err error)
+}
+
+// shortenReservationToWithdrawal ends the event's reservation window at the new withdrawal when it ends later (owner,
+// 2026-10-31): saving the schedule is one action, with no second request. The labs under the reservation are stopped
+// and deleted at the new end like at any end. It reports the new end and how many labs run now (zero and nil when the
+// window was not touched), for the answer to show the result.
+func (u *EventUseCase) shortenReservationToWithdrawal(ctx context.Context, eventID uuid.UUID, withdrawAt *time.Time, by uuid.UUID) (*time.Time, int32, error) {
+	shortener, ok := u.resourceGate.(reservationShortener)
+	if !ok || withdrawAt == nil {
+		return nil, 0, nil
 	}
-	ender, ok := u.resourceGate.(reservationEnder)
-	if !ok {
-		return nil
+	running := int32(0)
+	if u.repo == nil {
+		// no store (a unit test): nothing to count
+	} else if labs, err := eventLabAllocationRepo.New(u.repo).Labs(ctx, eventID); err == nil {
+		for _, l := range labs {
+			if l.DesiredState == "Running" {
+				running++
+			}
+		}
 	}
-	end, found, err := ender.EventReservationEnd(ctx, eventID)
+	oldEnd, err := shortener.ShortenEventReservation(ctx, eventID, *withdrawAt, by)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the event reservation").Err()
+		return nil, 0, err
 	}
-	if found && end.After(*withdrawAt) {
-		return calModel.ErrWithdrawBeforeReservationEnd.
-			WithPublicContext("reservationEnd", end.UTC().Format(time.RFC3339)).
-			WithPublicContext("withdrawAt", withdrawAt.UTC().Format(time.RFC3339)).Err()
+	if oldEnd.IsZero() {
+		return nil, 0, nil
 	}
-	return nil
+	end := *withdrawAt
+	return &end, running, nil
 }
 
 // labsEndWithReservation says whether the labs of the event are deleted by the end of its reservation window and by
