@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
@@ -354,6 +355,154 @@ func (u *EventUseCase) ResendParticipantInvitation(ctx context.Context, eventID,
 	return ParticipantInvitationResult{Email: user.Email, UserID: user.ID, SentAt: &sentAt}, nil
 }
 
+// ChangeParticipantInvitationEmail corrects the address of a pending invitation: the invitation moves to the account
+// of the new address (an unclaimed one is created) with its team, captaincy and prefilled answers, and a new email
+// with a new setup link goes out (unless noEmail). The wrong address no longer holds an invitation, and a setup link
+// it received is revoked when the account has no other event rows. The organizer is never time-limited.
+func (u *EventUseCase) ChangeParticipantInvitationEmail(ctx context.Context, eventID, userID, by uuid.UUID, newEmail string, noEmail bool) (ParticipantInvitationResult, error) {
+	email := userModel.NormalizeEmail(newEmail)
+	address, err := mail.ParseAddress(email)
+	if err != nil || address.Address != email || len(email) > 254 {
+		return ParticipantInvitationResult{}, participantModel.ErrInvitationEmailInvalid.Err()
+	}
+	if u.uow == nil || (!noEmail && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "")) {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return ParticipantInvitationResult{}, err
+	}
+	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return ParticipantInvitationResult{}, err
+	}
+	participants, users, forms := participantRepo.New(txRepo), userRepo.New(txRepo), eventFormRepo.New(txRepo)
+	old, err := participants.Get(txCtx, eventID, userID)
+	if err != nil || !old.Invited || old.Status != participantModel.StatusPending {
+		if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
+			return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get participant").Err()
+		}
+		return ParticipantInvitationResult{}, participantModel.ErrInvitationRequired.Err()
+	}
+	oldUser, err := users.GetByID(txCtx, userID)
+	if err != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get invited account").Err()
+	}
+	if oldUser.Email == email {
+		// Nothing to correct: the same address just gets the invitation again.
+		return u.ResendParticipantInvitation(ctx, eventID, userID, by)
+	}
+	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)
+	if err != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	target := uuid.NullUUID{}
+	teamName := ""
+	var team eventTeamModel.EventTeam
+	if old.InvitedToTeam {
+		if old.InvitedTeamID == nil {
+			return ParticipantInvitationResult{}, participantModel.ErrTeamInvitationUnavailable.Err()
+		}
+		if team, err = eventTeamRepo.New(txRepo).GetByID(txCtx, eventID, *old.InvitedTeamID); err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return ParticipantInvitationResult{}, participantModel.ErrTeamInvitationUnavailable.Err()
+			}
+			return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get invited team").Err()
+		}
+		target, teamName = uuid.NullUUID{UUID: team.ID, Valid: true}, team.Name
+	}
+	user, err := users.GetByEmail(txCtx, email)
+	if repositoryTools.IsObjectNotFoundError(err) || errors.Is(err, pgx.ErrNoRows) {
+		pending := userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), email, time.Now().UTC())
+		if oldUser.Status == userModel.UserStatusIncomplete {
+			pending.FirstName, pending.LastName = oldUser.FirstName, oldUser.LastName
+		}
+		user, err = users.Create(txCtx, pending)
+	}
+	if err != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to prepare invited account").Err()
+	}
+	if user.Status != userModel.UserStatusActive && user.Status != userModel.UserStatusIncomplete {
+		return ParticipantInvitationResult{}, participantModel.ErrInvitationRequired.WithMessage("This account cannot be invited").Err()
+	}
+	if staff, staffErr := u.isEventStaff(txCtx, eventID, user.ID); staffErr != nil {
+		return ParticipantInvitationResult{}, staffErr
+	} else if staff {
+		return ParticipantInvitationResult{}, registerError(ReasonStaff)
+	}
+	prefill, err := forms.LatestRegistrationAnswers(txCtx, eventID, []uuid.UUID{userID})
+	if err != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get participant answers").Err()
+	}
+	form, err := prefillForm(txCtx, forms, eventID)
+	if err != nil {
+		return ParticipantInvitationResult{}, err
+	}
+	if affected, delErr := participants.DeleteInvitation(txCtx, eventID, userID); delErr != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(delErr).WithMessage("Failed to remove invitation").Err()
+	} else if affected == 0 {
+		return ParticipantInvitationResult{}, participantModel.ErrInvitationRequired.Err()
+	}
+	if _, ok, inviteErr := participants.Invite(txCtx, eventID, user.ID, by, target, time.Now().UTC()); inviteErr != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(inviteErr).WithMessage("Failed to create participant invitation").Err()
+	} else if !ok {
+		return ParticipantInvitationResult{}, participantModel.ErrAlreadyParticipant.Err()
+	}
+	if answers := prefill[userID]; len(answers) > 0 && form != nil {
+		if err = savePrefilledAnswers(txCtx, forms, eventID, user.ID, *form, answers, time.Now().UTC()); err != nil {
+			return ParticipantInvitationResult{}, err
+		}
+	}
+	if target.Valid && team.IsCaptain(userID) {
+		// The pending captain's seat goes with the invitation.
+		expected := team.UpdatedAt
+		if err = team.TransferCaptain(user.ID, userID, time.Now()); err != nil {
+			return ParticipantInvitationResult{}, err
+		}
+		if affected, updateErr := eventTeamRepo.New(txRepo).Update(txCtx, team, expected); updateErr != nil {
+			return ParticipantInvitationResult{}, model.ErrPlatform.WithError(updateErr).WithMessage("Failed to move team captaincy").Err()
+		} else if affected == 0 {
+			return ParticipantInvitationResult{}, eventTeamModel.ErrEventTeamNotFound.Err()
+		}
+	}
+	if noEmail {
+		if _, err = users.MarkInvitationSent(txCtx, user.ID, time.Now().UTC()); err != nil {
+			return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record invitation").Err()
+		}
+	}
+	orphan := false
+	if oldUser.Status == userModel.UserStatusIncomplete {
+		rows, countErr := participants.CountRowsOfUser(txCtx, userID)
+		if countErr != nil {
+			return ParticipantInvitationResult{}, model.ErrPlatform.WithError(countErr).WithMessage("Failed to count participant rows").Err()
+		}
+		orphan = rows == 0
+	}
+	if err = unit.Save(); err != nil {
+		return ParticipantInvitationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save invitation").Err()
+	}
+	if orphan {
+		// The wrong address received a setup link: it must not work any more.
+		if revoker, ok := u.setupTokens.(interface {
+			Revoke(ctx context.Context, userID uuid.UUID) error
+		}); ok {
+			if err = revoker.Revoke(ctx, userID); err != nil {
+				log.Warn().Err(err).Stringer("event_id", eventID).Msg("invitation email change: the old setup link was not revoked")
+			}
+		}
+	}
+	result := ParticipantInvitationResult{Email: user.Email, UserID: user.ID}
+	if noEmail {
+		return result, nil
+	}
+	sentAt, err := u.sendParticipantInvitation(ctx, e, user, target.Valid, teamName, by)
+	if err != nil {
+		return result, err
+	}
+	result.SentAt = &sentAt
+	return result, nil
+}
+
 // RevokeParticipantInvitation deletes a pending invitation (moderator).
 func (u *EventUseCase) RevokeParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) error {
 	return u.removeInvitation(ctx, eventID, userID, by, signalModel.TypeParticipantInvitationRevoked)
@@ -406,8 +555,28 @@ func (u *EventUseCase) removeInvitation(ctx context.Context, eventID, userID, by
 }
 
 func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID, userID uuid.UUID) (JoinInfoView, error) {
-	if err := u.requireParticipantForm(ctx, eventID, userID); err != nil {
-		return JoinInfoView{}, err
+	return u.acceptParticipantInvitation(ctx, eventID, userID, uuid.Nil)
+}
+
+// AcceptParticipantInvitationFor accepts a pending invitation on behalf of the invited person (organizer). The
+// organizer is never time-limited: the registration window, the publication and a formed team do not stop it, and
+// the participant form may stay incomplete (the missing answers stay visible in the list). The person still has to
+// fit the team size and cannot be event staff.
+func (u *EventUseCase) AcceptParticipantInvitationFor(ctx context.Context, eventID, userID, by uuid.UUID) (JoinInfoView, error) {
+	if by == uuid.Nil {
+		return JoinInfoView{}, participantModel.ErrParticipantAccessForbidden.Err()
+	}
+	return u.acceptParticipantInvitation(ctx, eventID, userID, by)
+}
+
+// acceptParticipantInvitation accepts the invitation; by is the organizer accepting on behalf, uuid.Nil: the
+// invited person themselves.
+func (u *EventUseCase) acceptParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) (JoinInfoView, error) {
+	onBehalf := by != uuid.Nil
+	if !onBehalf {
+		if err := u.requireParticipantForm(ctx, eventID, userID); err != nil {
+			return JoinInfoView{}, err
+		}
 	}
 	if u.uow == nil || u.signalPublishers == nil {
 		return JoinInfoView{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
@@ -437,14 +606,16 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 	} else if staff {
 		return JoinInfoView{}, registerError(ReasonStaff)
 	}
-	if invitationAwaitingPublication(invitedEvent, time.Now()) {
-		// Accepting before publication stays impossible.
-		return JoinInfoView{}, registerError(ReasonNotPublished)
+	if !onBehalf {
+		if invitationAwaitingPublication(invitedEvent, time.Now()) {
+			// Accepting before publication stays impossible.
+			return JoinInfoView{}, registerError(ReasonNotPublished)
+		}
+		if invitationExpired(invitedEvent, p, time.Now()) {
+			return JoinInfoView{}, participantModel.ErrInvitationExpired.Err()
+		}
 	}
-	if invitationExpired(invitedEvent, p, time.Now()) {
-		return JoinInfoView{}, participantModel.ErrInvitationExpired.Err()
-	}
-	if err = p.Approve(time.Now().UTC(), uuid.Nil); err != nil {
+	if err = p.Approve(time.Now().UTC(), by); err != nil {
 		return JoinInfoView{}, err
 	}
 	if affected, updateErr := participants.Update(txCtx, p); updateErr != nil {
@@ -473,7 +644,7 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 			}
 			return JoinInfoView{}, model.ErrPlatform.WithError(lookupErr).WithMessage("Failed to get invited team").Err()
 		}
-		if teamClosedToInvitees(invitedTeam, invitedEvent, time.Now()) {
+		if !onBehalf && teamClosedToInvitees(invitedTeam, invitedEvent, time.Now()) {
 			// The captain marked the team formed (or the event formed it at the start): its unaccepted invitations
 			// are expired; only an organizer changes the roster now.
 			return JoinInfoView{}, participantModel.ErrInvitationExpired.Err()
@@ -501,7 +672,7 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 			return JoinInfoView{}, err
 		}
 	}
-	payload := signalModel.ParticipantPayload{ScopeEventID: eventID, SubjectUserID: userID, EventTag: invitedEvent.Tag, EventName: invitedEvent.Name, Registration: signalModel.RegistrationInvitation}
+	payload := signalModel.ParticipantPayload{ScopeEventID: eventID, ActorUserID: by, SubjectUserID: userID, EventTag: invitedEvent.Tag, EventName: invitedEvent.Name, Registration: signalModel.RegistrationInvitation}
 	publisher := u.signalPublishers(txRepo)
 	for _, typ := range []signalModel.Type{signalModel.TypeParticipantInvitationAccepted, signalModel.TypeParticipantEnrolled} {
 		if err = publisher.Publish(txCtx, typ, &payload); err != nil {

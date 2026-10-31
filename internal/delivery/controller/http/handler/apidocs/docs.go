@@ -12234,6 +12234,96 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/participants/{userID}/invitation/accept": {
+            "post": {
+                "description": "Organizers are not time-limited: the registration window, publication and a formed team do not stop it; the team size still applies.",
+                "tags": [
+                    "events"
+                ],
+                "summary": "Accept a pending participant invitation on behalf of the invited person",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "invited user ID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participants/{userID}/invitation/email": {
+            "put": {
+                "description": "Moves the pending invitation (team, captaincy and prefilled answers included) to the account of the new address and sends a new email with a new link; the old link stops working. The same address just re-sends.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Correct the email of a pending participant invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "invited user ID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new email",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.changeInvitationEmailRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.ParticipantInvitationResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/participants/{userID}/invitation/resend": {
             "post": {
                 "tags": [
@@ -12377,6 +12467,46 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participants/{userID}/team/{teamID}": {
+            "put": {
+                "description": "The participant leaves their current team for teamID. Organizers are not time-limited (formed teams and a started event do not stop it). The captain must hand over the captaincy first; the target team needs a free seat.",
+                "tags": [
+                    "events"
+                ],
+                "summary": "Move a team member to another team",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "participant user ID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "target team ID",
+                        "name": "teamID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -28220,6 +28350,21 @@ const docTemplate = `{
                 },
                 "Text": {
                     "type": "string"
+                }
+            }
+        },
+        "event.changeInvitationEmailRequest": {
+            "type": "object",
+            "required": [
+                "Email"
+            ],
+            "properties": {
+                "Email": {
+                    "type": "string"
+                },
+                "SendEmails": {
+                    "description": "SendEmails false moves the invitation without sending any email. Omitted means send (the default).",
+                    "type": "boolean"
                 }
             }
         },

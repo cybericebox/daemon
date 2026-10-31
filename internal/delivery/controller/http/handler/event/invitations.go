@@ -127,3 +127,91 @@ func (h *Handler) revokeInvitation(ctx *gin.Context) {
 	}
 	response.AbortWithSuccess(ctx)
 }
+
+type changeInvitationEmailRequest struct {
+	Email string `json:"Email" binding:"required"`
+	// SendEmails false moves the invitation without sending any email. Omitted means send (the default).
+	SendEmails *bool `json:"SendEmails"`
+}
+
+// @Summary Correct the email of a pending participant invitation
+// @Description Moves the pending invitation (team, captaincy and prefilled answers included) to the account of the new address and sends a new email with a new link; the old link stops working. The same address just re-sends.
+// @Tags events
+// @Accept json
+// @Param id path string true "event ID"
+// @Param userID path string true "invited user ID"
+// @Param body body changeInvitationEmailRequest true "new email"
+// @Success 200 {object} response.Response{data=eventUseCase.ParticipantInvitationResult}
+// @Router /events/{id}/manage/participants/{userID}/invitation/email [put]
+func (h *Handler) changeInvitationEmail(ctx *gin.Context) {
+	eventID, userID, ok := parseParticipantUserID(ctx)
+	if !ok {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	var req changeInvitationEmailRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	noEmail := req.SendEmails != nil && !*req.SendEmails
+	result, err := h.useCase.ChangeParticipantInvitationEmail(ctx, eventID, userID, claims.UserID, req.Email, noEmail)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, result)
+}
+
+// @Summary Accept a pending participant invitation on behalf of the invited person
+// @Description Organizers are not time-limited: the registration window, publication and a formed team do not stop it; the team size still applies.
+// @Tags events
+// @Param id path string true "event ID"
+// @Param userID path string true "invited user ID"
+// @Success 200 {object} response.Response
+// @Router /events/{id}/manage/participants/{userID}/invitation/accept [post]
+func (h *Handler) acceptInvitationFor(ctx *gin.Context) {
+	eventID, userID, ok := parseParticipantUserID(ctx)
+	if !ok {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	if _, err := h.useCase.AcceptParticipantInvitationFor(ctx, eventID, userID, claims.UserID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithSuccess(ctx)
+}
+
+// @Summary Move a team member to another team
+// @Description The participant leaves their current team for teamID. Organizers are not time-limited (formed teams and a started event do not stop it). The captain must hand over the captaincy first; the target team needs a free seat.
+// @Tags events
+// @Param id path string true "event ID"
+// @Param userID path string true "participant user ID"
+// @Param teamID path string true "target team ID"
+// @Success 200 {object} response.Response
+// @Router /events/{id}/manage/participants/{userID}/team/{teamID} [put]
+func (h *Handler) moveParticipantToTeam(ctx *gin.Context) {
+	eventID, userID, ok := parseParticipantUserID(ctx)
+	if !ok {
+		return
+	}
+	teamID, err := uuid.FromString(ctx.Param("teamID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err = h.useCase.MoveParticipantToTeam(ctx, eventID, userID, teamID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithSuccess(ctx)
+}

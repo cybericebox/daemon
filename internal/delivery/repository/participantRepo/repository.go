@@ -28,6 +28,8 @@ type Queries interface {
 	UpdateEventParticipant(ctx context.Context, arg postgres.UpdateEventParticipantParams) (int64, error)
 	AssignEventParticipantTeam(ctx context.Context, arg postgres.AssignEventParticipantTeamParams) (int64, error)
 	ClearEventParticipantTeam(ctx context.Context, arg postgres.ClearEventParticipantTeamParams) (int64, error)
+	CountEventParticipantRowsOfUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	MoveEventParticipantTeam(ctx context.Context, arg postgres.MoveEventParticipantTeamParams) (int64, error)
 	SetEventParticipantTeamRole(ctx context.Context, arg postgres.SetEventParticipantTeamRoleParams) (int64, error)
 	ListEventParticipantsDetailed(ctx context.Context, arg postgres.ListEventParticipantsDetailedParams) ([]postgres.ListEventParticipantsDetailedRow, error)
 	CountEventParticipants(ctx context.Context, arg postgres.CountEventParticipantsParams) (int64, error)
@@ -113,6 +115,19 @@ type Profile struct {
 func (r *Repository) ClearTeam(ctx context.Context, eventID, userID, teamID uuid.UUID) (int64, error) {
 	return r.q.ClearEventParticipantTeam(ctx, postgres.ClearEventParticipantTeamParams{
 		EventID: eventID, UserID: userID, TeamID: uuid.NullUUID{UUID: teamID, Valid: true},
+	})
+}
+
+// CountRowsOfUser is how many event rows (any status) the user has.
+func (r *Repository) CountRowsOfUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	return r.q.CountEventParticipantRowsOfUser(ctx, userID)
+}
+
+// MoveTeam moves a non-captain member of fromTeamID to toTeamID.
+func (r *Repository) MoveTeam(ctx context.Context, eventID, userID, fromTeamID, toTeamID uuid.UUID) (int64, error) {
+	return r.q.MoveEventParticipantTeam(ctx, postgres.MoveEventParticipantTeamParams{
+		EventID: eventID, UserID: userID,
+		FromTeamID: uuid.NullUUID{UUID: fromTeamID, Valid: true}, ToTeamID: uuid.NullUUID{UUID: toTeamID, Valid: true},
 	})
 }
 

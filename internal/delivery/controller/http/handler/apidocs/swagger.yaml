@@ -1092,6 +1092,17 @@ definitions:
       Text:
         type: string
     type: object
+  event.changeInvitationEmailRequest:
+    properties:
+      Email:
+        type: string
+      SendEmails:
+        description: SendEmails false moves the invitation without sending any email.
+          Omitted means send (the default).
+        type: boolean
+    required:
+    - Email
+    type: object
   event.configResponse:
     properties:
       AllowPseudonyms:
@@ -19688,6 +19699,66 @@ paths:
       summary: Revoke a pending participant invitation
       tags:
       - events
+  /events/{id}/manage/participants/{userID}/invitation/accept:
+    post:
+      description: 'Organizers are not time-limited: the registration window, publication
+        and a formed team do not stop it; the team size still applies.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: invited user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Accept a pending participant invitation on behalf of the invited person
+      tags:
+      - events
+  /events/{id}/manage/participants/{userID}/invitation/email:
+    put:
+      consumes:
+      - application/json
+      description: Moves the pending invitation (team, captaincy and prefilled answers
+        included) to the account of the new address and sends a new email with a new
+        link; the old link stops working. The same address just re-sends.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: invited user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      - description: new email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.changeInvitationEmailRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.ParticipantInvitationResult'
+              type: object
+      summary: Correct the email of a pending participant invitation
+      tags:
+      - events
   /events/{id}/manage/participants/{userID}/invitation/resend:
     post:
       parameters:
@@ -19775,6 +19846,35 @@ paths:
                   $ref: '#/definitions/event.staffFieldsResponse'
               type: object
       summary: Save staff-only field values of a participant
+      tags:
+      - events
+  /events/{id}/manage/participants/{userID}/team/{teamID}:
+    put:
+      description: The participant leaves their current team for teamID. Organizers
+        are not time-limited (formed teams and a started event do not stop it). The
+        captain must hand over the captaincy first; the target team needs a free seat.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: participant user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      - description: target team ID
+        in: path
+        name: teamID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Move a team member to another team
       tags:
       - events
   /events/{id}/manage/participants/{userID}/visibility:

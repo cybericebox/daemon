@@ -95,6 +95,8 @@ type Querier interface {
 	CountEventLiveScreens(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// Tab counters: applications count only undecided requests.
 	CountEventParticipantKinds(ctx context.Context, eventID uuid.UUID) (CountEventParticipantKindsRow, error)
+	// Every event row of the user (any status): an unclaimed account left without any is an orphan.
+	CountEventParticipantRowsOfUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Mirrors ListEventParticipantsDetailed's status, kind, search and field filters.
 	CountEventParticipants(ctx context.Context, arg CountEventParticipantsParams) (int64, error)
 	// Mirrors ListEventParticipantsTable's filters.
@@ -394,7 +396,9 @@ type Querier interface {
 	// Closes the roster for good. formed_by NULL means no person did it. Already
 	// formed teams are left alone, so a repeat is a no-op.
 	FormEventTeam(ctx context.Context, arg FormEventTeamParams) (int64, error)
-	// An empty eligible roster is deferred, not an immutable prepared cohort.
+	// An empty eligible roster is deferred, not an immutable prepared cohort. Until the tasks are shown (the barrier is
+	// opened) the cohort is recomputed on every call: a team that becomes eligible, before or after the start, joins it, and a
+	// team declined for lack of room (event_lab_reveal_declined) stays out; once opened it is frozen.
 	FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error)
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
 	// The screen's one working link (unrevoked and not expired).
@@ -1654,6 +1658,8 @@ type Querier interface {
 	// boundary-derived policy change allocates exactly one more revision before RPC.
 	MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error)
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
+	// A moderator moves a non-captain member from the exact current team to another one.
+	MoveEventParticipantTeam(ctx context.Context, arg MoveEventParticipantTeamParams) (int64, error)
 	// Archive of the raw lab observations (docs/LAB-TRAFFIC-ACCOUNTING.md): the
 	// rows are written as zstd NDJSON chunks, one event and hour at a time,
 	// before the retention job may delete them.

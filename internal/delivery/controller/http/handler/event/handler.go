@@ -132,6 +132,9 @@ type (
 		InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, noEmail bool) ([]eventUseCase.ParticipantInvitationResult, error)
 		ResendParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) (eventUseCase.ParticipantInvitationResult, error)
 		RevokeParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) error
+		AcceptParticipantInvitationFor(ctx context.Context, eventID, userID, by uuid.UUID) (eventUseCase.JoinInfoView, error)
+		ChangeParticipantInvitationEmail(ctx context.Context, eventID, userID, by uuid.UUID, newEmail string, noEmail bool) (eventUseCase.ParticipantInvitationResult, error)
+		MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error
 		GetTeamProfile(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.TeamProfileView, error)
 		SetTeamAdmission(ctx context.Context, eventID, teamID uuid.UUID, admittedManually bool) (eventUseCase.TeamView, error)
 		SetTeamHidden(ctx context.Context, eventID, teamID uuid.UUID, hidden bool) (eventUseCase.TeamView, error)
@@ -351,6 +354,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("teams/:teamID/invitations", h.requireManage, h.inviteParticipants)
 		manage.POST("participants/:userID/invitation/resend", h.requireManage, h.resendInvitation)
 		manage.DELETE("participants/:userID/invitation", h.requireManage, h.revokeInvitation)
+		manage.POST("participants/:userID/invitation/accept", h.requireManage, h.acceptInvitationFor)
+		manage.PUT("participants/:userID/invitation/email", h.requireManage, h.changeInvitationEmail)
+		manage.PUT("participants/:userID/team/:teamID", h.requireManage, h.moveParticipantToTeam)
 		manage.GET("list-columns/:list", h.requireRead, h.getListColumns)
 		manage.PUT("list-columns/:list", h.requireManage, h.putListColumns)
 		// Viewers read the journal without submitted answers and expected flags.

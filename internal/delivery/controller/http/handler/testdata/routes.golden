@@ -272,10 +272,13 @@ GET    /api/events/:id/manage/participants | gate: self | layers: event.requireR
 GET    /api/events/:id/manage/participants/:userID | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/participants/:userID/approve | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/participants/:userID/invitation | gate: self | layers: event.requireManage
+POST   /api/events/:id/manage/participants/:userID/invitation/accept | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/participants/:userID/invitation/email | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/participants/:userID/invitation/resend | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/participants/:userID/reject | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/participants/:userID/staff-fields | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/participants/:userID/staff-fields | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/participants/:userID/team/:teamID | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/participants/:userID/visibility | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/participants/invitations | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage

@@ -654,6 +654,21 @@ func (mr *MockQuerierMockRecorder) CountEventParticipantKinds(ctx, eventID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventParticipantKinds", reflect.TypeOf((*MockQuerier)(nil).CountEventParticipantKinds), ctx, eventID)
 }
 
+// CountEventParticipantRowsOfUser mocks base method.
+func (m *MockQuerier) CountEventParticipantRowsOfUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEventParticipantRowsOfUser", ctx, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEventParticipantRowsOfUser indicates an expected call of CountEventParticipantRowsOfUser.
+func (mr *MockQuerierMockRecorder) CountEventParticipantRowsOfUser(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventParticipantRowsOfUser", reflect.TypeOf((*MockQuerier)(nil).CountEventParticipantRowsOfUser), ctx, userID)
+}
+
 // CountEventParticipants mocks base method.
 func (m *MockQuerier) CountEventParticipants(ctx context.Context, arg postgres.CountEventParticipantsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -11335,6 +11350,21 @@ func (m *MockQuerier) MaxEventChallengeOrder(ctx context.Context, eventExerciseI
 func (mr *MockQuerierMockRecorder) MaxEventChallengeOrder(ctx, eventExerciseID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxEventChallengeOrder", reflect.TypeOf((*MockQuerier)(nil).MaxEventChallengeOrder), ctx, eventExerciseID)
+}
+
+// MoveEventParticipantTeam mocks base method.
+func (m *MockQuerier) MoveEventParticipantTeam(ctx context.Context, arg postgres.MoveEventParticipantTeamParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MoveEventParticipantTeam", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MoveEventParticipantTeam indicates an expected call of MoveEventParticipantTeam.
+func (mr *MockQuerierMockRecorder) MoveEventParticipantTeam(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveEventParticipantTeam", reflect.TypeOf((*MockQuerier)(nil).MoveEventParticipantTeam), ctx, arg)
 }
 
 // NextEventLabObservationArchiveRange mocks base method.

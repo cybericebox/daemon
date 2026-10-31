@@ -139,6 +139,20 @@ func (u *EventUseCase) AssignParticipantToTeam(ctx context.Context, eventID, tea
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event participant").Err()
 	}
+	if participant.TeamID != nil {
+		// Already in a team: the organizer's "assign" is a move (a no-op for the same team).
+		fromTeamID := *participant.TeamID
+		if moved, moveErr := u.moveMemberInTransaction(txCtx, txRepo, eventID, participant, fromTeamID, teamID, config.MaxTeamSize); moveErr != nil {
+			return moveErr
+		} else if !moved {
+			return nil
+		}
+		if err = unit.Save(); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to move team member").Err()
+		}
+		u.dropMemberLabClient(ctx, eventID, fromTeamID, participant.UserID)
+		return nil
+	}
 	if err = participant.AssignTeam(teamID, participantModel.TeamRoleMember); err != nil {
 		return err
 	}
@@ -159,6 +173,111 @@ func (u *EventUseCase) AssignParticipantToTeam(ctx context.Context, eventID, tea
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to assign event team").Err()
 	}
 	return nil
+}
+
+// MoveParticipantToTeam moves a member of one team to another as an organizer. Organizers are never time-limited:
+// a formed team or a started event does not stop the move (members themselves cannot switch teams then). The
+// captain cannot be moved before the captaincy is transferred; the target must have a seat. Both teams get their
+// lab access recomputed.
+func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error {
+	if u.uow == nil {
+		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
+	config, err := eventConfigRepo.New(txRepo).Get(txCtx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
+	}
+	if config.Participation == nil || *config.Participation != eventConfigModel.ParticipationTeam {
+		return eventTeamModel.ErrEventTeamParticipationInvalid.Err()
+	}
+	participant, err := participantRepo.New(txRepo).Get(txCtx, eventID, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return participantModel.ErrParticipantNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event participant").Err()
+	}
+	if participant.TeamID == nil {
+		return participantModel.ErrParticipantTeamInvalid.Err()
+	}
+	fromTeamID := *participant.TeamID
+	moved, err := u.moveMemberInTransaction(txCtx, txRepo, eventID, participant, fromTeamID, toTeamID, config.MaxTeamSize)
+	if err != nil || !moved {
+		return err
+	}
+	if err = unit.Save(); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to move team member").Err()
+	}
+	u.dropMemberLabClient(ctx, eventID, fromTeamID, userID)
+	return nil
+}
+
+// moveMemberInTransaction does the move under the caller's roster lock; false: nothing to do (already there).
+func (u *EventUseCase) moveMemberInTransaction(ctx context.Context, repo IRepository, eventID uuid.UUID, participant participantModel.Participant, fromTeamID, toTeamID uuid.UUID, maxTeamSize int32) (bool, error) {
+	if fromTeamID == toTeamID {
+		return false, nil
+	}
+	teams, participants := eventTeamRepo.New(repo), participantRepo.New(repo)
+	loadTeam := func(id uuid.UUID) (eventTeamModel.EventTeam, error) {
+		team, err := teams.GetByID(ctx, eventID, id)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return eventTeamModel.EventTeam{}, eventTeamModel.ErrEventTeamNotFound.Err()
+			}
+			return eventTeamModel.EventTeam{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+		}
+		return team, nil
+	}
+	from, err := loadTeam(fromTeamID)
+	if err != nil {
+		return false, err
+	}
+	to, err := loadTeam(toTeamID)
+	if err != nil {
+		return false, err
+	}
+	if from.Moderators || to.Moderators {
+		return false, eventTeamModel.ErrEventTeamModeratorsLocked.Err()
+	}
+	if from.Individual || to.Individual {
+		return false, eventTeamModel.ErrEventTeamParticipationInvalid.Err()
+	}
+	if participant.Status != participantModel.StatusApproved {
+		return false, participantModel.ErrParticipantNotApproved.Err()
+	}
+	if from.IsCaptain(participant.UserID) || (participant.TeamRole != nil && *participant.TeamRole == participantModel.TeamRoleCaptain) {
+		return false, eventTeamModel.ErrEventTeamCaptainMustTransfer.Err()
+	}
+	now := time.Now()
+	if affected, addErr := teams.TryAddMember(ctx, eventID, toTeamID, maxTeamSize, now); addErr != nil {
+		return false, model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve team membership").Err()
+	} else if affected == 0 {
+		return false, eventTeamModel.ErrEventTeamFull.Err()
+	}
+	if affected, removeErr := teams.TryRemoveMember(ctx, eventID, fromTeamID, now); removeErr != nil {
+		return false, model.ErrPlatform.WithError(removeErr).WithMessage("Failed to remove team member").Err()
+	} else if affected == 0 {
+		return false, participantModel.ErrParticipantTeamInvalid.Err()
+	}
+	if affected, moveErr := participants.MoveTeam(ctx, eventID, participant.UserID, fromTeamID, toTeamID); moveErr != nil {
+		return false, model.ErrPlatform.WithError(moveErr).WithMessage("Failed to move team member").Err()
+	} else if affected == 0 {
+		return false, participantModel.ErrParticipantTeamInvalid.Err()
+	}
+	for _, teamID := range []uuid.UUID{fromTeamID, toTeamID} {
+		if err = u.requestLabAccessSyncInTransaction(ctx, repo, teamID, now); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // CreateManagedTeam creates a team on behalf of an event manager. It retains
@@ -486,8 +605,9 @@ func (u *EventUseCase) DeleteManagedTeam(ctx context.Context, eventID, teamID uu
 	return nil
 }
 
-// TransferManagedTeamCaptaincy moves captaincy without requiring the prior
-// captain to be the caller. The new captain must already be a team member.
+// TransferManagedTeamCaptaincy moves captaincy without requiring the prior captain to be the caller. The new
+// captain is a member of the team, or a person with a pending invitation to it (who takes the seat on accepting).
+// A captain who is still a pending invitee has no seat to give up.
 func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID, teamID, newCaptainID uuid.UUID) error {
 	if u.uow == nil {
 		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
@@ -497,6 +617,9 @@ func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 	teams, participants := eventTeamRepo.New(txRepo), participantRepo.New(txRepo)
 	team, err := teams.GetByID(txCtx, eventID, teamID)
 	if err != nil {
@@ -512,7 +635,10 @@ func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get new team captain").Err()
 	}
-	if newCaptain.TeamID == nil || *newCaptain.TeamID != teamID || newCaptain.TeamRole == nil || *newCaptain.TeamRole != participantModel.TeamRoleMember {
+	seated := newCaptain.TeamID != nil && *newCaptain.TeamID == teamID && newCaptain.TeamRole != nil && *newCaptain.TeamRole == participantModel.TeamRoleMember
+	invitee := newCaptain.Status == participantModel.StatusPending && newCaptain.Invited && newCaptain.InvitedToTeam &&
+		newCaptain.InvitedTeamID != nil && *newCaptain.InvitedTeamID == teamID
+	if !seated && !invitee {
 		return eventTeamModel.ErrEventTeamCaptainInvalid.Err()
 	}
 	previousCaptainID, expected := team.CaptainID, team.UpdatedAt
@@ -524,15 +650,23 @@ func (u *EventUseCase) TransferManagedTeamCaptaincy(ctx context.Context, eventID
 	} else if affected == 0 {
 		return eventTeamModel.ErrEventTeamNotFound.Err()
 	}
-	if affected, roleErr := participants.SetTeamRole(txCtx, eventID, previousCaptainID, teamID, participantModel.TeamRoleMember); roleErr != nil {
-		return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to demote previous team captain").Err()
-	} else if affected == 0 {
-		return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+	previous, err := participants.Get(txCtx, eventID, previousCaptainID)
+	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get previous team captain").Err()
 	}
-	if affected, roleErr := participants.SetTeamRole(txCtx, eventID, newCaptainID, teamID, participantModel.TeamRoleCaptain); roleErr != nil {
-		return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to promote new team captain").Err()
-	} else if affected == 0 {
-		return eventTeamModel.ErrEventTeamCaptainInvalid.Err()
+	if err == nil && previous.TeamID != nil && *previous.TeamID == teamID {
+		if affected, roleErr := participants.SetTeamRole(txCtx, eventID, previousCaptainID, teamID, participantModel.TeamRoleMember); roleErr != nil {
+			return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to demote previous team captain").Err()
+		} else if affected == 0 {
+			return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+		}
+	}
+	if seated {
+		if affected, roleErr := participants.SetTeamRole(txCtx, eventID, newCaptainID, teamID, participantModel.TeamRoleCaptain); roleErr != nil {
+			return model.ErrPlatform.WithError(roleErr).WithMessage("Failed to promote new team captain").Err()
+		} else if affected == 0 {
+			return eventTeamModel.ErrEventTeamCaptainInvalid.Err()
+		}
 	}
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to transfer team captaincy").Err()
