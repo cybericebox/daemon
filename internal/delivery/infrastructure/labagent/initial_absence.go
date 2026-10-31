@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	eventLab "github.com/cybericebox/daemon/internal/model/eventLab"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	pb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 )
 
@@ -43,8 +44,10 @@ func (f *Fleet) InitialDeploymentAbsent(ctx context.Context, ref eventLab.Ref) (
 			return false, fmt.Errorf("initial deployment tenant identity unavailable")
 		}
 		life := features.GetLifecycle()
-		if !life.GetConfirmedRuntime() || !life.GetRetainedRestart() {
-			return false, fmt.Errorf("initial deployment absence feature unavailable")
+		for feature, reported := range map[string]bool{"confirmed_runtime": life.GetConfirmedRuntime(), "retained_restart": life.GetRetainedRestart()} {
+			if !reported {
+				return false, infraModel.ErrAgentFeatureUnavailable.WithPublicContext("feature", feature).Err()
+			}
 		}
 		groups, e := m.Client.ListLabGroups(ctx, &pb.ListRequest{Items: []*pb.ItemRef{{Name: ref.Group}}})
 		if e != nil {

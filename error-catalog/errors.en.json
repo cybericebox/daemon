@@ -453,6 +453,7 @@
   "71416": "Deleting the agent affects future reservations: confirm the delete",
   "71417": "The laboratory does not offer device state persistence",
   "71419": "No laboratory can run this task within its resource limits",
+  "71420": "The laboratory agent lacks a feature this operation needs",
   "71502": "Secret storage is not configured",
   "71607": "An approved participant of the event cannot manage it",
   "71706": "Event team is full",
