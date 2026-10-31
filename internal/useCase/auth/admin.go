@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"slices"
 	"context"
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"

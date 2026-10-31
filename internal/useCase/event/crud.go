@@ -1,10 +1,10 @@
 package event
 
 import (
-	"slices"
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
+	"slices"
 	"strings"
 	"time"
 
