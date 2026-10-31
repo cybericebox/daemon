@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/limits"
 	errorJournalModel "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 )
 
@@ -42,6 +43,7 @@ type (
 		SaveErrorJournalSettings(ctx context.Context, in errorJournalUseCase.SettingsInput) (errorJournalUseCase.SettingsView, error)
 		SendErrorJournalTest(ctx context.Context) ([]errorJournalUseCase.TestResult, error)
 		ErrorJournalStream() (<-chan errorJournalUseCase.StreamEvent, func())
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
 
 	Handler struct {
@@ -64,6 +66,9 @@ func (h *Handler) Init(r *gin.RouterGroup) {
 	g.POST("settings/test", write, h.sendTest)
 	g.GET(":groupID", read, h.get)
 	g.PATCH(":groupID/status", write, h.setStatus)
+	g.POST("bulk/resolve", write, h.bulkSetStatus(errorJournalModel.StatusResolved))
+	g.POST("bulk/ignore", write, h.bulkSetStatus(errorJournalModel.StatusIgnored))
+	g.POST("bulk/reopen", write, h.bulkSetStatus(errorJournalModel.StatusOpen))
 }
 
 // ── DTOs ────────────────────────────────────────────────────────────────
