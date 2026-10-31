@@ -185,7 +185,8 @@ func listAttention(kind, target string, list dashboardRepo.ItemList) []Attention
 		Items: make([]AttentionItem, 0, len(list.Items)),
 	}
 	for _, i := range list.Items {
-		item.Items = append(item.Items, AttentionItem{ID: i.ID, Label: i.Label, Count: i.Count, At: i.At})
+		item.Items = append(item.Items,
+			AttentionItem{ID: i.ID, Label: i.Label, Count: i.Count, At: i.At})
 	}
 	return []Attention{item}
 }

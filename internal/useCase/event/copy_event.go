@@ -140,7 +140,10 @@ func shiftedLifecycle(source, created eventModel.Event) (eventModel.Lifecycle, b
 		return &moved
 	}
 	start, publish := source.Lifecycle.StartAt.Add(shift), source.Lifecycle.PublishAt.Add(shift)
-	lifecycle, err := eventModel.NewLifecycle(source.Lifecycle.JoinPolicy, publish, start, move(source.Lifecycle.FinishAt), move(source.Lifecycle.WithdrawAt), nil)
+	lifecycle, err := eventModel.NewLifecycle(
+		source.Lifecycle.JoinPolicy, publish, start,
+		move(source.Lifecycle.FinishAt), move(source.Lifecycle.WithdrawAt), nil,
+	)
 	if err != nil || publish.Before(created.AvailableFrom) {
 		return eventModel.Lifecycle{}, false
 	}
