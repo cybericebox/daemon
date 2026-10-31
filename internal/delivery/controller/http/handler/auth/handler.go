@@ -179,7 +179,7 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.GET("account", self, h.getAccount)
 	sec.GET("me", self, h.getSelfProfile)
 	sec.PATCH("account/profile", self, h.updateProfile)
-	sec.POST("account/email", self, selfCheck, h.requestEmailChange)
+	sec.POST("account/email", self, selfCheck, h.prot.RequireCaptcha("emailChange"), h.requestEmailChange)
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)

@@ -47,8 +47,8 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 	if ok, wait := u.limits.emailChangeUsers.Allow(userID.String()); !ok {
 		return tooManyRequests(wait)
 	}
-	if !u.mailAllowed(mailKindEmailChange, newEmail) {
-		return tooManyRequests(u.limits.mailGap)
+	if _, err = u.requestMail(newEmail); err != nil {
+		return err
 	}
 
 	// Reject if a (non-deleted) account already uses the new address.

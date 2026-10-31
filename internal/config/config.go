@@ -480,7 +480,7 @@ type (
 		FlagRandomBytes int    `env:"FLAG_RANDOM_BYTES" envDefault:"20"`
 		FlagWarningBits int    `env:"FLAG_WARNING_BITS" envDefault:"20"`
 		// MaxActiveTestDeploys is how many test labs one user may run at the same time.
-		MaxActiveTestDeploys int `env:"MAX_ACTIVE_TEST_DEPLOYS" envDefault:"3"`
+		MaxActiveTestDeploys int `env:"MAX_ACTIVE_TEST_DEPLOYS" envDefault:"5"`
 		// StandDeployBudget caps the Lab deploy calls the stand engine sends to the agent per event and
 		// pass (a pass runs every 10 seconds). It only protects the agent API from a burst: the launch
 		// pacing (order, waves, image preparation) is done by the Laboratory operator, which queues the
@@ -524,11 +524,11 @@ type LimitsConfig struct {
 	SignInFailureWindow time.Duration `env:"SIGN_IN_FAILURE_WINDOW" envDefault:"15m"`
 	SignInLockBase      time.Duration `env:"SIGN_IN_LOCK_BASE"      envDefault:"1m"`
 	SignInLockMax       time.Duration `env:"SIGN_IN_LOCK_MAX"       envDefault:"15m"`
-	// AccountMailGap is the least time between two account mails of one kind
-	// (sign-up confirmation, password reset, email change) to one address;
-	// AccountMailPerHour caps them per kind and hour.
+	// AccountMailGap is the least time between two requests of account mail
+	// (sign-up confirmation, password reset, email change, and their resends) for one address;
+	// AccountMailPerHour caps them per hour, all kinds together.
 	AccountMailGap     time.Duration `env:"ACCOUNT_MAIL_GAP"      envDefault:"1m"`
-	AccountMailPerHour int           `env:"ACCOUNT_MAIL_PER_HOUR" envDefault:"3"`
+	AccountMailPerHour int           `env:"ACCOUNT_MAIL_PER_HOUR" envDefault:"5"`
 	// EmailChangesPerHour bounds the email-change mails one account can cause.
 	EmailChangesPerHour int `env:"EMAIL_CHANGES_PER_HOUR" envDefault:"5"`
 	// AccountActions requests per AccountActionsWindow of one signed-in user on
@@ -541,7 +541,7 @@ type LimitsConfig struct {
 	StreamsPerScreen         int `env:"STREAMS_PER_SCREEN"          envDefault:"10"`
 	StreamsAnonymousPerEvent int `env:"STREAMS_ANONYMOUS_PER_EVENT" envDefault:"500"`
 	AttemptStreamsPerUser    int `env:"ATTEMPT_STREAMS_PER_USER"    envDefault:"6"`
-	ErrorStreamsPerUser      int `env:"ERROR_STREAMS_PER_USER"      envDefault:"3"`
+	ErrorStreamsPerUser      int `env:"ERROR_STREAMS_PER_USER"      envDefault:"5"`
 	// LiveScreenPerMinute requests per minute of one screen link, shared by
 	// every screen opened with it (about 10 screens at the fastest refresh).
 	LiveScreenPerMinute int `env:"LIVE_SCREEN_PER_MINUTE" envDefault:"600"`

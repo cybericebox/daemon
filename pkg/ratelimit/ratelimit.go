@@ -235,6 +235,22 @@ func (r *Recipient) Allow(kind, address string) bool {
 	return allowed
 }
 
+// Take records a mail to address, whatever its kind, and reports whether it may be requested; when it may not,
+// retryAfter is how long until it can. A refused request is not recorded (hammering does not extend the wait).
+// Release the returned function when the request did not go through (the durable queue refused it).
+func (r *Recipient) Take(address string) (allowed bool, retryAfter time.Duration, release func()) {
+	ok, wait, releaseGap := r.gap.reserve(address)
+	if !ok {
+		return false, wait, func() {}
+	}
+	ok, wait, releaseHourly := r.hourly.reserve(address)
+	if !ok {
+		releaseGap()
+		return false, wait, func() {}
+	}
+	return true, 0, func() { releaseGap(); releaseHourly() }
+}
+
 // Reserve counts a pending mail. Release the reservation if durable enqueue fails; it is safe to call once or repeatedly.
 func (r *Recipient) Reserve(kind, address string) (bool, func()) {
 	key := kind + "\x00" + address

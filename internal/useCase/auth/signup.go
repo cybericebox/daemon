@@ -29,8 +29,15 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 	if err != nil {
 		return err
 	}
+	release, err := u.requestMail(emailAddr)
+	if err != nil {
+		return err
+	}
 	if u.delivery != nil {
-		return u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "signup", Email: emailAddr, Redirect: u.trustedReturnTo(redirect)})
+		if err = u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "signup", Email: emailAddr, Redirect: u.trustedReturnTo(redirect)}); err != nil {
+			release()
+		}
+		return err
 	}
 	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {

@@ -22,8 +22,15 @@ import (
 // silent when the address is unknown (no account-existence leak). An
 // incomplete account gets the continue-registration email instead.
 func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) error {
+	release, err := u.requestMail(emailAddr)
+	if err != nil {
+		return err
+	}
 	if u.delivery != nil {
-		return u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "reset", Email: normalizeEmail(emailAddr)})
+		if err = u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "reset", Email: normalizeEmail(emailAddr)}); err != nil {
+			release()
+		}
+		return err
 	}
 	user, err := u.users.GetByEmail(ctx, normalizeEmail(emailAddr))
 	if err != nil {

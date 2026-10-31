@@ -225,6 +225,10 @@ func (p *Protection) signInURL() string {
 func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	cookie := getCookie(ctx, authModel.SessionCookie)
 	if cookie == "" {
+		// A hint left behind by a session that is gone (cookie expired, other browser profile) must not outlive it.
+		if getCookie(ctx, SignedInHintCookie) != "" {
+			p.clearSignedInHint(ctx)
+		}
 		if !p.countAnonymous(ctx, silent) {
 			return false
 		}
@@ -253,6 +257,7 @@ func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
 	if value, ok := p.useCase.ReissueCookie(pass); ok {
 		setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+		p.setSignedInHint(ctx)
 	}
 	return true
 }
@@ -322,10 +327,29 @@ func isUnauthorized(err error) bool {
 // short-lived stash cookie (see handler/auth/google.go).
 func (p *Protection) Authenticate(ctx *gin.Context, value string) {
 	setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+	p.setSignedInHint(ctx)
 }
 
 func (p *Protection) clearSessionCookie(ctx *gin.Context) {
 	clearCookie(ctx, authModel.SessionCookie, http.SameSiteStrictMode)
+	p.clearSignedInHint(ctx)
+}
+
+// SignedInHintCookie tells the landing page (a static site that cannot read the session) that a session exists, so
+// it can show «Мій профіль» instead of «Увійти». It carries no personal data and grants nothing: the value is
+// always "1", it lives on the platform's parent domain like the theme and consent cookies, is readable by
+// scripts (not HttpOnly), and lasts as long as the session cookie. The backend sets it with every sign-in and
+// removes it with the session cookie.
+const SignedInHintCookie = "cib_signed_in"
+
+func (p *Protection) setSignedInHint(ctx *gin.Context) {
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(SignedInHintCookie, "1", int(p.ttl.Seconds()), "/", p.hosts.Main, true, false)
+}
+
+func (p *Protection) clearSignedInHint(ctx *gin.Context) {
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(SignedInHintCookie, "", -1, "/", p.hosts.Main, true, false)
 }
 
 // DeAuthenticate clears the session cookie and deletes the session. Reads the
