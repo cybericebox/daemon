@@ -238,11 +238,11 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 	need := infraModel.PlacementNeedFrom(ctx)
 	// A group lives on one agent for good: it goes only to an agent that can run every node profile the event's
 	// tasks use. None: refuse now, nothing is created.
-	if runners, err := profileRunners(enabled, need.Profiles); err != nil {
-		return nil, err
-	} else {
-		enabled = runners
+	runners, runnersErr := profileRunners(enabled, need.Profiles)
+	if runnersErr != nil {
+		return nil, runnersErr
 	}
+	enabled = runners
 	if need.Known() {
 		var fitting []*Member
 		var worst *infraModel.FitViolation

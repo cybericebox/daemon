@@ -188,7 +188,7 @@ func TestNodeProfilesGet_SaysWhichProfileRunsNow(t *testing.T) {
 	w := serve(newEngine(&fakeUseCase{}, &fakeProt{allow: true}), http.MethodGet, "/api/settings/node-profiles", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var got struct {
-		Data map[string]any
+		Data map[string]any `json:"Data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, map[string]any{"Container": true, "MicroVM": false, "VM": false}, got.Data["RunnableNow"])

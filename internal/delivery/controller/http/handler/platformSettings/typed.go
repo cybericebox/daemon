@@ -208,6 +208,7 @@ func (h *Handler) resetTestRunSettings(ctx *gin.Context) {
 // field, whether a connected laboratory agent can run that profile now.
 type nodeProfilesResponse struct {
 	typedSettingResponse
+
 	// RunnableNow is keyed by field (Container, MicroVM, VM). A ticked profile with false here is the one to warn
 	// about; it changes nothing else.
 	RunnableNow map[string]bool `json:"RunnableNow"`

@@ -12,6 +12,7 @@ import (
 
 type profileSettings struct {
 	ISettings
+
 	profiles exerciseModel.SupportedProfiles
 	err      error
 }

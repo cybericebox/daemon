@@ -248,11 +248,12 @@ func (s *Server) Start() {
 	for _, l := range s.listeners {
 		go func() {
 			var err error
-			if l.tls && len(l.proxyFrom) > 0 {
+			switch {
+			case l.tls && len(l.proxyFrom) > 0:
 				err = l.serveProxied()
-			} else if l.tls {
+			case l.tls:
 				err = l.srv.ListenAndServeTLS("", "")
-			} else {
+			default:
 				err = l.srv.ListenAndServe()
 			}
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -265,7 +266,7 @@ func (s *Server) Start() {
 // serveProxied serves TLS behind the PROXY protocol: the header comes before the ClientHello, so the TLS
 // configuration (mTLS, certificates) is unchanged.
 func (l *listener) serveProxied() error {
-	ln, err := net.Listen("tcp", l.srv.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.srv.Addr)
 	if err != nil {
 		return err
 	}
@@ -309,6 +310,7 @@ func proxyListener(ln net.Listener, trusted []netip.Prefix, secrets [][]byte, tl
 // connection's own goroutine, after the header is read, never in the accept loop).
 type secretListener struct {
 	net.Listener
+
 	secrets [][]byte
 	tlvType proxyproto.PP2Type
 }
@@ -326,6 +328,7 @@ func (l *secretListener) Accept() (net.Conn, error) {
 
 type secretConn struct {
 	*proxyproto.Conn
+
 	secrets [][]byte
 	tlvType proxyproto.PP2Type
 	once    sync.Once
@@ -364,8 +367,8 @@ func secretMatches(header *proxyproto.Header, secrets [][]byte, tlvType proxypro
 
 func proxyPolicy(trusted []netip.Prefix) proxyproto.ConnPolicyFunc {
 	return func(options proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
-		if tcp, ok := options.Upstream.(*net.TCPAddr); ok {
-			if addr, ok := netip.AddrFromSlice(tcp.IP); ok {
+		if tcp, isTCP := options.Upstream.(*net.TCPAddr); isTCP {
+			if addr, parsed := netip.AddrFromSlice(tcp.IP); parsed {
 				addr = addr.Unmap()
 				for _, prefix := range trusted {
 					if prefix.Contains(addr) {

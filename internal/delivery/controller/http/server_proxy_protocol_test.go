@@ -275,8 +275,8 @@ func captureServerLog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	previous := log.Logger
-	log.Logger = zerolog.New(&buf)
-	t.Cleanup(func() { log.Logger = previous })
+	log.Logger = zerolog.New(&buf)              //nolint:reassign // the test reads what the server logs
+	t.Cleanup(func() { log.Logger = previous }) //nolint:reassign // restores the logger
 	return &buf
 }
 

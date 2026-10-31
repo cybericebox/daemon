@@ -1,7 +1,6 @@
 package postgres_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -41,5 +40,5 @@ func TestRecentMigrationsGoDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, dirty)
 	require.Equal(t, before, after)
-	require.True(t, errors.Is(m.Up(), migrate.ErrNoChange))
+	require.ErrorIs(t, m.Up(), migrate.ErrNoChange)
 }

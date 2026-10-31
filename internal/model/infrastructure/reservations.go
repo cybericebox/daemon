@@ -44,8 +44,9 @@ const (
 	ReasonReservationFull     = "RESERVATION_FULL"
 	ReasonReservationMismatch = "RESERVATION_MISMATCH"
 	ReasonOverQuota           = "OVER_QUOTA"
-	// The profile of a node cannot run: the agent does not offer it (or it is vm), or no node can run it now.
+	// ReasonProfileUnsupported: the agent does not offer the profile of a node (or it is vm).
 	ReasonProfileUnsupported = "PROFILE_UNSUPPORTED"
+	// ReasonProfileUnavailable: the profile is offered but no node can run it now.
 	ReasonProfileUnavailable = "PROFILE_UNAVAILABLE"
 )
 

@@ -84,7 +84,7 @@ func (c *ProfileCell) Get(profile exerciseModel.NodeProfile) (capacity ProfileCa
 // is available, nothing else is offered. The field is read by name, so this builds against a laboratory SDK older
 // than the field (it then reads as an older agent); with the pinned release that has it, use GetNodeProfiles.
 func ProfilesOf(capacity *labpb.CapacityResponse) map[exerciseModel.NodeProfile]ProfileCapacity {
-	out := map[exerciseModel.NodeProfile]ProfileCapacity{}
+	out := map[exerciseModel.NodeProfile]ProfileCapacity{} //nolint:exhaustive // filled from the report
 	message := capacity.ProtoReflect()
 	if field := message.Descriptor().Fields().ByName("node_profiles"); field != nil {
 		list := message.Get(field).List()
@@ -135,7 +135,7 @@ func (f *Fleet) RunnableNodeProfiles(context.Context) map[exerciseModel.NodeProf
 func requireProfiles(m *Member, topo exerciseModel.Topology) error {
 	for _, d := range topo.Devices {
 		profile := d.EffectiveProfile()
-		switch profile {
+		switch profile { //nolint:exhaustive // the other profiles take the default
 		case "", exerciseModel.NodeProfileContainer:
 		case exerciseModel.NodeProfileVM:
 			return exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("device", d.Name).WithPublicContext("profile", string(profile)).Err()
@@ -206,7 +206,7 @@ func profileRunners(members []*Member, profiles exerciseModel.NodeProfileSet) ([
 
 func canRunAll(m *Member, profiles exerciseModel.NodeProfileSet) bool {
 	for _, profile := range profiles.List() {
-		switch profile {
+		switch profile { //nolint:exhaustive // the other profiles take the default
 		case exerciseModel.NodeProfileContainer:
 		case exerciseModel.NodeProfileVM:
 			return false

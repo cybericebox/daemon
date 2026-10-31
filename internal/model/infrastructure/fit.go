@@ -2,9 +2,9 @@ package infrastructure
 
 import (
 	"context"
-	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"math"
 
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 

@@ -15,7 +15,7 @@ import (
 func publicContext(t *testing.T, err error) map[string]any {
 	t.Helper()
 	var carrier interface{ PublicContext() map[string]any }
-	require.True(t, errors.As(err, &carrier), "the error carries no public context")
+	require.ErrorAs(t, err, &carrier, "the error carries no public context")
 	return carrier.PublicContext()
 }
 

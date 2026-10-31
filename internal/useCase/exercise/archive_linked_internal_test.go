@@ -3,7 +3,6 @@ package exercise
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -37,9 +36,9 @@ func TestRequireImportedPublishable_LinkedVariantWithoutFiles(t *testing.T) {
 	}}
 
 	err := (&ExerciseUseCase{}).requireImportedPublishable(context.Background(), versions, nil)
-	require.True(t, errors.Is(err, exerciseModel.ErrLinkedAttachmentMissing.Err()), "got %v", err)
+	require.ErrorIs(t, err, exerciseModel.ErrLinkedAttachmentMissing.Err())
 	var carrier interface{ PublicContext() map[string]any }
-	require.True(t, errors.As(err, &carrier))
+	require.ErrorAs(t, err, &carrier)
 	assert.Equal(t, map[string]any{"variant": 2, "task": "Pwn", "field": "versions[1]"}, carrier.PublicContext())
 
 	// A draft in the same archive may stay incomplete.

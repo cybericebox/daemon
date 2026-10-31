@@ -176,8 +176,8 @@ func Run(cfg *config.Config) {
 				}
 				profiles := labagent.ProfilesOf(capacity)
 				profileCells.Update(member.ID, profiles, observedAt)
-				if err := agentProfiles.Save(ctx, member.ID, labagent.EncodeProfiles(profiles), observedAt); err != nil {
-					log.Warn().Err(err).Str("agent", member.Name).Msg("Failed to store the node profile report of the agent")
+				if saveErr := agentProfiles.Save(ctx, member.ID, labagent.EncodeProfiles(profiles), observedAt); saveErr != nil {
+					log.Warn().Err(saveErr).Str("agent", member.Name).Msg("Failed to store the node profile report of the agent")
 				}
 				if err := ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt); err != nil {
 					return err

@@ -191,5 +191,6 @@ func TestProfileCells_NewerReportWinsAndStoredOnesApplyAtStart(t *testing.T) {
 	})
 	capacity, known = restarted.Cell(agent).Get(exerciseModel.NodeProfileMicroVM)
 	assert.True(t, known && capacity.AvailableNow)
-	assert.Same(t, restarted.Cell(agent), restarted.Cell(agent), "a rebuilt member keeps its cell")
+	cell := restarted.Cell(agent)
+	assert.Same(t, cell, restarted.Cell(agent), "a rebuilt member keeps its cell")
 }

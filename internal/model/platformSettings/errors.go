@@ -11,7 +11,7 @@ import (
 // typed value carries the public context `field` (and `min`/`max` for a range)
 // so the admin form shows the error under that field.
 //
-// SettingObjectCode — next free detail code: 13
+// SettingObjectCode — next free detail code: 13.
 var (
 	ErrSettingNotFound = err.ErrObjectNotFound.WithObjectCode(model.SettingObjectCode).
 				WithMessage("Setting not found").
