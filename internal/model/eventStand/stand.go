@@ -81,10 +81,13 @@ const (
 	// WaitPersistenceUnavailable: the lab keeps device state but no laboratory agent offers state persistence (or reports
 	// its write quota), so the snapshot room it needs cannot be reserved.
 	WaitPersistenceUnavailable = "persistence_unavailable"
-	WaitLabNotPrepared         = "lab_not_prepared"
-	WaitLabSizingUnknown       = "lab_sizing_unknown"
-	WaitLabNotAdmitted         = "lab_not_admitted"
-	WaitAwaitingReservation    = ReasonAwaitingReservation
+	// WaitSnapshotQuota: the state snapshots the labs of the event may keep do not fit the snapshot quota of its
+	// reservation (PerTeamSnapshotQuotaBytes); the organizers raise it.
+	WaitSnapshotQuota       = "snapshot_quota"
+	WaitLabNotPrepared      = "lab_not_prepared"
+	WaitLabSizingUnknown    = "lab_sizing_unknown"
+	WaitLabNotAdmitted      = "lab_not_admitted"
+	WaitAwaitingReservation = ReasonAwaitingReservation
 )
 
 // WaitReasonText is the English sentence of a wait reason code.
@@ -112,6 +115,8 @@ func WaitReasonText(code string) string {
 		return "Waiting: the lab has not been admitted by the reservation yet"
 	case WaitPersistenceUnavailable:
 		return "Waiting: the laboratory agent does not offer state persistence for this lab"
+	case WaitSnapshotQuota:
+		return "Waiting: the snapshot quota of the event reservation has no room for the state of this lab"
 	case WaitRevealReservation:
 		return "Waiting: the labs of the task are reserved for all teams together"
 	default:

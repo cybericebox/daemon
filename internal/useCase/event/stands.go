@@ -36,7 +36,6 @@ import (
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
-	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
@@ -866,8 +865,8 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 			return false, eventStandModel.WaitPersistenceUnavailable, nil
 		}
 		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
-			if errors.Is(admitErr, calModel.ErrNotEnoughReserved.Err()) {
-				return false, eventStandModel.WaitNotEnoughReserved, nil
+			if wait, waiting := revealWait(admitErr); waiting {
+				return false, wait, nil
 			}
 			return false, "", admitErr
 		}

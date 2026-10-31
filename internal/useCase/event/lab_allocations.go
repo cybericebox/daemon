@@ -246,8 +246,11 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	}
 	teamsHolding := len(holding)
 	placedSize := reservation.PlacedSize()
-	if !reservation.HoldsTeams(teamsHolding) || len(reservation.Placement) == 0 || !reservation.Window.Contains(time.Now().UTC()) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || storage > reservation.SizeSnapshotQuotaBytes || (storageBytes > 0 && reservation.SizeSnapshotQuotaBytes == 0) {
+	if !reservation.HoldsTeams(teamsHolding) || len(reservation.Placement) == 0 || !reservation.Window.Contains(time.Now().UTC()) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes {
 		return calModel.ErrNotEnoughReserved.Err()
+	}
+	if storage > reservation.SizeSnapshotQuotaBytes || (storageBytes > 0 && reservation.SizeSnapshotQuotaBytes == 0) {
+		return snapshotQuotaShort()
 	}
 	if !foundGroup {
 		if err = r.CreateGroup(txCtx, eventLabAllocationRepo.Group{EventID: eventID, TeamID: teamID, Name: lab.Ref.Group, Sizes: sizes, Plan: placement.Plan, CreatedAt: time.Now().UTC()}); err != nil {

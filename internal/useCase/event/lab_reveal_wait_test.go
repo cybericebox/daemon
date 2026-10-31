@@ -21,6 +21,11 @@ func TestRevealWait(t *testing.T) {
 	assert.True(t, waiting)
 	assert.Equal(t, eventStandModel.WaitNotEnoughReserved, reason)
 
+	reason, waiting = revealWait(snapshotQuotaShort())
+	assert.True(t, waiting)
+	assert.Equal(t, eventStandModel.WaitSnapshotQuota, reason, "the short snapshot room is named, and it still is a not-enough-reserved")
+	assert.ErrorIs(t, snapshotQuotaShort(), calModel.ErrNotEnoughReserved.Err())
+
 	_, waiting = revealWait(errors.New("database down"))
 	assert.False(t, waiting)
 	assert.Contains(t, eventStandModel.WaitReasonText(eventStandModel.WaitPersistenceUnavailable), "persistence")

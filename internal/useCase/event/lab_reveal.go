@@ -22,6 +22,14 @@ import (
 // no snapshot room can be reserved for it. It is not a shortage of the reservation, and the wait says so.
 var errPersistenceUnavailable = errors.New("state persistence is not available on the laboratory agents")
 
+// errSnapshotQuotaShort: the snapshot quota of the reservation is smaller than what the labs may keep. It also is a
+// calModel.ErrNotEnoughReserved (the callers that only ask "does it fit" are unchanged); the wait says which room is short.
+var errSnapshotQuotaShort = errors.New("the snapshot quota of the reservation is too small")
+
+func snapshotQuotaShort() error {
+	return fmt.Errorf("%w: %w", calModel.ErrNotEnoughReserved.Err(), errSnapshotQuotaShort)
+}
+
 // An all_ready cohort's initial copies are reserved together before any create
 // dispatch. A partial reservation cannot send a subset to the controller.
 func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid.UUID, now time.Time) error {
@@ -207,8 +215,11 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		}
 	}
 	placedSize := budget.PlacedSize()
-	if !budget.HoldsTeams(len(holdingTeams)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes || quota > budget.SizeSnapshotQuotaBytes {
+	if !budget.HoldsTeams(len(holdingTeams)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes {
 		return calModel.ErrNotEnoughReserved.Err()
+	}
+	if quota > budget.SizeSnapshotQuotaBytes {
+		return snapshotQuotaShort()
 	}
 	for _, snapshot := range labs {
 		l := candidates[snapshot.ID]
@@ -227,6 +238,8 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 // revealWait is the wait reason of a refused cohort reservation; waiting is false for an error that is not a wait.
 func revealWait(err error) (reason string, waiting bool) {
 	switch {
+	case errors.Is(err, errSnapshotQuotaShort):
+		return eventStandModel.WaitSnapshotQuota, true
 	case errors.Is(err, errPersistenceUnavailable):
 		return eventStandModel.WaitPersistenceUnavailable, true
 	case errors.Is(err, calModel.ErrNotEnoughReserved.Err()):
