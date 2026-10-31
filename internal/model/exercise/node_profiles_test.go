@@ -229,21 +229,19 @@ func TestReservedDeviceNamesMatchTheLaboratory(t *testing.T) {
 	dir, err := os.Getwd()
 	require.NoError(t, err)
 	for ; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		source := filepath.Join(dir, "laboratory", "internal", "names", "labels.go")
-		raw, readErr := os.ReadFile(source)
-		if readErr != nil {
-			source = filepath.Join(
-				dir,
-				"laboratory",
-				".worktrees",
-				"hardening",
-				"internal",
-				"names",
-				"labels.go",
-			)
-			if raw, readErr = os.ReadFile(source); readErr != nil {
-				continue
+		var raw []byte
+		var source string
+		for _, candidate := range []string{
+			filepath.Join(dir, "laboratory", "pkg", "names", "names.go"),
+			filepath.Join(dir, "laboratory", ".worktrees", "hardening", "pkg", "names", "names.go"),
+		} {
+			if content, readErr := os.ReadFile(candidate); readErr == nil {
+				raw, source = content, candidate
+				break
 			}
+		}
+		if raw == nil {
+			continue
 		}
 		match := regexp.MustCompile(`ReservedDeviceNames = \[\]string\{([^}]*)\}`).FindSubmatch(raw)
 		require.NotNil(t, match, "ReservedDeviceNames in "+source)
