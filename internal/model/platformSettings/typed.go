@@ -87,3 +87,36 @@ func Overlay(base, stored Values, specs []FieldSpec) Values {
 	}
 	return out
 }
+
+// Description is a setting's human-readable explanation in each interface language.
+type Description struct {
+	Uk string `json:"Uk"`
+	En string `json:"En"`
+}
+
+// descriptions explain the settings the platform itself reads, so the generic list can show words instead of
+// the raw key. A key that is not here has no description.
+var descriptions = map[string]Description{
+	RetentionKey: {
+		Uk: "Терміни зберігання даних: сеанси, телеметрія лабораторій і учасників, журнали та інше.",
+		En: "Data retention periods: sessions, lab and participant telemetry, logs and more.",
+	},
+	ArchiveLimitsKey: {
+		Uk: "Обмеження на розмір і вміст архівів завдань, що імпортуються.",
+		En: "Size and content limits for imported task archives.",
+	},
+	TestRunsKey: {
+		Uk: "Обмеження тестових запусків завдань: тривалість, кількість і ресурси.",
+		En: "Limits for task test runs: duration, count and resources.",
+	},
+	NodeProfilesKey: {
+		Uk: "Профілі вузлів кластера для стендів: ресурси та місткість.",
+		En: "Cluster node profiles for stands: resources and capacity.",
+	},
+}
+
+// DescribeKey returns the description of a platform setting key, or false when it has none.
+func DescribeKey(key string) (Description, bool) {
+	d, ok := descriptions[key]
+	return d, ok
+}

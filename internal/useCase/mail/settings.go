@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -455,6 +456,9 @@ func (u *MailUseCase) ReorderPlatformProviders(ctx context.Context, ids []uuid.U
 // Stored-provider form tests count against its allowance and update its error.
 // A new connection's successful tests are imported when that user saves it.
 func (u *MailUseCase) TestPlatformProvider(ctx context.Context, id *uuid.UUID, in *mailModel.SMTPInput, userID uuid.UUID) (TestResult, error) {
+	if err := u.claimTestMail(userID); err != nil {
+		return TestResult{}, err
+	}
 	res, err := u.testPlatformProvider(ctx, id, in, userID)
 	if err == nil {
 		u.journalTest(ctx, userID, nil, dispatchModel.TransportPlatform, res)
@@ -863,4 +867,25 @@ func (u *MailUseCase) testSend(ctx context.Context, t transport, identity mailMo
 	}
 	result.Sent = true
 	return result
+}
+
+// testMailCooldown is the least time between two test emails of one administrator.
+const testMailCooldown = 10 * time.Second
+
+// claimTestMail admits a test email of the administrator, or refuses it with the seconds to wait.
+func (u *MailUseCase) claimTestMail(userID uuid.UUID) error {
+	u.testMu.Lock()
+	defer u.testMu.Unlock()
+	now := u.now()
+	if last, ok := u.testAt[userID]; ok && now.Sub(last) < testMailCooldown {
+		seconds := int64(math.Ceil((testMailCooldown - now.Sub(last)).Seconds()))
+		return mailModel.ErrTestMailTooSoon.WithDetail(liberr.DetailRetryAfterSeconds, seconds).Err()
+	}
+	for id, at := range u.testAt {
+		if now.Sub(at) >= testMailCooldown {
+			delete(u.testAt, id)
+		}
+	}
+	u.testAt[userID] = now
+	return nil
 }

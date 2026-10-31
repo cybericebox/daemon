@@ -144,3 +144,24 @@ func TestGetSettingValue_AnswersTheValueOnly(t *testing.T) {
 	}
 	assert.NotContains(t, w.Body.String(), "RequiredPermission")
 }
+
+func TestGetSetting_CarriesTheDescriptionOfAKnownKey(t *testing.T) {
+	for key, wantDescribed := range map[string]bool{platformSettingsModel.RetentionKey: true, "theme": false} {
+		uc := &fakeUseCase{got: &platformSettingsModel.PlatformSetting{Key: key, Value: json.RawMessage(`{}`)}}
+		w := httptest.NewRecorder()
+		newEngine(uc, &fakeProt{allow: true}).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/settings/"+key, nil))
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body struct {
+			Data struct {
+				Description *platformSettingsModel.Description `json:"Description"`
+			} `json:"Data"`
+		}
+		if assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body)) {
+			assert.Equal(t, wantDescribed, body.Data.Description != nil, key)
+			if wantDescribed {
+				assert.NotEmpty(t, body.Data.Description.Uk)
+				assert.NotEmpty(t, body.Data.Description.En)
+			}
+		}
+	}
+}

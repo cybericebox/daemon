@@ -11347,6 +11347,11 @@ definitions:
     properties:
       CreatedAt:
         type: string
+      Description:
+        allOf:
+        - $ref: '#/definitions/platformSettingsModel.Description'
+        description: Description explains the key in each interface language; null
+          for a key the platform does not know.
       ID:
         type: string
       Key:
@@ -11404,6 +11409,13 @@ definitions:
         type: string
       Value:
         type: object
+    type: object
+  platformSettingsModel.Description:
+    properties:
+      En:
+        type: string
+      Uk:
+        type: string
     type: object
   pulse.bannerResponse:
     properties:

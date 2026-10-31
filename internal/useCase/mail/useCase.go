@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -73,6 +74,9 @@ type (
 		newSender  func(email.Config) (sender, error)
 		now        func() time.Time
 		limiter    *sendLimiter
+		// testAt is when each administrator last asked for a test email (this replica only).
+		testMu sync.Mutex
+		testAt map[uuid.UUID]time.Time
 	}
 )
 
@@ -93,6 +97,7 @@ func NewMailUseCase(deps Dependencies) *MailUseCase {
 		smtpPolicy: deps.SMTPPolicy,
 		newSender:  newSender,
 		now:        time.Now,
+		testAt:     map[uuid.UUID]time.Time{},
 	}
 	u.limiter = newSendLimiter(func() time.Time { return u.now() })
 	return u

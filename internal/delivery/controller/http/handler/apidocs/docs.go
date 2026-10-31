@@ -44551,6 +44551,14 @@ const docTemplate = `{
                 "CreatedAt": {
                     "type": "string"
                 },
+                "Description": {
+                    "description": "Description explains the key in each interface language; null for a key the platform does not know.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/platformSettingsModel.Description"
+                        }
+                    ]
+                },
                 "ID": {
                     "type": "string"
                 },
@@ -44631,6 +44639,17 @@ const docTemplate = `{
                 },
                 "Value": {
                     "type": "object"
+                }
+            }
+        },
+        "platformSettingsModel.Description": {
+            "type": "object",
+            "properties": {
+                "En": {
+                    "type": "string"
+                },
+                "Uk": {
+                    "type": "string"
                 }
             }
         },

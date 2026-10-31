@@ -498,6 +498,7 @@
   "72102": "SMTP passwords cannot be stored: the secrets key is not configured",
   "72103": "This notification is always sent and cannot be changed",
   "72107": "An SMTP provider with this name already exists",
+  "72110": "A test email was just sent, wait a moment",
   "72204": "The event report is available after the event finishes",
   "72504": "The reservation does not fit the available resources",
   "72506": "The change request was decided already",

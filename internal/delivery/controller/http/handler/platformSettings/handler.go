@@ -71,12 +71,19 @@ type settingResponse struct {
 	Key                string          `json:"Key"`
 	Value              json.RawMessage `json:"Value"      swaggertype:"object"`
 	RequiredPermission string          `json:"RequiredPermission"`
-	CreatedAt          time.Time       `json:"CreatedAt"`
-	UpdatedAt          time.Time       `json:"UpdatedAt"`
+	// Description explains the key in each interface language; null for a key the platform does not know.
+	Description *platformSettingsModel.Description `json:"Description"`
+	CreatedAt   time.Time                          `json:"CreatedAt"`
+	UpdatedAt   time.Time                          `json:"UpdatedAt"`
 }
 
 func toResponse(s *platformSettingsModel.PlatformSetting) settingResponse {
+	var description *platformSettingsModel.Description
+	if d, ok := platformSettingsModel.DescribeKey(s.Key); ok {
+		description = &d
+	}
 	return settingResponse{
+		Description:        description,
 		ID:                 s.ID,
 		Key:                s.Key,
 		Value:              s.Value,
