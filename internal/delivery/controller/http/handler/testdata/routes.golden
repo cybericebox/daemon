@@ -613,7 +613,14 @@ PUT    /api/settings/test-runs | gate: platform.settings.write | layers: -
 GET    /api/users | gate: users.read | layers: -
 DELETE /api/users/:userID | gate: users.delete | layers: -
 GET    /api/users/:userID | gate: users.read | layers: -
+POST   /api/users/:userID/invitation/resend | gate: users.invite | layers: -
+GET    /api/users/:userID/participations | gate: users.read | layers: -
 PATCH  /api/users/:userID/role | gate: users.role.write | layers: -
+POST   /api/users/:userID/sessions/end | gate: users.status.write | layers: -
 PATCH  /api/users/:userID/status | gate: users.status.write | layers: -
+POST   /api/users/bulk/block | gate: users.status.write | layers: -
+POST   /api/users/bulk/end-sessions | gate: users.status.write | layers: -
+POST   /api/users/bulk/resend-invitation | gate: users.invite | layers: -
+POST   /api/users/bulk/unblock | gate: users.status.write | layers: -
 POST   /api/users/invite | gate: users.invite | layers: -
 GET    /api/users/stats | gate: users.read | layers: -

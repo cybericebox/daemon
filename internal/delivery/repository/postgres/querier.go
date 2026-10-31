@@ -1562,6 +1562,10 @@ type Querier interface {
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).
 	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]ListUserNamesRow, error)
+	// Where the person takes part (a participant, with the team and the role in it) or works (an event manager), newest
+	// event first. One query for the admin user card.
+	ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]ListUserParticipationsRow, error)
+	ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListUserProvidersForUsersRow, error)
 	ListUserSettings(ctx context.Context, userID uuid.UUID) ([]NotificationUserSetting, error)
 	ListUserVPNConfigs(ctx context.Context, userID uuid.UUID) ([]UserVpnConfig, error)
 	ListUsersCursor(ctx context.Context, arg ListUsersCursorParams) ([]User, error)

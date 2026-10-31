@@ -607,3 +607,73 @@ func TestAdminUpdateUserRole_AdminGivesOnlyUser(t *testing.T) {
 		})
 	}
 }
+
+// --- bulk actions and the admin helpers ---
+
+func TestBulkUserAction_OneResultPerUserAndTheSingleActionChecks(t *testing.T) {
+	uc, repo := newAdminUC(t)
+	caller := uuid.Must(uuid.NewV7())
+	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdmin})
+	plain, peer, missing := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+
+	repo.EXPECT().GetUserByID(gomock.Any(), plain).Return(postgres.User{ID: plain, Role: string(rbac.RoleUser), Status: "active"}, nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), peer).Return(postgres.User{ID: peer, Role: string(rbac.RoleAdmin), Status: "active"}, nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), missing).Return(postgres.User{}, pgx.ErrNoRows)
+
+	results, err := uc.BulkUserAction(ctx, auth.BulkEndSessions, []uuid.UUID{plain, caller, peer, missing, plain})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("want one result per distinct user in order, got %+v", results)
+	}
+	if results[0].UserID != plain || results[0].Err != nil {
+		t.Fatalf("a plain user is signed out: %+v", results[0])
+	}
+	if !errors.Is(results[1].Err, authModel.ErrInsufficientPermission.Err()) {
+		t.Fatalf("not oneself: %+v", results[1])
+	}
+	if !errors.Is(results[2].Err, authModel.ErrInsufficientPermission.Err()) {
+		t.Fatalf("not a user of an equal role: %+v", results[2])
+	}
+	if !errors.Is(results[3].Err, userModel.ErrUserNotFound.Err()) {
+		t.Fatalf("a missing user is reported, the rest go on: %+v", results[3])
+	}
+}
+
+func TestBulkUserAction_BlockRefusesOneselfAndBadRequests(t *testing.T) {
+	uc, _ := newAdminUC(t)
+	caller := uuid.Must(uuid.NewV7())
+	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: caller, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleSuperAdmin})
+
+	results, err := uc.BulkUserAction(ctx, auth.BulkBlock, []uuid.UUID{caller})
+	if err != nil || len(results) != 1 || !errors.Is(results[0].Err, authModel.ErrInsufficientPermission.Err()) {
+		t.Fatalf("blocking oneself: %+v, %v", results, err)
+	}
+	if _, err = uc.BulkUserAction(ctx, "delete", []uuid.UUID{caller}); err == nil {
+		t.Fatal("an unknown action is refused")
+	}
+	if _, err = uc.BulkUserAction(ctx, auth.BulkBlock, nil); err == nil {
+		t.Fatal("an empty request is refused")
+	}
+	tooMany := make([]uuid.UUID, auth.MaxBulkUsers+1)
+	for i := range tooMany {
+		tooMany[i] = uuid.Must(uuid.NewV7())
+	}
+	if _, err = uc.BulkUserAction(ctx, auth.BulkBlock, tooMany); err == nil {
+		t.Fatal("more than the limit is refused")
+	}
+}
+
+func TestResendUserInvitation_OnlyForAnUnfinishedRegistration(t *testing.T) {
+	uc, repo := newAdminUC(t)
+	ctx := adminCtx(rbac.RoleSuperAdmin)
+	id := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), id).Return(postgres.User{ID: id, Email: "done@test.test", Role: string(rbac.RoleUser), Status: "active"}, nil)
+
+	if err := uc.ResendUserInvitation(ctx, id); !errors.Is(err, userModel.ErrUserNotIncomplete.Err()) {
+		t.Fatalf("want ErrUserNotIncomplete, got %v", err)
+	}
+}

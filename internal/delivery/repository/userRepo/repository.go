@@ -37,6 +37,8 @@ type Queries interface {
 	GetUserByProvider(ctx context.Context, arg postgres.GetUserByProviderParams) (postgres.User, error)
 	CreateUserProvider(ctx context.Context, arg postgres.CreateUserProviderParams) (postgres.UserProvider, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]postgres.UserProvider, error)
+	ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserParticipationsRow, error)
+	ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]postgres.ListUserProvidersForUsersRow, error)
 	DeleteUserProvider(ctx context.Context, arg postgres.DeleteUserProviderParams) (int64, error)
 	CountUserLoginMethods(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteUserProviders(ctx context.Context, userID uuid.UUID) (int64, error)
@@ -74,6 +76,11 @@ type PageParams struct {
 	SortDir string
 	Limit   int32
 	Offset  int32
+	// EmailConfirmed is "", "true" or "false"; SignIn is "", "password", "google" or "passkey" (passkey
+	// matches nobody until passkeys are stored); InactiveDays 0 means any.
+	EmailConfirmed string
+	SignIn         string
+	InactiveDays   int32
 }
 
 // RoleCount / DayCount are domain-typed stat rows for the admin dashboard.
@@ -117,6 +124,7 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]userModel.Us
 	rows, err := r.q.ListUsersPage(ctx, postgres.ListUsersPageParams{
 		Search: p.Search, Roles: p.Roles, Status: p.Status, SortBy: p.SortBy,
 		SortDir: p.SortDir, LimitVal: p.Limit, OffsetVal: p.Offset,
+		EmailConfirmed: p.EmailConfirmed, SignIn: p.SignIn, InactiveDays: p.InactiveDays,
 	})
 	if err != nil {
 		return nil, err
@@ -131,6 +139,14 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]userModel.Us
 // Count returns the number of users matching the search/roles filter.
 func (r *Repository) Count(ctx context.Context, search string, roles []string, status string) (int64, error) {
 	return r.q.CountUsers(ctx, postgres.CountUsersParams{Search: search, Roles: roles, Status: status})
+}
+
+// CountFiltered counts the users of an offset-mode list with all its filters.
+func (r *Repository) CountFiltered(ctx context.Context, p PageParams) (int64, error) {
+	return r.q.CountUsers(ctx, postgres.CountUsersParams{
+		Search: p.Search, Roles: p.Roles, Status: p.Status,
+		EmailConfirmed: p.EmailConfirmed, SignIn: p.SignIn, InactiveDays: p.InactiveDays,
+	})
 }
 
 // CountByRole returns the number of users with a role.
@@ -238,6 +254,22 @@ func (r *Repository) UnlinkProvider(ctx context.Context, userID uuid.UUID, provi
 }
 
 // ListProviders returns the provider names linked to a user.
+// ProvidersOf lists the provider links of many users at once (one query).
+func (r *Repository) ProvidersOf(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+	out := make(map[uuid.UUID][]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListUserProvidersForUsers(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.UserID] = append(out[row.UserID], row.Provider)
+	}
+	return out, nil
+}
+
 func (r *Repository) ListProviders(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	rows, err := r.q.GetUserProviders(ctx, userID)
 	if err != nil {
@@ -385,4 +417,34 @@ func int4FromInt32(v int32) pgtype.Int4 {
 		return pgtype.Int4{}
 	}
 	return pgtype.Int4{Int32: v, Valid: true}
+}
+
+// Participation is one event the user takes part in or works for.
+type Participation struct {
+	EventID   uuid.UUID
+	EventName string
+	EventTag  string
+	TeamID    *uuid.UUID
+	TeamName  string
+	// Role: participant (no team yet), captain, member, or owner / manager / viewer of the event.
+	Role   string
+	Status int16
+}
+
+// Participations lists the events of the user.
+func (r *Repository) Participations(ctx context.Context, userID uuid.UUID) ([]Participation, error) {
+	rows, err := r.q.ListUserParticipations(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Participation, 0, len(rows))
+	for _, row := range rows {
+		item := Participation{EventID: row.EventID, EventName: row.EventName, EventTag: row.EventTag, TeamName: row.TeamName, Role: row.Role, Status: row.Status}
+		if row.TeamID.Valid {
+			id := row.TeamID.UUID
+			item.TeamID = &id
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }

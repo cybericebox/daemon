@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ import (
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -33,6 +35,9 @@ type fakeUC struct {
 	statusCaller  uuid.UUID
 	deleteCaller  uuid.UUID
 	inviteCaller  uuid.UUID
+	bulkResults   []authUseCase.BulkUserResult
+	bulkAction    string
+	audited       []adminAuditUseCase.Entry
 	listFilter    authUseCase.UsersFilter
 	entries       []authUseCase.InviteEntry
 	entryResults  []authUseCase.InviteEntryResult
@@ -420,5 +425,70 @@ func TestListUsersIncludesEmailConfirmationForRecipientSearch(t *testing.T) {
 				t.Fatalf("missing confirmation metadata: %s", w.Body.String())
 			}
 		})
+	}
+}
+
+func (f *fakeUC) ListUserParticipations(context.Context, uuid.UUID) ([]authUseCase.UserParticipationView, error) {
+	return []authUseCase.UserParticipationView{{EventName: "CTF", Role: "captain"}}, nil
+}
+func (f *fakeUC) EndUserSessions(context.Context, uuid.UUID) error      { return f.updateErr }
+func (f *fakeUC) ResendUserInvitation(context.Context, uuid.UUID) error { return f.updateErr }
+func (f *fakeUC) BulkUserAction(_ context.Context, action string, _ []uuid.UUID) ([]authUseCase.BulkUserResult, error) {
+	f.bulkAction = action
+	return f.bulkResults, nil
+}
+func (f *fakeUC) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {
+	f.audited = append(f.audited, entry)
+	return nil
+}
+
+func TestBulkReportsEachUserAndAuditsEachOne(t *testing.T) {
+	uid, ok1, bad := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUC{bulkResults: []authUseCase.BulkUserResult{{UserID: ok1}, {UserID: bad, Err: authModel.ErrInsufficientPermission.Err()}}}
+	r := newEngine(uc, uid)
+
+	body := `{"UserIDs":["` + ok1.String() + `","` + bad.String() + `"]}`
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/users/bulk/block", strings.NewReader(body)))
+
+	if w.Code != http.StatusOK || uc.bulkAction != authUseCase.BulkBlock {
+		t.Fatalf("status = %d action = %q body = %s", w.Code, uc.bulkAction, w.Body.String())
+	}
+	var out struct {
+		Data struct {
+			Results []struct {
+				UserID uuid.UUID
+				Ok     bool
+				Code   string
+			}
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	res := out.Data.Results
+	if len(res) != 2 || !res[0].Ok || res[1].Ok || res[1].Code == "" || res[0].UserID != ok1 {
+		t.Fatalf("results = %+v", res)
+	}
+	if len(uc.audited) != 2 || uc.audited[0].Target != "user:"+ok1.String() || uc.audited[1].Target != "user:"+bad.String() ||
+		uc.audited[0].ResponseStatus != http.StatusOK || uc.audited[1].ResponseStatus != http.StatusForbidden || uc.audited[0].ActorID != uid {
+		t.Fatalf("audit = %+v", uc.audited)
+	}
+}
+
+func TestListUsersRejectsUnknownFilters(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	r := newEngine(&fakeUC{}, uid)
+	for _, query := range []string{"signIn=sms", "emailConfirmed=maybe", "inactiveDays=0", "inactiveDays=abc"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&"+query, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d", query, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&signIn=google&emailConfirmed=true&inactiveDays=30", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid filters: status = %d body = %s", w.Code, w.Body.String())
 	}
 }

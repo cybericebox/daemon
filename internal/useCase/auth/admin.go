@@ -45,7 +45,7 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "name", "role", "status", "created", "lastSeen":
+		case "name", "email", "role", "status", "signIn", "created", "lastSeen":
 		default:
 			sortBy = "created"
 		}
@@ -57,20 +57,35 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 		if offset < 0 || offset > 2147483647 {
 			return UsersListResult{}, model.ErrPlatform.WithMessage("User page is out of range").Err()
 		}
-		rows, err := u.users.ListPage(ctx, userRepo.PageParams{
+		params := userRepo.PageParams{
 			Search: f.Search, Roles: roles, Status: string(f.Status), SortBy: sortBy,
 			SortDir: sortDir, Limit: int32(limit), Offset: int32(offset),
-		})
+			EmailConfirmed: f.EmailConfirmed, SignIn: f.SignIn, InactiveDays: int32(f.InactiveDays),
+		}
+		rows, err := u.users.ListPage(ctx, params)
 		if err != nil {
 			return UsersListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list users").Err()
 		}
+		ids := make([]uuid.UUID, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.ID)
+		}
+		providers, err := u.users.ProvidersOf(ctx, ids)
+		if err != nil {
+			return UsersListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list user providers").Err()
+		}
 		users := make([]UserInfo, 0, len(rows))
 		for _, r := range rows {
+			methods := make([]string, 0, 1+len(providers[r.ID]))
+			if r.HasPassword() {
+				methods = append(methods, "email")
+			}
+			methods = append(methods, providers[r.ID]...)
 			users = append(users, UserInfo{ID: r.ID, FirstName: r.FirstName, LastName: r.LastName,
 				Picture: r.Picture, Email: r.Email, EmailConfirmed: r.EmailConfirmed, Role: r.Role, Status: r.Status,
-				LastSeen: r.LastSeen, CreatedAt: r.CreatedAt})
+				LastSeen: r.LastSeen, CreatedAt: r.CreatedAt, SignInMethods: methods})
 		}
-		total, err := u.users.Count(ctx, f.Search, roles, string(f.Status))
+		total, err := u.users.CountFiltered(ctx, params)
 		if err != nil {
 			return UsersListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count users").Err()
 		}
@@ -325,4 +340,124 @@ func (u *AuthUseCase) guardLastSuperAdmin(ctx context.Context, target *userModel
 		return authModel.ErrLastSuperAdmin.Err()
 	}
 	return nil
+}
+
+// UserParticipationView is one event the user takes part in or works for (the admin user card).
+type UserParticipationView = userRepo.Participation
+
+// ListUserParticipations returns the events of the user: participations with the team and the role in it, and the
+// events they manage. Requires PermUsersRead.
+func (u *AuthUseCase) ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]UserParticipationView, error) {
+	if _, err := u.users.GetByID(ctx, userID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil, userModel.ErrUserNotFound.Err()
+		}
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
+	}
+	items, err := u.users.Participations(ctx, userID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list user participations").Err()
+	}
+	return items, nil
+}
+
+// EndUserSessions signs the user out everywhere. An administrator never ends their own sessions this way and only
+// a higher role manages an account. Requires PermUsersStatusWrite.
+func (u *AuthUseCase) EndUserSessions(ctx context.Context, userID uuid.UUID) error {
+	caller, ok := rbac.CurrentUserSessionFromContext(ctx)
+	if !ok {
+		return authModel.ErrAuthInvalidSession.Err()
+	}
+	if caller.UserID == userID {
+		return authModel.ErrInsufficientPermission.Err()
+	}
+	target, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return userModel.ErrUserNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
+	}
+	if err = requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
+		return err
+	}
+	if _, err = u.revokeAll(ctx, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to end the sessions of the user").Err()
+	}
+	return nil
+}
+
+// ResendUserInvitation sends the invitation of an unfinished registration again with a new link (the old one stops
+// working). Requires PermUsersInvite and authority over the invited role.
+func (u *AuthUseCase) ResendUserInvitation(ctx context.Context, userID uuid.UUID) error {
+	target, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return userModel.ErrUserNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
+	}
+	if target.Status != userModel.UserStatusIncomplete {
+		return userModel.ErrUserNotIncomplete.Err()
+	}
+	return u.InviteUser(ctx, target.Email, target.Role, target.FirstName, target.LastName)
+}
+
+// Bulk actions on users.
+const (
+	BulkResendInvitation = "resend-invitation"
+	BulkBlock            = "block"
+	BulkUnblock          = "unblock"
+	BulkEndSessions      = "end-sessions"
+	// MaxBulkUsers bounds one bulk request.
+	MaxBulkUsers = 200
+)
+
+// BulkUserResult is the outcome for one user of a bulk action; Err is nil on success.
+type BulkUserResult struct {
+	UserID uuid.UUID
+	Err    error
+}
+
+// BulkUserAction applies one action to every listed user with the checks of the single action (not oneself, only a
+// higher role, the last super admin stays). A failure of one user never stops the others; the result keeps the
+// request order.
+func (u *AuthUseCase) BulkUserAction(ctx context.Context, action string, ids []uuid.UUID) ([]BulkUserResult, error) {
+	var apply func(context.Context, uuid.UUID) error
+	switch action {
+	case BulkResendInvitation:
+		apply = u.ResendUserInvitation
+	case BulkBlock:
+		apply = func(c context.Context, id uuid.UUID) error { return u.blockUnlessSelf(c, id, userModel.UserStatusBlocked) }
+	case BulkUnblock:
+		apply = func(c context.Context, id uuid.UUID) error { return u.blockUnlessSelf(c, id, userModel.UserStatusActive) }
+	case BulkEndSessions:
+		apply = u.EndUserSessions
+	default:
+		return nil, authModel.ErrInvalidUserStatus.WithMessage("Unknown bulk action").Err()
+	}
+	if len(ids) == 0 || len(ids) > MaxBulkUsers {
+		return nil, authModel.ErrInvalidUserStatus.WithMessage("Provide 1 to 200 users").Err()
+	}
+	results := make([]BulkUserResult, 0, len(ids))
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		results = append(results, BulkUserResult{UserID: id, Err: apply(ctx, id)})
+	}
+	return results, nil
+}
+
+func (u *AuthUseCase) blockUnlessSelf(ctx context.Context, id uuid.UUID, status userModel.UserStatus) error {
+	caller, ok := rbac.CurrentUserSessionFromContext(ctx)
+	if !ok {
+		return authModel.ErrAuthInvalidSession.Err()
+	}
+	if caller.UserID == id {
+		return authModel.ErrInsufficientPermission.Err()
+	}
+	return u.UpdateUserStatus(ctx, id, status)
 }

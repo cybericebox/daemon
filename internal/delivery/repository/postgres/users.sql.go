@@ -51,16 +51,31 @@ WHERE deleted_at IS NULL
        OR last_name ILIKE '%' || $1::text || '%')
   AND (coalesce(cardinality($2::text[]), 0) = 0 OR role = ANY ($2::text[]))
   AND ($3::text = '' OR status = $3::text)
+  AND ($4::text = '' OR email_confirmed = ($4::text = 'true'))
+  AND ($5::text = ''
+       OR ($5::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR ($5::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND ($6::int = 0 OR last_seen < now() - make_interval(days => $6::int))
 `
 
 type CountUsersParams struct {
-	Search string   `json:"search"`
-	Roles  []string `json:"roles"`
-	Status string   `json:"status"`
+	Search         string   `json:"search"`
+	Roles          []string `json:"roles"`
+	Status         string   `json:"status"`
+	EmailConfirmed string   `json:"email_confirmed"`
+	SignIn         string   `json:"sign_in"`
+	InactiveDays   int32    `json:"inactive_days"`
 }
 
 func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countUsers, arg.Search, arg.Roles, arg.Status)
+	row := q.db.QueryRow(ctx, countUsers,
+		arg.Search,
+		arg.Roles,
+		arg.Status,
+		arg.EmailConfirmed,
+		arg.SignIn,
+		arg.InactiveDays,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -307,6 +322,74 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const listUserParticipations = `-- name: ListUserParticipations :many
+SELECT e.id                                     AS event_id,
+       e.name                                   AS event_name,
+       e.tag                                    AS event_tag,
+       p.team_id,
+       COALESCE(t.name, '')::text               AS team_name,
+       CASE WHEN p.team_id IS NULL THEN 'participant'
+            WHEN p.team_role = 0 THEN 'captain'
+            ELSE 'member' END::text             AS role,
+       p.status::smallint                       AS status,
+       e.start_at
+FROM event_participants p
+JOIN events e ON e.id = p.event_id
+LEFT JOIN event_teams t ON t.id = p.team_id
+WHERE p.user_id = $1
+UNION ALL
+SELECT e.id, e.name, e.tag, NULL::uuid, ''::text,
+       CASE m.role WHEN 0 THEN 'owner' WHEN 1 THEN 'manager' ELSE 'viewer' END::text,
+       2::smallint, e.start_at
+FROM event_managers m
+JOIN events e ON e.id = m.event_id
+WHERE m.user_id = $1
+ORDER BY start_at DESC, event_id
+LIMIT 500
+`
+
+type ListUserParticipationsRow struct {
+	EventID   uuid.UUID     `json:"event_id"`
+	EventName string        `json:"event_name"`
+	EventTag  string        `json:"event_tag"`
+	TeamID    uuid.NullUUID `json:"team_id"`
+	TeamName  string        `json:"team_name"`
+	Role      string        `json:"role"`
+	Status    int16         `json:"status"`
+	StartAt   time.Time     `json:"start_at"`
+}
+
+// Where the person takes part (a participant, with the team and the role in it) or works (an event manager), newest
+// event first. One query for the admin user card.
+func (q *Queries) ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]ListUserParticipationsRow, error) {
+	rows, err := q.db.Query(ctx, listUserParticipations, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserParticipationsRow{}
+	for rows.Next() {
+		var i ListUserParticipationsRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.EventName,
+			&i.EventTag,
+			&i.TeamID,
+			&i.TeamName,
+			&i.Role,
+			&i.Status,
+			&i.StartAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsersCursor = `-- name: ListUsersCursor :many
 SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
 FROM users
@@ -385,29 +468,41 @@ WHERE deleted_at IS NULL
        OR last_name ILIKE '%' || $1::text || '%')
   AND (coalesce(cardinality($2::text[]), 0) = 0 OR role = ANY ($2::text[]))
   AND ($3::text = '' OR status = $3::text)
+  AND ($4::text = '' OR email_confirmed = ($4::text = 'true'))
+  AND ($5::text = ''
+       OR ($5::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR ($5::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND ($6::int = 0 OR last_seen < now() - make_interval(days => $6::int))
 ORDER BY
-  CASE WHEN $4::text = 'name' AND $5::text = 'asc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END ASC,
-  CASE WHEN $4::text = 'name' AND $5::text = 'desc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END DESC,
-  CASE WHEN $4::text = 'role' AND $5::text = 'asc' THEN role END ASC,
-  CASE WHEN $4::text = 'role' AND $5::text = 'desc' THEN role END DESC,
-  CASE WHEN $4::text = 'status' AND $5::text = 'asc' THEN status END ASC,
-  CASE WHEN $4::text = 'status' AND $5::text = 'desc' THEN status END DESC,
-  CASE WHEN $4::text = 'created' AND $5::text = 'asc' THEN created_at END ASC,
-  CASE WHEN $4::text = 'created' AND $5::text = 'desc' THEN created_at END DESC,
-  CASE WHEN $4::text = 'lastSeen' AND $5::text = 'asc' THEN last_seen END ASC,
-  CASE WHEN $4::text = 'lastSeen' AND $5::text = 'desc' THEN last_seen END DESC,
+  CASE WHEN $7::text = 'name' AND $8::text = 'asc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END ASC,
+  CASE WHEN $7::text = 'name' AND $8::text = 'desc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END DESC,
+  CASE WHEN $7::text = 'role' AND $8::text = 'asc' THEN role END ASC,
+  CASE WHEN $7::text = 'role' AND $8::text = 'desc' THEN role END DESC,
+  CASE WHEN $7::text = 'status' AND $8::text = 'asc' THEN status END ASC,
+  CASE WHEN $7::text = 'status' AND $8::text = 'desc' THEN status END DESC,
+  CASE WHEN $7::text = 'created' AND $8::text = 'asc' THEN created_at END ASC,
+  CASE WHEN $7::text = 'created' AND $8::text = 'desc' THEN created_at END DESC,
+  CASE WHEN $7::text = 'lastSeen' AND $8::text = 'asc' THEN last_seen END ASC,
+  CASE WHEN $7::text = 'lastSeen' AND $8::text = 'desc' THEN last_seen END DESC,
+  CASE WHEN $7::text = 'email' AND $8::text = 'asc' THEN lower(email) END ASC,
+  CASE WHEN $7::text = 'email' AND $8::text = 'desc' THEN lower(email) END DESC,
+  CASE WHEN $7::text = 'signIn' AND $8::text = 'asc' THEN (CASE WHEN hashed_password IS NOT NULL AND hashed_password <> '' THEN 0 ELSE 2 END) + (CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 0 ELSE 1 END) END ASC,
+  CASE WHEN $7::text = 'signIn' AND $8::text = 'desc' THEN (CASE WHEN hashed_password IS NOT NULL AND hashed_password <> '' THEN 0 ELSE 2 END) + (CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 0 ELSE 1 END) END DESC,
   id DESC
-LIMIT $7 OFFSET $6
+LIMIT $10 OFFSET $9
 `
 
 type ListUsersPageParams struct {
-	Search    string   `json:"search"`
-	Roles     []string `json:"roles"`
-	Status    string   `json:"status"`
-	SortBy    string   `json:"sort_by"`
-	SortDir   string   `json:"sort_dir"`
-	OffsetVal int32    `json:"offset_val"`
-	LimitVal  int32    `json:"limit_val"`
+	Search         string   `json:"search"`
+	Roles          []string `json:"roles"`
+	Status         string   `json:"status"`
+	EmailConfirmed string   `json:"email_confirmed"`
+	SignIn         string   `json:"sign_in"`
+	InactiveDays   int32    `json:"inactive_days"`
+	SortBy         string   `json:"sort_by"`
+	SortDir        string   `json:"sort_dir"`
+	OffsetVal      int32    `json:"offset_val"`
+	LimitVal       int32    `json:"limit_val"`
 }
 
 // Offset mode is used by the admin table: column sorting and a page count
@@ -417,6 +512,9 @@ func (q *Queries) ListUsersPage(ctx context.Context, arg ListUsersPageParams) ([
 		arg.Search,
 		arg.Roles,
 		arg.Status,
+		arg.EmailConfirmed,
+		arg.SignIn,
+		arg.InactiveDays,
 		arg.SortBy,
 		arg.SortDir,
 		arg.OffsetVal,

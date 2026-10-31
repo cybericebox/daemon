@@ -4825,6 +4825,11 @@ definitions:
           Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved
           the task (code submissions_not_solutions).
         type: string
+      PeopleHidden:
+        description: |-
+          PeopleHidden: the caller may not see people (a read-only moderator): the participant names and ids are
+          empty and the addresses masked.
+        type: boolean
     type: object
   eventAnalytics.taskDetailResponse:
     properties:
@@ -12380,6 +12385,33 @@ definitions:
         additionalProperties: {}
         type: object
     type: object
+  user.bulkUserResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      Ok:
+        type: boolean
+      UserID:
+        type: string
+    type: object
+  user.bulkUsersRequest:
+    properties:
+      UserIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  user.bulkUsersResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/user.bulkUserResultResponse'
+        type: array
+    type: object
   user.dayCountResponse:
     properties:
       Count:
@@ -12475,6 +12507,27 @@ definitions:
       Status:
         $ref: '#/definitions/userModel.UserStatus'
     type: object
+  user.userParticipationResponse:
+    properties:
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      Role:
+        description: 'Role: participant (no team yet), captain, member, or owner /
+          manager / viewer of the event.'
+        type: string
+      Status:
+        description: 'Status of the participation: 1 pending, 2 approved, 3 rejected;
+          2 for an event the user manages.'
+        type: integer
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+    type: object
   user.userResponse:
     properties:
       CreatedAt:
@@ -12491,8 +12544,16 @@ definitions:
         type: string
       LastSeen:
         type: string
+      Picture:
+        type: string
       Role:
         $ref: '#/definitions/rbac.Role'
+      SignInMethods:
+        description: 'SignInMethods: email (a password) and the linked providers;
+          filled in the offset (page) list.'
+        items:
+          type: string
+        type: array
       Status:
         $ref: '#/definitions/userModel.UserStatus'
     type: object
@@ -29416,6 +29477,50 @@ paths:
       summary: Get a single user's detail
       tags:
       - users
+  /users/{userID}/invitation/resend:
+    post:
+      description: Only for status incomplete; the old link stops working.
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Send the invitation of an unfinished registration again
+      tags:
+      - users
+  /users/{userID}/participations:
+    get:
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/user.userParticipationResponse'
+                  type: array
+              type: object
+      summary: The events a user takes part in or manages
+      tags:
+      - users
   /users/{userID}/role:
     patch:
       consumes:
@@ -29454,6 +29559,24 @@ paths:
       summary: Update a user's role
       tags:
       - users
+  /users/{userID}/sessions/end:
+    post:
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Sign a user out everywhere
+      tags:
+      - users
   /users/{userID}/status:
     patch:
       consumes:
@@ -29490,6 +29613,113 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update a user's status (active / suspended)
+      tags:
+      - users
+  /users/bulk/block:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Block many users
+      tags:
+      - users
+  /users/bulk/end-sessions:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: End the sessions of many users
+      tags:
+      - users
+  /users/bulk/resend-invitation:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 users; one result per user in request order; a refusal
+        for one never stops the others. Same for /users/bulk/block, /users/bulk/unblock
+        and /users/bulk/end-sessions.
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Send the invitations of many unfinished registrations again
+      tags:
+      - users
+  /users/bulk/unblock:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Unblock many users
       tags:
       - users
   /users/invite:

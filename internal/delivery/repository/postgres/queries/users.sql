@@ -90,7 +90,12 @@ WHERE deleted_at IS NULL
        OR first_name ILIKE '%' || sqlc.arg(search)::text || '%'
        OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
   AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
-  AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text);
+  AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
+  AND (sqlc.arg(email_confirmed)::text = '' OR email_confirmed = (sqlc.arg(email_confirmed)::text = 'true'))
+  AND (sqlc.arg(sign_in)::text = ''
+       OR (sqlc.arg(sign_in)::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR (sqlc.arg(sign_in)::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND (sqlc.arg(inactive_days)::int = 0 OR last_seen < now() - make_interval(days => sqlc.arg(inactive_days)::int));
 
 -- name: ListUsersPage :many
 -- Offset mode is used by the admin table: column sorting and a page count
@@ -103,6 +108,11 @@ WHERE deleted_at IS NULL
        OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
   AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
+  AND (sqlc.arg(email_confirmed)::text = '' OR email_confirmed = (sqlc.arg(email_confirmed)::text = 'true'))
+  AND (sqlc.arg(sign_in)::text = ''
+       OR (sqlc.arg(sign_in)::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR (sqlc.arg(sign_in)::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND (sqlc.arg(inactive_days)::int = 0 OR last_seen < now() - make_interval(days => sqlc.arg(inactive_days)::int))
 ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END DESC,
@@ -114,6 +124,10 @@ ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'created' AND sqlc.arg(sort_dir)::text = 'desc' THEN created_at END DESC,
   CASE WHEN sqlc.arg(sort_by)::text = 'lastSeen' AND sqlc.arg(sort_dir)::text = 'asc' THEN last_seen END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'lastSeen' AND sqlc.arg(sort_dir)::text = 'desc' THEN last_seen END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'email' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(email) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'email' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(email) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'signIn' AND sqlc.arg(sort_dir)::text = 'asc' THEN (CASE WHEN hashed_password IS NOT NULL AND hashed_password <> '' THEN 0 ELSE 2 END) + (CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 0 ELSE 1 END) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'signIn' AND sqlc.arg(sort_dir)::text = 'desc' THEN (CASE WHEN hashed_password IS NOT NULL AND hashed_password <> '' THEN 0 ELSE 2 END) + (CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 0 ELSE 1 END) END DESC,
   id DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
@@ -161,3 +175,30 @@ WHERE deleted_at IS NULL
   AND created_at >= $1
 GROUP BY 1
 ORDER BY 1;
+
+-- name: ListUserParticipations :many
+-- Where the person takes part (a participant, with the team and the role in it) or works (an event manager), newest
+-- event first. One query for the admin user card.
+SELECT e.id                                     AS event_id,
+       e.name                                   AS event_name,
+       e.tag                                    AS event_tag,
+       p.team_id,
+       COALESCE(t.name, '')::text               AS team_name,
+       CASE WHEN p.team_id IS NULL THEN 'participant'
+            WHEN p.team_role = 0 THEN 'captain'
+            ELSE 'member' END::text             AS role,
+       p.status::smallint                       AS status,
+       e.start_at
+FROM event_participants p
+JOIN events e ON e.id = p.event_id
+LEFT JOIN event_teams t ON t.id = p.team_id
+WHERE p.user_id = sqlc.arg(user_id)
+UNION ALL
+SELECT e.id, e.name, e.tag, NULL::uuid, ''::text,
+       CASE m.role WHEN 0 THEN 'owner' WHEN 1 THEN 'manager' ELSE 'viewer' END::text,
+       2::smallint, e.start_at
+FROM event_managers m
+JOIN events e ON e.id = m.event_id
+WHERE m.user_id = sqlc.arg(user_id)
+ORDER BY start_at DESC, event_id
+LIMIT 500;

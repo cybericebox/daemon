@@ -147,3 +147,35 @@ func (q *Queries) GetUserProviders(ctx context.Context, userID uuid.UUID) ([]Use
 	}
 	return items, nil
 }
+
+const listUserProvidersForUsers = `-- name: ListUserProvidersForUsers :many
+SELECT user_id, provider
+FROM user_providers
+WHERE user_id = ANY ($1::uuid[])
+ORDER BY user_id, provider
+`
+
+type ListUserProvidersForUsersRow struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Provider string    `json:"provider"`
+}
+
+func (q *Queries) ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListUserProvidersForUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUserProvidersForUsers, userIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserProvidersForUsersRow{}
+	for rows.Next() {
+		var i ListUserProvidersForUsersRow
+		if err := rows.Scan(&i.UserID, &i.Provider); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -26695,6 +26695,187 @@ const docTemplate = `{
                 }
             }
         },
+        "/users/bulk/block": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Block many users",
+                "parameters": [
+                    {
+                        "description": "users",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.bulkUsersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/user.bulkUsersResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/users/bulk/end-sessions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "End the sessions of many users",
+                "parameters": [
+                    {
+                        "description": "users",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.bulkUsersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/user.bulkUsersResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/users/bulk/resend-invitation": {
+            "post": {
+                "description": "1 to 200 users; one result per user in request order; a refusal for one never stops the others. Same for /users/bulk/block, /users/bulk/unblock and /users/bulk/end-sessions.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Send the invitations of many unfinished registrations again",
+                "parameters": [
+                    {
+                        "description": "users",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.bulkUsersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/user.bulkUsersResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/users/bulk/unblock": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Unblock many users",
+                "parameters": [
+                    {
+                        "description": "users",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/user.bulkUsersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/user.bulkUsersResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/users/invite": {
             "post": {
                 "consumes": [
@@ -26879,6 +27060,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/users/{userID}/invitation/resend": {
+            "post": {
+                "description": "Only for status incomplete; the old link stops working.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Send the invitation of an unfinished registration again",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user UUID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{userID}/participations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "The events a user takes part in or manages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user UUID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/user.userParticipationResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/users/{userID}/role": {
             "patch": {
                 "consumes": [
@@ -26930,6 +27183,34 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{userID}/sessions/end": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Sign a user out everywhere",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user UUID",
+                        "name": "userID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -34106,6 +34387,10 @@ const docTemplate = `{
                 "Note": {
                     "description": "Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved\nthe task (code submissions_not_solutions).",
                     "type": "string"
+                },
+                "PeopleHidden": {
+                    "description": "PeopleHidden: the caller may not see people (a read-only moderator): the participant names and ids are\nempty and the addresses masked.",
+                    "type": "boolean"
                 }
             }
         },
@@ -45010,6 +45295,46 @@ const docTemplate = `{
                 }
             }
         },
+        "user.bulkUserResultResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the catalog code of the refusal (empty when Ok); Error its English text.",
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "Ok": {
+                    "type": "boolean"
+                },
+                "UserID": {
+                    "type": "string"
+                }
+            }
+        },
+        "user.bulkUsersRequest": {
+            "type": "object",
+            "properties": {
+                "UserIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "user.bulkUsersResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/user.bulkUserResultResponse"
+                    }
+                }
+            }
+        },
         "user.dayCountResponse": {
             "type": "object",
             "properties": {
@@ -45158,6 +45483,34 @@ const docTemplate = `{
                 }
             }
         },
+        "user.userParticipationResponse": {
+            "type": "object",
+            "properties": {
+                "EventID": {
+                    "type": "string"
+                },
+                "EventName": {
+                    "type": "string"
+                },
+                "EventTag": {
+                    "type": "string"
+                },
+                "Role": {
+                    "description": "Role: participant (no team yet), captain, member, or owner / manager / viewer of the event.",
+                    "type": "string"
+                },
+                "Status": {
+                    "description": "Status of the participation: 1 pending, 2 approved, 3 rejected; 2 for an event the user manages.",
+                    "type": "integer"
+                },
+                "TeamID": {
+                    "type": "string"
+                },
+                "TeamName": {
+                    "type": "string"
+                }
+            }
+        },
         "user.userResponse": {
             "type": "object",
             "properties": {
@@ -45182,8 +45535,18 @@ const docTemplate = `{
                 "LastSeen": {
                     "type": "string"
                 },
+                "Picture": {
+                    "type": "string"
+                },
                 "Role": {
                     "$ref": "#/definitions/rbac.Role"
+                },
+                "SignInMethods": {
+                    "description": "SignInMethods: email (a password) and the linked providers; filled in the offset (page) list.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "Status": {
                     "$ref": "#/definitions/userModel.UserStatus"
