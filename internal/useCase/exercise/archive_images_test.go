@@ -978,6 +978,7 @@ func TestImportJobReportsStageAndCounts(t *testing.T) {
 	require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
 
 	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 0}, // the start of the worker
 		{"unpacking", 0, 0, 0, 2},
 		{"images", 0, 2, 0, 2},
 		{"images", 1, 2, 0, 2},
@@ -1008,6 +1009,7 @@ func TestImportJobProgressIsThrottled(t *testing.T) {
 	view := f.startAndRun(t)
 	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
 	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 0}, // the start of the worker
 		{"unpacking", 0, 0, 0, 2},
 		{"images", 0, 2, 0, 2},
 		{"tasks", 2, 2, 0, 2}, // the stage change writes the counts held back

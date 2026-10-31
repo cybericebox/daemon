@@ -160,7 +160,7 @@ func (h *Handler) startImageExport(ctx *gin.Context, user uuid.UUID, req exportE
 }
 
 type exportJobResponse struct {
-	// State is running, done or failed.
+	// State is queued (no worker has started it yet), running, done or failed.
 	State string `json:"State"`
 	// File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index} (done only).
 	File *exportedFileResponse `json:"File,omitempty"`
@@ -500,7 +500,7 @@ type importJobError struct {
 // runningImport is one open import of the caller: running, or failed and not yet closed.
 type runningImport struct {
 	JobID string `json:"JobID"`
-	// State is running or failed; a failed one says why in Error and is closed with DELETE.
+	// State is queued, running or failed; a failed one says why in Error and is closed with DELETE.
 	State string `json:"State"`
 	Stage string `json:"Stage"`
 	// Error is why it failed (failed only; an interrupted import has the interrupted code).

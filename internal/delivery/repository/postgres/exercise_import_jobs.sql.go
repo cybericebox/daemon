@@ -171,10 +171,11 @@ func (q *Queries) ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid
 const startExerciseImportJob = `-- name: StartExerciseImportJob :one
 
 INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at,
-                                  owner_event_id, options, plan_hash)
+                                  owner_event_id, options, plan_hash, stage)
 VALUES ($1, $2, $3, $4, $5,
         $6::uuid[], $7, $8, $9,
-        $10, COALESCE($11::jsonb, '{}'::jsonb), $12)
+        $10, COALESCE($11::jsonb, '{}'::jsonb), $12,
+        CASE WHEN $5 = 'running' THEN 'queued' ELSE 'unpacking' END)
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
 RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 `

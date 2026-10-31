@@ -7,16 +7,18 @@ SELECT id FROM exercises WHERE id = sqlc.arg(id) FOR UPDATE;
 SELECT * FROM exercise_import_jobs WHERE id = sqlc.arg(id) FOR UPDATE;
 
 -- name: RestartExerciseImportJob :one
--- Only the observed failed/stale attempt may be replaced. Old queued arguments
+-- Only the observed failed/stale attempt may be replaced (a queued one is stale much later than a started one). Old queued arguments
 -- normalize generation zero to the migrated generation one in the worker.
 UPDATE exercise_import_jobs
 SET generation = generation + 1,
     owner_event_id = sqlc.narg(owner_event_id), options = sqlc.arg(options), plan_hash = sqlc.arg(plan_hash),
     state = 'running', exercise_ids = '{}', results = '[]', error = NULL,
-    stage = 'unpacking', images_done = 0, images_total = 0, tasks_done = 0, tasks_total = 0,
+    stage = 'queued', images_done = 0, images_total = 0, tasks_done = 0, tasks_total = 0,
     bytes_pushed = 0, bytes_total = 0, updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND generation = sqlc.arg(expected_generation)
-  AND (state = 'failed' OR (state = 'running' AND updated_at < sqlc.arg(stale_before)))
+  AND (state = 'failed'
+       OR (state = 'running' AND stage <> 'queued' AND updated_at < sqlc.arg(stale_before))
+       OR (state = 'running' AND stage = 'queued' AND updated_at < sqlc.arg(queued_stale_before)))
 RETURNING *;
 
 -- name: TryCreateImportedExercise :one

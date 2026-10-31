@@ -12,7 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
-// The migrations of the hardening work (0205-0208) go down and up again; the full chain cannot go down to an empty
+// The migrations of the hardening work (0205 and later) go down and up again; the full chain cannot go down to an empty
 // schema: an old down file (0015, events) fails on a table a later migration created (mail_smtp_configs), a defect
 // older than this branch.
 func TestRecentMigrationsGoDownAndUp(t *testing.T) {
@@ -30,7 +30,13 @@ func TestRecentMigrationsGoDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, dirty)
 	require.GreaterOrEqual(t, before, uint(208))
-	require.NoError(t, m.Steps(-int(before-204)), "down to 0204")
+	// one file at a time: the numbers have gaps (several branches reserve ranges)
+	for v := before; v > 204; {
+		require.NoError(t, m.Steps(-1), "down from %d", v)
+		var err error
+		v, _, err = m.Version()
+		require.NoError(t, err)
+	}
 	down, dirty, err := m.Version()
 	require.NoError(t, err)
 	require.False(t, dirty)

@@ -317,7 +317,7 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 		return ImportJobView{}, exerciseModel.ErrImportJobNotFound.Err()
 	}
 	state, failure := job.Current(u.timeNow())
-	view := ImportJobView{ID: job.ID, State: state, Stage: job.Stage(u.timeNow()), Progress: job.Progress, Error: failure}
+	view := ImportJobView{ID: job.ID, State: job.ShownState(u.timeNow()), Stage: job.Stage(u.timeNow()), Progress: job.Progress, Error: failure}
 	if state == exerciseModel.ImportJobDone {
 		view.ExerciseIDs = job.ExerciseIDs
 		view.Results = job.Results
@@ -350,8 +350,8 @@ func (u *ExerciseUseCase) RunningArchiveImports(ctx context.Context, user uuid.U
 	now := u.timeNow()
 	views := make([]ImportJobView, len(jobs))
 	for i, job := range jobs {
-		state, failure := job.Current(now)
-		views[i] = ImportJobView{ID: job.ID, State: state, Stage: job.Stage(now), Progress: job.Progress, Error: failure}
+		_, failure := job.Current(now)
+		views[i] = ImportJobView{ID: job.ID, State: job.ShownState(now), Stage: job.Stage(now), Progress: job.Progress, Error: failure}
 	}
 	return views, nil
 }
@@ -400,6 +400,7 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		return nil
 	}
 	progress := u.newImportProgress(job)
+	progress.stage(ctx, exerciseModel.ImportStageUnpacking) // started: from now on the heartbeat counts
 	stopHeartbeat := progress.heartbeat(ctx, importHeartbeatEvery)
 	result, runErr := u.runArchiveImport(ctx, job, args.SealedPassword, progress)
 	stopHeartbeat()
