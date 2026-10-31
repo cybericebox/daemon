@@ -274,7 +274,7 @@ const (
 // scrubLabTelemetry removes the link to erased people from the lab telemetry that still carries it: the raw
 // observations and the current state (rewritten at once when the account is purged, and again here for what
 // arrived since), the rollup rows built from them and every archive chunk of the events they took part in. The VPN
-// client name becomes the person's pseudonym everywhere; IPs and counters stay. Every step is idempotent. Entries
+// client name becomes the person's pseudonym everywhere; the person's IPs are erased as well (erase_ip, set by an objection), counters stay. Every step is idempotent. Entries
 // close a day after they were queued, once the archive passed the raw rows of that day; the set to close is fixed
 // before the pass so a chunk archived meanwhile cannot slip past it. The queue is read page by page whole.
 // Returns the archive chunks it rewrote.
@@ -525,7 +525,7 @@ func (u *RetentionUseCase) scrubChunk(
 
 // EraseLabTelemetryOf erases one person from the lab telemetry on request (an objection), whether or not the
 // account exists: the VPN client name becomes a random pseudonym in every table, raw rows, current state and
-// archive included; IPs and counters stay. The person's VPN client keeps its name while it lives, so what the labs
+// archive included; the person's IPs are erased as well (erase_ip, set by an objection), counters stay. The person's VPN client keeps its name while it lives, so what the labs
 // report under it until the entry settles (a day) is rewritten by the retention job; run it after the access ended
 // to be done for good. Returns the entry and the archive chunks rewritten.
 func (u *RetentionUseCase) EraseLabTelemetryOf(ctx context.Context, userID uuid.UUID) (retentionRepo.LabTelemetryErasure, int64, error) {
