@@ -850,8 +850,8 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 	}
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
-			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
-				return false, eventStandModel.WaitNotEnoughReserved, nil
+			if wait, waiting := revealWait(err); waiting {
+				return false, wait, nil
 			}
 			return false, "", err
 		}
@@ -863,7 +863,7 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 		demand := u.resourcePolicy().Total(topology).Amount
 		storage, known := u.snapshotQuotaFor(topology)
 		if !known {
-			return false, eventStandModel.WaitLabSizingUnknown, nil
+			return false, eventStandModel.WaitPersistenceUnavailable, nil
 		}
 		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
 			if errors.Is(admitErr, calModel.ErrNotEnoughReserved.Err()) {

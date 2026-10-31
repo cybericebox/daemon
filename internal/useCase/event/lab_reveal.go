@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
@@ -11,10 +12,15 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	"github.com/gofrs/uuid"
 	"time"
 )
+
+// errPersistenceUnavailable: a lab of the cohort keeps device state and the agents report no state persistence, so
+// no snapshot room can be reserved for it. It is not a shortage of the reservation, and the wait says so.
+var errPersistenceUnavailable = errors.New("state persistence is not available on the laboratory agents")
 
 // An all_ready cohort's initial copies are reserved together before any create
 // dispatch. A partial reservation cannot send a subset to the controller.
@@ -118,7 +124,7 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		topo := version.Variants[l.VariantIndex].Topology
 		quota, known := u.snapshotQuotaFor(topo)
 		if !known {
-			return calModel.ErrNotEnoughReserved.Err()
+			return errPersistenceUnavailable
 		}
 		amount := u.resourcePolicy().Total(topo).Amount
 		if !l.Allocation.ConfiguredRequestsKnown {
@@ -216,4 +222,15 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		}
 	}
 	return unit.Save()
+}
+
+// revealWait is the wait reason of a refused cohort reservation; waiting is false for an error that is not a wait.
+func revealWait(err error) (reason string, waiting bool) {
+	switch {
+	case errors.Is(err, errPersistenceUnavailable):
+		return eventStandModel.WaitPersistenceUnavailable, true
+	case errors.Is(err, calModel.ErrNotEnoughReserved.Err()):
+		return eventStandModel.WaitNotEnoughReserved, true
+	}
+	return "", false
 }

@@ -70,18 +70,21 @@ const WaitAlarmAfter = 3 * time.Minute
 // Wait reason codes of a pending Lab. They are stored on the binding and shown to organizers (the texts are the
 // frontend's; WaitReasonText is the English fallback of the alarm).
 const (
-	WaitNotEnoughReserved   = "not_enough_reserved"
-	WaitClusterReservation  = "cluster_reservation"
-	WaitLabDeletion         = "lab_deletion"
-	WaitReplacingStaleLab   = "replacing_stale_lab"
-	WaitAgentUnavailable    = "agent_unavailable"
-	WaitImagesUnavailable   = "images_unavailable"
-	WaitGroupNotAllowed     = "group_not_allowed"
-	WaitRevealReservation   = "reveal_reservation"
-	WaitLabNotPrepared      = "lab_not_prepared"
-	WaitLabSizingUnknown    = "lab_sizing_unknown"
-	WaitLabNotAdmitted      = "lab_not_admitted"
-	WaitAwaitingReservation = ReasonAwaitingReservation
+	WaitNotEnoughReserved  = "not_enough_reserved"
+	WaitClusterReservation = "cluster_reservation"
+	WaitLabDeletion        = "lab_deletion"
+	WaitReplacingStaleLab  = "replacing_stale_lab"
+	WaitAgentUnavailable   = "agent_unavailable"
+	WaitImagesUnavailable  = "images_unavailable"
+	WaitGroupNotAllowed    = "group_not_allowed"
+	WaitRevealReservation  = "reveal_reservation"
+	// WaitPersistenceUnavailable: the lab keeps device state but no laboratory agent offers state persistence (or reports
+	// its write quota), so the snapshot room it needs cannot be reserved.
+	WaitPersistenceUnavailable = "persistence_unavailable"
+	WaitLabNotPrepared         = "lab_not_prepared"
+	WaitLabSizingUnknown       = "lab_sizing_unknown"
+	WaitLabNotAdmitted         = "lab_not_admitted"
+	WaitAwaitingReservation    = ReasonAwaitingReservation
 )
 
 // WaitReasonText is the English sentence of a wait reason code.
@@ -107,6 +110,8 @@ func WaitReasonText(code string) string {
 		return "Waiting: the size of the lab is not known yet"
 	case WaitLabNotAdmitted:
 		return "Waiting: the lab has not been admitted by the reservation yet"
+	case WaitPersistenceUnavailable:
+		return "Waiting: the laboratory agent does not offer state persistence for this lab"
 	case WaitRevealReservation:
 		return "Waiting: the labs of the task are reserved for all teams together"
 	default:
