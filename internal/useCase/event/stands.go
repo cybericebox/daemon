@@ -388,7 +388,7 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		if nameErr != nil {
 			return nameErr
 		}
-		if err = u.validateLabPreparation(infraModel.WithGroupReservation(txCtx, teamReservation(e.ID, team.ID)), group, config.EffectiveLabPolicy(), variant.Topology); err != nil {
+		if err = u.validateLabPreparation(infraModel.WithGroupReservation(txCtx, teamReservation(e.ID, team.ID)), group, config.EffectiveLabPolicy().ForTopology(variant.Topology), variant.Topology); err != nil {
 			return err
 		}
 	}
@@ -1337,6 +1337,8 @@ func ensureEventTeamLabWithPreparation(ctx context.Context, repo IRepository, ev
 			return eventLabModel.Lab{}, labRepairError("pinned definition is missing")
 		}
 		hash := definitionHash(pinnedVersion.ID, first.Generation, pinnedVersion.Variants[first.VariantIndex].Topology)
+		// A lab with a device that keeps state is stopped with a snapshot of it, whatever the event's default.
+		policy = policy.ForTopology(pinnedVersion.Variants[first.VariantIndex].Topology)
 		if policy.SnapshotMode == "required" {
 			if validate == nil {
 				return eventLabModel.Lab{}, labRepairError("required assignment needs stand-engine preparation validation")
