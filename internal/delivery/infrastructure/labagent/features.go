@@ -4,6 +4,9 @@ import (
 	"context"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
@@ -97,7 +100,9 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Proxy: infraModel.ProxyFeature{
 			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
-		Reservations: infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
+		Reservations:           infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
+		PersistenceUnavailable: unavailableReasonOf(p),
+		LifecycleUnavailable:   unavailableReasonOf(life),
 	}
 }
 
@@ -465,4 +470,19 @@ func fleetLifecycleCapabilities(members []*Member) (infraModel.LifecycleCapabili
 		out.FullGroupStop = out.FullGroupStop || l.FullGroupStop
 	}
 	return out, true
+}
+
+// unavailableReasonOf reads the `unavailable_reason` string of a feature message by field name (the agent API
+// contract 1.4 has it; the pinned SDK may not, and then there is none). Only a value of the fixed grammar and code
+// list passes (infraModel.ParseUnavailableReason); the rest of what an agent says is dropped.
+func unavailableReasonOf(feature proto.Message) *infraModel.UnavailableReason {
+	if feature == nil || !feature.ProtoReflect().IsValid() {
+		return nil
+	}
+	message := feature.ProtoReflect()
+	field := message.Descriptor().Fields().ByName("unavailable_reason")
+	if field == nil || field.Kind() != protoreflect.StringKind {
+		return nil
+	}
+	return infraModel.ParseUnavailableReason(message.Get(field).String())
 }

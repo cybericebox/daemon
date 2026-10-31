@@ -39158,6 +39158,22 @@ const docTemplate = `{
                     "description": "LabsDomain is the base domain of the lab web endpoints; VPNEndpoint is host:port of WireGuard.",
                     "type": "string"
                 },
+                "Lifecycle": {
+                    "description": "Lifecycle is what the agent confirms; LifecycleUnavailable and PersistenceUnavailable name the reason when a\nfeature the cluster is configured for is held back (absent: nothing is, or it is not configured).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/infrastructure.lifecycleResponse"
+                        }
+                    ]
+                },
+                "LifecycleUnavailable": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/infrastructure.unavailableResponse"
+                        }
+                    ],
+                    "x-nullable": true
+                },
                 "PersistenceAvailable": {
                     "type": "boolean"
                 },
@@ -39172,6 +39188,14 @@ const docTemplate = `{
                 },
                 "PersistenceMaxFileSizeBytes": {
                     "type": "integer"
+                },
+                "PersistenceUnavailable": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/infrastructure.unavailableResponse"
+                        }
+                    ],
+                    "x-nullable": true
                 },
                 "PersistenceWriteQuotaBytes": {
                     "type": "integer"
@@ -39426,6 +39450,26 @@ const docTemplate = `{
                 },
                 "NextCursor": {
                     "type": "string"
+                }
+            }
+        },
+        "infrastructure.lifecycleResponse": {
+            "type": "object",
+            "properties": {
+                "ConfirmedRuntime": {
+                    "type": "boolean"
+                },
+                "FullGroupStop": {
+                    "type": "boolean"
+                },
+                "PerLabStop": {
+                    "type": "boolean"
+                },
+                "RequiredSnapshot": {
+                    "type": "boolean"
+                },
+                "RetainedRestart": {
+                    "type": "boolean"
                 }
             }
         },
@@ -39792,6 +39836,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "VariantNumber": {
+                    "type": "integer"
+                }
+            }
+        },
+        "infrastructure.unavailableResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "string"
+                },
+                "NodesAsked": {
+                    "type": "integer"
+                },
+                "NodesFailed": {
                     "type": "integer"
                 }
             }

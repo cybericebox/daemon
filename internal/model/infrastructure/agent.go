@@ -3,6 +3,9 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -100,6 +103,43 @@ type AgentFeatures struct {
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
 	// Reservations is how the agent's reservations work.
 	Reservations ReservationsFeature `json:"reservations"`
+	// PersistenceUnavailable and LifecycleUnavailable say why a feature the cluster is configured for is held back
+	// (nil: nothing is). Only a fixed code and a count of nodes: never node names, paths or text of the agent.
+	PersistenceUnavailable *UnavailableReason `json:"persistence_unavailable,omitempty"`
+	LifecycleUnavailable   *UnavailableReason `json:"lifecycle_unavailable,omitempty"`
+}
+
+// UnavailableReason is why some lab nodes of an agent do not confirm a feature: a code of the fixed list, how many
+// nodes do not confirm it and how many were asked.
+type UnavailableReason struct {
+	Code        string `json:"code"`
+	NodesFailed int    `json:"nodes_failed"`
+	NodesAsked  int    `json:"nodes_asked"`
+}
+
+// UnavailableCodes is the allow-list of codes the laboratory agent may report (agent API contract 1.4).
+var UnavailableCodes = []string{
+	"CONTAINERD_ROOT_MISSING", "SNAPSHOTTER_MISSING", "RUNTIME_SOCKET_UNAVAILABLE", "SNAPSHOT_REGISTRY_UNREACHABLE",
+	"CGROUP_V2_MISSING", "PERSISTENCE_DISABLED", "OBSERVATION_DISABLED", "NODE_UNCONFIRMED",
+}
+
+// ParseUnavailableReason reads the agent's `<CODE>:<n>/<m>`. Anything else (a free text, an unknown code, a count out
+// of range) is dropped: what the agent says is never passed on as it is.
+func ParseUnavailableReason(raw string) *UnavailableReason {
+	code, counts, found := strings.Cut(raw, ":")
+	if !found || !slices.Contains(UnavailableCodes, code) {
+		return nil
+	}
+	failedText, askedText, found := strings.Cut(counts, "/")
+	if !found || len(failedText) > 6 || len(askedText) > 6 {
+		return nil
+	}
+	failed, errFailed := strconv.Atoi(failedText)
+	asked, errAsked := strconv.Atoi(askedText)
+	if errFailed != nil || errAsked != nil || failed < 0 || asked < 1 || failed > asked || failedText[0] == '+' || askedText[0] == '+' {
+		return nil
+	}
+	return &UnavailableReason{Code: code, NodesFailed: failed, NodesAsked: asked}
 }
 
 // ReservationsFeature: every group and lab runs under a reservation (Required), and a reservation turns Ending

@@ -74,15 +74,37 @@ type (
 		Max      int64  `json:"Max"`
 	}
 
+	// lifecycleResponse is what the agent confirms for the stop and restart of labs.
+	lifecycleResponse struct {
+		PerLabStop       bool `json:"PerLabStop"`
+		RequiredSnapshot bool `json:"RequiredSnapshot"`
+		ConfirmedRuntime bool `json:"ConfirmedRuntime"`
+		RetainedRestart  bool `json:"RetainedRestart"`
+		FullGroupStop    bool `json:"FullGroupStop"`
+	}
+
+	// unavailableResponse says why a feature is held back: a code of the fixed list (for example
+	// CONTAINERD_ROOT_MISSING, NODE_UNCONFIRMED) and how many of the lab nodes do not confirm it. Never a node name or a text.
+	unavailableResponse struct {
+		Code        string `json:"Code"`
+		NodesFailed int    `json:"NodesFailed"`
+		NodesAsked  int    `json:"NodesAsked"`
+	}
+
 	agentFeaturesResponse struct {
-		PersistenceAvailable        bool     `json:"PersistenceAvailable"`
-		PersistenceDefaultDebounce  int64    `json:"PersistenceDefaultDebounceMs"`
-		PersistenceWriteQuotaBytes  int64    `json:"PersistenceWriteQuotaBytes"`
-		PersistenceMaxFileSizeBytes int64    `json:"PersistenceMaxFileSizeBytes"`
-		PersistenceExcludedPaths    []string `json:"PersistenceExcludedPaths"`
-		ImageCacheEnabled           bool     `json:"ImageCacheEnabled"`
-		ImageCacheRegistries        []string `json:"ImageCacheRegistries"`
-		SchedulerEnabled            bool     `json:"SchedulerEnabled"`
+		// Lifecycle is what the agent confirms; LifecycleUnavailable and PersistenceUnavailable name the reason when a
+		// feature the cluster is configured for is held back (absent: nothing is, or it is not configured).
+		Lifecycle                   lifecycleResponse    `json:"Lifecycle"`
+		LifecycleUnavailable        *unavailableResponse `json:"LifecycleUnavailable" extensions:"x-nullable"`
+		PersistenceUnavailable      *unavailableResponse `json:"PersistenceUnavailable" extensions:"x-nullable"`
+		PersistenceAvailable        bool                 `json:"PersistenceAvailable"`
+		PersistenceDefaultDebounce  int64                `json:"PersistenceDefaultDebounceMs"`
+		PersistenceWriteQuotaBytes  int64                `json:"PersistenceWriteQuotaBytes"`
+		PersistenceMaxFileSizeBytes int64                `json:"PersistenceMaxFileSizeBytes"`
+		PersistenceExcludedPaths    []string             `json:"PersistenceExcludedPaths"`
+		ImageCacheEnabled           bool                 `json:"ImageCacheEnabled"`
+		ImageCacheRegistries        []string             `json:"ImageCacheRegistries"`
+		SchedulerEnabled            bool                 `json:"SchedulerEnabled"`
 		// SchedulerMaxPods is the most pods starting at once; 0 = no limit.
 		SchedulerMaxPods int32 `json:"SchedulerMaxPods"`
 		// LabsDomain is the base domain of the lab web endpoints; VPNEndpoint is host:port of WireGuard.
@@ -170,12 +192,25 @@ func toSizing(s infraModel.GroupPodSizing) groupPodSizingResponse {
 	}
 }
 
+func toUnavailable(r *infraModel.UnavailableReason) *unavailableResponse {
+	if r == nil {
+		return nil
+	}
+	return &unavailableResponse{Code: r.Code, NodesFailed: r.NodesFailed, NodesAsked: r.NodesAsked}
+}
+
 func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 	if f == nil {
 		return nil
 	}
 	return &agentFeaturesResponse{
-		PersistenceAvailable: f.Persistence.Available, PersistenceDefaultDebounce: f.Persistence.DefaultDebounce,
+		Lifecycle: lifecycleResponse{
+			PerLabStop: f.Lifecycle.PerLabStop, RequiredSnapshot: f.Lifecycle.RequiredSnapshot, ConfirmedRuntime: f.Lifecycle.ConfirmedRuntime,
+			RetainedRestart: f.Lifecycle.RetainedRestart, FullGroupStop: f.Lifecycle.FullGroupStop,
+		},
+		LifecycleUnavailable:   toUnavailable(f.LifecycleUnavailable),
+		PersistenceUnavailable: toUnavailable(f.PersistenceUnavailable),
+		PersistenceAvailable:   f.Persistence.Available, PersistenceDefaultDebounce: f.Persistence.DefaultDebounce,
 		PersistenceWriteQuotaBytes: f.Persistence.WriteQuotaBytes, PersistenceMaxFileSizeBytes: f.Persistence.MaxFileSizeBytes,
 		PersistenceExcludedPaths: f.Persistence.ExcludedPaths, ImageCacheEnabled: f.ImageCache.Enabled,
 		ImageCacheRegistries: f.ImageCache.Registries, SchedulerEnabled: f.Scheduler.Enabled, SchedulerMaxPods: f.Scheduler.MaxPods,

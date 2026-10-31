@@ -141,6 +141,7 @@ func Run(cfg *config.Config) {
 	fleet.SetPolicy(resourcesPolicy)
 	trafficIngest := labMonitoring.NewTrafficIngest(labTrafficRepo.New(repo.Queries))
 	observations := eventLabObservationRepo.New(repo.Queries)
+	featureGaps := newFeatureGapReporter()
 	agentProfiles := agentProfileRepo.New(repo.Pool())
 	profileCells := labagent.NewProfileCells(
 		func(agent uuid.UUID, v map[exerciseModel.NodeProfile]labagent.ProfileCapacity) {
@@ -198,6 +199,7 @@ func Run(cfg *config.Config) {
 			runner = runner.WithFeaturesSink(func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error {
 				f := labagent.FeaturesOf(features)
 				member.Features.Set(f)
+				featureGaps.report(ucs.Journal, member.ID, member.Name, f)
 				return ucs.AgentsUseCase.RecordAgentFeatures(ctx, member.ID, f, observedAt)
 			})
 			// The maintenance windows the cluster operator announces are read once a minute (the agent has no change
