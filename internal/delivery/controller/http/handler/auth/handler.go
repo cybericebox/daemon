@@ -125,8 +125,7 @@ type (
 			credential []byte,
 		) (passkeyModel.Passkey, error)
 		ListPasskeys(ctx context.Context, userID uuid.UUID) ([]passkeyModel.Passkey, error)
-		RenamePasskey(ctx context.Context, userID, passkeyID uuid.UUID, name string) error
-		RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID) error
+		RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID, currentPassword string) error
 
 		// avatars (S3-backed)
 		UploadAvatar(
@@ -218,7 +217,6 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.GET("passkeys", self, h.listPasskeys)
 	sec.POST("passkeys/registration/begin", self, selfCheck, h.passkeyRegistrationBegin)
 	sec.POST("passkeys/registration/finish", self, h.passkeyRegistrationFinish)
-	sec.PATCH("passkeys/:id", self, h.renamePasskey)
 	sec.DELETE("passkeys/:id", self, h.removePasskey)
 	sec.POST("google/link", self, h.googleLink)
 	sec.DELETE("google/link", self, h.unlinkGoogle)

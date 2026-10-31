@@ -41,10 +41,6 @@ type passkeyRegistrationFinishRequest struct {
 	Credential json.RawMessage `json:"Credential"`
 }
 
-type passkeyRenameRequest struct {
-	Name string `json:"Name"`
-}
-
 type passkeyResponse struct {
 	ID             uuid.UUID  `json:"ID"`
 	Name           string     `json:"Name"`
@@ -54,6 +50,9 @@ type passkeyResponse struct {
 	BackedUp       bool       `json:"BackedUp"`
 	CreatedAt      time.Time  `json:"CreatedAt"`
 	LastUsedAt     *time.Time `json:"LastUsedAt"`
+	// Compromised is true once the key's counter went backwards; CompromisedAt says when. Such a key cannot sign in.
+	Compromised   bool       `json:"Compromised"`
+	CompromisedAt *time.Time `json:"CompromisedAt"`
 }
 
 func toPasskeyResponse(p passkeyModel.Passkey) passkeyResponse {
@@ -198,48 +197,16 @@ func (h *Handler) passkeyRegistrationFinish(ctx *gin.Context) {
 	response.AbortWithData(ctx, toPasskeyResponse(created))
 }
 
-// renamePasskey godoc
-// @Summary  Rename one of the current user's passkeys
+// removePasskey godoc
+// @Summary  Remove one of the current user's passkeys (the owner is confirmed first; refused when it is the last way to sign in)
 // @Tags     auth
 // @Accept   json
 // @Produce  json
-// @Param    id    path      string                true  "passkey ID"
-// @Param    body  body      passkeyRenameRequest  true  "new name"
+// @Param    id    path  string         true   "passkey ID"
+// @Param    body  body  reauthRequest  false  "current password (accounts without a password need a recent sign-in instead)"
 // @Success  200  {object}  response.Response
 // @Failure  400  {object}  response.Response
-// @Failure  404  {object}  response.Response
-// @Router   /auth/passkeys/{id} [patch]
-func (h *Handler) renamePasskey(ctx *gin.Context) {
-	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	id, err := uuid.FromString(ctx.Param("id"))
-	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	var req passkeyRenameRequest
-	if err = ctx.ShouldBindJSON(&req); err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	if err = h.useCase.RenamePasskey(
-		ctx.Request.Context(),
-		claims.UserID,
-		id,
-		req.Name,
-	); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithSuccess(ctx)
-}
-
-// removePasskey godoc
-// @Summary  Remove one of the current user's passkeys (refused when it is the last way to sign in)
-// @Tags     auth
-// @Produce  json
-// @Param    id   path      string  true  "passkey ID"
-// @Success  200  {object}  response.Response
-// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
 // @Failure  404  {object}  response.Response
 // @Router   /auth/passkeys/{id} [delete]
 func (h *Handler) removePasskey(ctx *gin.Context) {
@@ -249,7 +216,11 @@ func (h *Handler) removePasskey(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err = h.useCase.RemovePasskey(ctx.Request.Context(), claims.UserID, id); err != nil {
+	req, ok := bindReauth(ctx)
+	if !ok {
+		return
+	}
+	if err = h.useCase.RemovePasskey(ctx.Request.Context(), claims.UserID, id, req.CurrentPassword); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

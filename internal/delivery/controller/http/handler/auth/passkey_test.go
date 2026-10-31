@@ -120,7 +120,6 @@ func TestPasskeyAccountRoutes_RequireSignIn(t *testing.T) {
 		{http.MethodGet, "/api/auth/passkeys"},
 		{http.MethodPost, "/api/auth/passkeys/registration/begin"},
 		{http.MethodPost, "/api/auth/passkeys/registration/finish"},
-		{http.MethodPatch, "/api/auth/passkeys/" + id},
 		{http.MethodDelete, "/api/auth/passkeys/" + id},
 	} {
 		w := httptest.NewRecorder()
@@ -159,7 +158,7 @@ func TestPasskeyList_Fields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil || len(env.Data) != 1 {
 		t.Fatalf("unexpected body %s (%v)", w.Body, err)
 	}
-	for _, key := range []string{"ID", "Name", "Transports", "AAGUID", "BackupEligible", "BackedUp", "CreatedAt", "LastUsedAt"} {
+	for _, key := range []string{"ID", "Name", "Transports", "AAGUID", "BackupEligible", "BackedUp", "CreatedAt", "LastUsedAt", "Compromised", "CompromisedAt"} {
 		if _, ok := env.Data[0][key]; !ok {
 			t.Errorf("missing field %s in %v", key, env.Data[0])
 		}
@@ -188,31 +187,36 @@ func TestPasskeyRegistrationBegin_PassesPassword(t *testing.T) {
 	}
 }
 
-func TestPasskeyRemoveAndRename(t *testing.T) {
+func TestPasskeyRemove_PassesThePassword(t *testing.T) {
 	id := uuid.Must(uuid.NewV7()).String()
-	r := passkeyRouter(&fakeUC{}, &fakeProt{}, true)
+	uc := &fakeUC{}
+	r := passkeyRouter(uc, &fakeProt{}, true)
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(
-		w,
-		httptest.NewRequest(
-			http.MethodPatch,
-			"/api/auth/passkeys/"+id,
-			strings.NewReader(`{"Name":"New"}`),
-		),
-	)
-	if w.Code != http.StatusOK {
-		t.Fatalf("rename: want 200, got %d", w.Code)
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/auth/passkeys/"+id, strings.NewReader(`{"CurrentPassword":"Secret!1"}`)))
+	if w.Code != http.StatusOK || uc.reauthPassword != "Secret!1" {
+		t.Fatalf("remove: want 200 with the password passed on, got %d / %q", w.Code, uc.reauthPassword)
 	}
+	// No body is an empty password (an account without one confirms with a fresh sign-in).
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/auth/passkeys/"+id, nil))
 	if w.Code != http.StatusOK {
-		t.Fatalf("remove: want 200, got %d", w.Code)
+		t.Fatalf("remove without a body: want 200, got %d", w.Code)
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/auth/passkeys/not-a-uuid", nil))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("bad id: want 400, got %d", w.Code)
+	}
+}
+
+// Names are given when a key is created and never change.
+func TestPasskeyRename_RouteIsGone(t *testing.T) {
+	r := passkeyRouter(&fakeUC{}, &fakeProt{}, true)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, "/api/auth/passkeys/"+uuid.Must(uuid.NewV7()).String(), strings.NewReader(`{"Name":"x"}`)))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("PATCH must not exist, got %d", w.Code)
 	}
 }
 

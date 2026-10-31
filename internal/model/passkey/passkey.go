@@ -36,6 +36,9 @@ type Passkey struct {
 	Name        string
 	CreatedAt   time.Time
 	LastUsedAt  *time.Time
+	// CompromisedAt is when the counter went backwards, which means a copy of the key exists. Such a key never
+	// signs in again; it stays listed until the person removes it.
+	CompromisedAt *time.Time
 }
 
 // NormalizeName trims a person-given name and reports whether it is acceptable: 1 to MaxNameLength characters,

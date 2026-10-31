@@ -11887,6 +11887,21 @@ func (mr *MockQuerierMockRecorder) MarkUserInvitationSent(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserInvitationSent", reflect.TypeOf((*MockQuerier)(nil).MarkUserInvitationSent), ctx, arg)
 }
 
+// MarkUserPasskeyCompromised mocks base method.
+func (m *MockQuerier) MarkUserPasskeyCompromised(ctx context.Context, arg postgres.MarkUserPasskeyCompromisedParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserPasskeyCompromised", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkUserPasskeyCompromised indicates an expected call of MarkUserPasskeyCompromised.
+func (mr *MockQuerierMockRecorder) MarkUserPasskeyCompromised(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserPasskeyCompromised", reflect.TypeOf((*MockQuerier)(nil).MarkUserPasskeyCompromised), ctx, arg)
+}
+
 // MaterializeEventLabAccessPolicy mocks base method.
 func (m *MockQuerier) MaterializeEventLabAccessPolicy(ctx context.Context, arg postgres.MaterializeEventLabAccessPolicyParams) (postgres.EventLabAccessSync, error) {
 	m.ctrl.T.Helper()

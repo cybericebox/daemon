@@ -15,7 +15,9 @@ CREATE TABLE user_passkeys
     backup_state    boolean     NOT NULL DEFAULT false,
     name            text        NOT NULL,
     created_at      timestamptz NOT NULL,
-    last_used_at    timestamptz
+    last_used_at    timestamptz,
+    -- set when the counter went backwards: a copy of the key exists. The key can never sign in again.
+    compromised_at  timestamptz
 );
 
 CREATE UNIQUE INDEX user_passkeys_credential_uidx ON user_passkeys (credential_id);

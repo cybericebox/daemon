@@ -1335,6 +1335,7 @@ type UserPasskey struct {
 	Name           string             `json:"name"`
 	CreatedAt      time.Time          `json:"created_at"`
 	LastUsedAt     pgtype.Timestamptz `json:"last_used_at"`
+	CompromisedAt  pgtype.Timestamptz `json:"compromised_at"`
 }
 
 type UserProvider struct {

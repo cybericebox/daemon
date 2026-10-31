@@ -1738,6 +1738,7 @@ type Querier interface {
 	// time an invitation email was queued for a still unconfirmed account; the
 	// retention clock of unconfirmed accounts runs from it.
 	MarkUserInvitationSent(ctx context.Context, arg MarkUserInvitationSentParams) (int64, error)
+	MarkUserPasskeyCompromised(ctx context.Context, arg MarkUserPasskeyCompromisedParams) (int64, error)
 	// A Request already allocated a new revision and reset its fingerprint. A
 	// boundary-derived policy change allocates exactly one more revision before RPC.
 	MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error)

@@ -68,8 +68,22 @@ func TestUserPasskeys_SQLRules(t *testing.T) {
 		t.Fatalf("zero counter on a zero key: %v %v", got, err)
 	}
 
-	if ok, _ := repo.Rename(ctx, bob, first.ID, "x"); ok {
-		t.Fatal("another person's key cannot be renamed")
+	// Compromised for good: the counter no longer moves.
+	if err := repo.MarkCompromised(ctx, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.RecordUse(ctx, first.ID, 100, false, now); err != nil || got {
+		t.Fatalf("a compromised key must not record a use: %v %v", got, err)
+	}
+	listed, _ := repo.ListByUser(ctx, alice)
+	flagged := 0
+	for _, p := range listed {
+		if p.CompromisedAt != nil {
+			flagged++
+		}
+	}
+	if flagged != 1 {
+		t.Fatalf("exactly the marked key is compromised, got %d", flagged)
 	}
 	if ok, _ := repo.Delete(ctx, bob, first.ID); ok {
 		t.Fatal("another person's key cannot be deleted")

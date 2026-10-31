@@ -395,6 +395,9 @@ func (u *AuthUseCase) lookup(
 		if found.stored, err = u.passkeys.GetByCredentialID(ctx, rawID); err != nil {
 			return nil, found.lookupFailed(err, "unknown credential")
 		}
+		if found.stored.CompromisedAt != nil {
+			return nil, errors.New("the key is marked compromised")
+		}
 		handle, handleErr := uuid.FromBytes(userHandle)
 		if handleErr != nil || handle != found.stored.UserID {
 			return nil, errors.New("user handle does not own the credential")
@@ -482,7 +485,7 @@ func (u *AuthUseCase) recordPasskeyUse(
 	verified *webauthn.Credential,
 ) error {
 	if verified.Authenticator.CloneWarning {
-		u.reportPasskeyClone(stored, "the signature counter did not advance")
+		u.condemnPasskey(ctx, stored, "the signature counter did not advance")
 		return passkeyModel.ErrPasskeySignInFailed.WithError(errors.New("passkey counter regression")).
 			Err()
 	}
@@ -497,11 +500,19 @@ func (u *AuthUseCase) recordPasskeyUse(
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to record passkey use").Err()
 	}
 	if !advanced {
-		u.reportPasskeyClone(stored, "the same counter value was used twice")
+		u.condemnPasskey(ctx, stored, "the same counter value was used twice")
 		return passkeyModel.ErrPasskeySignInFailed.WithError(errors.New("passkey counter replay")).
 			Err()
 	}
 	return nil
+}
+
+// condemnPasskey marks the key compromised for good (it never signs in again, the person removes it) and reports it.
+func (u *AuthUseCase) condemnPasskey(ctx context.Context, p passkeyModel.Passkey, why string) {
+	if err := u.passkeys.MarkCompromised(ctx, p.ID, time.Now()); err != nil {
+		log.Error().Err(err).Str("passkey_id", p.ID.String()).Msg("Failed to mark a passkey compromised")
+	}
+	u.reportPasskeyClone(p, why)
 }
 
 // reportPasskeyClone writes a counter regression to the error journal (one group per passkey, announced when
@@ -537,28 +548,12 @@ func (u *AuthUseCase) ListPasskeys(
 	return items, nil
 }
 
-// RenamePasskey changes the name of the account's passkey.
-func (u *AuthUseCase) RenamePasskey(
-	ctx context.Context,
-	userID, passkeyID uuid.UUID,
-	name string,
-) error {
-	name, ok := passkeyModel.NormalizeName(name)
-	if !ok {
-		return passkeyModel.ErrPasskeyInvalidName.Err()
+// RemovePasskey deletes the account's passkey, refusing when it is the last way to sign in (lockout guard). The
+// owner is re-confirmed first (the password, or a sign-in from the last minutes for an account without one).
+func (u *AuthUseCase) RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID, currentPassword string) error {
+	if err := u.reauthenticate(ctx, userID, currentPassword); err != nil {
+		return err
 	}
-	found, err := u.passkeys.Rename(ctx, userID, passkeyID, name)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to rename passkey").Err()
-	}
-	if !found {
-		return passkeyModel.ErrPasskeyNotFound.Err()
-	}
-	return nil
-}
-
-// RemovePasskey deletes the account's passkey, refusing when it is the last way to sign in (lockout guard).
-func (u *AuthUseCase) RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID) error {
 	owned, err := u.passkeys.ListByUser(ctx, userID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list passkeys").Err()

@@ -211,7 +211,7 @@ func (e *passkeyEnv) stubPasskeys(repo *postgresMocks.MockQuerier) {
 	repo.EXPECT().UseUserPasskey(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 		func(_ context.Context, a postgres.UseUserPasskeyParams) (int64, error) {
 			k, ok := e.keys[a.ID]
-			if !ok || (k.SignCount >= a.SignCount && (k.SignCount != 0 || a.SignCount != 0)) {
+			if !ok || k.CompromisedAt.Valid || (k.SignCount >= a.SignCount && (k.SignCount != 0 || a.SignCount != 0)) {
 				return 0, nil
 			}
 			k.SignCount, k.BackupState, k.LastUsedAt = a.SignCount, a.BackupState, a.UsedAt
@@ -221,15 +221,17 @@ func (e *passkeyEnv) stubPasskeys(repo *postgresMocks.MockQuerier) {
 	e.stubPasskeyChanges(repo)
 }
 
-// stubPasskeyChanges backs the counter, rename and delete statements.
+// stubPasskeyChanges backs the counter, compromise and delete statements.
 func (e *passkeyEnv) stubPasskeyChanges(repo *postgresMocks.MockQuerier) {
-	repo.EXPECT().RenameUserPasskey(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
-		func(_ context.Context, a postgres.RenameUserPasskeyParams) (int64, error) {
+	repo.EXPECT().MarkUserPasskeyCompromised(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
+		func(_ context.Context, a postgres.MarkUserPasskeyCompromisedParams) (int64, error) {
 			k, ok := e.keys[a.ID]
-			if !ok || k.UserID != a.UserID {
+			if !ok {
 				return 0, nil
 			}
-			k.Name = a.Name
+			if !k.CompromisedAt.Valid {
+				k.CompromisedAt = a.At
+			}
 			e.keys[a.ID] = k
 			return 1, nil
 		})
@@ -606,7 +608,11 @@ func TestPasskey_CounterRegressionRefused(t *testing.T) {
 	a.counter = 3 // a second copy of the key is behind
 	_, err := e.signIn(a)
 	wantErr(t, err, passkeyModel.ErrPasskeySignInFailed)
-	a.counter = 5 // the very same value again is a replay
+	if !e.keys[created.ID].CompromisedAt.Valid {
+		t.Fatal("a regressed counter marks the key compromised")
+	}
+	// Compromised for good: even the correct, higher counter does not sign in any more.
+	a.counter = 9
 	_, err = e.signIn(a)
 	wantErr(t, err, passkeyModel.ErrPasskeySignInFailed)
 
@@ -616,9 +622,16 @@ func TestPasskey_CounterRegressionRefused(t *testing.T) {
 	if got := e.keys[created.ID].SignCount; got != 5 {
 		t.Fatalf("the stored counter must not move back, got %d", got)
 	}
-	if len(spy.events) != 2 || spy.events[0].Key != "passkey-clone:"+created.ID.String() ||
-		spy.events[0].UserID == nil {
-		t.Fatalf("the clone must reach the error journal, got %+v", spy.events)
+	if len(spy.events) != 1 || spy.events[0].Key != "passkey-clone:"+created.ID.String() || spy.events[0].UserID == nil {
+		t.Fatalf("the clone must reach the error journal once, got %+v", spy.events)
+	}
+	// It stays listed, flagged, until the person removes it.
+	listed, _ := e.uc.ListPasskeys(e.signedIn(0), e.user.ID)
+	if len(listed) != 1 || listed[0].CompromisedAt == nil {
+		t.Fatalf("the key must stay listed as compromised: %+v", listed)
+	}
+	if err = e.uc.RemovePasskey(e.signedIn(0), e.user.ID, created.ID, passkeyPass); err != nil {
+		t.Fatalf("a compromised key can be removed: %v", err)
 	}
 }
 
@@ -676,54 +689,51 @@ func TestPasskey_UserHandleOfAnotherPersonRefused(t *testing.T) {
 	wantErr(t, err, passkeyModel.ErrPasskeySignInFailed)
 }
 
-func TestPasskey_RemoveAndRename(t *testing.T) {
+func TestPasskey_Remove(t *testing.T) {
 	e := newPasskeyEnv(t, true)
 	first := e.register(e.authenticator(), "One")
 
-	if err := e.uc.RenamePasskey(e.signedIn(0), e.user.ID, first.ID, " Renamed "); err != nil {
-		t.Fatalf("RenamePasskey: %v", err)
+	// The owner is confirmed first: a wrong password removes nothing.
+	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, "wrong"), authModel.ErrAuthInvalidOldPassword)
+	if len(e.keys) != 1 {
+		t.Fatal("a wrong password must not remove the key")
 	}
-	if e.keys[first.ID].Name != "Renamed" {
-		t.Fatalf("name not changed: %q", e.keys[first.ID].Name)
-	}
-	wantErr(
-		t,
-		e.uc.RenamePasskey(e.signedIn(0), e.user.ID, first.ID, ""),
-		passkeyModel.ErrPasskeyInvalidName,
-	)
-	wantErr(
-		t,
-		e.uc.RenamePasskey(e.signedIn(0), uuid.Must(uuid.NewV7()), first.ID, "x"),
-		passkeyModel.ErrPasskeyNotFound,
-	)
-
 	// Another person's id looks the same as an unknown one.
-	wantErr(
-		t,
-		e.uc.RemovePasskey(e.signedIn(0), uuid.Must(uuid.NewV7()), first.ID),
-		passkeyModel.ErrPasskeyNotFound,
-	)
-	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID); err != nil {
+	foreign := uuid.Must(uuid.NewV7())
+	e.keys[foreign] = postgres.UserPasskey{ID: foreign, UserID: uuid.Must(uuid.NewV7()), CredentialID: []byte("foreign")}
+	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, foreign, passkeyPass), passkeyModel.ErrPasskeyNotFound)
+	delete(e.keys, foreign)
+	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, passkeyPass); err != nil {
 		t.Fatalf("RemovePasskey: %v", err)
 	}
 	if len(e.keys) != 0 {
 		t.Fatal("the passkey must be gone")
 	}
-	wantErr(
-		t,
-		e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID),
-		passkeyModel.ErrPasskeyNotFound,
-	)
+	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, passkeyPass), passkeyModel.ErrPasskeyNotFound)
+}
+
+func TestPasskey_RemoveWithoutPasswordNeedsAFreshSignIn(t *testing.T) {
+	e := newPasskeyEnv(t, false)
+	e.register(e.authenticator(), "One")
+	second := e.register(e.authenticator(), "Two")
+
+	wantErr(t, e.uc.RemovePasskey(e.signedIn(time.Hour), e.user.ID, second.ID, ""), authModel.ErrAuthReauthRequired)
+	if len(e.keys) != 2 {
+		t.Fatal("a stale sign-in must not remove the key")
+	}
+	if err := e.uc.RemovePasskey(e.signedIn(time.Minute), e.user.ID, second.ID, ""); err != nil {
+		t.Fatalf("fresh sign-in: %v", err)
+	}
 }
 
 func TestPasskey_RemoveLastLoginMethodRefused(t *testing.T) {
 	e := newPasskeyEnv(t, false) // no password
 	e.user.EmailConfirmed = true
 	only := e.register(e.authenticator(), "Only")
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, only.ID), authModel.ErrNoLoginMethod)
+	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, only.ID, ""), authModel.ErrNoLoginMethod)
 
 	second := e.register(e.authenticator(), "Second")
-	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, second.ID); err != nil {
+	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, second.ID, ""); err != nil {
 		t.Fatalf("with a second key the first may go: %v", err)
 	}
 }
@@ -732,7 +742,7 @@ func TestPasskey_RemovedKeyCannotSignIn(t *testing.T) {
 	e := newPasskeyEnv(t, true)
 	a := e.authenticator()
 	created := e.register(a, "Laptop")
-	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, created.ID); err != nil {
+	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, created.ID, passkeyPass); err != nil {
 		t.Fatal(err)
 	}
 	a.counter = 1

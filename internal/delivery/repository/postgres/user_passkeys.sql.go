@@ -33,7 +33,7 @@ SELECT $1, $2, $3, $4, $5,
        $6, $7::text[], $8, $9,
        $10, $11, $12
 WHERE (SELECT count(*) FROM user_passkeys WHERE user_id = $2) < $13::bigint
-RETURNING id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at
+RETURNING id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at, compromised_at
 `
 
 type CreateUserPasskeyParams struct {
@@ -84,6 +84,7 @@ func (q *Queries) CreateUserPasskey(ctx context.Context, arg CreateUserPasskeyPa
 		&i.Name,
 		&i.CreatedAt,
 		&i.LastUsedAt,
+		&i.CompromisedAt,
 	)
 	return i, err
 }
@@ -123,7 +124,7 @@ func (q *Queries) DeleteUserPasskeys(ctx context.Context, userID uuid.UUID) (int
 }
 
 const getUserPasskeyByCredentialID = `-- name: GetUserPasskeyByCredentialID :one
-SELECT id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at
+SELECT id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at, compromised_at
 FROM user_passkeys
 WHERE credential_id = $1
 `
@@ -145,12 +146,13 @@ func (q *Queries) GetUserPasskeyByCredentialID(ctx context.Context, credentialID
 		&i.Name,
 		&i.CreatedAt,
 		&i.LastUsedAt,
+		&i.CompromisedAt,
 	)
 	return i, err
 }
 
 const listUserPasskeys = `-- name: ListUserPasskeys :many
-SELECT id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at
+SELECT id, user_id, credential_id, public_key, sign_count, aaguid, transports, user_verified, backup_eligible, backup_state, name, created_at, last_used_at, compromised_at
 FROM user_passkeys
 WHERE user_id = $1
 ORDER BY created_at, id
@@ -179,6 +181,7 @@ func (q *Queries) ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]Use
 			&i.Name,
 			&i.CreatedAt,
 			&i.LastUsedAt,
+			&i.CompromisedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -190,21 +193,19 @@ func (q *Queries) ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]Use
 	return items, nil
 }
 
-const renameUserPasskey = `-- name: RenameUserPasskey :execrows
+const markUserPasskeyCompromised = `-- name: MarkUserPasskeyCompromised :execrows
 UPDATE user_passkeys
-SET name = $3
-WHERE id = $1
-  AND user_id = $2
+SET compromised_at = COALESCE(compromised_at, $1)
+WHERE id = $2
 `
 
-type RenameUserPasskeyParams struct {
-	ID     uuid.UUID `json:"id"`
-	UserID uuid.UUID `json:"user_id"`
-	Name   string    `json:"name"`
+type MarkUserPasskeyCompromisedParams struct {
+	At pgtype.Timestamptz `json:"at"`
+	ID uuid.UUID          `json:"id"`
 }
 
-func (q *Queries) RenameUserPasskey(ctx context.Context, arg RenameUserPasskeyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, renameUserPasskey, arg.ID, arg.UserID, arg.Name)
+func (q *Queries) MarkUserPasskeyCompromised(ctx context.Context, arg MarkUserPasskeyCompromisedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markUserPasskeyCompromised, arg.At, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -217,6 +218,7 @@ SET sign_count   = $1,
     backup_state = $2,
     last_used_at = $3
 WHERE id = $4
+  AND compromised_at IS NULL
   AND (sign_count < $1 OR (sign_count = 0 AND $1 = 0))
 `
 

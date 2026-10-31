@@ -28,7 +28,7 @@ type Queries interface {
 	ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]postgres.UserPasskey, error)
 	CountUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 	UseUserPasskey(ctx context.Context, arg postgres.UseUserPasskeyParams) (int64, error)
-	RenameUserPasskey(ctx context.Context, arg postgres.RenameUserPasskeyParams) (int64, error)
+	MarkUserPasskeyCompromised(ctx context.Context, arg postgres.MarkUserPasskeyCompromisedParams) (int64, error)
 	DeleteUserPasskey(ctx context.Context, arg postgres.DeleteUserPasskeyParams) (int64, error)
 	DeleteUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 }
@@ -60,6 +60,10 @@ func ToDomain(row postgres.UserPasskey) passkeyModel.Passkey {
 	if row.LastUsedAt.Valid {
 		at := row.LastUsedAt.Time
 		p.LastUsedAt = &at
+	}
+	if row.CompromisedAt.Valid {
+		at := row.CompromisedAt.Time
+		p.CompromisedAt = &at
 	}
 	return p
 }
@@ -165,13 +169,10 @@ func (r *Repository) RecordUse(
 	return n > 0, err
 }
 
-// Rename sets the name of the user's passkey; false when the user has no such passkey.
-func (r *Repository) Rename(ctx context.Context, userID, id uuid.UUID, name string) (bool, error) {
-	n, err := r.q.RenameUserPasskey(
-		ctx,
-		postgres.RenameUserPasskeyParams{ID: id, UserID: userID, Name: name},
-	)
-	return n > 0, err
+// MarkCompromised records that the key's counter went backwards; the key can sign in no more.
+func (r *Repository) MarkCompromised(ctx context.Context, id uuid.UUID, at time.Time) error {
+	_, err := r.q.MarkUserPasskeyCompromised(ctx, postgres.MarkUserPasskeyCompromisedParams{ID: id, At: pgtype.Timestamptz{Time: at, Valid: true}})
+	return err
 }
 
 // Delete removes the user's passkey; false when the user has no such passkey.

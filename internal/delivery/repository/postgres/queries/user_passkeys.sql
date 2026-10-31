@@ -32,13 +32,13 @@ SET sign_count   = sqlc.arg(sign_count),
     backup_state = sqlc.arg(backup_state),
     last_used_at = sqlc.arg(used_at)
 WHERE id = sqlc.arg(id)
+  AND compromised_at IS NULL
   AND (sign_count < sqlc.arg(sign_count) OR (sign_count = 0 AND sqlc.arg(sign_count) = 0));
 
--- name: RenameUserPasskey :execrows
+-- name: MarkUserPasskeyCompromised :execrows
 UPDATE user_passkeys
-SET name = $3
-WHERE id = $1
-  AND user_id = $2;
+SET compromised_at = COALESCE(compromised_at, sqlc.arg(at))
+WHERE id = sqlc.arg(id);
 
 -- name: DeleteUserPasskey :execrows
 DELETE

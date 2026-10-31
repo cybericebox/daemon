@@ -269,10 +269,10 @@ func (f *fakeUC) FinishPasskeyRegistration(
 func (f *fakeUC) ListPasskeys(_ context.Context, _ uuid.UUID) ([]passkeyModel.Passkey, error) {
 	return f.passkeys, nil
 }
-func (f *fakeUC) RenamePasskey(_ context.Context, _, _ uuid.UUID, _ string) error {
+func (f *fakeUC) RemovePasskey(_ context.Context, _, _ uuid.UUID, password string) error {
+	f.reauthPassword = password
 	return f.passkeyErr
 }
-func (f *fakeUC) RemovePasskey(_ context.Context, _, _ uuid.UUID) error { return f.passkeyErr }
 
 type fakeProt struct {
 	// capturedSessionCookie records the value passed to Authenticate.
