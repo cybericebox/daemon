@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
 
@@ -15,8 +16,11 @@ type (
 	submissionsResponse struct {
 		// Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved
 		// the task (code submissions_not_solutions).
-		Note  string               `json:"Note"`
-		Items []submissionResponse `json:"Items"`
+		Note string `json:"Note"`
+		// PeopleHidden: the caller may not see people (a read-only moderator): the participant names and ids are
+		// empty and the addresses masked.
+		PeopleHidden bool                 `json:"PeopleHidden"`
+		Items        []submissionResponse `json:"Items"`
 	}
 
 	submissionResponse struct {
@@ -50,6 +54,19 @@ func toSubmissionsResponse(v eventAnalyticsUseCase.SubmissionsView) submissionsR
 	return out
 }
 
+// hidePeople anonymizes the participants of the report for a viewer without the people access: no name, no id, a
+// masked address. Teams, tasks, minutes and counts stay.
+func hidePeople(v eventAnalyticsUseCase.SubmissionsView) eventAnalyticsUseCase.SubmissionsView {
+	items := make([]eventAnalyticsUseCase.SubmissionView, len(v.Items))
+	for i, item := range v.Items {
+		item.UserID, item.ParticipantName = uuid.Nil, ""
+		item.Email = dispatchModel.MaskEmail(item.Email)
+		items[i] = item
+	}
+	v.Items = items
+	return v
+}
+
 // submissionsNoteText is the caveat written into the export, in the language of its headers.
 const submissionsNoteText = "Примітка: рахуються здачі прапора (хто відправив правильну відповідь), а не розвʼязання: у команді прапор може знайти і не той, хто його вводить."
 
@@ -66,12 +83,21 @@ func (h *Handler) submissions(ctx *gin.Context) {
 	if !ok {
 		return
 	}
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
 	v, err := h.useCase.GetEventAnalyticsSubmissions(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, toSubmissionsResponse(v))
+	if !people {
+		v = hidePeople(v)
+	}
+	out := toSubmissionsResponse(v)
+	out.PeopleHidden = !people
+	response.AbortWithData(ctx, out)
 }
 
 // exportSubmissions godoc
@@ -87,10 +113,17 @@ func (h *Handler) exportSubmissions(ctx *gin.Context) {
 	if !ok {
 		return
 	}
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
 	v, err := h.useCase.GetEventAnalyticsSubmissions(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if !people {
+		v = hidePeople(v)
 	}
 	w := startAnalyticsCSV(ctx, "submissions")
 	n := func(x int64) string { return strconv.FormatInt(x, 10) }
