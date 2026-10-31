@@ -14,9 +14,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
@@ -29,7 +31,6 @@ import (
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
@@ -1760,6 +1761,7 @@ func (h *Handler) update(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetEvent(ctx, id) // only to record what changes
 	v, err := h.useCase.UpdateEvent(ctx, id, eventUseCase.UpdateEventInput{
 		Tag: req.Tag, Name: req.Name, AvailableFrom: req.AvailableFrom, ArchiveAt: nullableRequestTime(req.ArchiveAt),
 	}, claims.UserID)
@@ -1767,6 +1769,7 @@ func (h *Handler) update(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	audit.SetChanges(ctx, adminAuditUseCase.Diff(eventEditableFields(before), eventEditableFields(v)))
 	response.AbortWithData(ctx, toResponse(v))
 }
 
@@ -2353,4 +2356,12 @@ func nonNilStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// eventEditableFields are the fields the event update changes, for the audit "before and after".
+func eventEditableFields(v eventUseCase.EventView) map[string]any {
+	if v.ID == uuid.Nil {
+		return nil
+	}
+	return map[string]any{"Tag": v.Tag, "Name": v.Name, "AvailableFrom": v.AvailableFrom, "ArchiveAt": v.ArchiveAt}
 }

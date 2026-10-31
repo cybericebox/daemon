@@ -113,6 +113,88 @@
                 }
             }
         },
+        "/admin/audit-log/export": {
+            "get": {
+                "description": "Newest first, at most 100000 rows. Each export is itself recorded in the journal.",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Admin audit journal as CSV (same filters, no paging)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "actor user ID (exact)",
+                        "name": "actorID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "gating permission (exact)",
+                        "name": "permission",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "route template contains this text",
+                        "name": "route",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "HTTP method (exact)",
+                        "name": "method",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "final response status: exact (409) or a class (2xx, 4xx, 5xx)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "not before (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "not after (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "kind token of the target",
+                        "name": "targetKind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "an id contained in the target",
+                        "name": "targetID",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/dashboard": {
             "get": {
                 "description": "One answer with the blocks the caller may see: Attention (what needs the admin, with where to fix it), CurrentAndUpcoming (running events and those starting within 7 days), Trends7d (sign-ups, active users, solves) and Infrastructure (cluster CPU and memory, active stands). A block without the permission is null.",
@@ -28008,11 +28090,31 @@
         }
     },
     "definitions": {
+        "adminAudit.Change": {
+            "type": "object",
+            "properties": {
+                "After": {},
+                "Before": {},
+                "Field": {
+                    "type": "string"
+                },
+                "Redacted": {
+                    "type": "boolean"
+                }
+            }
+        },
         "adminAudit.auditItem": {
             "type": "object",
             "properties": {
                 "ActorID": {
                     "type": "string"
+                },
+                "Changes": {
+                    "description": "Changes are the fields the action changed, before and after; secrets carry Redacted and no value.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/adminAudit.Change"
+                    }
                 },
                 "CreatedAt": {
                     "type": "string"
@@ -28049,6 +28151,10 @@
                 "NextCursor": {
                     "description": "NextCursor continues the list after the last item; empty on the last page.",
                     "type": "string"
+                },
+                "Total": {
+                    "description": "Total is how many entries the filters match; set on the first page (no cursor) only.",
+                    "type": "integer"
                 }
             }
         },

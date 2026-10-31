@@ -1,4 +1,5 @@
 GET    /api/admin/audit-log | gate: platform.audit.read | layers: -
+GET    /api/admin/audit-log/export | gate: platform.audit.read | layers: -
 GET    /api/admin/dashboard | gate: self | layers: dashboard.requireAdminTier
 GET    /api/admin/errors | gate: platform.errors.read | layers: -
 GET    /api/admin/errors/:groupID | gate: platform.errors.read | layers: -

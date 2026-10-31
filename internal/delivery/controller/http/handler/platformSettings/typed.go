@@ -5,9 +5,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	platformSettingsUseCase "github.com/cybericebox/daemon/internal/useCase/platformSettings"
 )
 
@@ -109,7 +111,8 @@ func (h *Handler) saveRetentionSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.SaveRetentionSettings(ctx, in)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveRetentionSettings(ctx, in) })
 	respondTyped(ctx, v, err)
 }
 
@@ -120,7 +123,8 @@ func (h *Handler) saveRetentionSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/retention [delete]
 func (h *Handler) resetRetentionSettings(ctx *gin.Context) {
-	v, err := h.useCase.ResetRetentionSettings(ctx)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetRetentionSettings(ctx) })
 	respondTyped(ctx, v, err)
 }
 
@@ -149,7 +153,8 @@ func (h *Handler) saveArchiveLimitSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.SaveArchiveLimitSettings(ctx, in)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveArchiveLimitSettings(ctx, in) })
 	respondTyped(ctx, v, err)
 }
 
@@ -160,7 +165,8 @@ func (h *Handler) saveArchiveLimitSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/archive-limits [delete]
 func (h *Handler) resetArchiveLimitSettings(ctx *gin.Context) {
-	v, err := h.useCase.ResetArchiveLimitSettings(ctx)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetArchiveLimitSettings(ctx) })
 	respondTyped(ctx, v, err)
 }
 
@@ -189,7 +195,8 @@ func (h *Handler) saveTestRunSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.SaveTestRunSettings(ctx, in)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveTestRunSettings(ctx, in) })
 	respondTyped(ctx, v, err)
 }
 
@@ -200,7 +207,8 @@ func (h *Handler) saveTestRunSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/test-runs [delete]
 func (h *Handler) resetTestRunSettings(ctx *gin.Context) {
-	v, err := h.useCase.ResetTestRunSettings(ctx)
+	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetTestRunSettings(ctx) })
 	respondTyped(ctx, v, err)
 }
 
@@ -253,8 +261,16 @@ func (h *Handler) saveNodeProfileSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.SaveNodeProfileSettings(ctx, in)
-	respondNodeProfiles(ctx, v, err)
+	var nodes platformSettingsUseCase.NodeProfilesView
+	_, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) {
+		current, getErr := h.useCase.GetNodeProfileSettings(ctx)
+		return current.TypedView, getErr
+	}, func() (platformSettingsUseCase.TypedView, error) {
+		var doErr error
+		nodes, doErr = h.useCase.SaveNodeProfileSettings(ctx, in)
+		return nodes.TypedView, doErr
+	})
+	respondNodeProfiles(ctx, nodes, err)
 }
 
 // ResetNodeProfileSettings godoc
@@ -264,6 +280,37 @@ func (h *Handler) saveNodeProfileSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=nodeProfilesResponse}  "the defaults"
 // @Router   /settings/node-profiles [delete]
 func (h *Handler) resetNodeProfileSettings(ctx *gin.Context) {
-	v, err := h.useCase.ResetNodeProfileSettings(ctx)
-	respondNodeProfiles(ctx, v, err)
+	var nodes platformSettingsUseCase.NodeProfilesView
+	_, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) {
+		current, getErr := h.useCase.GetNodeProfileSettings(ctx)
+		return current.TypedView, getErr
+	}, func() (platformSettingsUseCase.TypedView, error) {
+		var doErr error
+		nodes, doErr = h.useCase.ResetNodeProfileSettings(ctx)
+		return nodes.TypedView, doErr
+	})
+	respondNodeProfiles(ctx, nodes, err)
+}
+
+// auditTyped runs a save or reset of a typed setting and records the fields it changed (before and after) in
+// the audit entry. A failed read of the old value only leaves the entry without a field list.
+func auditTyped(
+	ctx *gin.Context,
+	read func() (platformSettingsUseCase.TypedView, error),
+	do func() (platformSettingsUseCase.TypedView, error),
+) (platformSettingsUseCase.TypedView, error) {
+	before, readErr := read()
+	after, err := do()
+	if err == nil && readErr == nil {
+		audit.SetChanges(ctx, adminAuditUseCase.Diff(typedValues(before), typedValues(after)))
+	}
+	return after, err
+}
+
+func typedValues(v platformSettingsUseCase.TypedView) map[string]int64 {
+	out := make(map[string]int64, len(v.Fields))
+	for _, f := range v.Fields {
+		out[f.Key] = f.Value
+	}
+	return out
 }

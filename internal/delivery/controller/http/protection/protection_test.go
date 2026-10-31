@@ -500,6 +500,19 @@ func TestAudit_RecordsTheStatusTheClientGets(t *testing.T) {
 	}
 }
 
+// The fields a handler says it changed travel with the audit entry.
+func TestAudit_CarriesTheChangesTheHandlerRecorded(t *testing.T) {
+	entries, code := auditRun(t, rbac.RoleAdmin, rbac.PermUsersStatusWrite, http.MethodPost, "/users/:id/status", "/users/abc/status",
+		func(c *gin.Context) {
+			audit.SetChanges(c, adminAuditUseCase.Diff(map[string]any{"Status": "active"}, map[string]any{"Status": "blocked"}))
+			c.Status(http.StatusOK)
+		})
+	if code != http.StatusOK || len(entries) != 1 || len(entries[0].Changes) != 1 ||
+		entries[0].Changes[0].Field != "Status" || entries[0].Changes[0].After != "blocked" {
+		t.Fatalf("client %d, entries %+v", code, entries)
+	}
+}
+
 func TestAudit_InternalErrorIsRecordedAs500(t *testing.T) {
 	entries, code := auditRun(t, rbac.RoleAdmin, rbac.PermUsersStatusWrite, http.MethodPost, "/users/:id/status", "/users/abc/status",
 		func(c *gin.Context) { response.AbortWithError(c, errors.New("boom")) })

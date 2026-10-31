@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	userHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/user"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -75,7 +76,7 @@ func (f *fakeUC) GetUserStats(_ context.Context) (authUseCase.UserStats, error) 
 	return f.stats, nil
 }
 func (f *fakeUC) GetUser(_ context.Context, _ uuid.UUID) (*authUseCase.UserDetail, error) {
-	return &authUseCase.UserDetail{}, nil
+	return &authUseCase.UserDetail{Role: "user", Status: userModel.UserStatusActive}, nil
 }
 func (f *fakeUC) UpdateUserRole(ctx context.Context, _ uuid.UUID, _ rbac.Role) error {
 	if caller, ok := rbac.CurrentUserSessionFromContext(ctx); ok {
@@ -546,5 +547,40 @@ func TestUserFacetsReadTheFieldAndTheOtherFilters(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status = %d", target, w.Code)
 		}
+	}
+}
+
+// A role or status change is recorded as the old and the new value; a refused change records nothing.
+func TestRoleAndStatusChangesAreRecordedForTheAudit(t *testing.T) {
+	uid, targetID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var recorded []adminAuditUseCase.Change
+	run := func(uc *fakeUC, path, body string) int {
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(response.WithErrorHandler, injectIdentity(uid), func(ctx *gin.Context) {
+			ctx.Next()
+			recorded = audit.Changes(ctx)
+		})
+		userHandler.NewUserAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
+		req := httptest.NewRequest(http.MethodPatch, "/api/users/"+targetID.String()+path, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := run(&fakeUC{}, "/role", `{"Role":"admin"}`); code != http.StatusOK {
+		t.Fatalf("role: %d", code)
+	}
+	if len(recorded) != 1 || recorded[0].Field != "Role" || recorded[0].Before != "user" || recorded[0].After != "admin" {
+		t.Fatalf("role change = %+v", recorded)
+	}
+	if code := run(&fakeUC{}, "/status", `{"Status":"blocked"}`); code != http.StatusOK {
+		t.Fatalf("status: %d", code)
+	}
+	if len(recorded) != 1 || recorded[0].Field != "Status" || recorded[0].After != "blocked" {
+		t.Fatalf("status change = %+v", recorded)
+	}
+	if code := run(&fakeUC{updateErr: authModel.ErrCannotAssignRole.Err()}, "/role", `{"Role":"super_admin"}`); code != http.StatusForbidden || len(recorded) != 0 {
+		t.Fatalf("a refused change records nothing: %d %+v", code, recorded)
 	}
 }

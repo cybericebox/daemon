@@ -1,9 +1,24 @@
 basePath: /api
 definitions:
+  adminAudit.Change:
+    properties:
+      After: {}
+      Before: {}
+      Field:
+        type: string
+      Redacted:
+        type: boolean
+    type: object
   adminAudit.auditItem:
     properties:
       ActorID:
         type: string
+      Changes:
+        description: Changes are the fields the action changed, before and after;
+          secrets carry Redacted and no value.
+        items:
+          $ref: '#/definitions/adminAudit.Change'
+        type: array
       CreatedAt:
         type: string
       ID:
@@ -29,6 +44,10 @@ definitions:
         description: NextCursor continues the list after the last item; empty on the
           last page.
         type: string
+      Total:
+        description: Total is how many entries the filters match; set on the first
+          page (no cursor) only.
+        type: integer
     type: object
   auth.accountResponse:
     properties:
@@ -12966,6 +12985,61 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Admin audit journal (filtered, keyset-paged, newest first)
+      tags:
+      - admin
+  /admin/audit-log/export:
+    get:
+      description: Newest first, at most 100000 rows. Each export is itself recorded
+        in the journal.
+      parameters:
+      - description: actor user ID (exact)
+        in: query
+        name: actorID
+        type: string
+      - description: gating permission (exact)
+        in: query
+        name: permission
+        type: string
+      - description: route template contains this text
+        in: query
+        name: route
+        type: string
+      - description: HTTP method (exact)
+        in: query
+        name: method
+        type: string
+      - description: 'final response status: exact (409) or a class (2xx, 4xx, 5xx)'
+        in: query
+        name: status
+        type: string
+      - description: not before (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: not after (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: kind token of the target
+        in: query
+        name: targetKind
+        type: string
+      - description: an id contained in the target
+        in: query
+        name: targetID
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Admin audit journal as CSV (same filters, no paging)
       tags:
       - admin
   /admin/dashboard:

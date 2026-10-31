@@ -20,6 +20,7 @@ type AdminAuditLog struct {
 	ResponseStatus int32     `json:"response_status"`
 	CreatedAt      time.Time `json:"created_at"`
 	Target         string    `json:"target"`
+	Changes        []byte    `json:"changes"`
 }
 
 type AppSetting struct {

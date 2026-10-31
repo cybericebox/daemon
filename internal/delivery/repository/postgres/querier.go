@@ -79,6 +79,8 @@ type Querier interface {
 	// Copy of an event into a new one (docs/specs/ADMIN.md §2): settings, theme, pages, never people or results.
 	CopyEventSettings(ctx context.Context, arg CopyEventSettingsParams) error
 	CountActiveExerciseTestDeploys(ctx context.Context, arg CountActiveExerciseTestDeploysParams) (int64, error)
+	// How many journal rows the filters match (no cursor, no limit).
+	CountAdminAuditLog(ctx context.Context, arg CountAdminAuditLogParams) (int64, error)
 	CountApprovedEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
 	CountBroadcastDeliveries(ctx context.Context, arg CountBroadcastDeliveriesParams) (int64, error)
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)

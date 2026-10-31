@@ -30,6 +30,20 @@ func (f *fakeUC) ListAdminActions(_ context.Context, filter adminAuditUseCase.Fi
 	return f.page, f.err
 }
 
+func (f *fakeUC) CountAdminActions(context.Context, adminAuditUseCase.Filter) (int64, error) {
+	return 42, f.err
+}
+
+func (f *fakeUC) ExportAdminActions(_ context.Context, filter adminAuditUseCase.Filter, emit func(postgres.AdminAuditLog) error) (bool, error) {
+	f.got = filter
+	for _, row := range f.page.Items {
+		if err := emit(row); err != nil {
+			return false, err
+		}
+	}
+	return false, f.err
+}
+
 type openProt struct{}
 
 func (openProt) RequirePermission(rbac.Permission) gin.HandlerFunc { return func(c *gin.Context) {} }
@@ -107,5 +121,69 @@ func TestAuditLogResponseShape(t *testing.T) {
 	}
 	if w := serve(&fakeUC{}, ""); !json.Valid(w.Body.Bytes()) || !strings.Contains(w.Body.String(), `"Items":[]`) {
 		t.Errorf("an empty journal is an empty list, not null: %s", w.Body.String())
+	}
+}
+
+func TestAuditLogCarriesTheChangesAndTheTotalOnTheFirstPage(t *testing.T) {
+	changes := `[{"Field":"Role","Before":"user","After":"admin"},{"Field":"Password","Redacted":true}]`
+	uc := &fakeUC{page: adminAuditUseCase.Page{
+		Items: []postgres.AdminAuditLog{{ID: uuid.Must(uuid.NewV7()), Method: "PATCH", Route: "/users/:userID/role", ResponseStatus: 200, Changes: []byte(changes)}},
+	}}
+	var env struct {
+		Data struct {
+			Total *int64
+			Items []struct{ Changes []adminAuditUseCase.Change }
+		}
+	}
+	if err := json.Unmarshal(serve(uc, "").Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data.Total == nil || *env.Data.Total != 42 {
+		t.Fatalf("the first page carries the found count: %+v", env.Data.Total)
+	}
+	got := env.Data.Items[0].Changes
+	if len(got) != 2 || got[0].After != "admin" || !got[1].Redacted || got[1].After != nil {
+		t.Fatalf("changes = %+v", got)
+	}
+	if err := json.Unmarshal(serve(uc, "?cursor=c").Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data.Total != nil {
+		t.Fatal("a later page does not repeat the count")
+	}
+	if body := serve(&fakeUC{page: adminAuditUseCase.Page{Items: []postgres.AdminAuditLog{{ID: uuid.Must(uuid.NewV7())}}}}, "").Body.String(); !strings.Contains(body, `"Changes":[]`) {
+		t.Errorf("an entry without changes has an empty list, not null: %s", body)
+	}
+}
+
+func TestAuditLogExportIsCSVWithChangesAndNeutralizedFormulas(t *testing.T) {
+	uc := &fakeUC{page: adminAuditUseCase.Page{Items: []postgres.AdminAuditLog{{
+		ID: uuid.Must(uuid.NewV7()), Method: "PUT", Route: "/settings/:key", ResponseStatus: 200, Target: "=HYPERLINK(1)",
+		Changes: []byte(`[{"Field":"Days","Before":30,"After":60},{"Field":"SmtpPassword","Redacted":true}]`),
+	}}}}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	adminAuditHandler.New(uc, openProt{}).Init(r.Group("api"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/admin/audit-log/export?status=2xx&cursor=ignored&limit=5", nil))
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") {
+		t.Fatalf("export: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Days: 30 -> 60") || !strings.Contains(body, "SmtpPassword: changed (hidden)") {
+		t.Fatalf("changes missing: %s", body)
+	}
+	if strings.Contains(body, ",=HYPERLINK") {
+		t.Fatalf("a formula in a cell must be neutralized: %s", body)
+	}
+	if uc.got.StatusMin != 200 || uc.got.StatusMax != 299 {
+		t.Fatalf("the export honours the filters: %+v", uc.got)
+	}
+	if w2 := httptest.NewRecorder(); true {
+		r.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/api/admin/audit-log/export?status=bogus", nil))
+		if w2.Code != http.StatusBadRequest {
+			t.Fatalf("a bad filter is refused: %d", w2.Code)
+		}
 	}
 }

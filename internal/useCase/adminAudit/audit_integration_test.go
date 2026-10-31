@@ -2,11 +2,13 @@ package adminAudit_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/testhelpers"
@@ -100,6 +102,90 @@ func TestListAdminActionsFiltersAndPages(t *testing.T) {
 	}
 	if _, err := uc.ListAdminActions(ctx, adminAudit.Filter{Cursor: "%%%"}); err != adminAudit.ErrInvalidCursor {
 		t.Fatalf("a garbage cursor: %v", err)
+	}
+
+	// the found count follows the filters and ignores paging
+	for name, c := range map[string]struct {
+		f    adminAudit.Filter
+		want int64
+	}{
+		"all":           {adminAudit.Filter{}, 5},
+		"paged ignored": {adminAudit.Filter{Limit: 2, Cursor: seenCursor(t, uc)}, 5},
+		"actor":         {adminAudit.Filter{ActorID: uuid.NullUUID{UUID: actorA, Valid: true}}, 3},
+		"4xx":           {adminAudit.Filter{StatusMin: 400, StatusMax: 499}, 2},
+		"none":          {adminAudit.Filter{TargetKind: "nope"}, 0},
+	} {
+		n, err := uc.CountAdminActions(ctx, c.f)
+		if err != nil || n != c.want {
+			t.Errorf("count %s: %d %v, want %d", name, n, err, c.want)
+		}
+	}
+
+	// the export walks every matching row once, newest first, and honours the cap flag
+	var exported int
+	truncated, err := uc.ExportAdminActions(ctx, adminAudit.Filter{Limit: 1, Cursor: "ignored"}, func(postgres.AdminAuditLog) error { exported++; return nil })
+	if err != nil || truncated || exported != 5 {
+		t.Fatalf("export: %d rows truncated=%v err=%v", exported, truncated, err)
+	}
+}
+
+func seenCursor(t *testing.T, uc *adminAudit.UseCase) string {
+	t.Helper()
+	page, err := uc.ListAdminActions(context.Background(), adminAudit.Filter{Limit: 1})
+	if err != nil || page.NextCursor == "" {
+		t.Fatalf("first page: %v %q", err, page.NextCursor)
+	}
+	return page.NextCursor
+}
+
+// What an action changed is stored as "before -> after" per field, and a secret field never reaches the
+// database: the row holds a redaction marker only.
+func TestRecordedChangesNeverStoreASecret(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	uc := adminAudit.New(db.Queries)
+	actor := mustUser(t, db, "audit-changes@test.test")
+
+	type form struct {
+		Role         string
+		SmtpPassword string
+		Backup       struct{ RecoveryCode, Window string }
+	}
+	before := form{Role: "user", SmtpPassword: "hunter2-old"}
+	after := form{Role: "admin", SmtpPassword: "hunter2-new"}
+	before.Backup.RecoveryCode, after.Backup.RecoveryCode = "111-222", "333-444"
+	before.Backup.Window, after.Backup.Window = "1h", "2h"
+	if err := uc.RecordAdminAction(ctx, adminAudit.Entry{
+		ActorID: actor, Permission: "settings.write", Method: "PUT", Route: "/settings/:key", ResponseStatus: 200,
+		Changes: adminAudit.Diff(before, after),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A hand-built change that names a secret is cleaned at the write too.
+	if err := uc.RecordAdminAction(ctx, adminAudit.Entry{
+		ActorID: actor, Permission: "settings.write", Method: "PUT", Route: "/settings/:key", ResponseStatus: 200,
+		Changes: []adminAudit.Change{{Field: "ApiToken", Before: "tok-old", After: "tok-new"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stored string
+	if err := db.Pool.QueryRow(ctx, `SELECT string_agg(changes::text, ' ') FROM admin_audit_log`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"hunter2", "111-222", "333-444", "tok-old", "tok-new"} {
+		if strings.Contains(stored, leaked) {
+			t.Fatalf("%q reached the database: %s", leaked, stored)
+		}
+	}
+	for _, want := range []string{`"Role"`, `"admin"`, `"Backup.Window"`, `"2h"`, `"Redacted": true`} {
+		if !strings.Contains(stored, want) {
+			t.Errorf("%s missing from the stored changes: %s", want, stored)
+		}
+	}
+	page, err := uc.ListAdminActions(ctx, adminAudit.Filter{ActorID: uuid.NullUUID{UUID: actor, Valid: true}})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("list: %d %v", len(page.Items), err)
 	}
 }
 

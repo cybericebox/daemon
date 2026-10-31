@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	platformSettingsUseCase "github.com/cybericebox/daemon/internal/useCase/platformSettings"
 )
 
@@ -144,8 +146,9 @@ func TestTypedRoutes_Gated(t *testing.T) {
 		if w := serve(newEngine(uc, grantProt{granted: r.perm}), r.method, r.path, r.body); w.Code != http.StatusOK {
 			t.Errorf("%s %s with %s: %d %s", r.method, r.path, r.perm, w.Code, w.Body)
 		}
-		if len(uc.typedCalls) != 1 || uc.typedCalls[0] != r.call {
-			t.Errorf("%s %s reached %v, want %q", r.method, r.path, uc.typedCalls, r.call)
+		// A write reads the setting first, to record what it changed.
+		if n := len(uc.typedCalls); n == 0 || uc.typedCalls[n-1] != r.call || (r.method == http.MethodGet && n != 1) {
+			t.Errorf("%s %s reached %v, want %q last", r.method, r.path, uc.typedCalls, r.call)
 		}
 	}
 }
@@ -218,4 +221,73 @@ func TestNodeProfilesGet_SaysWhichProfileRunsNow(t *testing.T) {
 		got.Data["RunnableNow"],
 	)
 	assert.Len(t, got.Data["Fields"], 1)
+}
+
+// auditedUseCase answers a typed save with a changed value and a changed generic setting.
+type auditedUseCase struct {
+	*fakeUseCase
+	before, after int64
+	reads         int
+}
+
+func (a *auditedUseCase) view(v int64) platformSettingsUseCase.TypedView {
+	return platformSettingsUseCase.TypedView{Fields: []platformSettingsUseCase.FieldView{{Key: "LabTelemetry", Value: v}}}
+}
+
+func (a *auditedUseCase) GetRetentionSettings(context.Context) (platformSettingsUseCase.TypedView, error) {
+	return a.view(a.before), nil
+}
+
+func (a *auditedUseCase) SaveRetentionSettings(context.Context, platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error) {
+	return a.view(a.after), nil
+}
+
+func (a *auditedUseCase) GetPlatformSetting(context.Context, string) (*platformSettingsModel.PlatformSetting, error) {
+	return &platformSettingsModel.PlatformSetting{Key: "theme", Value: json.RawMessage(`{"color":"red","apiToken":"old-token"}`)}, nil
+}
+
+func (a *auditedUseCase) UpsertPlatformSetting(_ context.Context, in platformSettingsUseCase.UpsertInput) (*platformSettingsModel.PlatformSetting, error) {
+	return &platformSettingsModel.PlatformSetting{Key: in.Key, Value: in.Value}, nil
+}
+
+func serveCapturing(uc IUseCase, method, path, body string) (*httptest.ResponseRecorder, []adminAuditUseCase.Change) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(response.WithErrorHandler)
+	var changes []adminAuditUseCase.Change
+	engine.Use(func(ctx *gin.Context) {
+		ctx.Next()
+		changes = audit.Changes(ctx)
+	})
+	NewSettingAPIHandler(uc, &fakeProt{allow: true}).Init(engine.Group("api"))
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+	return w, changes
+}
+
+func TestSavingASettingRecordsWhatChanged(t *testing.T) {
+	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 30, after: 90}
+	w, changes := serveCapturing(uc, http.MethodPut, "/api/settings/retention", `{"Values":{"LabTelemetry":90}}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, changes, 1)
+	assert.Equal(t, "LabTelemetry", changes[0].Field)
+	assert.EqualValues(t, 30, changes[0].Before)
+	assert.EqualValues(t, 90, changes[0].After)
+
+	_, changes = serveCapturing(&auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 90, after: 90}, http.MethodPut, "/api/settings/retention", `{"Values":{"LabTelemetry":90}}`)
+	assert.Empty(t, changes, "saving the same values changes nothing")
+}
+
+func TestUpsertingAGenericSettingRecordsTheChangeWithoutItsSecrets(t *testing.T) {
+	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}}
+	w, changes := serveCapturing(uc, http.MethodPut, "/api/settings/theme", `{"Value":{"color":"blue","apiToken":"new-token"}}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	raw, err := json.Marshal(changes)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"Value.color"`)
+	assert.Contains(t, string(raw), `"blue"`)
+	assert.Contains(t, string(raw), `"Redacted":true`)
+	assert.NotContains(t, string(raw), "token\"")
+	assert.NotContains(t, string(raw), "old-token")
+	assert.NotContains(t, string(raw), "new-token")
 }

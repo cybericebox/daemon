@@ -545,6 +545,21 @@ func (mr *MockQuerierMockRecorder) CountActiveExerciseTestDeploys(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveExerciseTestDeploys", reflect.TypeOf((*MockQuerier)(nil).CountActiveExerciseTestDeploys), ctx, arg)
 }
 
+// CountAdminAuditLog mocks base method.
+func (m *MockQuerier) CountAdminAuditLog(ctx context.Context, arg postgres.CountAdminAuditLogParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAdminAuditLog", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountAdminAuditLog indicates an expected call of CountAdminAuditLog.
+func (mr *MockQuerierMockRecorder) CountAdminAuditLog(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAdminAuditLog", reflect.TypeOf((*MockQuerier)(nil).CountAdminAuditLog), ctx, arg)
+}
+
 // CountApprovedEventTeams mocks base method.
 func (m *MockQuerier) CountApprovedEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()

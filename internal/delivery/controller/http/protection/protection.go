@@ -154,7 +154,7 @@ func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, sta
 	defer cancel()
 	if err := p.useCase.RecordAdminAction(auditCtx, adminAuditUseCase.Entry{
 		ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
-		Route: ctx.FullPath(), ResponseStatus: status, Target: target,
+		Route: ctx.FullPath(), ResponseStatus: status, Target: target, Changes: audit.Changes(ctx),
 	}); err != nil {
 		log.Warn().Err(err).Str("route", ctx.FullPath()).Msg("Failed to record admin audit action")
 	}

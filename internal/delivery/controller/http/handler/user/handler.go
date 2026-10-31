@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
@@ -347,9 +348,13 @@ func (h *Handler) updateRole(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetUser(ctx.Request.Context(), targetID) // only to record the old role
 	if err := h.useCase.UpdateUserRole(ctx.Request.Context(), targetID, req.Role); err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if before != nil {
+		audit.SetChanges(ctx, adminAuditUseCase.Diff(map[string]any{"Role": before.Role}, map[string]any{"Role": req.Role}))
 	}
 	response.AbortWithSuccess(ctx)
 }
@@ -376,9 +381,13 @@ func (h *Handler) updateStatus(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetUser(ctx.Request.Context(), targetID) // only to record the old status
 	if err := h.useCase.UpdateUserStatus(ctx.Request.Context(), targetID, req.Status); err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if before != nil {
+		audit.SetChanges(ctx, adminAuditUseCase.Diff(map[string]any{"Status": before.Status}, map[string]any{"Status": req.Status}))
 	}
 	response.AbortWithSuccess(ctx)
 }

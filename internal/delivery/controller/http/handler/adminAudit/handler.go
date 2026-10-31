@@ -2,8 +2,11 @@ package adminAudit
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,14 +14,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 type IUseCase interface {
 	ListAdminActions(context.Context, adminAuditUseCase.Filter) (adminAuditUseCase.Page, error)
+	CountAdminActions(context.Context, adminAuditUseCase.Filter) (int64, error)
+	ExportAdminActions(context.Context, adminAuditUseCase.Filter, func(postgres.AdminAuditLog) error) (bool, error)
 }
 
 type IProtection interface {
@@ -34,6 +43,7 @@ func New(useCase IUseCase, prot IProtection) *Handler { return &Handler{useCase,
 
 func (h *Handler) Init(r *gin.RouterGroup) {
 	r.GET("admin/audit-log", h.prot.RequirePermission(rbac.PermPlatformAuditRead), h.list)
+	r.GET("admin/audit-log/export", h.prot.RequirePermission(rbac.PermPlatformAuditRead), h.export)
 }
 
 type auditItem struct {
@@ -45,10 +55,14 @@ type auditItem struct {
 	ResponseStatus int32     `json:"ResponseStatus"`
 	CreatedAt      time.Time `json:"CreatedAt"`
 	Target         string    `json:"Target"`
+	// Changes are the fields the action changed, before and after; secrets carry Redacted and no value.
+	Changes []adminAuditUseCase.Change `json:"Changes"`
 }
 
 type auditPage struct {
 	Items []auditItem `json:"Items"`
+	// Total is how many entries the filters match; set on the first page (no cursor) only.
+	Total *int64 `json:"Total"`
 	// NextCursor continues the list after the last item; empty on the last page.
 	NextCursor string `json:"NextCursor"`
 }
@@ -94,9 +108,93 @@ func (h *Handler) list(c *gin.Context) {
 	}
 	out := auditPage{Items: make([]auditItem, 0, len(page.Items)), NextCursor: page.NextCursor}
 	for _, x := range page.Items {
-		out.Items = append(out.Items, auditItem{x.ID, x.ActorID, x.Permission, x.Method, x.Route, x.ResponseStatus, x.CreatedAt, x.Target})
+		out.Items = append(out.Items, toItem(x))
+	}
+	if filter.Cursor == "" {
+		total, countErr := h.useCase.CountAdminActions(c.Request.Context(), filter)
+		if countErr != nil {
+			response.AbortWithError(c, countErr)
+			return
+		}
+		out.Total = &total
 	}
 	response.AbortWithData(c, out)
+}
+
+func toItem(x postgres.AdminAuditLog) auditItem {
+	changes := []adminAuditUseCase.Change{}
+	if len(x.Changes) > 0 {
+		_ = json.Unmarshal(x.Changes, &changes)
+	}
+	return auditItem{x.ID, x.ActorID, x.Permission, x.Method, x.Route, x.ResponseStatus, x.CreatedAt, x.Target, changes}
+}
+
+// export godoc
+// @Summary  Admin audit journal as CSV (same filters, no paging)
+// @Description Newest first, at most 100000 rows. Each export is itself recorded in the journal.
+// @Tags     admin
+// @Produce  text/csv
+// @Param    actorID     query  string  false  "actor user ID (exact)"
+// @Param    permission  query  string  false  "gating permission (exact)"
+// @Param    route       query  string  false  "route template contains this text"
+// @Param    method      query  string  false  "HTTP method (exact)"
+// @Param    status      query  string  false  "final response status: exact (409) or a class (2xx, 4xx, 5xx)"
+// @Param    from        query  string  false  "not before (RFC3339)"
+// @Param    to          query  string  false  "not after (RFC3339)"
+// @Param    targetKind  query  string  false  "kind token of the target"
+// @Param    targetID    query  string  false  "an id contained in the target"
+// @Success  200  {file}  file
+// @Failure  400  {object}  response.Response
+// @Router   /admin/audit-log/export [get]
+func (h *Handler) export(c *gin.Context) {
+	filter, err := parseFilter(c)
+	if err != nil {
+		response.AbortWithBadRequest(c, err)
+		return
+	}
+	download.ExtendDeadline(c)
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="audit-%s.csv"`, time.Now().UTC().Format("20060102-1504")))
+	c.Header("Cache-Control", "private, no-store")
+	c.Status(http.StatusOK)
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"Time", "ActorID", "Permission", "Method", "Route", "Status", "Target", "Changes"})
+	truncated, err := h.useCase.ExportAdminActions(c.Request.Context(), filter, func(x postgres.AdminAuditLog) error {
+		item := toItem(x)
+		return w.Write([]string{
+			item.CreatedAt.UTC().Format(time.RFC3339), item.ActorID.String(), item.Permission, item.Method,
+			tools.CSVText(item.Route), strconv.Itoa(int(item.ResponseStatus)), tools.CSVText(item.Target),
+			tools.CSVText(changesText(item.Changes)),
+		})
+	})
+	if truncated {
+		_ = w.Write([]string{"", "", "", "", "", "", "", fmt.Sprintf("truncated at %d rows", adminAuditUseCase.MaxExportRows)})
+	}
+	w.Flush()
+	if err != nil {
+		log.Error().Err(err).Msg("audit export interrupted")
+	}
+}
+
+// changesText renders the changes of one entry as "Field: before -> after; ...", a redacted field without values.
+func changesText(changes []adminAuditUseCase.Change) string {
+	parts := make([]string, 0, len(changes))
+	for _, ch := range changes {
+		if ch.Redacted {
+			parts = append(parts, ch.Field+": changed (hidden)")
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s: %v -> %v", ch.Field, show(ch.Before), show(ch.After)))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func show(v any) any {
+	if v == nil {
+		return "(none)"
+	}
+	return v
 }
 
 func parseFilter(c *gin.Context) (adminAuditUseCase.Filter, error) {

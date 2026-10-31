@@ -8,9 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	platformSettingsUseCase "github.com/cybericebox/daemon/internal/useCase/platformSettings"
 )
 
@@ -185,6 +187,7 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 		return
 	}
 
+	before, _ := h.useCase.GetPlatformSetting(ctx, ctx.Param("key")) // absent before: a creation, every field is new
 	s, err := h.useCase.UpsertPlatformSetting(
 		ctx, platformSettingsUseCase.UpsertInput{
 			Key:                ctx.Param("key"),
@@ -196,5 +199,14 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	audit.SetChanges(ctx, adminAuditUseCase.Diff(settingFields(before), settingFields(s)))
 	response.AbortWithData(ctx, toResponse(s))
+}
+
+// settingFields are the parts of a setting an administrator edits, for the audit "before and after".
+func settingFields(s *platformSettingsModel.PlatformSetting) map[string]any {
+	if s == nil {
+		return nil
+	}
+	return map[string]any{"Value": s.Value, "RequiredPermission": s.RequiredPermission}
 }
