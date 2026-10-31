@@ -31,6 +31,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/revealDeclineRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -304,6 +305,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
 			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
+			RevealDecline:            revealDeclineRepo.New(deps.Repo.Pool()),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
 			LabLifecycleRetryMax:     deps.LabLifecycleConfig.RetryMax,

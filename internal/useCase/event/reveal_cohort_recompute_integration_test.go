@@ -10,10 +10,11 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/delivery/repository/revealDeclineRepo"
 )
 
-// Owner, 2026-10-30: the «show to all» cohort is recomputed up to the start of the event (a team that becomes
-// eligible before the start joins it); from the start it is frozen.
+// Owner, 2026-10-31: the «show to all» cohort is recomputed until the tasks are shown (a team that becomes eligible,
+// before or after the start, joins it); once the barrier is opened it is frozen.
 
 func setStart(t *testing.T, f *standFixture, startsIn time.Duration) {
 	t.Helper()
@@ -62,15 +63,33 @@ func TestRevealCohort_IsRecomputedBeforeTheStart(t *testing.T) {
 	)
 }
 
-func TestRevealCohort_IsFrozenFromTheStart(t *testing.T) {
+// A team that becomes eligible after the start still joins the cohort while the tasks are not shown.
+func TestRevealCohort_IsRecomputedAfterTheStartUntilTheShow(t *testing.T) {
 	f, set, _, _ := prepareLifecycle(t)
 	setStart(t, f, -time.Minute)
 	seedBarrier(t, f, set.exerciseID, false, f.blueID)
 
-	got, err := eventLabRevealRepo.New(f.db.Queries).
-		Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
+	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
 	require.NoError(t, err)
-	require.Equal(t, []uuid.UUID{f.blueID}, got, "after the start a late team stays outside")
+	require.ElementsMatch(t, []uuid.UUID{f.blueID, f.redID}, got)
+}
+
+// A team declined for lack of room stays out of the cohort, and the barrier forgets it.
+func TestRevealCohort_ADeclinedTeamStaysOut(t *testing.T) {
+	f, set, _, _ := prepareLifecycle(t)
+	ctx := context.Background()
+	setStart(t, f, -time.Minute)
+	seedBarrier(t, f, set.exerciseID, false, f.blueID, f.redID)
+
+	store := revealDeclineRepo.New(f.db.Pool)
+	require.NoError(t, store.Decline(ctx, f.eventID, set.exerciseID, f.redID, "no room", time.Now()))
+	barrier, err := eventLabRevealRepo.New(f.db.Queries).Barrier(ctx, f.eventID, set.exerciseID)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{f.blueID}, barrier.EligibleTeamIds, "the show does not wait for the declined team")
+
+	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(ctx, f.eventID, set.exerciseID, time.Now().UTC())
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{f.blueID}, got, "and the recomputation does not bring it back")
 }
 
 func TestRevealCohort_AnOpenedBarrierIsNeverRecomputed(t *testing.T) {

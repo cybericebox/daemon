@@ -254,7 +254,9 @@ type EventUseCase struct {
 	resources resourcesModel.Policy
 	// autoRecreate counts the automatic recreations of failed Labs (nil: off).
 	autoRecreate AutoRecreateStore
-	elevations   ApprovalStore
+	// revealDecline keeps the teams declined from a cohort (nil: off).
+	revealDecline RevealDeclineStore
+	elevations    ApprovalStore
 }
 
 // AutoRecreateStore counts the automatic recreations of failed team Labs. Nil: a failed Lab is not recreated by itself.
@@ -266,7 +268,14 @@ type AutoRecreateStore interface {
 	ResetTeam(ctx context.Context, teamID uuid.UUID) error
 }
 
+// RevealDeclineStore keeps the teams declined from a task's cohort for lack of room. Nil: nobody is declined.
+type RevealDeclineStore interface {
+	Decline(ctx context.Context, eventID, setID, teamID uuid.UUID, reason string, now time.Time) error
+}
+
 type Dependencies struct {
+	// RevealDecline keeps the teams declined from a cohort; nil switches the decline off (the cohort is all or nothing).
+	RevealDecline RevealDeclineStore
 	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
 	AutoRecreate                               AutoRecreateStore
 	PreviewLabs                                PreviewTestLabs
@@ -394,6 +403,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		scoreboard:               scoreboardRepo.New(deps.Repo),
 		labBindings:              labBindingRepo.New(deps.Repo),
 		autoRecreate:             deps.AutoRecreate,
+		revealDecline:            deps.RevealDecline,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),
 		labAccessSyncs:           labAccessSyncRepo.New(deps.Repo),

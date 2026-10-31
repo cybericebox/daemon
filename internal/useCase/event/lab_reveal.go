@@ -15,6 +15,7 @@ import (
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -32,7 +33,80 @@ func snapshotQuotaShort() error {
 
 // An all_ready cohort's initial copies are reserved together before any create
 // dispatch. A partial reservation cannot send a subset to the controller.
+//
+// The cohort is all or nothing for the teams it started with. A team that joins it afterwards (before or after the
+// start, until the tasks are shown) joins the same reservation; when its labs do not fit, it stays out (declined, with
+// the reason) and the others, and the show, do not wait for it.
 func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid.UUID, now time.Time) error {
+	const maxDeclines = 64
+	for range maxDeclines {
+		err := u.reserveRevealCohort(ctx, eventID, setID, now)
+		if err == nil || !errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
+			return err
+		}
+		declined, declineErr := u.declineLateTeam(ctx, eventID, setID, now, err)
+		if declineErr != nil {
+			return declineErr
+		}
+		if !declined {
+			return err
+		}
+	}
+	return calModel.ErrNotEnoughReserved.Err()
+}
+
+// declineLateTeam keeps out of the cohort the newest team whose labs were not reserved with the others: only when some
+// labs of the cohort already hold their reservation (the cohort started), so the first reservation stays all or nothing.
+// It reports whether a team was declined.
+func (u *EventUseCase) declineLateTeam(ctx context.Context, eventID, setID uuid.UUID, now time.Time, cause error) (bool, error) {
+	if u.revealDecline == nil {
+		return false, nil
+	}
+	reveal := eventLabRevealRepo.New(u.repo)
+	barrier, err := reveal.Barrier(ctx, eventID, setID)
+	if err != nil {
+		return false, err
+	}
+	if barrier.OpenedAt.Valid {
+		return false, nil
+	}
+	labs, err := reveal.Labs(ctx, eventID, setID, barrier.EligibleTeamIds)
+	if err != nil {
+		return false, err
+	}
+	team, ok := lateTeamToDecline(labs)
+	if !ok {
+		return false, nil
+	}
+	reason := "the cohort does not fit the reservation with this team: " + cause.Error()
+	if err = u.revealDecline.Decline(ctx, eventID, setID, team, reason, now); err != nil {
+		return false, err
+	}
+	log.Info().Str("event_id", eventID.String()).Str("team_id", team.String()).Msg("A late team is kept out of the cohort: its labs do not fit the reservation")
+	return true, nil
+}
+
+// lateTeamToDecline picks the newest team whose lab holds no reservation yet, provided some other lab of the cohort
+// already does; false when the whole cohort is still unreserved (all or nothing) or every lab is reserved.
+func lateTeamToDecline(labs []eventLabModel.Lab) (uuid.UUID, bool) {
+	anchored := false
+	var late *eventLabModel.Lab
+	for i := range labs {
+		if labs[i].Allocation.ConfiguredRequestsKnown {
+			anchored = true
+			continue
+		}
+		if late == nil || labs[i].CreatedAt.After(late.CreatedAt) {
+			late = &labs[i]
+		}
+	}
+	if !anchored || late == nil {
+		return uuid.Nil, false
+	}
+	return late.TeamID, true
+}
+
+func (u *EventUseCase) reserveRevealCohort(ctx context.Context, eventID, setID uuid.UUID, now time.Time) error {
 	cfg, err := u.configs.Get(ctx, eventID)
 	if err != nil {
 		return err
