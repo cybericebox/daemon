@@ -389,3 +389,41 @@ func TestChangingTheEmailRefusesWhatCannotBeInvited(t *testing.T) {
 	_, err = f.uc.ChangeParticipantInvitationEmail(ctx, f.eventID, uuid.Must(uuid.NewV7()), f.ownerID, "other@tools.test", true)
 	require.ErrorIs(t, err, participantModel.ErrInvitationRequired.Err())
 }
+
+func TestTeamInvitationsSayWhetherTheyAwaitPublicationOrExpired(t *testing.T) {
+	f := newToolsFixture(t)
+	ctx := context.Background()
+	teamID, _ := f.newTeam(t, "Alpha")
+	_, err := f.uc.InviteTeamMembers(ctx, f.eventID, teamID, f.ownerID, []event.ParticipantInvitationInput{{Email: "wait@tools.test"}}, true)
+	require.NoError(t, err)
+	invitation := func() event.TeamInvitationView {
+		res, listErr := f.uc.ListTeams(ctx, event.ListTeamsFilter{EventID: f.eventID, PageSize: 50})
+		require.NoError(t, listErr)
+		for _, team := range res.Teams {
+			if team.ID == teamID {
+				require.Len(t, team.PendingInvitations, 1)
+				return team.PendingInvitations[0]
+			}
+		}
+		t.Fatal("team is not listed")
+		return event.TeamInvitationView{}
+	}
+
+	got := invitation()
+	require.False(t, got.InvitationExpired)
+	require.False(t, got.InvitationAwaitingPublication, "a published event with an open roster")
+
+	// not published yet: the invitation waits for the publication, it is not «expired»
+	_, err = f.db.Pool.Exec(ctx, `UPDATE events SET publish_at = $2, start_at = $3, finish_at = $4, withdraw_at = $5 WHERE id = $1`,
+		f.eventID, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour), time.Now().Add(4*time.Hour), time.Now().Add(6*time.Hour))
+	require.NoError(t, err)
+	got = invitation()
+	require.True(t, got.InvitationAwaitingPublication)
+	require.False(t, got.InvitationExpired)
+
+	// the event is over: expired
+	f.shiftLifecycle(t, -3*time.Hour, -time.Hour)
+	got = invitation()
+	require.True(t, got.InvitationExpired)
+	require.False(t, got.InvitationAwaitingPublication)
+}

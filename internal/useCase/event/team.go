@@ -776,7 +776,7 @@ func (u *EventUseCase) ListTeams(ctx context.Context, filter ListTeamsFilter) (T
 	if err != nil {
 		return TeamsListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get minimum team size").Err()
 	}
-	autoFormed, err := u.autoFormedAt(ctx, filter.EventID)
+	autoFormed, err := u.teamClock(ctx, filter.EventID)
 	if err != nil {
 		return TeamsListResult{}, err
 	}
@@ -797,7 +797,7 @@ func (u *EventUseCase) ListTeams(ctx context.Context, filter ListTeamsFilter) (T
 
 // buildTeamViews composes the moderator team views: aggregate, answers,
 // admission, members (real name + pseudonym) and pending invitations.
-func buildTeamViews(ctx context.Context, participants *participantRepo.Repository, eventID uuid.UUID, rows []eventTeamRepo.ListedTeam, minTeamSize int32, autoFormedAt *time.Time) ([]TeamView, error) {
+func buildTeamViews(ctx context.Context, participants *participantRepo.Repository, eventID uuid.UUID, rows []eventTeamRepo.ListedTeam, minTeamSize int32, clock teamClock) ([]TeamView, error) {
 	teamIDs := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
 		teamIDs = append(teamIDs, row.Team.ID)
@@ -817,7 +817,8 @@ func buildTeamViews(ctx context.Context, participants *participantRepo.Repositor
 			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list team invitations").Err()
 		}
 		for _, i := range invitationRows {
-			invitations[i.TeamID] = append(invitations[i.TeamID], TeamInvitationView{UserID: i.UserID, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt})
+			invitations[i.TeamID] = append(invitations[i.TeamID], TeamInvitationView{UserID: i.UserID, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt,
+				InvitationExpired: clock.invitationExpired, InvitationAwaitingPublication: clock.invitationAwaitingPublication})
 		}
 	}
 	items := make([]TeamView, 0, len(rows))
@@ -832,7 +833,7 @@ func buildTeamViews(ctx context.Context, participants *participantRepo.Repositor
 		}
 		formedAt := team.FormedAt
 		if formedAt == nil {
-			formedAt = autoFormedAt
+			formedAt = clock.autoFormedAt
 		}
 		items = append(items, TeamView{
 			FormedAt: formedAt, Formed: formedAt != nil,
@@ -874,7 +875,7 @@ func managedTeamView(ctx context.Context, repo IRepository, eventID uuid.UUID, t
 	if fields == nil {
 		fields = map[string]any{}
 	}
-	autoFormed, err := autoFormedAt(ctx, repo, eventID)
+	autoFormed, err := teamClockOf(ctx, repo, eventID)
 	if err != nil {
 		return TeamView{}, err
 	}
@@ -911,7 +912,7 @@ func (u *EventUseCase) GetTeamProfile(ctx context.Context, eventID, teamID uuid.
 	if err != nil {
 		return TeamProfileView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get minimum team size").Err()
 	}
-	autoFormed, err := u.autoFormedAt(ctx, eventID)
+	autoFormed, err := u.teamClock(ctx, eventID)
 	if err != nil {
 		return TeamProfileView{}, err
 	}
@@ -1738,12 +1739,37 @@ func (u *EventUseCase) formTeam(ctx context.Context, eventID, teamID, by uuid.UU
 // autoFormedAt is the moment every team of the event formed by itself (the start
 // of an event without late join), nil while that has not happened or with late
 // join, where only a confirmation forms a team.
-func autoFormedAt(ctx context.Context, repo IRepository, eventID uuid.UUID) (*time.Time, error) {
-	return autoFormedFrom(eventRepo.New(repo).GetByID(ctx, eventID))
-}
-
 func (u *EventUseCase) autoFormedAt(ctx context.Context, eventID uuid.UUID) (*time.Time, error) {
 	return autoFormedFrom(u.events.GetByID(ctx, eventID))
+}
+
+// teamClock is what the moment says about a team list: when the teams formed by themselves, and whether the pending
+// team invitations await the publication or have expired (the same rule for every invitation of one event).
+type teamClock struct {
+	autoFormedAt                  *time.Time
+	invitationExpired             bool
+	invitationAwaitingPublication bool
+}
+
+func teamClockOf(ctx context.Context, repo IRepository, eventID uuid.UUID) (teamClock, error) {
+	return teamClockFrom(eventRepo.New(repo).GetByID(ctx, eventID))
+}
+
+func (u *EventUseCase) teamClock(ctx context.Context, eventID uuid.UUID) (teamClock, error) {
+	return teamClockFrom(u.events.GetByID(ctx, eventID))
+}
+
+func teamClockFrom(event eventModel.Event, err error) (teamClock, error) {
+	formed, err := autoFormedFrom(event, err)
+	if err != nil {
+		return teamClock{}, err
+	}
+	now := time.Now()
+	return teamClock{
+		autoFormedAt:                  formed,
+		invitationAwaitingPublication: invitationAwaitingPublication(event, now),
+		invitationExpired:             invitationExpired(event, participantModel.Participant{InvitedToTeam: true}, now),
+	}, nil
 }
 
 func autoFormedFrom(event eventModel.Event, err error) (*time.Time, error) {

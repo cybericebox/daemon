@@ -176,7 +176,7 @@ func (u *EventUseCase) ListTeamsTable(ctx context.Context, q TeamsTableQuery) (T
 	if err != nil {
 		return TeamsTableResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get minimum team size").Err()
 	}
-	autoFormed, err := u.autoFormedAt(ctx, q.EventID)
+	autoFormed, err := u.teamClock(ctx, q.EventID)
 	if err != nil {
 		return TeamsTableResult{}, err
 	}

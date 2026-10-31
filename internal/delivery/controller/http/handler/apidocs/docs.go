@@ -31411,6 +31411,13 @@ const docTemplate = `{
                 "Email": {
                     "type": "string"
                 },
+                "InvitationAwaitingPublication": {
+                    "type": "boolean"
+                },
+                "InvitationExpired": {
+                    "description": "InvitationExpired: the person can no longer accept it; InvitationAwaitingPublication: the event is not\npublished yet and the invitation becomes acceptable at publication (not expired).",
+                    "type": "boolean"
+                },
                 "InvitationSentAt": {
                     "type": "string"
                 },

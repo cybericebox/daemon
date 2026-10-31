@@ -456,6 +456,11 @@ type TeamInvitationView struct {
 	Email            string
 	CreatedAt        time.Time
 	InvitationSentAt *time.Time
+	// InvitationExpired: the invitation can no longer be accepted by the person (the join period is over).
+	// InvitationAwaitingPublication: the event is not published yet and the invitation becomes acceptable at
+	// publication; it is not expired.
+	InvitationExpired             bool
+	InvitationAwaitingPublication bool
 }
 
 type TeamsListResult struct {
