@@ -199,11 +199,18 @@ func (d *Dashboard) standAttention(ctx context.Context, now time.Time) ([]Attent
 	if err != nil {
 		return nil, fail(err, "Failed to read the failed stands")
 	}
-	missing, err := d.store.EventsWithoutReservation(ctx, now, now.Add(reservationHorizonDays*hoursInDay), attentionItems)
+	missing, err := d.store.EventsWithoutReservation(
+		ctx,
+		now,
+		now.Add(reservationHorizonDays*hoursInDay),
+		attentionItems,
+	)
 	if err != nil {
 		return nil, fail(err, "Failed to read the events without a reservation")
 	}
-	return append(listAttention(KindFailedStands, TargetStands, failed), listAttention(KindEventsNoReservation, TargetReservations, missing)...), nil
+	return append(
+		listAttention(KindFailedStands, TargetStands, failed),
+		listAttention(KindEventsNoReservation, TargetReservations, missing)...), nil
 }
 
 func (d *Dashboard) elevationAttention(ctx context.Context, _ time.Time) ([]Attention, error) {
@@ -217,7 +224,14 @@ func (d *Dashboard) elevationAttention(ctx context.Context, _ time.Time) ([]Atte
 	if total == 0 {
 		return nil, nil
 	}
-	return []Attention{{Kind: KindPendingElevations, Count: total, Target: TargetElevations, Items: []AttentionItem{{Count: total, At: oldest}}}}, nil
+	return []Attention{
+		{
+			Kind:   KindPendingElevations,
+			Count:  total,
+			Target: TargetElevations,
+			Items:  []AttentionItem{{Count: total, At: oldest}},
+		},
+	}, nil
 }
 
 func (d *Dashboard) errorAttention(ctx context.Context, _ time.Time) ([]Attention, error) {

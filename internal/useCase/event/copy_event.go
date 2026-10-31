@@ -245,18 +245,35 @@ func (u *EventUseCase) copyTaskSets(
 
 // copySet copies one active set of the source: the attachment (the same version, or a new event-owned exercise
 // for an exercise the source event owns, returned) and its board challenges.
-func (u *EventUseCase) copySet(ctx context.Context, repo IRepository, set eventExerciseModel.EventExercise, newID, by uuid.UUID, groups, copied map[uuid.UUID]uuid.UUID, now time.Time) (*exerciseModel.ExerciseVersion, error) {
+func (u *EventUseCase) copySet(
+	ctx context.Context,
+	repo IRepository,
+	set eventExerciseModel.EventExercise,
+	newID, by uuid.UUID,
+	groups, copied map[uuid.UUID]uuid.UUID,
+	now time.Time,
+) (*exerciseModel.ExerciseVersion, error) {
 	exerciseID, versionID, own, err := u.copiedExercise(ctx, repo, set, newID, by, now)
 	if err != nil {
 		return nil, err
 	}
-	link, err := eventExerciseModel.New(newID, exerciseID, versionID, set.VariantMode, set.FixedVariantIndex, now, by)
+	link, err := eventExerciseModel.New(
+		newID,
+		exerciseID,
+		versionID,
+		set.VariantMode,
+		set.FixedVariantIndex,
+		now,
+		by,
+	)
 	if err != nil {
 		return nil, err
 	}
 	stored, err := eventExerciseRepo.New(repo).Create(ctx, link)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to copy event exercise").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to copy event exercise").
+			Err()
 	}
 	if err = copyChallenges(ctx, repo, set.ID, stored.ID, groups, copied, now); err != nil {
 		return nil, err
@@ -266,7 +283,13 @@ func (u *EventUseCase) copySet(ctx context.Context, repo IRepository, set eventE
 
 // copyChallenges copies the board challenges of one set into the copied set, unpublished and in the copied groups;
 // copied maps every source challenge to its copy (for the prerequisites).
-func copyChallenges(ctx context.Context, repo IRepository, sourceSet, newSet uuid.UUID, groups, copied map[uuid.UUID]uuid.UUID, now time.Time) error {
+func copyChallenges(
+	ctx context.Context,
+	repo IRepository,
+	sourceSet, newSet uuid.UUID,
+	groups, copied map[uuid.UUID]uuid.UUID,
+	now time.Time,
+) error {
 	challenges, err := repo.ListEventChallenges(ctx, sourceSet)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list event challenges").Err()
@@ -279,9 +302,15 @@ func copyChallenges(ctx context.Context, repo IRepository, sourceSet, newSet uui
 			group = uuid.NullUUID{UUID: mapped, Valid: ok}
 		}
 		if err = repo.CopyEventChallenge(ctx, postgres.CopyEventChallengeParams{
-			NewID: newChallenge, NewEventExerciseID: newSet, Now: now, NewGroupID: group, SourceID: challenge.ID,
+			NewID:              newChallenge,
+			NewEventExerciseID: newSet,
+			Now:                now,
+			NewGroupID:         group,
+			SourceID:           challenge.ID,
 		}); err != nil {
-			return model.ErrPlatform.WithError(err).WithMessage("Failed to copy event challenge").Err()
+			return model.ErrPlatform.WithError(err).
+				WithMessage("Failed to copy event challenge").
+				Err()
 		}
 		copied[challenge.ID] = newChallenge
 	}
