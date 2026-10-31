@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/advisory"
 	"os"
 	"strconv"
 	"strings"
@@ -55,7 +56,7 @@ type (
 )
 
 // newPoolConfig sizes one pool of the replica. pgx would default to the CPU count (4 on a 4-vCPU node). The main
-// pool (POSTGRES_MAX_CONNS, 32) serves requests and use cases, job handlers included: their concurrency is bounded
+// pool (POSTGRES_MAX_CONNS, 24) serves requests and use cases, job handlers included: their concurrency is bounded
 // by the job workers (default 6 + durable notices 2 + images 2). The job pool (POSTGRES_JOB_MAX_CONNS, 8) carries
 // River itself (fetching, LISTEN, maintenance, migrations) and the session revocation poll, so a flood of requests
 // cannot starve the poll into mass 503s, and jobs holding a transaction cannot starve requests. The server allows 200.
@@ -94,18 +95,22 @@ func openPool(
 // reservedConns is the room left on the server for administration, migrations run by hand and monitoring.
 const reservedConns = 20
 
+// lockSessions is the most advisory-lock sessions one replica keeps outside the pools (advisory.MaxHeld): each takes
+// a connection of its own, so the budget counts them.
+const lockSessions = advisory.MaxHeld
+
 // poolBudget states how many connections one replica may open and what the server must allow for N replicas.
 func poolBudget(mainConns, jobConns int) string {
-	perReplica := mainConns + jobConns
+	perReplica := mainConns + jobConns + lockSessions
 	return fmt.Sprintf(
-		"DB pools: main=%d job=%d per_replica=%d (with N replicas need N×%d+%d ≤ max_connections)",
-		mainConns, jobConns, perReplica, perReplica, reservedConns,
+		"DB connections: main=%d job=%d lock_sessions=%d per_replica=%d (with N replicas need N×%d+%d ≤ max_connections)",
+		mainConns, jobConns, lockSessions, perReplica, perReplica, reservedConns,
 	)
 }
 
 // poolBudgetExceeded reports whether even one replica does not fit the server's max_connections.
 func poolBudgetExceeded(mainConns, jobConns, maxConnections int) bool {
-	return mainConns+jobConns+reservedConns > maxConnections
+	return mainConns+jobConns+lockSessions+reservedConns > maxConnections
 }
 
 // checkPoolBudget logs the connection arithmetic and warns when a single replica already exceeds the server limit.

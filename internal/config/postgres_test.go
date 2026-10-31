@@ -17,7 +17,7 @@ func TestPostgresPoolDefaultsAndValidation(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if c.MaxConns != 32 || c.AcquireTimeout != 3*time.Second ||
+	if c.MaxConns != 24 || c.AcquireTimeout != 3*time.Second ||
 		c.MaxConnLifetime != 30*time.Minute ||
 		c.MaxConnIdleTime != 5*time.Minute ||
 		c.JobMaxConns != 8 {

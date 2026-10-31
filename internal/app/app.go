@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/advisory"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller"
 	"github.com/cybericebox/daemon/internal/delivery/infrastructure/agentfleet"
@@ -55,6 +56,8 @@ func Run(cfg *config.Config) {
 		repository.Dependencies{PostgresConfig: &cfg.Infrastructure.Postgres},
 	)
 	defer repo.Close()
+	// The busy state of the connection pools: a warning while a pool is nearly full or statements wait for a connection.
+	go repo.WatchPools(ctx, postgres.PoolWatchInterval, advisory.HeldCount)
 
 	// Migrations are a deliberate, separate step owned by the repository — not
 	// pulled directly from postgres in the bootstrap.

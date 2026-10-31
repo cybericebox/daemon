@@ -239,7 +239,7 @@ type (
 		// MaxConns sizes the pool requests and use cases share. A statement waits at most AcquireTimeout for a
 		// free connection, then the request is answered 503 (Retry-After) instead of queueing until the client
 		// gives up. Connections are replaced after MaxConnLifetime and closed after MaxConnIdleTime unused.
-		MaxConns        int           `env:"MAX_CONNS"          envDefault:"32"`
+		MaxConns        int           `env:"MAX_CONNS"          envDefault:"24"`
 		AcquireTimeout  time.Duration `env:"ACQUIRE_TIMEOUT"    envDefault:"3s"`
 		MaxConnLifetime time.Duration `env:"MAX_CONN_LIFETIME"  envDefault:"30m"`
 		MaxConnIdleTime time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`

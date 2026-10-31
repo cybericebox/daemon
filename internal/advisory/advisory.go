@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,9 +26,21 @@ func Key(namespace, id string) int64 {
 // releaseTimeout bounds closing a lock session.
 const releaseTimeout = 5 * time.Second
 
+// MaxHeld bounds the lock sessions one process holds at once. A lock session takes its connection out of the pool for
+// good (Hijack), so it is not counted in the pool's size: the bound keeps the connections of one replica at
+// pool + job pool + MaxHeld, which the deploy budgets. Further locks wait for a session to end (or for their context).
+const MaxHeld = 8
+
+// slots holds one token per lock session that may be open.
+var slots = make(chan struct{}, MaxHeld)
+
+// HeldCount is the lock sessions open now.
+func HeldCount() int { return len(slots) }
+
 // Held is a lock held by one connection until Release (or until the connection dies).
 type Held struct {
 	conn *pgx.Conn
+	once sync.Once
 }
 
 // Alive reports whether the lock's connection still answers. A session that ended has lost its lock.
@@ -35,9 +48,12 @@ func (h *Held) Alive(ctx context.Context) error { return h.conn.Ping(ctx) }
 
 // Release ends the session, which releases the lock even when the server was unreachable for a unlock statement.
 func (h *Held) Release() {
-	ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
-	defer cancel()
-	_ = h.conn.Close(ctx)
+	h.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), releaseTimeout)
+		defer cancel()
+		_ = h.conn.Close(ctx)
+		<-slots
+	})
 }
 
 // TryLock takes the lock when nobody holds it; false means another session holds it.
@@ -71,8 +87,14 @@ func Lock(ctx context.Context, pool *pgxpool.Pool, key int64) (*Held, error) {
 
 // open takes a connection out of the pool for good: it carries a session lock, so it must never be reused.
 func open(ctx context.Context, pool *pgxpool.Pool) (*Held, error) {
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for a lock session: %w", ctx.Err())
+	}
 	c, err := pool.Acquire(ctx)
 	if err != nil {
+		<-slots
 		return nil, fmt.Errorf("acquire lock connection: %w", err)
 	}
 	return &Held{conn: c.Hijack()}, nil
