@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/repository/passkeyRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -33,6 +35,7 @@ type IRepository interface {
 	userRepo.Queries
 	sessionRepo.Queries
 	temporalCodeRepo.Queries
+	passkeyRepo.Queries
 }
 
 // ITokenClient is the crypto port (satisfied by *token.Client).
@@ -82,9 +85,12 @@ type IAvatarStorage interface {
 }
 
 type AuthUseCase struct {
-	sessions           *sessionRepo.Repository
-	users              *userRepo.Repository
-	codes              *temporalCodeRepo.Repository
+	sessions *sessionRepo.Repository
+	users    *userRepo.Repository
+	codes    *temporalCodeRepo.Repository
+	passkeys *passkeyRepo.Repository
+	// webauthn is the relying party of passkey sign-in; nil when the hosts do not allow one.
+	webauthn           *webauthn.WebAuthn
 	token              ITokenClient
 	password           IPasswordClient
 	notifier           INotifier
@@ -160,6 +166,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		sessions:          sessionRepo.New(deps.Repo),
 		users:             userRepo.New(deps.Repo),
 		codes:             temporalCodeRepo.New(deps.Repo),
+		passkeys:          passkeyRepo.New(deps.Repo),
 		token:             deps.Token,
 		password:          deps.Password,
 		notifier:          deps.Notifier,
@@ -172,6 +179,11 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		rt:                deps.Sessions,
 		limits:            newAuthLimits(),
 		background:        deps.Background,
+	}
+	if rp, err := newWebAuthn(deps.Config.Hosts); err != nil {
+		log.Warn().Err(err).Msg("Passkeys are unavailable: the relying party could not be built")
+	} else {
+		uc.webauthn = rp
 	}
 	if deps.Sessions != nil && deps.Sessions.Seen != nil {
 		deps.Sessions.Seen.SetWriter(uc)
@@ -268,6 +280,9 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 	}
 	if _, err := u.users.DeleteProviders(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user providers").Err()
+	}
+	if _, err := u.passkeys.DeleteAll(ctx, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user passkeys").Err()
 	}
 	if u.inboxRequests != nil {
 		// Best-effort: the account is already removed.

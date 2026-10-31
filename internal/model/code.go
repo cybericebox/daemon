@@ -37,4 +37,5 @@ const (
 	LinkedVariantObjectCode
 	NodeProfileObjectCode
 	DeviceObjectCode
+	PasskeyObjectCode
 )

@@ -71,6 +71,7 @@ var objectByName = map[string]int{
 	"LinkedVariantObjectCode":      30,
 	"NodeProfileObjectCode":        31,
 	"DeviceObjectCode":             32,
+	"PasskeyObjectCode":            33,
 }
 
 // declRe captures one builder chain: var name, base error, object constant, and

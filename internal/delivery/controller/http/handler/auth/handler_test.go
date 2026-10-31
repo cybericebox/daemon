@@ -17,6 +17,7 @@ import (
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
@@ -44,6 +45,8 @@ type fakeUC struct {
 	capturedMeta      authModel.SessionMetadata
 	loginHint         string
 	setupStartToken   string
+	passkeyErr        error
+	passkeys          []passkeyModel.Passkey
 }
 
 func (f *fakeUC) SignIn(
@@ -205,6 +208,46 @@ func (f *fakeUC) RemoveAvatar(_ context.Context, _ uuid.UUID) error { return nil
 func (f *fakeUC) GetAvatar(_ context.Context, _ uuid.UUID) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader(f.avatarBody)), f.avatarType, nil
 }
+
+func (f *fakeUC) BeginPasskeySignIn(_ context.Context) (authUseCase.PasskeyCeremony, error) {
+	options := json.RawMessage(`{"publicKey":{"challenge":"c"}}`)
+	return authUseCase.PasskeyCeremony{CeremonyID: "cer", Options: options}, nil
+}
+func (f *fakeUC) PasskeySignIn(
+	_ context.Context,
+	_, redirect string,
+	_ []byte,
+	meta authModel.SessionMetadata,
+) (string, string, error) {
+	f.capturedRedirect = redirect
+	f.capturedMeta = meta
+	return f.cookie, f.redirect, f.passkeyErr
+}
+func (f *fakeUC) BeginPasskeyRegistration(
+	_ context.Context,
+	_ uuid.UUID,
+	password string,
+) (authUseCase.PasskeyCeremony, error) {
+	f.reauthPassword = password
+	options := json.RawMessage(`{"publicKey":{}}`)
+	return authUseCase.PasskeyCeremony{CeremonyID: "cer", Options: options}, f.passkeyErr
+}
+func (f *fakeUC) FinishPasskeyRegistration(
+	_ context.Context,
+	userID uuid.UUID,
+	_, name string,
+	_ []byte,
+) (passkeyModel.Passkey, error) {
+	created := passkeyModel.Passkey{ID: uuid.Must(uuid.NewV7()), UserID: userID, Name: name}
+	return created, f.passkeyErr
+}
+func (f *fakeUC) ListPasskeys(_ context.Context, _ uuid.UUID) ([]passkeyModel.Passkey, error) {
+	return f.passkeys, nil
+}
+func (f *fakeUC) RenamePasskey(_ context.Context, _, _ uuid.UUID, _ string) error {
+	return f.passkeyErr
+}
+func (f *fakeUC) RemovePasskey(_ context.Context, _, _ uuid.UUID) error { return f.passkeyErr }
 
 type fakeProt struct {
 	// capturedSessionCookie records the value passed to Authenticate.

@@ -42,6 +42,13 @@ POST   /api/auth/google/link | gate: self | layers: -
 GET    /api/auth/google/register | gate: - | layers: -
 GET    /api/auth/google/setup | gate: - | layers: -
 GET    /api/auth/me | gate: self | layers: -
+GET    /api/auth/passkeys | gate: self | layers: -
+DELETE /api/auth/passkeys/:id | gate: self | layers: -
+PATCH  /api/auth/passkeys/:id | gate: self | layers: -
+POST   /api/auth/passkeys/registration/begin | gate: self | layers: middleware.RateLimitPerUser.func
+POST   /api/auth/passkeys/registration/finish | gate: self | layers: -
+POST   /api/auth/passkeys/sign-in/begin | gate: - | layers: recaptcha
+POST   /api/auth/passkeys/sign-in/finish | gate: - | layers: -
 POST   /api/auth/password/change | gate: self | layers: middleware.RateLimitPerUser.func
 GET    /api/auth/password/policy | gate: - | layers: -
 POST   /api/auth/password/reset | gate: - | layers: -

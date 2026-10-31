@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/limits"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
@@ -87,6 +88,29 @@ type (
 			sessionCookieValue, code, state string,
 		) error
 
+		// passkeys (WebAuthn)
+		BeginPasskeySignIn(ctx context.Context) (authUseCase.PasskeyCeremony, error)
+		PasskeySignIn(
+			ctx context.Context,
+			ceremonyID, redirect string,
+			assertion []byte,
+			meta authModel.SessionMetadata,
+		) (string, string, error)
+		BeginPasskeyRegistration(
+			ctx context.Context,
+			userID uuid.UUID,
+			currentPassword string,
+		) (authUseCase.PasskeyCeremony, error)
+		FinishPasskeyRegistration(
+			ctx context.Context,
+			userID uuid.UUID,
+			ceremonyID, name string,
+			credential []byte,
+		) (passkeyModel.Passkey, error)
+		ListPasskeys(ctx context.Context, userID uuid.UUID) ([]passkeyModel.Passkey, error)
+		RenamePasskey(ctx context.Context, userID, passkeyID uuid.UUID, name string) error
+		RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID) error
+
 		// avatars (S3-backed)
 		UploadAvatar(
 			ctx context.Context,
@@ -126,6 +150,12 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	pub.GET("setup", h.getSetup)
 	pub.POST("setup", h.completeSetup)
 
+	// Passkey sign-in: the ceremony start is behind the captcha like the other sign-in forms; the finish is
+	// bound to a one-time server challenge and verified by signature.
+	passkeys := pub.Group("passkeys/sign-in")
+	passkeys.POST("begin", h.prot.RequireCaptcha("passkeySignIn"), h.passkeySignInBegin)
+	passkeys.POST("finish", h.passkeySignInFinish)
+
 	password := pub.Group("password")
 	password.GET("policy", h.passwordPolicy)
 	password.POST("reset-request", h.prot.RequireCaptcha("forgotPassword"), h.requestPasswordReset)
@@ -153,6 +183,11 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)
+	sec.GET("passkeys", self, h.listPasskeys)
+	sec.POST("passkeys/registration/begin", self, selfCheck, h.passkeyRegistrationBegin)
+	sec.POST("passkeys/registration/finish", self, h.passkeyRegistrationFinish)
+	sec.PATCH("passkeys/:id", self, h.renamePasskey)
+	sec.DELETE("passkeys/:id", self, h.removePasskey)
 	sec.POST("google/link", self, h.googleLink)
 	sec.DELETE("google/link", self, h.unlinkGoogle)
 

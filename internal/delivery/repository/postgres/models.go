@@ -1321,6 +1321,22 @@ type User struct {
 	InvitationSentAt     pgtype.Timestamptz `json:"invitation_sent_at"`
 }
 
+type UserPasskey struct {
+	ID             uuid.UUID          `json:"id"`
+	UserID         uuid.UUID          `json:"user_id"`
+	CredentialID   []byte             `json:"credential_id"`
+	PublicKey      []byte             `json:"public_key"`
+	SignCount      int64              `json:"sign_count"`
+	Aaguid         []byte             `json:"aaguid"`
+	Transports     []string           `json:"transports"`
+	UserVerified   bool               `json:"user_verified"`
+	BackupEligible bool               `json:"backup_eligible"`
+	BackupState    bool               `json:"backup_state"`
+	Name           string             `json:"name"`
+	CreatedAt      time.Time          `json:"created_at"`
+	LastUsedAt     pgtype.Timestamptz `json:"last_used_at"`
+}
+
 type UserProvider struct {
 	ID             uuid.UUID `json:"id"`
 	UserID         uuid.UUID `json:"user_id"`

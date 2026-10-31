@@ -165,7 +165,8 @@ func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, sta
 //     user's own inbox settings (notifications.self);
 //   - PermSelf writes only where PermSelf stands for staff work: the event
 //     manage area and the exercise catalog (the plain self-service writes —
-//     profile, sessions, flag submissions — are not administration);
+//     profile, sessions, flag submissions — are not administration), plus a user's own passkeys: adding
+//     and removing a sign-in method is an account-security event worth a line;
 //   - GET exports (CSV/ZIP of people and results), which move PII out.
 func isAuditedAction(required rbac.Permission, ctx *gin.Context) bool {
 	path := ctx.FullPath()
@@ -178,7 +179,10 @@ func isAuditedAction(required rbac.Permission, ctx *gin.Context) bool {
 	if required == rbac.PermNotificationsSelf {
 		return false
 	}
-	return required != rbac.PermSelf || strings.Contains(path, "/manage/") || strings.Contains(path, "/exercises")
+	return required != rbac.PermSelf ||
+		strings.Contains(path, "/manage/") ||
+		strings.Contains(path, "/exercises") ||
+		strings.Contains(path, "/auth/passkeys")
 }
 
 // routeTarget names the objects a request addressed from its route ids

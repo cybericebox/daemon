@@ -30,7 +30,8 @@ func (q *Queries) AvgDailyActiveSince(ctx context.Context, createdAt time.Time) 
 
 const countUserLoginMethods = `-- name: CountUserLoginMethods :one
 SELECT ((CASE WHEN hashed_password IS NOT NULL AND hashed_password <> '' THEN 1 ELSE 0 END)
-    + (SELECT count(*) FROM user_providers WHERE user_id = users.id)) ::bigint
+    + (SELECT count(*) FROM user_providers WHERE user_id = users.id)
+    + (SELECT count(*) FROM user_passkeys WHERE user_id = users.id)) ::bigint
 FROM users
 WHERE users.id = $1
 `

@@ -44,6 +44,8 @@ var publicRoutes = map[string]bool{
 	"POST pub/sign-up":                   true, // recaptcha-gated registration entry
 	"GET pub/setup":                      true, // setup-token flow (context)
 	"POST pub/setup":                     true, // setup-token flow (complete)
+	"POST passkeys/begin":                true, // recaptcha-gated passkey sign-in start (one-time server challenge)
+	"POST passkeys/finish":               true, // passkey sign-in: authorized by the signed assertion over that challenge
 	"POST password/reset-request":        true, // recaptcha-gated password reset request
 	"POST password/reset":                true, // password reset with emailed code
 	"GET password/policy":                true, // static password complexity policy (config, no user data)
