@@ -79,6 +79,7 @@ import (
 // (each now including its list/count shapes), so the use case holds no postgres.*
 // types. The gomock Querier and the real Queries both satisfy it structurally.
 type IRepository interface {
+	eventCopyQueries
 	participantPreviewRepo.Queries
 	platformSettingsRepo.Queries
 	eventLabAllocationRepo.Queries

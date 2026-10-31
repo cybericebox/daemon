@@ -17,11 +17,15 @@ import (
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
 var maxUUID = uuid.Must(uuid.FromString("ffffffff-ffff-ffff-ffff-ffffffffffff"))
 var cursorSentinelTime = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+// MaxBulkEvents bounds one bulk request on events.
+const MaxBulkEvents = 200
 
 // CreateEvent persists a new platform event. Route gate: events.write.
 func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (EventView, error) {
@@ -30,9 +34,30 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 	if err != nil {
 		return EventView{}, err
 	}
+	var source eventModel.Event
+	if in.CopyFromEventID != uuid.Nil {
+		if source, err = u.events.GetByID(ctx, in.CopyFromEventID); err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return EventView{}, eventModel.ErrEventNotFound.Err()
+			}
+			return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get the event to copy").Err()
+		}
+		if in.InfrastructureAllowed == nil {
+			copyInfra := source.InfrastructureAllowed
+			in.InfrastructureAllowed = &copyInfra
+		}
+	}
 	allowed, err := u.creationInfrastructureAllowed(ctx, in.InfrastructureAllowed)
 	if err != nil {
 		return EventView{}, err
+	}
+	if in.CopyFromEventID != uuid.Nil && !allowed {
+		// The copy would carry laboratory tasks the event cannot run.
+		if infra, countErr := u.eventExercises.CountInfrastructure(ctx, in.CopyFromEventID); countErr != nil {
+			return EventView{}, model.ErrPlatform.WithError(countErr).WithMessage("Failed to count infrastructure exercises").Err()
+		} else if infra > 0 {
+			return EventView{}, eventModel.ErrEventInfrastructureUnavailable.Err()
+		}
 	}
 	e.AllowInfrastructure(allowed)
 	liveCount, err := u.events.CountOverlappingWithTag(ctx, e.Tag, e.AvailableFrom, e.ArchiveAt, uuid.Nil)
@@ -64,8 +89,17 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 	if _, err = eventManagerRepo.New(txRepo).Create(txCtx, owner); err != nil {
 		return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event owner").Err()
 	}
+	var ownVersions []exerciseModel.ExerciseVersion
+	if in.CopyFromEventID != uuid.Nil {
+		if ownVersions, err = u.copyEventContent(txCtx, txRepo, source, created, in.CreatedBy, now); err != nil {
+			return EventView{}, err
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event").Err()
+	}
+	if in.CopyFromEventID != uuid.Nil {
+		u.copyEventMedia(ctx, in.CopyFromEventID, created.ID, ownVersions)
 	}
 	u.tagsChanged()
 	return toEventView(created, now), nil
@@ -150,7 +184,7 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "tag", "name", "status", "availableFrom", "archiveAt", "updated":
+		case "tag", "name", "status", "availableFrom", "archiveAt", "updated", "start", "participants", "teams", "stands":
 		default:
 			sortBy = "created"
 		}
@@ -162,18 +196,32 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 		if offset < 0 || offset > 2147483647 {
 			return EventsListResult{}, model.ErrPlatform.WithMessage("Event page is out of range").Err()
 		}
-		rows, err := u.events.ListPage(ctx, eventRepo.PageParams{
+		params := eventRepo.PageParams{
 			Search: f.Search, Status: f.Status, SortBy: sortBy, SortDir: sortDir, Now: now,
 			Limit: int32(limit), Offset: int32(offset),
-		})
+			StartFrom: f.StartFrom, StartTo: f.StartTo, Infrastructure: f.Infrastructure,
+			OrganizerID: uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil},
+		}
+		rows, err := u.events.ListPage(ctx, params)
 		if err != nil {
 			return EventsListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list events").Err()
 		}
+		ids := make([]uuid.UUID, 0, len(rows))
+		for _, e := range rows {
+			ids = append(ids, e.ID)
+		}
+		counts, err := u.events.CountsOf(ctx, ids)
+		if err != nil {
+			return EventsListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count event participants").Err()
+		}
 		items := make([]EventView, 0, len(rows))
 		for _, e := range rows {
-			items = append(items, toEventView(e, now))
+			view := toEventView(e, now)
+			c := counts[e.ID]
+			view.Counts = &EventCountsView{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
+			items = append(items, view)
 		}
-		total, err := u.events.CountPage(ctx, f.Search, f.Status, now)
+		total, err := u.events.CountPage(ctx, params)
 		if err != nil {
 			return EventsListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count events").Err()
 		}

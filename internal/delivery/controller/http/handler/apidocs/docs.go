@@ -2207,6 +2207,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/bulk/archive": {
+            "post": {
+                "description": "1 to 200 events; one result per event in request order; an event that fails never stops the others; one audit entry per event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Archive many events",
+                "parameters": [
+                    {
+                        "description": "events",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkArchiveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkArchiveResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/self/answer-files": {
             "post": {
                 "consumes": [
@@ -28774,6 +28820,46 @@ const docTemplate = `{
                 }
             }
         },
+        "event.bulkArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "EventIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "event.bulkArchiveResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.bulkEventResultResponse"
+                    }
+                }
+            }
+        },
+        "event.bulkEventResultResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the catalog code of the refusal (empty when Ok); Error its English text.",
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "Ok": {
+                    "type": "boolean"
+                }
+            }
+        },
         "event.bulkExerciseDetachRequest": {
             "type": "object",
             "properties": {
@@ -29063,6 +29149,10 @@ const docTemplate = `{
                 "AvailableFrom": {
                     "type": "string"
                 },
+                "CopyFromEventID": {
+                    "description": "CopyFromEventID copies the settings, theme, pages, organizers and task sets (unpublished) of that event; never\nparticipants, teams, invitations, results, stands, the reservation or analytics.",
+                    "type": "string"
+                },
                 "InfrastructureAllowed": {
                     "description": "InfrastructureAllowed omitted defaults to Laboratory availability.",
                     "type": "boolean"
@@ -29284,6 +29374,24 @@ const docTemplate = `{
                 "Variables": {
                     "type": "object",
                     "additionalProperties": {}
+                }
+            }
+        },
+        "event.eventCountsResponse": {
+            "type": "object",
+            "properties": {
+                "Participants": {
+                    "type": "integer"
+                },
+                "StandsReady": {
+                    "description": "StandsReady of StandsTotal: the stands of the teams (the moderators team excluded).",
+                    "type": "integer"
+                },
+                "StandsTotal": {
+                    "type": "integer"
+                },
+                "Teams": {
+                    "type": "integer"
                 }
             }
         },
@@ -29934,7 +30042,18 @@ const docTemplate = `{
                 "AvailableFrom": {
                     "type": "string"
                 },
+                "Counts": {
+                    "description": "Counts is set in the page (offset) list only.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.eventCountsResponse"
+                        }
+                    ]
+                },
                 "CreatedAt": {
+                    "type": "string"
+                },
+                "FinishAt": {
                     "type": "string"
                 },
                 "ID": {
@@ -29948,6 +30067,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Name": {
+                    "type": "string"
+                },
+                "StartAt": {
+                    "description": "StartAt / FinishAt: the schedule (null until it is configured; FinishAt null without a finish).",
                     "type": "string"
                 },
                 "Status": {

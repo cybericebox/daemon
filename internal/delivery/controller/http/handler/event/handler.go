@@ -29,6 +29,7 @@ import (
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
 	"github.com/cybericebox/daemon/pkg/labaccess"
@@ -75,6 +76,7 @@ type (
 		SetEventInfrastructure(ctx context.Context, id uuid.UUID, allowed bool, by uuid.UUID) (eventUseCase.EventView, error)
 		UpdateEventScoringProfile(ctx context.Context, id uuid.UUID, in eventUseCase.UpdateEventScoringProfileInput, updatedBy uuid.UUID) (eventUseCase.EventScoringProfileView, error)
 		ArchiveEvent(ctx context.Context, id uuid.UUID, updatedBy uuid.UUID) (eventUseCase.EventView, error)
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 		DeleteEvent(ctx context.Context, id uuid.UUID) error
 
 		GetEventConfig(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventConfigView, error)
@@ -280,6 +282,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.GET(":id/preview-picture/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(previewMedia))
 		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(contentMedia))
 		ev.POST("", h.prot.RequirePermission(rbac.PermEventsWrite), h.create)
+		ev.POST("bulk/archive", h.prot.RequirePermission(rbac.PermEventsWrite), h.bulkArchive)
 
 		ev.GET(":id", h.prot.RequirePermission(rbac.PermEventsRead), h.get)
 		ev.PUT(":id", h.prot.RequirePermission(rbac.PermEventsWrite), h.update)
@@ -1629,10 +1632,15 @@ func (h *Handler) list(ctx *gin.Context) {
 			response.AbortWithBadRequest(ctx, err)
 			return
 		}
-		res, err := h.useCase.ListEvents(ctx, eventUseCase.ListEventsFilter{
+		filter := eventUseCase.ListEventsFilter{
 			Search: ctx.Query("search"), Status: ctx.Query("status"), Page: page.Page, PageSize: page.PageSize,
 			SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
-		})
+		}
+		if err = parseEventListFilters(ctx, &filter); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+		res, err := h.useCase.ListEvents(ctx, filter)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
@@ -1686,10 +1694,14 @@ func (h *Handler) create(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	v, err := h.useCase.CreateEvent(ctx, eventUseCase.CreateEventInput{
+	input := eventUseCase.CreateEventInput{
 		Tag: req.Tag, Name: req.Name, AvailableFrom: req.AvailableFrom, ArchiveAt: nullableRequestTime(req.ArchiveAt), CreatedBy: claims.UserID,
 		InfrastructureAllowed: req.InfrastructureAllowed,
-	})
+	}
+	if req.CopyFromEventID != nil {
+		input.CopyFromEventID = *req.CopyFromEventID
+	}
+	v, err := h.useCase.CreateEvent(ctx, input)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

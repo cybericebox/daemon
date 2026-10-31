@@ -37,6 +37,7 @@ type Queries interface {
 	ListEventsCursor(ctx context.Context, arg postgres.ListEventsCursorParams) ([]postgres.Event, error)
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
+	ListEventCounts(ctx context.Context, eventIds []uuid.UUID) ([]postgres.ListEventCountsRow, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
 	ListEventScheduleChanges(
 		ctx context.Context,
@@ -68,6 +69,11 @@ type PageParams struct {
 	Now     time.Time
 	Limit   int32
 	Offset  int32
+	// StartFrom / StartTo bound the event start (to is exclusive); OrganizerID keeps the events the user manages;
+	// Infrastructure is "", "true" or "false".
+	StartFrom, StartTo *time.Time
+	OrganizerID        uuid.NullUUID
+	Infrastructure     string
 }
 
 type Repository struct {
@@ -106,6 +112,8 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.E
 	rows, err := r.q.ListEventsPage(ctx, postgres.ListEventsPageParams{
 		Search: p.Search, Status: p.Status, SortBy: p.SortBy, SortDir: p.SortDir,
 		Now: p.Now, LimitVal: p.Limit, OffsetVal: p.Offset,
+		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
+		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure,
 	})
 	if err != nil {
 		return nil, err
@@ -117,8 +125,40 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.E
 	return out, nil
 }
 
-func (r *Repository) CountPage(ctx context.Context, search, status string, now time.Time) (int64, error) {
-	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{Search: search, Status: status, Now: now})
+func (r *Repository) CountPage(ctx context.Context, p PageParams) (int64, error) {
+	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{
+		Search: p.Search, Status: p.Status, Now: p.Now,
+		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
+		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure,
+	})
+}
+
+func optionalTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+// Counts are the counters of one event in the admin table.
+type Counts struct {
+	Participants, Teams, StandsReady, StandsTotal int64
+}
+
+// CountsOf reads the counters of many events at once (one query).
+func (r *Repository) CountsOf(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Counts, error) {
+	out := make(map[uuid.UUID]Counts, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListEventCounts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.EventID] = Counts{Participants: row.Participants, Teams: row.Teams, StandsReady: row.StandsReady, StandsTotal: row.StandsTotal}
+	}
+	return out, nil
 }
 
 // Count returns the number of events matching the search filter.

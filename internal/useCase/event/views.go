@@ -31,6 +31,16 @@ type EventView struct {
 	InfrastructureAllowed bool
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	// StartAt / FinishAt are the scheduled start and finish (nil while the schedule is not configured; FinishAt
+	// is nil without a finish).
+	StartAt, FinishAt *time.Time
+	// Counts are filled in the offset (page) list only.
+	Counts *EventCountsView
+}
+
+// EventCountsView are the counters of one row of the admin events table.
+type EventCountsView struct {
+	Participants, Teams, StandsReady, StandsTotal int64
 }
 
 type EventManagerView struct {
@@ -110,7 +120,17 @@ func toEventTenantView(e eventModel.Event, now time.Time) EventTenantView {
 }
 
 func toEventView(e eventModel.Event, now time.Time) EventView {
+	var startAt, finishAt *time.Time
+	if e.Lifecycle.Configured {
+		start := e.Lifecycle.StartAt
+		startAt = &start
+		if e.Lifecycle.FinishAt != nil {
+			finish := *e.Lifecycle.FinishAt
+			finishAt = &finish
+		}
+	}
 	return EventView{
+		StartAt: startAt, FinishAt: finishAt,
 		ID:                    e.ID,
 		Tag:                   e.Tag,
 		Name:                  e.InternalName,

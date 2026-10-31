@@ -143,6 +143,10 @@ WHERE (sqlc.arg(search)::text = '' OR tag ILIKE '%' || sqlc.arg(search)::text ||
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= sqlc.arg(now)::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= sqlc.arg(now)::timestamptz) THEN 'finished'
          ELSE 'started' END = sqlc.arg(status)::text)
+  AND (sqlc.narg(start_from)::timestamptz IS NULL OR start_at >= sqlc.narg(start_from)::timestamptz)
+  AND (sqlc.narg(start_to)::timestamptz IS NULL OR start_at < sqlc.narg(start_to)::timestamptz)
+  AND (sqlc.narg(organizer_id)::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = sqlc.narg(organizer_id)::uuid))
+  AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'))
 ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(tag) END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(tag) END DESC,
@@ -172,6 +176,14 @@ ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'archiveAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN archive_at END DESC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'updated' AND sqlc.arg(sort_dir)::text = 'asc' THEN updated_at END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'updated' AND sqlc.arg(sort_dir)::text = 'desc' THEN updated_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'start' AND sqlc.arg(sort_dir)::text = 'asc' THEN start_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'start' AND sqlc.arg(sort_dir)::text = 'desc' THEN start_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'participants' AND sqlc.arg(sort_dir)::text = 'asc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'participants' AND sqlc.arg(sort_dir)::text = 'desc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teams' AND sqlc.arg(sort_dir)::text = 'asc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'teams' AND sqlc.arg(sort_dir)::text = 'desc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'stands' AND sqlc.arg(sort_dir)::text = 'asc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'stands' AND sqlc.arg(sort_dir)::text = 'desc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END DESC,
   created_at DESC, id DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
@@ -188,7 +200,11 @@ WHERE (sqlc.arg(search)::text = '' OR tag ILIKE '%' || sqlc.arg(search)::text ||
          WHEN start_at > sqlc.arg(now)::timestamptz THEN 'published'
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= sqlc.arg(now)::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= sqlc.arg(now)::timestamptz) THEN 'finished'
-         ELSE 'started' END = sqlc.arg(status)::text);
+         ELSE 'started' END = sqlc.arg(status)::text)
+  AND (sqlc.narg(start_from)::timestamptz IS NULL OR start_at >= sqlc.narg(start_from)::timestamptz)
+  AND (sqlc.narg(start_to)::timestamptz IS NULL OR start_at < sqlc.narg(start_to)::timestamptz)
+  AND (sqlc.narg(organizer_id)::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = sqlc.narg(organizer_id)::uuid))
+  AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'));
 
 -- name: CountLiveEventsWithTag :one
 -- Conflict means overlapping HALF-OPEN platform windows, not merely a reused
@@ -252,3 +268,16 @@ LEFT JOIN users person ON person.id = change.changed_by
 WHERE change.event_id = sqlc.arg(event_id)
 ORDER BY change.changed_at DESC, change.id DESC
 LIMIT 200;
+
+-- name: ListEventCounts :many
+-- The counters of the admin events table for one page of events, in one query: approved participants, teams (not the
+-- moderators team, not the single-member teams of an individual event) and the stands of those teams (ready / all).
+SELECT e.id                                                                      AS event_id,
+       (SELECT count(*) FROM event_participants p WHERE p.event_id = e.id AND p.status = 2)::bigint AS participants,
+       (SELECT count(*) FROM event_teams t WHERE t.event_id = e.id AND NOT t.moderators AND NOT t.individual)::bigint AS teams,
+       (SELECT count(*) FROM event_team_stands s JOIN event_teams t ON t.id = s.event_team_id
+        WHERE s.event_id = e.id AND NOT t.moderators AND s.status = 2)::bigint                      AS stands_ready,
+       (SELECT count(*) FROM event_team_stands s JOIN event_teams t ON t.id = s.event_team_id
+        WHERE s.event_id = e.id AND NOT t.moderators)::bigint                                       AS stands_total
+FROM events e
+WHERE e.id = ANY (sqlc.arg(event_ids)::uuid[]);

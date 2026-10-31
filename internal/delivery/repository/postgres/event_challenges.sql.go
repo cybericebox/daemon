@@ -13,6 +13,62 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const copyEventChallenge = `-- name: CopyEventChallenge :exec
+INSERT INTO event_challenges (id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at,
+                              group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points,
+                              dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts)
+SELECT $1, $2, src.task_id, src.order_index, src.points, src.hints_enabled, false, src.snapshot, $3,
+       $4::uuid, src.scoring_mode, src.dynamic_algorithm, src.dynamic_min_points, src.dynamic_max_points,
+       src.dynamic_floor_at_percent, src.hints, src.hint_costs, src.board_order, src.max_flag_attempts
+FROM event_challenges src
+WHERE src.id = $5
+`
+
+type CopyEventChallengeParams struct {
+	NewID              uuid.UUID     `json:"new_id"`
+	NewEventExerciseID uuid.UUID     `json:"new_event_exercise_id"`
+	Now                time.Time     `json:"now"`
+	NewGroupID         uuid.NullUUID `json:"new_group_id"`
+	SourceID           uuid.UUID     `json:"source_id"`
+}
+
+// A board challenge copied into another event's set: same task, order, points, scoring, hints and attempt limit; the
+// copy is not published and has no team copies, attempts or solves.
+func (q *Queries) CopyEventChallenge(ctx context.Context, arg CopyEventChallengeParams) error {
+	_, err := q.db.Exec(ctx, copyEventChallenge,
+		arg.NewID,
+		arg.NewEventExerciseID,
+		arg.Now,
+		arg.NewGroupID,
+		arg.SourceID,
+	)
+	return err
+}
+
+const createCopiedEventChallengeGroup = `-- name: CreateCopiedEventChallengeGroup :exec
+INSERT INTO event_challenge_groups (id, event_id, name, order_index, created_at)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type CreateCopiedEventChallengeGroupParams struct {
+	ID         uuid.UUID `json:"id"`
+	EventID    uuid.UUID `json:"event_id"`
+	Name       string    `json:"name"`
+	OrderIndex int32     `json:"order_index"`
+	Now        time.Time `json:"now"`
+}
+
+func (q *Queries) CreateCopiedEventChallengeGroup(ctx context.Context, arg CreateCopiedEventChallengeGroupParams) error {
+	_, err := q.db.Exec(ctx, createCopiedEventChallengeGroup,
+		arg.ID,
+		arg.EventID,
+		arg.Name,
+		arg.OrderIndex,
+		arg.Now,
+	)
+	return err
+}
+
 const createEventChallenge = `-- name: CreateEventChallenge :one
 INSERT INTO event_challenges (id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at,
                               hints, hint_costs)
@@ -299,6 +355,69 @@ func (q *Queries) IsEventChallengePublished(ctx context.Context, id uuid.UUID) (
 	var published bool
 	err := row.Scan(&published)
 	return published, err
+}
+
+const listEventChallengeGroupsOf = `-- name: ListEventChallengeGroupsOf :many
+SELECT g.id, g.name, g.order_index
+FROM event_challenge_groups g
+WHERE g.event_id = $1
+ORDER BY g.order_index, g.id
+`
+
+type ListEventChallengeGroupsOfRow struct {
+	ID         uuid.UUID `json:"id"`
+	Name       string    `json:"name"`
+	OrderIndex int32     `json:"order_index"`
+}
+
+func (q *Queries) ListEventChallengeGroupsOf(ctx context.Context, eventID uuid.UUID) ([]ListEventChallengeGroupsOfRow, error) {
+	rows, err := q.db.Query(ctx, listEventChallengeGroupsOf, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventChallengeGroupsOfRow{}
+	for rows.Next() {
+		var i ListEventChallengeGroupsOfRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.OrderIndex); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventChallengePrerequisitePairs = `-- name: ListEventChallengePrerequisitePairs :many
+SELECT p.challenge_id, p.prerequisite_challenge_id
+FROM event_challenge_prerequisites p
+JOIN event_challenges c ON c.id = p.challenge_id
+JOIN event_exercises e ON e.id = c.event_exercise_id
+WHERE e.event_id = $1
+  AND e.status = 0
+`
+
+// Every prerequisite pair among the challenges of an event.
+func (q *Queries) ListEventChallengePrerequisitePairs(ctx context.Context, eventID uuid.UUID) ([]EventChallengePrerequisite, error) {
+	rows, err := q.db.Query(ctx, listEventChallengePrerequisitePairs, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventChallengePrerequisite{}
+	for rows.Next() {
+		var i EventChallengePrerequisite
+		if err := rows.Scan(&i.ChallengeID, &i.PrerequisiteChallengeID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listEventChallenges = `-- name: ListEventChallenges :many

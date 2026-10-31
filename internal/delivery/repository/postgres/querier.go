@@ -69,6 +69,13 @@ type Querier interface {
 	CompleteSignalHookExecution(ctx context.Context, arg CompleteSignalHookExecutionParams) (int64, error)
 	CompleteSignalOutbox(ctx context.Context, arg CompleteSignalOutboxParams) (int64, error)
 	ConsumeEventStageRuntimeSelection(ctx context.Context, arg ConsumeEventStageRuntimeSelectionParams) (int64, error)
+	// A board challenge copied into another event's set: same task, order, points, scoring, hints and attempt limit; the
+	// copy is not published and has no team copies, attempts or solves.
+	CopyEventChallenge(ctx context.Context, arg CopyEventChallengeParams) error
+	CopyEventConfig(ctx context.Context, arg CopyEventConfigParams) error
+	CopyEventPages(ctx context.Context, arg CopyEventPagesParams) error
+	// Copy of an event into a new one (docs/specs/ADMIN.md §2): settings, theme, pages, never people or results.
+	CopyEventSettings(ctx context.Context, arg CopyEventSettingsParams) error
 	CountActiveExerciseTestDeploys(ctx context.Context, arg CountActiveExerciseTestDeploysParams) (int64, error)
 	CountApprovedEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
@@ -146,6 +153,7 @@ type Querier interface {
 	CreateAdminAuditLog(ctx context.Context, arg CreateAdminAuditLogParams) error
 	CreateChallengeAttempt(ctx context.Context, arg CreateChallengeAttemptParams) (ChallengeAttempt, error)
 	CreateChallengeAttemptDecision(ctx context.Context, arg CreateChallengeAttemptDecisionParams) (ChallengeAttemptDecision, error)
+	CreateCopiedEventChallengeGroup(ctx context.Context, arg CreateCopiedEventChallengeGroupParams) error
 	CreateDispatch(ctx context.Context, arg CreateDispatchParams) (NotificationDispatch, error)
 	CreateDispatchIfAbsent(ctx context.Context, arg CreateDispatchIfAbsentParams) (int64, error)
 	// Rollback: a new draft cloned from a historical version's content. Fails
@@ -877,6 +885,9 @@ type Querier interface {
 	// challenge is returned, including those with no materialized team rows yet.
 	ListEventChallengeAvailability(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventChallengeAvailabilityRow, error)
 	ListEventChallengeGroups(ctx context.Context, eventID uuid.UUID) ([]EventChallengeGroup, error)
+	ListEventChallengeGroupsOf(ctx context.Context, eventID uuid.UUID) ([]ListEventChallengeGroupsOfRow, error)
+	// Every prerequisite pair among the challenges of an event.
+	ListEventChallengePrerequisitePairs(ctx context.Context, eventID uuid.UUID) ([]EventChallengePrerequisite, error)
 	ListEventChallengePrerequisites(ctx context.Context, challengeID uuid.UUID) ([]uuid.UUID, error)
 	// One page of who solved a board challenge: the same team population as the
 	// solve counts, named like the public scoreboard names its rows. Oldest solve
@@ -886,6 +897,9 @@ type Querier interface {
 	ListEventChallengeSolves(ctx context.Context, arg ListEventChallengeSolvesParams) ([]ListEventChallengeSolvesRow, error)
 	ListEventChallenges(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallenge, error)
 	ListEventChallengesWithAttempts(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
+	// The counters of the admin events table for one page of events, in one query: approved participants, teams (not the
+	// moderators team, not the single-member teams of an individual event) and the stands of those teams (ready / all).
+	ListEventCounts(ctx context.Context, eventIds []uuid.UUID) ([]ListEventCountsRow, error)
 	// Approved participants who never submitted an attempt, with how many tasks
 	// they opened. total is the full count; the list is cut at row_limit.
 	ListEventDropOffParticipants(ctx context.Context, arg ListEventDropOffParticipantsParams) ([]ListEventDropOffParticipantsRow, error)

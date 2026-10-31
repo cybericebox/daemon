@@ -373,6 +373,7 @@ POST   /api/events/:id/teams/mine/form | gate: self | layers: eventself.touchPre
 POST   /api/events/:id/teams/mine/leave | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/mine/members | gate: self | layers: eventself.touchPresence
 PUT    /api/events/:id/theme | gate: events.write | layers: event.requireWritableEvent
+POST   /api/events/bulk/archive | gate: events.write | layers: -
 POST   /api/events/self/answer-files | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/answer-files/:fileID | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence

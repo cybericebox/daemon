@@ -218,3 +218,34 @@ WHERE ee.event_id = sqlc.arg(event_id)
   AND ee.status = 0
   AND NOT ec.published
 ORDER BY ee.created_at, ec.order_index, ec.id;
+
+-- name: CopyEventChallenge :exec
+-- A board challenge copied into another event's set: same task, order, points, scoring, hints and attempt limit; the
+-- copy is not published and has no team copies, attempts or solves.
+INSERT INTO event_challenges (id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at,
+                              group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points,
+                              dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts)
+SELECT sqlc.arg(new_id), sqlc.arg(new_event_exercise_id), src.task_id, src.order_index, src.points, src.hints_enabled, false, src.snapshot, sqlc.arg(now),
+       sqlc.narg(new_group_id)::uuid, src.scoring_mode, src.dynamic_algorithm, src.dynamic_min_points, src.dynamic_max_points,
+       src.dynamic_floor_at_percent, src.hints, src.hint_costs, src.board_order, src.max_flag_attempts
+FROM event_challenges src
+WHERE src.id = sqlc.arg(source_id);
+
+-- name: ListEventChallengePrerequisitePairs :many
+-- Every prerequisite pair among the challenges of an event.
+SELECT p.challenge_id, p.prerequisite_challenge_id
+FROM event_challenge_prerequisites p
+JOIN event_challenges c ON c.id = p.challenge_id
+JOIN event_exercises e ON e.id = c.event_exercise_id
+WHERE e.event_id = sqlc.arg(event_id)
+  AND e.status = 0;
+
+-- name: ListEventChallengeGroupsOf :many
+SELECT g.id, g.name, g.order_index
+FROM event_challenge_groups g
+WHERE g.event_id = sqlc.arg(event_id)
+ORDER BY g.order_index, g.id;
+
+-- name: CreateCopiedEventChallengeGroup :exec
+INSERT INTO event_challenge_groups (id, event_id, name, order_index, created_at)
+VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(name), sqlc.arg(order_index), sqlc.arg(now));

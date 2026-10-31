@@ -29,6 +29,19 @@ type eventResponse struct {
 	InfrastructureAllowed bool      `json:"InfrastructureAllowed"`
 	CreatedAt             time.Time `json:"CreatedAt"`
 	UpdatedAt             time.Time `json:"UpdatedAt"`
+	// StartAt / FinishAt: the schedule (null until it is configured; FinishAt null without a finish).
+	StartAt  *time.Time `json:"StartAt"`
+	FinishAt *time.Time `json:"FinishAt"`
+	// Counts is set in the page (offset) list only.
+	Counts *eventCountsResponse `json:"Counts"`
+}
+
+type eventCountsResponse struct {
+	Participants int64 `json:"Participants"`
+	Teams        int64 `json:"Teams"`
+	// StandsReady of StandsTotal: the stands of the teams (the moderators team excluded).
+	StandsReady int64 `json:"StandsReady"`
+	StandsTotal int64 `json:"StandsTotal"`
 }
 
 type createEventRequest struct {
@@ -38,6 +51,9 @@ type createEventRequest struct {
 	ArchiveAt     *time.Time `json:"ArchiveAt"`
 	// InfrastructureAllowed omitted defaults to Laboratory availability.
 	InfrastructureAllowed *bool `json:"InfrastructureAllowed"`
+	// CopyFromEventID copies the settings, theme, pages, organizers and task sets (unpublished) of that event; never
+	// participants, teams, invitations, results, stands, the reservation or analytics.
+	CopyFromEventID *uuid.UUID `json:"CopyFromEventID"`
 }
 
 type setInfrastructureRequest struct {
@@ -364,7 +380,16 @@ func toResponse(v eventUseCase.EventView) eventResponse {
 		LifecycleStatus:       lifecycleStatusToString(v.LifecycleStatus),
 		InfrastructureAllowed: v.InfrastructureAllowed,
 		CreatedAt:             v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		StartAt: v.StartAt, FinishAt: v.FinishAt,
+		Counts: toEventCountsResponse(v.Counts),
 	}
+}
+
+func toEventCountsResponse(c *eventUseCase.EventCountsView) *eventCountsResponse {
+	if c == nil {
+		return nil
+	}
+	return &eventCountsResponse{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
 }
 
 type configResponse struct {

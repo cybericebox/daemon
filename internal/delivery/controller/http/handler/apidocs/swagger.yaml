@@ -997,6 +997,33 @@ definitions:
       UserID:
         type: string
     type: object
+  event.bulkArchiveRequest:
+    properties:
+      EventIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  event.bulkArchiveResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/event.bulkEventResultResponse'
+        type: array
+    type: object
+  event.bulkEventResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      EventID:
+        type: string
+      Ok:
+        type: boolean
+    type: object
   event.bulkExerciseDetachRequest:
     properties:
       Confirm:
@@ -1196,6 +1223,11 @@ definitions:
         type: string
       AvailableFrom:
         type: string
+      CopyFromEventID:
+        description: |-
+          CopyFromEventID copies the settings, theme, pages, organizers and task sets (unpublished) of that event; never
+          participants, teams, invitations, results, stands, the reservation or analytics.
+        type: string
       InfrastructureAllowed:
         description: InfrastructureAllowed omitted defaults to Laboratory availability.
         type: boolean
@@ -1351,6 +1383,19 @@ definitions:
       Variables:
         additionalProperties: {}
         type: object
+    type: object
+  event.eventCountsResponse:
+    properties:
+      Participants:
+        type: integer
+      StandsReady:
+        description: 'StandsReady of StandsTotal: the stands of the teams (the moderators
+          team excluded).'
+        type: integer
+      StandsTotal:
+        type: integer
+      Teams:
+        type: integer
     type: object
   event.eventEmailImageUploadResponse:
     properties:
@@ -1796,7 +1841,13 @@ definitions:
         type: string
       AvailableFrom:
         type: string
+      Counts:
+        allOf:
+        - $ref: '#/definitions/event.eventCountsResponse'
+        description: Counts is set in the page (offset) list only.
       CreatedAt:
+        type: string
+      FinishAt:
         type: string
       ID:
         type: string
@@ -1807,6 +1858,10 @@ definitions:
       LifecycleStatus:
         type: string
       Name:
+        type: string
+      StartAt:
+        description: 'StartAt / FinishAt: the schedule (null until it is configured;
+          FinishAt null without a finish).'
         type: string
       Status:
         type: string
@@ -22786,6 +22841,34 @@ paths:
                   $ref: '#/definitions/event.configResponse'
               type: object
       summary: Update an event's brand and optional accent
+      tags:
+      - events
+  /events/bulk/archive:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 events; one result per event in request order; an event
+        that fails never stops the others; one audit entry per event.
+      parameters:
+      - description: events
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkArchiveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkArchiveResponse'
+              type: object
+      summary: Archive many events
       tags:
       - events
   /events/self/answer-files:
