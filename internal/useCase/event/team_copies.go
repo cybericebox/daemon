@@ -122,8 +122,8 @@ func copyDiffers(task exerciseModel.Task, snapshot json.RawMessage, hints []team
 
 // jsonFieldEqual treats a missing field and null as the same.
 func jsonFieldEqual(a, b json.RawMessage) bool {
-	if len(a) == 0 || string(a) == "null" {
-		return len(b) == 0 || string(b) == "null"
+	if jsonAbsent(a) {
+		return jsonAbsent(b)
 	}
 	return jsonEqual(a, b)
 }
@@ -205,3 +205,7 @@ func snapshotName(snapshot json.RawMessage) string {
 	}
 	return value.Name
 }
+
+func jsonAbsent(value json.RawMessage) bool { return len(value) == 0 || string(value) == jsonNull }
+
+const jsonNull = "null"

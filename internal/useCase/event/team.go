@@ -220,27 +220,29 @@ func (u *EventUseCase) MoveParticipantToTeam(ctx context.Context, eventID, userI
 	return nil
 }
 
+// teamOrNotFound reads a team of the event, a missing one is the coded not-found error.
+func teamOrNotFound(ctx context.Context, teams *eventTeamRepo.Repository, eventID, teamID uuid.UUID) (eventTeamModel.EventTeam, error) {
+	team, err := teams.GetByID(ctx, eventID, teamID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return eventTeamModel.EventTeam{}, eventTeamModel.ErrEventTeamNotFound.Err()
+		}
+		return eventTeamModel.EventTeam{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+	}
+	return team, nil
+}
+
 // moveMemberInTransaction does the move under the caller's roster lock; false: nothing to do (already there).
 func (u *EventUseCase) moveMemberInTransaction(ctx context.Context, repo IRepository, eventID uuid.UUID, participant participantModel.Participant, fromTeamID, toTeamID uuid.UUID, maxTeamSize int32) (bool, error) {
 	if fromTeamID == toTeamID {
 		return false, nil
 	}
 	teams, participants := eventTeamRepo.New(repo), participantRepo.New(repo)
-	loadTeam := func(id uuid.UUID) (eventTeamModel.EventTeam, error) {
-		team, err := teams.GetByID(ctx, eventID, id)
-		if err != nil {
-			if repositoryTools.IsObjectNotFoundError(err) {
-				return eventTeamModel.EventTeam{}, eventTeamModel.ErrEventTeamNotFound.Err()
-			}
-			return eventTeamModel.EventTeam{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
-		}
-		return team, nil
-	}
-	from, err := loadTeam(fromTeamID)
+	from, err := teamOrNotFound(ctx, teams, eventID, fromTeamID)
 	if err != nil {
 		return false, err
 	}
-	to, err := loadTeam(toTeamID)
+	to, err := teamOrNotFound(ctx, teams, eventID, toTeamID)
 	if err != nil {
 		return false, err
 	}

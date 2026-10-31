@@ -404,6 +404,7 @@ func (r *Repository) ForRefresh(ctx context.Context, challengeIDs []uuid.UUID) (
 // CopyRow is a team copy of a task with the team's name.
 type CopyRow struct {
 	RefreshRow
+
 	TeamName string
 }
 

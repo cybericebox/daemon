@@ -44,6 +44,7 @@ func (t *toolsTokens) Revoke(_ context.Context, userID uuid.UUID) error {
 // members), formed teams and a way to put people in them.
 type toolsFixture struct {
 	*standFixture
+
 	uc       *event.EventUseCase
 	tokens   *toolsTokens
 	notifier *invitationNotifier
@@ -82,10 +83,10 @@ func (f *toolsFixture) approved(t *testing.T, email string) uuid.UUID {
 }
 
 // newTeam builds a formed team with an approved captain.
-func (f *toolsFixture) newTeam(t *testing.T, name string) (teamID, captainID uuid.UUID) {
+func (f *toolsFixture) newTeam(t *testing.T, name string) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	captainID = f.approved(t, name+"-captain@tools.test")
+	captainID := f.approved(t, name+"-captain@tools.test")
 	now := time.Now()
 	team, err := eventTeamModel.New(f.eventID, captainID, name, "tools-code-"+name, now)
 	require.NoError(t, err)
@@ -110,8 +111,11 @@ func (f *toolsFixture) member(t *testing.T, teamID uuid.UUID, email string) uuid
 	return id
 }
 
-func (f *toolsFixture) placement(t *testing.T, userID uuid.UUID) (teamID *uuid.UUID, role *int16, status int16) {
+func (f *toolsFixture) placement(t *testing.T, userID uuid.UUID) (*uuid.UUID, *int16, int16) {
 	t.Helper()
+	var teamID *uuid.UUID
+	var role *int16
+	var status int16
 	require.NoError(t, f.db.Pool.QueryRow(context.Background(),
 		`SELECT team_id, team_role, status FROM event_participants WHERE event_id = $1 AND user_id = $2`, f.eventID, userID).Scan(&teamID, &role, &status))
 	return teamID, role, status
