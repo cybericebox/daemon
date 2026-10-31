@@ -3063,6 +3063,21 @@ func (mr *MockQuerierMockRecorder) DiscardExerciseDraft(ctx, id any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).DiscardExerciseDraft), ctx, id)
 }
 
+// DismissExerciseImportJob mocks base method.
+func (m *MockQuerier) DismissExerciseImportJob(ctx context.Context, arg postgres.DismissExerciseImportJobParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DismissExerciseImportJob", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DismissExerciseImportJob indicates an expected call of DismissExerciseImportJob.
+func (mr *MockQuerierMockRecorder) DismissExerciseImportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DismissExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).DismissExerciseImportJob), ctx, arg)
+}
+
 // DismissInAppBanner mocks base method.
 func (m *MockQuerier) DismissInAppBanner(ctx context.Context, arg postgres.DismissInAppBannerParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9219,6 +9234,21 @@ func (mr *MockQuerierMockRecorder) ListOpenEventVPNSessions(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenEventVPNSessions", reflect.TypeOf((*MockQuerier)(nil).ListOpenEventVPNSessions), ctx, arg)
 }
 
+// ListOpenExerciseImportJobs mocks base method.
+func (m *MockQuerier) ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid.UUID) ([]postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOpenExerciseImportJobs", ctx, createdBy)
+	ret0, _ := ret[0].([]postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOpenExerciseImportJobs indicates an expected call of ListOpenExerciseImportJobs.
+func (mr *MockQuerierMockRecorder) ListOpenExerciseImportJobs(ctx, createdBy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenExerciseImportJobs", reflect.TypeOf((*MockQuerier)(nil).ListOpenExerciseImportJobs), ctx, createdBy)
+}
+
 // ListOpenResourceAlarmsOfReservation mocks base method.
 func (m *MockQuerier) ListOpenResourceAlarmsOfReservation(ctx context.Context, reservationID uuid.UUID) ([]postgres.ResourceAlarm, error) {
 	m.ctrl.T.Helper()
@@ -10102,21 +10132,6 @@ func (m *MockQuerier) ListRunningEventTeamLabsInGroups(ctx context.Context, arg 
 func (mr *MockQuerierMockRecorder) ListRunningEventTeamLabsInGroups(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunningEventTeamLabsInGroups", reflect.TypeOf((*MockQuerier)(nil).ListRunningEventTeamLabsInGroups), ctx, arg)
-}
-
-// ListRunningExerciseImportJobs mocks base method.
-func (m *MockQuerier) ListRunningExerciseImportJobs(ctx context.Context, arg postgres.ListRunningExerciseImportJobsParams) ([]postgres.ExerciseImportJob, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListRunningExerciseImportJobs", ctx, arg)
-	ret0, _ := ret[0].([]postgres.ExerciseImportJob)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListRunningExerciseImportJobs indicates an expected call of ListRunningExerciseImportJobs.
-func (mr *MockQuerierMockRecorder) ListRunningExerciseImportJobs(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunningExerciseImportJobs", reflect.TypeOf((*MockQuerier)(nil).ListRunningExerciseImportJobs), ctx, arg)
 }
 
 // ListSessionRevocationsSince mocks base method.

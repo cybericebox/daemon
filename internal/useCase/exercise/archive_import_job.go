@@ -338,18 +338,49 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 	return view, nil
 }
 
-// RunningArchiveImports lists the imports of user that still run, so a page opened on another device (or with a
-// cleared browser) can follow them. A running import silent for longer than its job may run has stopped and is left out.
+// RunningArchiveImports lists the open imports of user: the ones that still run and the failed ones (with the
+// reason) that the user has not closed (DismissArchiveImport), so a page opened on another device (or with a
+// cleared browser) can follow them. A running import without a heartbeat for ImportJobStaleAfter is listed as failed
+// (interrupted).
 func (u *ExerciseUseCase) RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]ImportJobView, error) {
-	jobs, err := u.exercises.ListRunningImportJobs(ctx, user, u.timeNow().Add(-exerciseModel.ImportJobStaleAfter))
+	jobs, err := u.exercises.ListOpenImportJobs(ctx, user)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the imports").Err()
 	}
+	now := u.timeNow()
 	views := make([]ImportJobView, len(jobs))
 	for i, job := range jobs {
-		views[i] = ImportJobView{ID: job.ID, State: exerciseModel.ImportJobRunning, Stage: job.Stage(u.timeNow()), Progress: job.Progress}
+		state, failure := job.Current(now)
+		views[i] = ImportJobView{ID: job.ID, State: state, Stage: job.Stage(now), Progress: job.Progress, Error: failure}
 	}
 	return views, nil
+}
+
+// DismissArchiveImport closes the row of a failed (or interrupted) import for its user: it is no longer listed
+// (a rerun of the import shows it again). A running import cannot be closed; another user's is not found.
+func (u *ExerciseUseCase) DismissArchiveImport(ctx context.Context, id, user uuid.UUID) error {
+	job, err := u.exercises.GetImportJob(ctx, id)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return exerciseModel.ErrImportJobNotFound.WithError(err).Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the import").Err()
+	}
+	if !job.OwnedBy(user) {
+		return exerciseModel.ErrImportJobNotFound.Err()
+	}
+	now := u.timeNow()
+	if state, _ := job.Current(now); state == exerciseModel.ImportJobRunning {
+		return appErr.ErrConflict.WithMessage("The import is still running").Err()
+	}
+	n, err := u.exercises.DismissImportJob(ctx, id, user, now)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to close the import").Err()
+	}
+	if n == 0 {
+		return exerciseModel.ErrImportJobNotFound.Err()
+	}
+	return nil
 }
 
 // RunArchiveImport is the background import (River job exercise_import): it reads the archive source where it lies,
@@ -369,8 +400,10 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		return nil
 	}
 	progress := u.newImportProgress(job)
+	stopHeartbeat := progress.heartbeat(ctx, importHeartbeatEvery)
 	result, runErr := u.runArchiveImport(ctx, job, args.SealedPassword, progress)
-	job = progress.job // the outcome is written with how far the import came
+	stopHeartbeat()
+	job = progress.snapshot() // the outcome is written with how far the import came
 	if runErr != nil {
 		if errors.Is(runErr, errStaleImportAttempt) {
 			return nil
@@ -380,10 +413,17 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		if current, readErr := u.exercises.GetImportJob(ctx, job.ID); readErr == nil && attemptGeneration(current.Generation) == job.Generation && current.State == exerciseModel.ImportJobDone {
 			return nil
 		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// The daemon is stopping (SIGTERM, a rollout): nothing was created (the tasks and "done" are one
+			// commit) and the stages repeat safely (an image push is by content), so the job stays running and
+			// River runs it again after the start; the heartbeat only resumes then.
+			log.Warn().Err(runErr).Str("job", job.ID.String()).Msg("archive import: the daemon is stopping, the import resumes after the start")
+			return runErr
+		}
 		log.Warn().Err(runErr).Str("job", job.ID.String()).Msg("archive import failed")
 		failure := importJobFailure(runErr)
 		if ctx.Err() != nil {
-			// Cut off (timeout, shutdown): whatever the last call failed with, the import was stopped.
+			// Out of time: whatever the last call failed with, the import was stopped.
 			failure = importJobFailure(exerciseModel.ErrArchiveImportStopped.WithError(runErr).Err())
 		}
 		job.Fail(failure, u.timeNow())

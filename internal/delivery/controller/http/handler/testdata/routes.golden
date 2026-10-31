@@ -443,6 +443,7 @@ POST   /api/exercises/import | gate: self | layers: download.LongOperation.func
 GET    /api/exercises/import/example | gate: self | layers: -
 GET    /api/exercises/import/example/document | gate: self | layers: -
 GET    /api/exercises/import/jobs | gate: self | layers: -
+DELETE /api/exercises/import/jobs/:jobID | gate: self | layers: -
 GET    /api/exercises/import/jobs/:jobID | gate: self | layers: -
 POST   /api/exercises/import/preview | gate: self | layers: download.LongOperation.func
 GET    /api/exercises/import/targets | gate: self | layers: -

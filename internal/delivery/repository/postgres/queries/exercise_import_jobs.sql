@@ -48,14 +48,25 @@ SET stage        = sqlc.arg(stage),
 WHERE id = sqlc.arg(id)
   AND state = 'running' AND generation = sqlc.arg(generation);
 
--- name: ListRunningExerciseImportJobs :many
--- The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
-SELECT *
-FROM exercise_import_jobs
-WHERE created_by = sqlc.arg(created_by)
-  AND state = 'running'
-  AND updated_at > sqlc.arg(stale_before)
-ORDER BY created_at;
+-- name: ListOpenExerciseImportJobs :many
+-- The imports of the user that are running or failed and not closed by the user (a running one silent since
+-- stale_before has stopped: the caller reads it as failed).
+SELECT j.*
+FROM exercise_import_jobs j
+WHERE j.created_by = sqlc.arg(created_by)
+  AND j.state IN ('running', 'failed')
+  AND NOT EXISTS (SELECT 1
+                  FROM exercise_import_dismissals d
+                  WHERE d.job_id = j.id AND d.dismissed_at >= j.updated_at)
+ORDER BY j.created_at;
+
+-- name: DismissExerciseImportJob :execrows
+-- Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
+INSERT INTO exercise_import_dismissals (job_id, dismissed_at)
+SELECT j.id, sqlc.arg(dismissed_at)
+FROM exercise_import_jobs j
+WHERE j.id = sqlc.arg(job_id) AND j.created_by = sqlc.arg(created_by)
+ON CONFLICT (job_id) DO UPDATE SET dismissed_at = EXCLUDED.dismissed_at;
 
 -- name: GetOwnedExerciseImportJobBySource :one
 -- Read-only recovery before source re-open. A foreign job is indistinguishable

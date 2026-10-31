@@ -90,9 +90,12 @@ type ImportProgress struct {
 const (
 	// ImportJobTimeout bounds one run of the import job: up to 10 GiB of images pushed at a slow uplink.
 	ImportJobTimeout = 6 * time.Hour
-	// ImportJobStaleAfter: a running import silent for longer than its job may run has stopped (a restart); it
-	// reads as failed and may run again.
-	ImportJobStaleAfter = ImportJobTimeout + 30*time.Minute
+	// ImportHeartbeatEvery is how often a running import writes its heartbeat (the job's updated_at), even when no
+	// count moves (one large image push).
+	ImportHeartbeatEvery = 30 * time.Second
+	// ImportJobStaleAfter: a running import without a heartbeat for longer than this has stopped (a crash, a lost
+	// worker); it reads as failed (interrupted) and may run again. Four missed heartbeats.
+	ImportJobStaleAfter = 4 * ImportHeartbeatEvery
 )
 
 // NewImportJob starts an import of the source.

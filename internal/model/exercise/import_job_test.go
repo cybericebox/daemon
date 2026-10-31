@@ -51,7 +51,7 @@ func TestImportJobStaleReadsFailed(t *testing.T) {
 	require.Equal(t, exerciseModel.ImportJobFailed, state)
 	require.NotNil(t, failure)
 	require.Equal(t, exerciseModel.ErrArchiveImportInterrupted.Err().StatusCode().FullCode(), failure.Code)
-	require.Greater(t, exerciseModel.ImportJobStaleAfter, exerciseModel.ImportJobTimeout)
+	require.Equal(t, 2*time.Minute, exerciseModel.ImportJobStaleAfter, "four beats of 30 s")
 	require.True(t, j.Restart(uuid.NullUUID{}, jobT0.Add(exerciseModel.ImportJobStaleAfter+time.Second)), "an interrupted import may run again")
 }
 

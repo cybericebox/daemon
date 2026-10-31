@@ -90,23 +90,44 @@ func (q *Queries) GetOwnedExerciseImportJobBySource(ctx context.Context, arg Get
 	return i, err
 }
 
-const listRunningExerciseImportJobs = `-- name: ListRunningExerciseImportJobs :many
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
-FROM exercise_import_jobs
-WHERE created_by = $1
-  AND state = 'running'
-  AND updated_at > $2
-ORDER BY created_at
+const dismissExerciseImportJob = `-- name: DismissExerciseImportJob :execrows
+INSERT INTO exercise_import_dismissals (job_id, dismissed_at)
+SELECT j.id, $1
+FROM exercise_import_jobs j
+WHERE j.id = $2 AND j.created_by = $3
+ON CONFLICT (job_id) DO UPDATE SET dismissed_at = EXCLUDED.dismissed_at
 `
 
-type ListRunningExerciseImportJobsParams struct {
+type DismissExerciseImportJobParams struct {
+	DismissedAt time.Time `json:"dismissed_at"`
+	JobID       uuid.UUID `json:"job_id"`
 	CreatedBy   uuid.UUID `json:"created_by"`
-	StaleBefore time.Time `json:"stale_before"`
 }
 
-// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
-func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error) {
-	rows, err := q.db.Query(ctx, listRunningExerciseImportJobs, arg.CreatedBy, arg.StaleBefore)
+// Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
+func (q *Queries) DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, dismissExerciseImportJob, arg.DismissedAt, arg.JobID, arg.CreatedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const listOpenExerciseImportJobs = `-- name: ListOpenExerciseImportJobs :many
+SELECT j.id, j.created_by, j.source, j.source_id, j.state, j.exercise_ids, j.error, j.created_at, j.updated_at, j.stage, j.images_done, j.images_total, j.tasks_done, j.tasks_total, j.bytes_pushed, j.bytes_total, j.owner_event_id, j.generation, j.options, j.plan_hash, j.results
+FROM exercise_import_jobs j
+WHERE j.created_by = $1
+  AND j.state IN ('running', 'failed')
+  AND NOT EXISTS (SELECT 1
+                  FROM exercise_import_dismissals d
+                  WHERE d.job_id = j.id AND d.dismissed_at >= j.updated_at)
+ORDER BY j.created_at
+`
+
+// The imports of the user that are running or failed and not closed by the user (a running one silent since
+// stale_before has stopped: the caller reads it as failed).
+func (q *Queries) ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid.UUID) ([]ExerciseImportJob, error) {
+	rows, err := q.db.Query(ctx, listOpenExerciseImportJobs, createdBy)
 	if err != nil {
 		return nil, err
 	}

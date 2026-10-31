@@ -41,6 +41,13 @@ func SetImportStateRetryDelay(t testing.TB, d time.Duration) {
 	t.Cleanup(func() { importStateRetryDelay = old })
 }
 
+// SetImportHeartbeat shortens the beat of a running import.
+func SetImportHeartbeat(t testing.TB, d time.Duration) {
+	old := importHeartbeatEvery
+	importHeartbeatEvery = d
+	t.Cleanup(func() { importHeartbeatEvery = old })
+}
+
 // SecretValueGroups lets the external tests group the secrets of stored variants like a read does.
 func SecretValueGroups(u *ExerciseUseCase, variants []exerciseModel.Variant) [][][]int {
 	return u.secretValueGroups(variants)

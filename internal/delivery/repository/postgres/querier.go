@@ -342,6 +342,7 @@ type Querier interface {
 	DiscardEventPageDraft(ctx context.Context, arg DiscardEventPageDraftParams) (int64, error)
 	// exercises.draft_version_id clears itself via ON DELETE SET NULL.
 	DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error)
 	DismissInAppBanner(ctx context.Context, arg DismissInAppBannerParams) (int64, error)
 	// Whether an Event's email templates may use/serve the file: it must already
 	// be referenced by a platform template (scope NULL), a block preset, or one of
@@ -1466,8 +1467,9 @@ type Querier interface {
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
 	// The labs of an event that still run in the given team groups (their cluster reservation is ending).
 	ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
-	// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
-	ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error)
+	// The imports of the user that are running or failed and not closed by the user (a running one silent since
+	// stale_before has stopped: the caller reads it as failed).
+	ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid.UUID) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
 	ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error)
 	// The entries that may be closed after this pass. Chosen before the pass scrubs: anything that could still carry the

@@ -95,6 +95,7 @@ type (
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
 		RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error)
+		DismissArchiveImport(ctx context.Context, id, user uuid.UUID) error
 		// background export of tasks «з образами»
 		StartArchiveExport(ctx context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error)
 		ArchiveExportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error)
@@ -209,6 +210,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// the background import's state, for the user who started it only (the use case scopes it to them)
 		ex.GET("import/jobs", self, h.runningImportJobs)
 		ex.GET("import/jobs/:jobID", self, h.importJob)
+		ex.DELETE("import/jobs/:jobID", self, h.dismissImportJob)
 		// the built-in example archive: for whoever may import somewhere
 		ex.GET("import/example", self, h.importExample)
 		ex.GET("import/example/document", self, h.importExampleDocument)

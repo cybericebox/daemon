@@ -309,7 +309,7 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 		}
 		done.Finish(ids, u.timeNow())
 		if progress != nil {
-			done.Progress = progress.job.Progress
+			done.Progress = progress.current()
 			done.Finish(ids, u.timeNow())
 		}
 		n, saveErr := session.exercises.SaveImportJob(ctx, done)

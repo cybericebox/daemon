@@ -18,6 +18,9 @@ import (
 // importStateRetryDelay is the wait between writes of an import's outcome.
 var importStateRetryDelay = time.Second
 
+// importHeartbeatEvery is how often a running import writes its heartbeat.
+var importHeartbeatEvery = exerciseModel.ImportHeartbeatEvery
+
 // Failures of the archive itself that are not typed errors: the zip readers' own, and these.
 var (
 	errUnencryptedEntry = errors.New("protected archive contains an unencrypted entry")
