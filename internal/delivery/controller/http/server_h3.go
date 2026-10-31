@@ -89,6 +89,7 @@ func (l *h3Listener) serve() error {
 	if err != nil {
 		return err
 	}
+	warnShortUDPBuffers(pc)
 	limiter := rate.NewLimiter(rate.Limit(quicFreeHandshakesPerSec), quicFreeHandshakesBurst)
 	l.tr = &quic.Transport{Conn: pc, VerifySourceAddress: func(net.Addr) bool { return !limiter.Allow() }}
 	ln, err := l.tr.ListenEarly(l.srv.TLSConfig, l.srv.QUICConfig)
