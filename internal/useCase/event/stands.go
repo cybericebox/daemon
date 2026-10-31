@@ -933,6 +933,14 @@ func (u *EventUseCase) handleDeployError(ctx context.Context, lab labBindingRepo
 			return false, eventStandModel.WaitReplacingStaleLab, nil
 		}
 	}
+	if errors.Is(err, infraModel.ErrDevicePersistenceUnavailable.Err()) {
+		// State persistence of the agent may come back (a registry still starting): a wait with a retry, reported to the
+		// organizers by the wait alarm. A failure only when it did not return within the deploy window.
+		if lab.Binding.WaitReason != eventStandModel.WaitPersistenceUnavailable || lab.Binding.WaitSince == nil || now.Sub(*lab.Binding.WaitSince) < eventStandModel.DeployTimeout {
+			log.Warn().Err(err).Str("lab_group", group).Str("lab", name).Msg("Stand lab deploy waits for state persistence")
+			return false, eventStandModel.WaitPersistenceUnavailable, nil
+		}
+	}
 	if transientAgentError(err) {
 		if lab.Binding.WaitReason == eventStandModel.WaitAgentUnavailable && lab.Binding.WaitSince != nil && now.Sub(*lab.Binding.WaitSince) >= eventStandModel.DeployTimeout {
 			// The agent did not answer for the whole deploy window: now it is a failure the organizers hear about.
