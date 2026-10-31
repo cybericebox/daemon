@@ -50,6 +50,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/requestIdempotencyRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/revealDeclineRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/scoreboardRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
@@ -82,6 +83,7 @@ type IRepository interface {
 	platformSettingsRepo.Queries
 	eventLabAllocationRepo.Queries
 	eventLabRevealRepo.Queries
+	revealDeclineRepo.Queries
 	eventLabGroupRepo.Queries
 	eventLabRetentionRepo.Queries
 	userRepo.Queries

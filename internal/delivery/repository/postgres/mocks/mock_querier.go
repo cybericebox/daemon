@@ -2094,6 +2094,20 @@ func (mr *MockQuerierMockRecorder) DecideResourceChangeRequest(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecideResourceChangeRequest", reflect.TypeOf((*MockQuerier)(nil).DecideResourceChangeRequest), ctx, arg)
 }
 
+// DeclineEventLabRevealTeam mocks base method.
+func (m *MockQuerier) DeclineEventLabRevealTeam(ctx context.Context, arg postgres.DeclineEventLabRevealTeamParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeclineEventLabRevealTeam", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeclineEventLabRevealTeam indicates an expected call of DeclineEventLabRevealTeam.
+func (mr *MockQuerierMockRecorder) DeclineEventLabRevealTeam(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeclineEventLabRevealTeam", reflect.TypeOf((*MockQuerier)(nil).DeclineEventLabRevealTeam), ctx, arg)
+}
+
 // DeleteBlob mocks base method.
 func (m *MockQuerier) DeleteBlob(ctx context.Context, contentHash string) (int64, error) {
 	m.ctrl.T.Helper()

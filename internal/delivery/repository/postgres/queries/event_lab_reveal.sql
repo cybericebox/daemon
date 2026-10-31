@@ -1,11 +1,12 @@
 -- name: FreezeEventLabRevealBarrier :one
 -- An empty eligible roster is deferred, not an immutable prepared cohort. Until the tasks are shown (the barrier is
 -- opened) the cohort is recomputed on every call: a team that becomes eligible, before or after the start, joins it, and a
--- team declined for lack of room (event_lab_reveal_declined) stays out; once opened it is frozen.
+-- team declined for lack of room (event_lab_reveal_declined, in the same revision and mode) stays out; once opened
+-- it is frozen.
 WITH candidate AS (
  SELECT ee.event_id,ee.id AS event_exercise_id,ee.revision,ec.task_reveal_mode AS mode,
  COALESCE((SELECT array_agg(team.id ORDER BY team.id) FROM event_teams team WHERE team.event_id=ee.event_id
-  AND NOT team.moderators AND NOT EXISTS(SELECT 1 FROM event_lab_reveal_declined d WHERE d.event_exercise_id=ee.id AND d.event_team_id=team.id) AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]) AS eligible_team_ids
+  AND NOT team.moderators AND NOT EXISTS(SELECT 1 FROM event_lab_reveal_declined d WHERE d.event_exercise_id=ee.id AND d.event_team_id=team.id AND d.revision=ee.revision AND d.mode=ec.task_reveal_mode) AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]) AS eligible_team_ids
  FROM event_exercises ee JOIN event_configs ec ON ec.event_id=ee.event_id
  WHERE ee.id=sqlc.arg(event_exercise_id) AND ee.event_id=sqlc.arg(event_id) AND ee.status=0
 ), frozen AS (
@@ -76,10 +77,37 @@ WHERE l.event_id=sqlc.arg(event_id) AND l.event_exercise_id=sqlc.arg(event_exerc
 ORDER BY l.event_team_id,l.id;
 
 -- name: InvalidateEventLabRevealBarrier :exec
--- Authorized edits invalidate a different preparation tuple atomically. They
+-- Authorized edits invalidate a different preparation tuple atomically (and the declines made in the old one). They
 -- never insert/freeze a cohort before the assignment preparation boundary.
-DELETE FROM event_lab_reveal_barriers b
+WITH gone AS (
+    DELETE FROM event_lab_reveal_barriers b
+    USING event_exercises ee,event_configs cfg
+    WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+     AND ee.event_id=sqlc.arg(event_id) AND ee.id=sqlc.arg(event_exercise_id)
+     AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode)
+    RETURNING b.event_exercise_id
+)
+DELETE FROM event_lab_reveal_declined d
 USING event_exercises ee,event_configs cfg
-WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+WHERE d.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
  AND ee.event_id=sqlc.arg(event_id) AND ee.id=sqlc.arg(event_exercise_id)
- AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode);
+ AND (d.revision<>ee.revision OR d.mode<>cfg.task_reveal_mode);
+
+-- name: DeclineEventLabRevealTeam :exec
+-- Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
+-- removed from the unopened barrier at once.
+WITH declined AS (
+    INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at, revision, mode)
+    SELECT ee.id, sqlc.arg(team_id), sqlc.arg(reason), sqlc.arg(now), ee.revision, cfg.task_reveal_mode
+    FROM event_exercises ee
+             JOIN event_configs cfg ON cfg.event_id = ee.event_id
+    WHERE ee.event_id = sqlc.arg(event_id) AND ee.id = sqlc.arg(event_exercise_id)
+    ON CONFLICT (event_exercise_id, event_team_id) DO UPDATE SET reason = EXCLUDED.reason,
+                                                                declined_at = EXCLUDED.declined_at,
+                                                                revision = EXCLUDED.revision,
+                                                                mode = EXCLUDED.mode
+    RETURNING event_exercise_id
+)
+UPDATE event_lab_reveal_barriers
+SET eligible_team_ids = array_remove(eligible_team_ids, sqlc.arg(team_id))
+WHERE event_id = sqlc.arg(event_id) AND event_exercise_id = sqlc.arg(event_exercise_id) AND opened_at IS NULL;

@@ -10,19 +10,19 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 )
 
-type Repository struct{ db postgres.DBTX }
+// Queries are what the repository needs of the database.
+type Queries interface {
+	DeclineEventLabRevealTeam(ctx context.Context, arg postgres.DeclineEventLabRevealTeamParams) error
+}
 
-func New(db postgres.DBTX) *Repository { return &Repository{db: db} }
+type Repository struct{ q Queries }
 
-// Decline keeps the team out of the cohort of the task: it is recorded, and removed from the cohort of the barrier at
-// once, so the show does not wait for it.
+func New(q Queries) *Repository { return &Repository{q: q} }
+
+// Decline keeps the team out of the cohort of the task: it is recorded for the task's current revision and reveal mode
+// (a decline of an older tuple no longer applies, and is dropped when the barrier is invalidated), and removed from
+// the cohort of the barrier at once, so the show does not wait for it. On a unit of work's queries it is part of the
+// unit that decided it.
 func (r *Repository) Decline(ctx context.Context, eventID, setID, teamID uuid.UUID, reason string, now time.Time) error {
-	if _, err := r.db.Exec(ctx, `INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at)
-VALUES ($1, $2, $3, $4) ON CONFLICT (event_exercise_id, event_team_id) DO UPDATE SET reason = EXCLUDED.reason, declined_at = EXCLUDED.declined_at`,
-		setID, teamID, reason, now); err != nil {
-		return err
-	}
-	_, err := r.db.Exec(ctx, `UPDATE event_lab_reveal_barriers SET eligible_team_ids = array_remove(eligible_team_ids, $3)
-WHERE event_id = $1 AND event_exercise_id = $2 AND opened_at IS NULL`, eventID, setID, teamID)
-	return err
+	return r.q.DeclineEventLabRevealTeam(ctx, postgres.DeclineEventLabRevealTeamParams{TeamID: teamID, Reason: reason, Now: now, EventID: eventID, EventExerciseID: setID})
 }

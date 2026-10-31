@@ -81,7 +81,7 @@ func TestRevealCohort_ADeclinedTeamStaysOut(t *testing.T) {
 	setStart(t, f, -time.Minute)
 	seedBarrier(t, f, set.exerciseID, false, f.blueID, f.redID)
 
-	store := revealDeclineRepo.New(f.db.Pool)
+	store := revealDeclineRepo.New(f.db.Queries)
 	require.NoError(t, store.Decline(ctx, f.eventID, set.exerciseID, f.redID, "no room", time.Now()))
 	barrier, err := eventLabRevealRepo.New(f.db.Queries).Barrier(ctx, f.eventID, set.exerciseID)
 	require.NoError(t, err)
@@ -90,6 +90,37 @@ func TestRevealCohort_ADeclinedTeamStaysOut(t *testing.T) {
 	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(ctx, f.eventID, set.exerciseID, time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, []uuid.UUID{f.blueID}, got, "and the recomputation does not bring it back")
+}
+
+// A decline belongs to the revision and mode it was made in: when the task changes, the team joins the new cohort again,
+// and the invalidation of the barrier drops the old decline.
+func TestRevealCohort_ADeclineDoesNotOutliveItsCohort(t *testing.T) {
+	f, set, _, _ := prepareLifecycle(t)
+	ctx := context.Background()
+	setStart(t, f, -time.Minute)
+	seedBarrier(t, f, set.exerciseID, false, f.blueID, f.redID)
+	require.NoError(t, revealDeclineRepo.New(f.db.Queries).Decline(ctx, f.eventID, set.exerciseID, f.redID, "no room", time.Now()))
+	reveal := eventLabRevealRepo.New(f.db.Queries)
+
+	// the task is edited (a new revision): the old cohort is gone, and so is the decline
+	_, err := f.db.Pool.Exec(ctx, `UPDATE event_exercises SET revision=revision+1 WHERE id=$1`, set.exerciseID)
+	require.NoError(t, err)
+	got, err := reveal.Freeze(ctx, f.eventID, set.exerciseID, time.Now().UTC())
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{f.blueID, f.redID}, got, "a decline of an older revision does not apply")
+
+	require.NoError(t, reveal.Invalidate(ctx, f.eventID, set.exerciseID))
+	var left int
+	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM event_lab_reveal_declined WHERE event_exercise_id=$1`, set.exerciseID).Scan(&left))
+	require.Zero(t, left, "the invalidation drops the declines of the old cohort")
+
+	// a decline in the new revision applies again, and the reveal mode is part of the tuple too
+	require.NoError(t, revealDeclineRepo.New(f.db.Queries).Decline(ctx, f.eventID, set.exerciseID, f.redID, "no room", time.Now()))
+	_, err = f.db.Pool.Exec(ctx, `UPDATE event_configs SET task_reveal_mode='as_ready' WHERE event_id=$1`, f.eventID)
+	require.NoError(t, err)
+	got, err = reveal.Freeze(ctx, f.eventID, set.exerciseID, time.Now().UTC())
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{f.blueID, f.redID}, got, "a decline of another mode does not apply")
 }
 
 func TestRevealCohort_AnOpenedBarrierIsNeverRecomputed(t *testing.T) {

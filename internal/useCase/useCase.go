@@ -307,7 +307,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		eventUseCase.Dependencies{
 			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
 			WaitDetails:              waitDetailRepo.New(deps.Repo.Pool()),
-			RevealDecline:            revealDeclineRepo.New(deps.Repo.Pool()),
+			RevealDecline:            revealDeclineRepo.New(deps.Repo),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
 			LabLifecycleRetryMax:     deps.LabLifecycleConfig.RetryMax,

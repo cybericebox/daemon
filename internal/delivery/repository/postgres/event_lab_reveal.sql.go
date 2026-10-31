@@ -17,7 +17,7 @@ const freezeEventLabRevealBarrier = `-- name: FreezeEventLabRevealBarrier :one
 WITH candidate AS (
  SELECT ee.event_id,ee.id AS event_exercise_id,ee.revision,ec.task_reveal_mode AS mode,
  COALESCE((SELECT array_agg(team.id ORDER BY team.id) FROM event_teams team WHERE team.event_id=ee.event_id
-  AND NOT team.moderators AND NOT EXISTS(SELECT 1 FROM event_lab_reveal_declined d WHERE d.event_exercise_id=ee.id AND d.event_team_id=team.id) AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]) AS eligible_team_ids
+  AND NOT team.moderators AND NOT EXISTS(SELECT 1 FROM event_lab_reveal_declined d WHERE d.event_exercise_id=ee.id AND d.event_team_id=team.id AND d.revision=ee.revision AND d.mode=ec.task_reveal_mode) AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]) AS eligible_team_ids
  FROM event_exercises ee JOIN event_configs ec ON ec.event_id=ee.event_id
  WHERE ee.id=$1 AND ee.event_id=$2 AND ee.status=0
 ), frozen AS (
@@ -80,11 +80,19 @@ func (q *Queries) GetEventLabRevealBarrier(ctx context.Context, arg GetEventLabR
 }
 
 const invalidateEventLabRevealBarrier = `-- name: InvalidateEventLabRevealBarrier :exec
-DELETE FROM event_lab_reveal_barriers b
+WITH gone AS (
+    DELETE FROM event_lab_reveal_barriers b
+    USING event_exercises ee,event_configs cfg
+    WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+     AND ee.event_id=$1 AND ee.id=$2
+     AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode)
+    RETURNING b.event_exercise_id
+)
+DELETE FROM event_lab_reveal_declined d
 USING event_exercises ee,event_configs cfg
-WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+WHERE d.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
  AND ee.event_id=$1 AND ee.id=$2
- AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode)
+ AND (d.revision<>ee.revision OR d.mode<>cfg.task_reveal_mode)
 `
 
 type InvalidateEventLabRevealBarrierParams struct {
@@ -263,4 +271,43 @@ func (q *Queries) OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenR
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const declineEventLabRevealTeam = `-- name: DeclineEventLabRevealTeam :exec
+WITH declined AS (
+    INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at, revision, mode)
+    SELECT ee.id, $1, $2, $3, ee.revision, cfg.task_reveal_mode
+    FROM event_exercises ee
+             JOIN event_configs cfg ON cfg.event_id = ee.event_id
+    WHERE ee.event_id = $4 AND ee.id = $5
+    ON CONFLICT (event_exercise_id, event_team_id) DO UPDATE SET reason = EXCLUDED.reason,
+                                                                declined_at = EXCLUDED.declined_at,
+                                                                revision = EXCLUDED.revision,
+                                                                mode = EXCLUDED.mode
+    RETURNING event_exercise_id
+)
+UPDATE event_lab_reveal_barriers
+SET eligible_team_ids = array_remove(eligible_team_ids, $1)
+WHERE event_id = $4 AND event_exercise_id = $5 AND opened_at IS NULL
+`
+
+type DeclineEventLabRevealTeamParams struct {
+	TeamID          uuid.UUID `json:"team_id"`
+	Reason          string    `json:"reason"`
+	Now             time.Time `json:"now"`
+	EventID         uuid.UUID `json:"event_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
+// removed from the unopened barrier at once.
+func (q *Queries) DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error {
+	_, err := q.db.Exec(ctx, declineEventLabRevealTeam,
+		arg.TeamID,
+		arg.Reason,
+		arg.Now,
+		arg.EventID,
+		arg.EventExerciseID,
+	)
+	return err
 }

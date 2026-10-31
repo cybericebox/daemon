@@ -285,6 +285,9 @@ type Querier interface {
 	// atomically detaches every remaining member at the database level.
 	DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams) (int64, error)
 	DeleteEventVPNSessions(ctx context.Context, arg DeleteEventVPNSessionsParams) error
+	// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
+	// removed from the unopened barrier at once.
+	DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error
 	DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error
 	DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error)
