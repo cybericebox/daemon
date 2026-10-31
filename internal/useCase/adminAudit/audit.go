@@ -46,8 +46,15 @@ func (u *UseCase) RecordAdminAction(ctx context.Context, entry Entry) error {
 		return err
 	}
 	return u.repo.CreateAdminAuditLog(ctx, postgres.CreateAdminAuditLogParams{
-		ID: uuid.Must(uuid.NewV7()), ActorID: entry.ActorID, Permission: entry.Permission,
-		Method: entry.Method, Route: entry.Route, ResponseStatus: int32(entry.ResponseStatus), CreatedAt: time.Now(), Target: entry.Target, Changes: changes,
+		ID:             uuid.Must(uuid.NewV7()),
+		ActorID:        entry.ActorID,
+		Permission:     entry.Permission,
+		Method:         entry.Method,
+		Route:          entry.Route,
+		ResponseStatus: int32(entry.ResponseStatus), //nolint:gosec // an HTTP status
+		CreatedAt:      time.Now(),
+		Target:         entry.Target,
+		Changes:        changes,
 	})
 }
 
@@ -122,9 +129,16 @@ func (u *UseCase) CountAdminActions(ctx context.Context, f Filter) (int64, error
 		return 0, err
 	}
 	return u.repo.CountAdminAuditLog(ctx, postgres.CountAdminAuditLogParams{
-		ActorID: params.ActorID, Permission: params.Permission, Route: params.Route, Method: params.Method,
-		StatusMin: params.StatusMin, StatusMax: params.StatusMax, FromAt: params.FromAt, ToAt: params.ToAt,
-		TargetKind: params.TargetKind, TargetID: params.TargetID,
+		ActorID:    params.ActorID,
+		Permission: params.Permission,
+		Route:      params.Route,
+		Method:     params.Method,
+		StatusMin:  params.StatusMin,
+		StatusMax:  params.StatusMax,
+		FromAt:     params.FromAt,
+		ToAt:       params.ToAt,
+		TargetKind: params.TargetKind,
+		TargetID:   params.TargetID,
 	})
 }
 
@@ -133,7 +147,11 @@ const MaxExportRows = 100000
 
 // ExportAdminActions hands every journal row matching the filter (newest first, at most MaxExportRows) to emit.
 // The cursor and limit of the filter are ignored. truncated is true when more rows matched than were emitted.
-func (u *UseCase) ExportAdminActions(ctx context.Context, f Filter, emit func(postgres.AdminAuditLog) error) (truncated bool, err error) {
+func (u *UseCase) ExportAdminActions(
+	ctx context.Context,
+	f Filter,
+	emit func(postgres.AdminAuditLog) error,
+) (bool, error) {
 	f.Cursor, f.Limit = "", MaxPageSize
 	emitted := 0
 	for {
@@ -145,7 +163,7 @@ func (u *UseCase) ExportAdminActions(ctx context.Context, f Filter, emit func(po
 			if emitted == MaxExportRows {
 				return true, nil
 			}
-			if err = emit(row); err != nil {
+			if err := emit(row); err != nil {
 				return false, err
 			}
 			emitted++

@@ -879,7 +879,8 @@ func (u *MailUseCase) claimTestMail(userID uuid.UUID) error {
 	now := u.now()
 	if last, ok := u.testAt[userID]; ok && now.Sub(last) < testMailCooldown {
 		seconds := int64(math.Ceil((testMailCooldown - now.Sub(last)).Seconds()))
-		return mailModel.ErrTestMailTooSoon.WithDetail(liberr.DetailRetryAfterSeconds, seconds).Err()
+		return mailModel.ErrTestMailTooSoon.WithDetail(liberr.DetailRetryAfterSeconds, seconds).
+			Err()
 	}
 	for id, at := range u.testAt {
 		if now.Sub(at) >= testMailCooldown {

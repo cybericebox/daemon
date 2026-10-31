@@ -187,7 +187,10 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 		return
 	}
 
-	before, _ := h.useCase.GetPlatformSetting(ctx, ctx.Param("key")) // absent before: a creation, every field is new
+	before, _ := h.useCase.GetPlatformSetting(
+		ctx,
+		ctx.Param("key"),
+	) // absent before: a creation, every field is new
 	s, err := h.useCase.UpsertPlatformSetting(
 		ctx, platformSettingsUseCase.UpsertInput{
 			Key:                ctx.Param("key"),
@@ -203,7 +206,8 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 	response.AbortWithData(ctx, toResponse(s))
 }
 
-// settingFields are the parts of a setting an administrator edits, for the audit "before and after".
+// settingFields are the parts of a setting an administrator edits. The audit records only which of them changed,
+// never the values: the reader of the audit may not be allowed to read the setting.
 func settingFields(s *platformSettingsModel.PlatformSetting) map[string]any {
 	if s == nil {
 		return nil

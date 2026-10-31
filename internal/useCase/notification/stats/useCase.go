@@ -32,7 +32,10 @@ type NotificationStatsUseCase struct {
 }
 
 func NewNotificationStatsUseCase(deps Dependencies) *NotificationStatsUseCase {
-	return &NotificationStatsUseCase{dispatches: dispatchRepo.New(deps.Repo), resender: deps.Resender}
+	return &NotificationStatsUseCase{
+		dispatches: dispatchRepo.New(deps.Repo),
+		resender:   deps.Resender,
+	}
 }
 
 // ResendResult is the outcome of resending one dispatch; Err is nil when it was queued again.
@@ -43,7 +46,10 @@ type ResendResult struct {
 
 // ResendDispatches sends the failed channels of each dispatch again. One result per distinct id in request
 // order; a dispatch that cannot be resent never stops the others.
-func (u *NotificationStatsUseCase) ResendDispatches(ctx context.Context, ids []uuid.UUID) []ResendResult {
+func (u *NotificationStatsUseCase) ResendDispatches(
+	ctx context.Context,
+	ids []uuid.UUID,
+) []ResendResult {
 	out := make([]ResendResult, 0, len(ids))
 	seen := make(map[uuid.UUID]struct{}, len(ids))
 	for _, id := range ids {
@@ -52,7 +58,13 @@ func (u *NotificationStatsUseCase) ResendDispatches(ctx context.Context, ids []u
 		}
 		seen[id] = struct{}{}
 		if u.resender == nil {
-			out = append(out, ResendResult{DispatchID: id, Err: model.ErrPlatform.WithMessage("Resending is not configured").Err()})
+			out = append(
+				out,
+				ResendResult{
+					DispatchID: id,
+					Err:        model.ErrPlatform.WithMessage("Resending is not configured").Err(),
+				},
+			)
 			continue
 		}
 		out = append(out, ResendResult{DispatchID: id, Err: u.resender.ResendDispatch(ctx, id)})

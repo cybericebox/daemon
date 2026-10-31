@@ -61,10 +61,23 @@ func (f *fakeUseCase) RequireReadEvent(context.Context, uuid.UUID, uuid.UUID) er
 func (f *fakeUseCase) GetBroadcast(context.Context, uuid.UUID, *uuid.UUID) (broadcastModel.Broadcast, error) {
 	return broadcastModel.Broadcast{}, nil
 }
-func (f *fakeUseCase) ListBroadcastDeliveries(context.Context, uuid.UUID, string, int32, int32) ([]broadcastModel.Delivery, int64, error) {
+
+func (f *fakeUseCase) ListBroadcastDeliveries(
+	context.Context,
+	uuid.UUID,
+	string,
+	int32,
+	int32,
+) ([]broadcastModel.Delivery, int64, error) {
 	return f.deliveries, int64(len(f.deliveries)), nil
 }
-func (f *fakeUseCase) ExportBroadcastDeliveries(_ context.Context, _ uuid.UUID, _ string, emit func(broadcastModel.Delivery) error) error {
+
+func (f *fakeUseCase) ExportBroadcastDeliveries(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+	emit func(broadcastModel.Delivery) error,
+) error {
 	for _, d := range f.deliveries {
 		if err := emit(d); err != nil {
 			return err
@@ -72,7 +85,12 @@ func (f *fakeUseCase) ExportBroadcastDeliveries(_ context.Context, _ uuid.UUID, 
 	}
 	return nil
 }
-func (f *fakeUseCase) CancelBroadcast(context.Context, uuid.UUID, *uuid.UUID) (broadcastModel.Broadcast, error) {
+
+func (f *fakeUseCase) CancelBroadcast(
+	context.Context,
+	uuid.UUID,
+	*uuid.UUID,
+) (broadcastModel.Broadcast, error) {
 	return broadcastModel.Broadcast{Status: broadcastModel.StatusCanceled}, nil
 }
 func (f *fakeUseCase) CountBroadcastAudience(_ context.Context, scope *uuid.UUID, _ broadcastModel.Audience) (int, error) {
@@ -222,17 +240,37 @@ func TestBroadcastDeliveriesMaskTheAddressesForAViewer(t *testing.T) {
 // The deliveries list is a page with a total, and the CSV export masks and neutralizes like the list does.
 func TestBroadcastDeliveriesPageAndExport(t *testing.T) {
 	deliveries := []broadcastModel.Delivery{
-		{RecipientEmail: "olena@example.com", Channel: "email", TargetStatus: "error", Error: "=cmd|' /C calc'!A0"},
+		{
+			RecipientEmail: "olena@example.com",
+			Channel:        "email",
+			TargetStatus:   "error",
+			Error:          "=cmd|' /C calc'!A0",
+		},
 		{RecipientEmail: "ivan@example.com", Channel: "email", TargetStatus: "done"},
 	}
 	uc := &fakeUseCase{role: "owner", deliveries: deliveries}
 	base := "/api/notifications/broadcasts/" + uuid.Must(uuid.NewV7()).String() + "/deliveries"
 
-	w := do(t, uc, http.MethodGet, base+"?page=1&pageSize=1", string(rbac.PermNotificationsBroadcast), "")
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":2`) || !strings.Contains(w.Body.String(), `"PageSize":1`) {
+	w := do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"?page=1&pageSize=1",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":2`) ||
+		!strings.Contains(w.Body.String(), `"PageSize":1`) {
 		t.Fatalf("page: %d %s", w.Code, w.Body.String())
 	}
-	if w = do(t, uc, http.MethodGet, base+"?pageSize=9999", string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusBadRequest {
+	if w = do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"?pageSize=9999",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	); w.Code != http.StatusBadRequest {
 		t.Fatalf("an oversized page is refused: %d", w.Code)
 	}
 
@@ -241,14 +279,26 @@ func TestBroadcastDeliveriesPageAndExport(t *testing.T) {
 		t.Fatalf("export: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "ivan@example.com") || strings.Contains(body, ",=cmd") || strings.Contains(body, ",\"=cmd") {
+	if !strings.Contains(body, "ivan@example.com") || strings.Contains(body, ",=cmd") ||
+		strings.Contains(body, ",\"=cmd") {
 		t.Fatalf("export must carry the rows and neutralize a formula: %s", body)
 	}
-	if w = do(t, uc, http.MethodGet, base+"/export?status=bogus", string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusBadRequest {
+	if w = do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"/export?status=bogus",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	); w.Code != http.StatusBadRequest {
 		t.Fatalf("an unknown status is refused: %d", w.Code)
 	}
 
-	eventPath := "/api/events/" + uuid.Must(uuid.NewV7()).String() + "/manage/broadcasts/" + uuid.Must(uuid.NewV7()).String() + "/deliveries/export"
+	eventPath := "/api/events/" + uuid.Must(uuid.NewV7()).
+		String() +
+		"/manage/broadcasts/" + uuid.Must(uuid.NewV7()).
+		String() +
+		"/deliveries/export"
 	uc = &fakeUseCase{role: "viewer", deliveries: deliveries}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -256,18 +306,33 @@ func TestBroadcastDeliveriesPageAndExport(t *testing.T) {
 	NewMessagingAPIHandler(uc, permProtection{}).Init(router.Group("/api"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, eventPath, nil))
-	if strings.Contains(rec.Body.String(), "olena@example.com") || !strings.Contains(rec.Body.String(), "o***@example.com") {
+	if strings.Contains(rec.Body.String(), "olena@example.com") ||
+		!strings.Contains(rec.Body.String(), "o***@example.com") {
 		t.Fatalf("a read-only moderator gets masked addresses in the export: %s", rec.Body.String())
 	}
 }
 
 func TestCancelBroadcastRoute(t *testing.T) {
 	uc := &fakeUseCase{role: "owner"}
-	w := do(t, uc, http.MethodPost, "/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel", string(rbac.PermNotificationsBroadcast), "")
+	w := do(
+		t,
+		uc,
+		http.MethodPost,
+		"/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "canceled") {
 		t.Fatalf("cancel: %d %s", w.Code, w.Body.String())
 	}
-	if w = do(t, uc, http.MethodPost, "/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel", "", ""); w.Code == http.StatusOK {
+	if w = do(
+		t,
+		uc,
+		http.MethodPost,
+		"/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel",
+		"",
+		"",
+	); w.Code == http.StatusOK {
 		t.Fatalf("cancel needs the broadcast permission: %d", w.Code)
 	}
 }

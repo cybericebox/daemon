@@ -82,8 +82,14 @@ func (r *Repository) DecideElevation(ctx context.Context, e resourcesModel.Eleva
 }
 
 // ListElevations lists requests newest first with the exercise name; status, exercise and author narrow it.
-func (r *Repository) ListElevations(ctx context.Context, f resourcesModel.ElevationFilter) ([]resourcesModel.ElevationListed, error) {
-	params := postgres.ListExerciseResourceElevationsParams{ExerciseID: f.ExerciseID, RequestedBy: f.RequestedBy}
+func (r *Repository) ListElevations(
+	ctx context.Context,
+	f resourcesModel.ElevationFilter,
+) ([]resourcesModel.ElevationListed, error) {
+	params := postgres.ListExerciseResourceElevationsParams{
+		ExerciseID:  f.ExerciseID,
+		RequestedBy: f.RequestedBy,
+	}
 	if f.Status != nil {
 		params.Status = pgtype.Int2{Int16: int16(*f.Status), Valid: true}
 	}

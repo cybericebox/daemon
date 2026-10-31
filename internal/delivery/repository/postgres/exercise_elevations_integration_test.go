@@ -72,7 +72,10 @@ func TestResourceElevationLifecycleInTheDatabase(t *testing.T) {
 	list, err := repo.ListElevations(ctx, resourcesModel.ElevationFilter{Status: &pending})
 	require.NoError(t, err)
 	require.Len(t, list, 2)
-	byExercise, err := repo.ListElevations(ctx, resourcesModel.ElevationFilter{ExerciseID: uuid.NullUUID{UUID: ex.ID, Valid: true}})
+	byExercise, err := repo.ListElevations(
+		ctx,
+		resourcesModel.ElevationFilter{ExerciseID: uuid.NullUUID{UUID: ex.ID, Valid: true}},
+	)
 	require.NoError(t, err)
 	require.Len(t, byExercise, 2)
 	require.Equal(t, "IT elevation", byExercise[0].ExerciseName)
@@ -91,13 +94,30 @@ func TestElevationHistoryByAuthorAndPendingCount(t *testing.T) {
 	ctx := context.Background()
 	repo := exerciseRepo.New(db.Queries)
 	users := userRepo.New(db.Queries)
-	ann, err := users.Create(ctx, userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "ann-elev@test.test", itNow))
+	ann, err := users.Create(
+		ctx,
+		userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "ann-elev@test.test", itNow),
+	)
 	require.NoError(t, err)
-	bob, err := users.Create(ctx, userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "bob-elev@test.test", itNow))
+	bob, err := users.Create(
+		ctx,
+		userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "bob-elev@test.test", itNow),
+	)
 	require.NoError(t, err)
-	device := resourcesModel.Approval{DeviceID: uuid.Must(uuid.NewV7()), Name: "db", Amount: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 << 30}}
+	device := resourcesModel.Approval{
+		DeviceID: uuid.Must(uuid.NewV7()),
+		Name:     "db",
+		Amount:   resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 << 30},
+	}
 	file := func(exerciseID, by uuid.UUID) resourcesModel.Elevation {
-		e, newErr := resourcesModel.NewElevation(exerciseID, uuid.NullUUID{}, "why", []resourcesModel.Approval{device}, uuid.NullUUID{UUID: by, Valid: true}, itNow)
+		e, newErr := resourcesModel.NewElevation(
+			exerciseID,
+			uuid.NullUUID{},
+			"why",
+			[]resourcesModel.Approval{device},
+			uuid.NullUUID{UUID: by, Valid: true},
+			itNow,
+		)
 		require.NoError(t, newErr)
 		require.NoError(t, repo.CreateElevation(ctx, e))
 		return e
@@ -106,7 +126,10 @@ func TestElevationHistoryByAuthorAndPendingCount(t *testing.T) {
 	file(mustCreateExercise(t, repo, "History B").ID, ann.ID)
 	file(mustCreateExercise(t, repo, "History C").ID, bob.ID)
 
-	byAnn, err := repo.ListElevations(ctx, resourcesModel.ElevationFilter{RequestedBy: uuid.NullUUID{UUID: ann.ID, Valid: true}})
+	byAnn, err := repo.ListElevations(
+		ctx,
+		resourcesModel.ElevationFilter{RequestedBy: uuid.NullUUID{UUID: ann.ID, Valid: true}},
+	)
 	require.NoError(t, err)
 	require.Len(t, byAnn, 2, "only Ann's requests")
 	all, err := repo.ListElevations(ctx, resourcesModel.ElevationFilter{})

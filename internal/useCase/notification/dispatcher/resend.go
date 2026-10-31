@@ -26,7 +26,9 @@ func (u *NotificationDispatcher) ResendDispatch(ctx context.Context, dispatchID 
 	}
 	targets, err := u.dispatches.ListTargets(ctx, dispatchID)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to load the dispatch targets").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to load the dispatch targets").
+			Err()
 	}
 	var failed []string
 	for _, t := range targets {
@@ -45,8 +47,14 @@ func (u *NotificationDispatcher) ResendDispatch(ctx context.Context, dispatchID 
 	}
 
 	previous := dispatchModel.DispatchStatus(info.Status)
-	if err = u.dispatches.SetStatus(ctx, dispatchID, dispatchModel.DispatchStatusPending); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to mark the dispatch pending").Err()
+	if err = u.dispatches.SetStatus(
+		ctx,
+		dispatchID,
+		dispatchModel.DispatchStatusPending,
+	); err != nil {
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to mark the dispatch pending").
+			Err()
 	}
 	args := jobsModel.NotifyArgs{
 		DispatchID: dispatchID, UserID: info.RecipientUserID, Type: info.NotificationType,
@@ -55,7 +63,9 @@ func (u *NotificationDispatcher) ResendDispatch(ctx context.Context, dispatchID 
 	if err = u.enqueuer.Enqueue(ctx, args); err != nil {
 		// Keep the journal truthful: the dispatch is as failed as before.
 		_ = u.dispatches.SetStatus(ctx, dispatchID, previous)
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to queue the notification again").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to queue the notification again").
+			Err()
 	}
 	return nil
 }

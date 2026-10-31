@@ -27,7 +27,11 @@ import (
 type IUseCase interface {
 	ListAdminActions(context.Context, adminAuditUseCase.Filter) (adminAuditUseCase.Page, error)
 	CountAdminActions(context.Context, adminAuditUseCase.Filter) (int64, error)
-	ExportAdminActions(context.Context, adminAuditUseCase.Filter, func(postgres.AdminAuditLog) error) (bool, error)
+	ExportAdminActions(
+		context.Context,
+		adminAuditUseCase.Filter,
+		func(postgres.AdminAuditLog) error,
+	) (bool, error)
 }
 
 type IProtection interface {
@@ -126,7 +130,17 @@ func toItem(x postgres.AdminAuditLog) auditItem {
 	if len(x.Changes) > 0 {
 		_ = json.Unmarshal(x.Changes, &changes)
 	}
-	return auditItem{x.ID, x.ActorID, x.Permission, x.Method, x.Route, x.ResponseStatus, x.CreatedAt, x.Target, changes}
+	return auditItem{
+		x.ID,
+		x.ActorID,
+		x.Permission,
+		x.Method,
+		x.Route,
+		x.ResponseStatus,
+		x.CreatedAt,
+		x.Target,
+		changes,
+	}
 }
 
 // export godoc
@@ -154,22 +168,53 @@ func (h *Handler) export(c *gin.Context) {
 	}
 	download.ExtendDeadline(c)
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="audit-%s.csv"`, time.Now().UTC().Format("20060102-1504")))
+	c.Header(
+		"Content-Disposition",
+		fmt.Sprintf(
+			`attachment; filename="audit-%s.csv"`,
+			time.Now().UTC().Format("20060102-1504"),
+		),
+	)
 	c.Header("Cache-Control", "private, no-store")
 	c.Status(http.StatusOK)
 	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 	w := csv.NewWriter(c.Writer)
-	_ = w.Write([]string{"Time", "ActorID", "Permission", "Method", "Route", "Status", "Target", "Changes"})
-	truncated, err := h.useCase.ExportAdminActions(c.Request.Context(), filter, func(x postgres.AdminAuditLog) error {
-		item := toItem(x)
-		return w.Write([]string{
-			item.CreatedAt.UTC().Format(time.RFC3339), item.ActorID.String(), item.Permission, item.Method,
-			tools.CSVText(item.Route), strconv.Itoa(int(item.ResponseStatus)), tools.CSVText(item.Target),
-			tools.CSVText(changesText(item.Changes)),
-		})
-	})
+	_ = w.Write(
+		[]string{"Time", "ActorID", "Permission", "Method", "Route", "Status", "Target", "Changes"},
+	)
+	truncated, err := h.useCase.ExportAdminActions(
+		c.Request.Context(),
+		filter,
+		func(x postgres.AdminAuditLog) error {
+			item := toItem(x)
+			return w.Write([]string{
+				item.CreatedAt.UTC().
+					Format(time.RFC3339),
+				item.ActorID.String(),
+				item.Permission,
+				item.Method,
+				tools.CSVText(
+					item.Route,
+				),
+				strconv.Itoa(int(item.ResponseStatus)),
+				tools.CSVText(item.Target),
+				tools.CSVText(changesText(item.Changes)),
+			})
+		},
+	)
 	if truncated {
-		_ = w.Write([]string{"", "", "", "", "", "", "", fmt.Sprintf("truncated at %d rows", adminAuditUseCase.MaxExportRows)})
+		_ = w.Write(
+			[]string{
+				"",
+				"",
+				"",
+				"",
+				"",
+				"",
+				"",
+				fmt.Sprintf("truncated at %d rows", adminAuditUseCase.MaxExportRows),
+			},
+		)
 	}
 	w.Flush()
 	if err != nil {
@@ -185,7 +230,10 @@ func changesText(changes []adminAuditUseCase.Change) string {
 			parts = append(parts, ch.Field+": changed (hidden)")
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s: %v -> %v", ch.Field, show(ch.Before), show(ch.After)))
+		parts = append(
+			parts,
+			fmt.Sprintf("%s: %v -> %v", ch.Field, show(ch.Before), show(ch.After)),
+		)
 	}
 	return strings.Join(parts, "; ")
 }

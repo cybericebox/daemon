@@ -7,7 +7,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// MailObjectCode — next free detail code: 11
+// MailObjectCode — next free detail code: 11.
 var (
 	ErrSMTPSettingsInvalid = err.ErrInvalidData.WithObjectCode(model.MailObjectCode).
 				WithMessage("SMTP settings are invalid").WithDetailCode(1)

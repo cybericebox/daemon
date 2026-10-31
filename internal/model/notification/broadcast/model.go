@@ -22,7 +22,7 @@ const (
 	StatusSending Status = "sending"
 	StatusDone    Status = "done"
 	StatusFailed  Status = "failed"
-	// StatusCanceled: an admin stopped the sender; recipients already queued are still delivered.
+	// StatusCanceled means an admin stopped the sender; recipients already queued are still delivered.
 	StatusCanceled Status = "canceled"
 )
 

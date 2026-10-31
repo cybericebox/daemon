@@ -354,7 +354,14 @@ func (h *Handler) updateRole(ctx *gin.Context) {
 		return
 	}
 	if before != nil {
-		audit.SetChanges(ctx, adminAuditUseCase.Diff(map[string]any{"Role": before.Role}, map[string]any{"Role": req.Role}))
+		audit.SetChanges(
+			ctx,
+			adminAuditUseCase.Diff(
+				map[string]any{"Role": before.Role},
+				map[string]any{"Role": req.Role},
+				"Role",
+			),
+		)
 	}
 	response.AbortWithSuccess(ctx)
 }
@@ -387,7 +394,14 @@ func (h *Handler) updateStatus(ctx *gin.Context) {
 		return
 	}
 	if before != nil {
-		audit.SetChanges(ctx, adminAuditUseCase.Diff(map[string]any{"Status": before.Status}, map[string]any{"Status": req.Status}))
+		audit.SetChanges(
+			ctx,
+			adminAuditUseCase.Diff(
+				map[string]any{"Status": before.Status},
+				map[string]any{"Status": req.Status},
+				"Status",
+			),
+		)
 	}
 	response.AbortWithSuccess(ctx)
 }

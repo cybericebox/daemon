@@ -394,7 +394,9 @@ type FreeCapacityView struct {
 
 // ClusterFreeCapacity is the capacity of the agents that are used less what the active reservations allocate now.
 // It is the hint beside a resource elevation request (admin).
-func (u *ResourceCalendarUseCase) ClusterFreeCapacity(ctx context.Context) (FreeCapacityView, error) {
+func (u *ResourceCalendarUseCase) ClusterFreeCapacity(
+	ctx context.Context,
+) (FreeCapacityView, error) {
 	now := u.now().UTC()
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -411,8 +413,14 @@ func (u *ResourceCalendarUseCase) ClusterFreeCapacity(ctx context.Context) (Free
 		if !st.Used {
 			continue
 		}
-		view.LargestDevice.CPUMillicores = max(view.LargestDevice.CPUMillicores, st.DeviceMax.CPUMillicores)
-		view.LargestDevice.MemoryBytes = max(view.LargestDevice.MemoryBytes, st.DeviceMax.MemoryBytes)
+		view.LargestDevice.CPUMillicores = max(
+			view.LargestDevice.CPUMillicores,
+			st.DeviceMax.CPUMillicores,
+		)
+		view.LargestDevice.MemoryBytes = max(
+			view.LargestDevice.MemoryBytes,
+			st.DeviceMax.MemoryBytes,
+		)
 		if st.Capacity.CPUMillicores >= calModel.Unlimited {
 			view.CPUUnlimited = true
 		} else {

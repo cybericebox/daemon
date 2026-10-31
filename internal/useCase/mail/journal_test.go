@@ -115,17 +115,30 @@ func TestTestEventSMTP_JournalsScopedToTheEvent(t *testing.T) {
 // An administrator cannot fire test emails in a burst: the second one inside the cooldown is refused with the
 // seconds to wait, another administrator is not held up, and the first may try again once the cooldown passed.
 func TestTestPlatformProvider_CooldownPerAdministrator(t *testing.T) {
-	env := config.SMTPConfig{Host: "env.smtp", Port: 587, SenderEmail: "notifications@mail.cybericebox.com"}
+	env := config.SMTPConfig{
+		Host:        "env.smtp",
+		Port:        587,
+		SenderEmail: "notifications@mail.cybericebox.com",
+	}
 	uc, repo, _ := newTestUseCase(t, env, nil)
 	clock := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	uc.now = func() time.Time { return clock }
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	for _, id := range []uuid.UUID{first, second} {
-		repo.EXPECT().GetUserByID(gomock.Any(), id).Return(postgres.User{ID: id, Email: id.String() + "@example.org"}, nil).AnyTimes()
+		repo.EXPECT().
+			GetUserByID(gomock.Any(), id).
+			Return(postgres.User{ID: id, Email: id.String() + "@example.org"}, nil).
+			AnyTimes()
 	}
-	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{}, nil).AnyTimes()
+	repo.EXPECT().
+		ListPlatformSMTPProviders(gomock.Any()).
+		Return([]postgres.MailSmtpConfig{}, nil).
+		AnyTimes()
 	expectPlatformIdentity(repo, nil)
-	repo.EXPECT().CreateDispatch(gomock.Any(), gomock.Any()).Return(postgres.NotificationDispatch{}, nil).AnyTimes()
+	repo.EXPECT().
+		CreateDispatch(gomock.Any(), gomock.Any()).
+		Return(postgres.NotificationDispatch{}, nil).
+		AnyTimes()
 	repo.EXPECT().UpsertDispatchTarget(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	repo.EXPECT().SetDispatchStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -135,7 +148,11 @@ func TestTestPlatformProvider_CooldownPerAdministrator(t *testing.T) {
 	clock = clock.Add(3 * time.Second)
 	_, err = uc.TestPlatformProvider(context.Background(), nil, nil, first)
 	require.True(t, mailModel.ErrTestMailTooSoon.Err().Is(err), "%v", err)
-	require.Equal(t, http.StatusTooManyRequests, mailModel.ErrTestMailTooSoon.Err().StatusCode().HTTPCode())
+	require.Equal(
+		t,
+		http.StatusTooManyRequests,
+		mailModel.ErrTestMailTooSoon.Err().StatusCode().HTTPCode(),
+	)
 
 	_, err = uc.TestPlatformProvider(context.Background(), nil, nil, second)
 	require.NoError(t, err, "the cooldown is per administrator")

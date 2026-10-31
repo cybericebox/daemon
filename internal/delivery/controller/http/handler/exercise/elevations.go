@@ -138,17 +138,24 @@ func (h *Handler) pendingElevationCount(ctx *gin.Context) {
 
 // capacityHint compares what the request asks with the room the cluster has now. The asked amount is the sum of
 // the requested devices; Fits says the free room covers it (an unlimited resource always does).
-func capacityHint(e exerciseUseCase.ElevationView, free calendarUseCase.FreeCapacityView) *elevationCapacityResponse {
+func capacityHint(
+	e exerciseUseCase.ElevationView,
+	free calendarUseCase.FreeCapacityView,
+) *elevationCapacityResponse {
 	var asked calendarUseCase.Amount
 	for _, d := range e.Requested {
 		asked.CPUMillicores += d.CPUMillicores
 		asked.MemoryBytes += d.MemoryBytes
 	}
 	return &elevationCapacityResponse{
-		CapacityCPUMillicores: free.Capacity.CPUMillicores, CapacityMemoryBytes: free.Capacity.MemoryBytes,
-		FreeCPUMillicores: free.Free.CPUMillicores, FreeMemoryBytes: free.Free.MemoryBytes,
-		CPUUnlimited: free.CPUUnlimited, MemoryUnlimited: free.MemoryUnlimited,
-		AskedCPUMillicores: asked.CPUMillicores, AskedMemoryBytes: asked.MemoryBytes,
+		CapacityCPUMillicores: free.Capacity.CPUMillicores,
+		CapacityMemoryBytes:   free.Capacity.MemoryBytes,
+		FreeCPUMillicores:     free.Free.CPUMillicores,
+		FreeMemoryBytes:       free.Free.MemoryBytes,
+		CPUUnlimited:          free.CPUUnlimited,
+		MemoryUnlimited:       free.MemoryUnlimited,
+		AskedCPUMillicores:    asked.CPUMillicores,
+		AskedMemoryBytes:      asked.MemoryBytes,
 		Fits: (free.CPUUnlimited || asked.CPUMillicores <= free.Free.CPUMillicores) &&
 			(free.MemoryUnlimited || asked.MemoryBytes <= free.Free.MemoryBytes),
 	}

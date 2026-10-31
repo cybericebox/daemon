@@ -3,6 +3,7 @@ package messaging
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -220,7 +221,12 @@ func (h *Handler) listDeliveries(scope scopeFn) gin.HandlerFunc {
 			return
 		}
 		items, total, err := h.useCase.ListBroadcastDeliveries(
-			ctx.Request.Context(), id, ctx.Query("status"), int32(page.PageSize), int32(page.Offset()))
+			ctx.Request.Context(),
+			id,
+			ctx.Query("status"),
+			int32(page.PageSize), //nolint:gosec // validated: at most pagination.MaxPageSize
+			int32(page.Offset()), //nolint:gosec // page and page size are bounded by Validate
+		)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
@@ -255,7 +261,7 @@ func (h *Handler) exportDeliveries(scope scopeFn) gin.HandlerFunc {
 		}
 		status := ctx.Query("status")
 		if !broadcastModel.ValidDeliveryStatus(status) {
-			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid status"))
+			response.AbortWithBadRequest(ctx, errors.New("invalid status"))
 			return
 		}
 		if _, err := h.useCase.GetBroadcast(ctx.Request.Context(), id, eventID); err != nil {
@@ -269,23 +275,49 @@ func (h *Handler) exportDeliveries(scope scopeFn) gin.HandlerFunc {
 		}
 		download.ExtendDeadline(ctx)
 		ctx.Header("Content-Type", "text/csv; charset=utf-8")
-		ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="broadcast-%s-deliveries.csv"`, id))
+		ctx.Header(
+			"Content-Disposition",
+			fmt.Sprintf(`attachment; filename="broadcast-%s-deliveries.csv"`, id),
+		)
 		ctx.Header("Cache-Control", "private, no-store")
 		ctx.Status(http.StatusOK)
 		_, _ = ctx.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 		w := csv.NewWriter(ctx.Writer)
-		_ = w.Write([]string{"DispatchID", "RecipientUserID", "RecipientEmail", "DispatchStatus", "Channel", "TargetStatus", "Error"})
-		err = h.useCase.ExportBroadcastDeliveries(ctx.Request.Context(), id, status, func(d broadcastModel.Delivery) error {
-			row := maskDelivery(deliveryResponse(d), masked)
-			return w.Write([]string{
-				row.DispatchID.String(), row.RecipientUserID.String(), tools.CSVText(row.RecipientEmail),
-				row.DispatchStatus, row.Channel, row.TargetStatus, tools.CSVText(row.Error),
-			})
-		})
+		_ = w.Write(
+			[]string{
+				"DispatchID",
+				"RecipientUserID",
+				"RecipientEmail",
+				"DispatchStatus",
+				"Channel",
+				"TargetStatus",
+				"Error",
+			},
+		)
+		err = h.useCase.ExportBroadcastDeliveries(
+			ctx.Request.Context(),
+			id,
+			status,
+			func(d broadcastModel.Delivery) error {
+				row := maskDelivery(deliveryResponse(d), masked)
+				return w.Write([]string{
+					row.DispatchID.String(),
+					row.RecipientUserID.String(),
+					tools.CSVText(row.RecipientEmail),
+					row.DispatchStatus,
+					row.Channel,
+					row.TargetStatus,
+					tools.CSVText(row.Error),
+				})
+			},
+		)
 		w.Flush()
 		if err != nil {
 			// The download has started: the status line is sent, so the failure can only be logged.
-			log.Error().Err(err).Str("broadcast", id.String()).Msg("broadcast deliveries export interrupted")
+			log.Error().
+				Err(err).
+				Str("broadcast", id.String()).
+				Msg("broadcast deliveries export interrupted")
 		}
 	}
 }

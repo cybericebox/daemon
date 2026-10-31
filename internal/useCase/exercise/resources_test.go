@@ -69,10 +69,14 @@ func (f *fakeElevations) CountPendingElevations(context.Context) (int64, error) 
 	return n, nil
 }
 
-func (f *fakeElevations) ListElevations(_ context.Context, filter resourcesModel.ElevationFilter) ([]resourcesModel.ElevationListed, error) {
+func (f *fakeElevations) ListElevations(
+	_ context.Context,
+	filter resourcesModel.ElevationFilter,
+) ([]resourcesModel.ElevationListed, error) {
 	var out []resourcesModel.ElevationListed
 	for _, it := range f.items {
-		if (filter.Status == nil || *filter.Status == it.Status) && (!filter.ExerciseID.Valid || filter.ExerciseID.UUID == it.ExerciseID) &&
+		if (filter.Status == nil || *filter.Status == it.Status) &&
+			(!filter.ExerciseID.Valid || filter.ExerciseID.UUID == it.ExerciseID) &&
 			(!filter.RequestedBy.Valid || filter.RequestedBy == it.RequestedBy) {
 			out = append(out, resourcesModel.ElevationListed{Elevation: it, ExerciseName: "Web"})
 		}

@@ -75,14 +75,22 @@ func (h *Handler) bulkSetStatus(status errorJournalModel.Status) gin.HandlerFunc
 			seen[id] = struct{}{}
 			item := bulkGroupResultResponse{GroupID: id, Ok: true}
 			code := http.StatusOK
-			if _, setErr := h.useCase.SetErrorGroupStatus(c.Request.Context(), id, status); setErr != nil {
+			if _, setErr := h.useCase.SetErrorGroupStatus(
+				c.Request.Context(),
+				id,
+				status,
+			); setErr != nil {
 				item.Ok = false
 				item.Code, item.Error, code = describeBulkError(setErr)
 			}
 			out.Results = append(out.Results, item)
 			_ = h.useCase.RecordAdminAction(c.Request.Context(), adminAuditUseCase.Entry{
-				ActorID: claims.UserID, Permission: string(rbac.PermPlatformErrorsWrite), Method: c.Request.Method,
-				Route: c.FullPath(), ResponseStatus: code, Target: "errorGroup:" + id.String(),
+				ActorID:        claims.UserID,
+				Permission:     string(rbac.PermPlatformErrorsWrite),
+				Method:         c.Request.Method,
+				Route:          c.FullPath(),
+				ResponseStatus: code,
+				Target:         "errorGroup:" + id.String(),
 			})
 		}
 		response.AbortWithData(c, out)
@@ -96,7 +104,12 @@ func describeBulkError(e error) (string, string, int) {
 	if errors.As(e, &coded) {
 		inner := coded.UnwrapNotInternalError()
 		if !inner.StatusCode().IsInternal() {
-			return strconv.Itoa(inner.StatusCode().FullCode()), inner.StatusCode().Message(), inner.StatusCode().HTTPCode()
+			return strconv.Itoa(
+					inner.StatusCode().FullCode(),
+				), inner.StatusCode().
+					Message(),
+				inner.StatusCode().
+					HTTPCode()
 		}
 	}
 	return "", "Internal server error", http.StatusInternalServerError

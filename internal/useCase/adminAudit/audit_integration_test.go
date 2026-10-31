@@ -123,7 +123,11 @@ func TestListAdminActionsFiltersAndPages(t *testing.T) {
 
 	// the export walks every matching row once, newest first, and honours the cap flag
 	var exported int
-	truncated, err := uc.ExportAdminActions(ctx, adminAudit.Filter{Limit: 1, Cursor: "ignored"}, func(postgres.AdminAuditLog) error { exported++; return nil })
+	truncated, err := uc.ExportAdminActions(
+		ctx,
+		adminAudit.Filter{Limit: 1, Cursor: "ignored"},
+		func(postgres.AdminAuditLog) error { exported++; return nil },
+	)
 	if err != nil || truncated || exported != 5 {
 		t.Fatalf("export: %d rows truncated=%v err=%v", exported, truncated, err)
 	}
@@ -148,29 +152,40 @@ func TestRecordedChangesNeverStoreASecret(t *testing.T) {
 
 	type form struct {
 		Role         string
-		SmtpPassword string
+		SMTPPassword string
 		Backup       struct{ RecoveryCode, Window string }
 	}
-	before := form{Role: "user", SmtpPassword: "hunter2-old"}
-	after := form{Role: "admin", SmtpPassword: "hunter2-new"}
+	before := form{Role: "user", SMTPPassword: "hunter2-old"}
+	after := form{Role: "admin", SMTPPassword: "hunter2-new"}
 	before.Backup.RecoveryCode, after.Backup.RecoveryCode = "111-222", "333-444"
 	before.Backup.Window, after.Backup.Window = "1h", "2h"
 	if err := uc.RecordAdminAction(ctx, adminAudit.Entry{
-		ActorID: actor, Permission: "settings.write", Method: "PUT", Route: "/settings/:key", ResponseStatus: 200,
-		Changes: adminAudit.Diff(before, after),
+		ActorID:        actor,
+		Permission:     "settings.write",
+		Method:         "PUT",
+		Route:          "/settings/:key",
+		ResponseStatus: 200,
+		Changes:        adminAudit.Diff(before, after, "Role", "Backup.Window", "SMTPPassword", "Backup.RecoveryCode"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// A hand-built change that names a secret is cleaned at the write too.
 	if err := uc.RecordAdminAction(ctx, adminAudit.Entry{
-		ActorID: actor, Permission: "settings.write", Method: "PUT", Route: "/settings/:key", ResponseStatus: 200,
-		Changes: []adminAudit.Change{{Field: "ApiToken", Before: "tok-old", After: "tok-new"}},
+		ActorID:        actor,
+		Permission:     "settings.write",
+		Method:         "PUT",
+		Route:          "/settings/:key",
+		ResponseStatus: 200,
+		Changes: []adminAudit.Change{
+			{Field: "ApiToken", Before: "tok-old", After: "tok-new"},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	var stored string
-	if err := db.Pool.QueryRow(ctx, `SELECT string_agg(changes::text, ' ') FROM admin_audit_log`).Scan(&stored); err != nil {
+	if err := db.Pool.QueryRow(ctx, `SELECT string_agg(changes::text, ' ') FROM admin_audit_log`).
+		Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	for _, leaked := range []string{"hunter2", "111-222", "333-444", "tok-old", "tok-new"} {
@@ -183,7 +198,10 @@ func TestRecordedChangesNeverStoreASecret(t *testing.T) {
 			t.Errorf("%s missing from the stored changes: %s", want, stored)
 		}
 	}
-	page, err := uc.ListAdminActions(ctx, adminAudit.Filter{ActorID: uuid.NullUUID{UUID: actor, Valid: true}})
+	page, err := uc.ListAdminActions(
+		ctx,
+		adminAudit.Filter{ActorID: uuid.NullUUID{UUID: actor, Valid: true}},
+	)
 	if err != nil || len(page.Items) != 2 {
 		t.Fatalf("list: %d %v", len(page.Items), err)
 	}

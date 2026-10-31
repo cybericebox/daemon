@@ -43,7 +43,11 @@ func (*listUseCase) GetDispatch(context.Context, uuid.UUID) (*dispatchModel.Disp
 func (*listUseCase) GetStats(context.Context, time.Time) (*dispatchModel.Stats, error) {
 	panic("not used")
 }
-func (u *listUseCase) ResendDispatches(_ context.Context, ids []uuid.UUID) []statsUseCase.ResendResult {
+
+func (u *listUseCase) ResendDispatches(
+	_ context.Context,
+	ids []uuid.UUID,
+) []statsUseCase.ResendResult {
 	u.resent = ids
 	out := make([]statsUseCase.ResendResult, 0, len(ids))
 	for i, id := range ids {
@@ -137,13 +141,21 @@ func TestListDispatchesReadsRecipientAndPeriod(t *testing.T) {
 	router.Use(response.WithErrorHandler)
 	NewStatsAPIHandler(uc, passThroughProtection{}).Init(router.Group("/api/notifications"))
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
-		"/api/notifications/dispatches?recipient=%20ann%20&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z", nil))
-	if w.Code != http.StatusOK || uc.filter.Recipient != "ann" || uc.filter.From != "2026-10-01T00:00:00Z" || uc.filter.To != "2026-10-02T00:00:00Z" {
+	router.ServeHTTP(w, httptest.NewRequest(
+		http.MethodGet,
+		"/api/notifications/dispatches?recipient=%20ann%20&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z",
+		nil,
+	))
+	if w.Code != http.StatusOK || uc.filter.Recipient != "ann" ||
+		uc.filter.From != "2026-10-01T00:00:00Z" ||
+		uc.filter.To != "2026-10-02T00:00:00Z" {
 		t.Fatalf("status = %d filter = %+v", w.Code, uc.filter)
 	}
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/notifications/dispatches?from=yesterday", nil))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(http.MethodGet, "/api/notifications/dispatches?from=yesterday", nil),
+	)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("a malformed period is refused: %d", w.Code)
 	}
@@ -154,38 +166,59 @@ func TestResendDispatchesAnswersPerItemAndAuditsEach(t *testing.T) {
 	uc := &listUseCase{}
 	router := gin.New()
 	router.Use(response.WithErrorHandler, func(ctx *gin.Context) {
-		ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), rbac.Claims{UserID: uuid.Must(uuid.NewV7())}))
+		ctx.Request = ctx.Request.WithContext(
+			rbac.ContextWithCurrentUserSession(
+				ctx.Request.Context(),
+				rbac.Claims{UserID: uuid.Must(uuid.NewV7())},
+			),
+		)
 	})
 	NewStatsAPIHandler(uc, passThroughProtection{}).Init(router.Group("/api/notifications"))
 	a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	body := `{"DispatchIDs":["` + a.String() + `","` + b.String() + `","` + a.String() + `"]}`
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/notifications/dispatches/resend", strings.NewReader(body)))
+	router.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/notifications/dispatches/resend",
+			strings.NewReader(body),
+		),
+	)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	var out struct {
 		Data struct {
 			Results []struct {
-				DispatchID uuid.UUID
-				Ok         bool
-				Code       string
-			}
-		}
+				DispatchID uuid.UUID `json:"DispatchID"`
+				Ok         bool      `json:"Ok"`
+				Code       string    `json:"Code"`
+			} `json:"Results"`
+		} `json:"Data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Data.Results) != 3 || !out.Data.Results[0].Ok || out.Data.Results[1].Ok || out.Data.Results[1].Code != "70230" {
+	if len(out.Data.Results) != 3 || !out.Data.Results[0].Ok || out.Data.Results[1].Ok ||
+		out.Data.Results[1].Code != "70230" {
 		t.Fatalf("results = %+v", out.Data.Results)
 	}
-	if len(uc.audited) != 3 || uc.audited[1].Target != "dispatch:"+b.String() || uc.audited[1].ResponseStatus != http.StatusConflict {
+	if len(uc.audited) != 3 || uc.audited[1].Target != "dispatch:"+b.String() ||
+		uc.audited[1].ResponseStatus != http.StatusConflict {
 		t.Fatalf("audit = %+v", uc.audited)
 	}
 
 	for _, bad := range []string{`{"DispatchIDs":[]}`, `{}`, `not json`} {
 		w = httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/notifications/dispatches/resend", strings.NewReader(bad)))
+		router.ServeHTTP(
+			w,
+			httptest.NewRequest(
+				http.MethodPost,
+				"/api/notifications/dispatches/resend",
+				strings.NewReader(bad),
+			),
+		)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s must be refused: %d", bad, w.Code)
 		}

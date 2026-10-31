@@ -168,7 +168,13 @@ func TestBroadcast_EndToEnd_PlatformScopeThroughTheJournal(t *testing.T) {
 	require.Equal(t, "error", deliveries[0].TargetStatus)
 	require.Contains(t, deliveries[0].Error, "mailbox unavailable")
 
-	failedOnly, failedTotal, err := uc.ListBroadcastDeliveries(ctx, b.ID, broadcastModel.DeliveryError, 20, 0)
+	failedOnly, failedTotal, err := uc.ListBroadcastDeliveries(
+		ctx,
+		b.ID,
+		broadcastModel.DeliveryError,
+		20,
+		0,
+	)
 	require.NoError(t, err)
 	require.Len(t, failedOnly, 1, "the status filter keeps only failed rows")
 	require.EqualValues(t, 1, failedTotal)
@@ -179,8 +185,16 @@ func TestBroadcast_EndToEnd_PlatformScopeThroughTheJournal(t *testing.T) {
 	_, _, err = uc.ListBroadcastDeliveries(ctx, b.ID, "bogus", 20, 0)
 	require.Error(t, err)
 	var exported int
-	require.NoError(t, uc.ExportBroadcastDeliveries(ctx, b.ID, "", func(broadcastModel.Delivery) error { exported++; return nil }))
-	require.EqualValues(t, 4, exported, "two channels for each of the two recipients")
+	require.NoError(
+		t,
+		uc.ExportBroadcastDeliveries(
+			ctx,
+			b.ID,
+			"",
+			func(broadcastModel.Delivery) error { exported++; return nil },
+		),
+	)
+	require.Equal(t, 4, exported, "two channels for each of the two recipients")
 
 	_, err = uc.CancelBroadcast(ctx, b.ID, nil)
 	require.Error(t, err, "a finished broadcast cannot be canceled")
@@ -295,8 +309,12 @@ func TestBroadcast_CancelStopsTheSender(t *testing.T) {
 	ann := seedUser(t, db, "ann@test.test", "Ann", "Lee")
 
 	b, err := uc.SendBroadcast(ctx, broadcastUseCase.SendInput{
-		ActorID: admin, Content: emailAndInApp(),
-		Audience: broadcastModel.Audience{Kind: broadcastModel.KindUsers, UserIDs: []uuid.UUID{ann}},
+		ActorID: admin,
+		Content: emailAndInApp(),
+		Audience: broadcastModel.Audience{
+			Kind:    broadcastModel.KindUsers,
+			UserIDs: []uuid.UUID{ann},
+		},
 	})
 	require.NoError(t, err)
 
@@ -315,7 +333,12 @@ func TestBroadcast_CancelStopsTheSender(t *testing.T) {
 	require.Zero(t, total, "a canceled broadcast queues nobody")
 	after, err := uc.GetBroadcast(ctx, b.ID, nil)
 	require.NoError(t, err)
-	require.Equal(t, broadcastModel.StatusCanceled, after.Status, "the sender does not overwrite the cancellation")
+	require.Equal(
+		t,
+		broadcastModel.StatusCanceled,
+		after.Status,
+		"the sender does not overwrite the cancellation",
+	)
 
 	_, err = uc.CancelBroadcast(ctx, b.ID, nil)
 	require.Error(t, err, "canceling twice is refused")

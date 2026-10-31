@@ -21,7 +21,12 @@ const changesKey = "adminAuditChanges"
 
 // SetChanges records which fields the request changed (see adminAuditUseCase.Diff). Secret fields are cut out
 // when the entry is written, so a handler may pass whole settings structs.
-func SetChanges(ctx *gin.Context, changes []adminAuditUseCase.Change) { ctx.Set(changesKey, changes) }
+func SetChanges(
+	ctx *gin.Context,
+	changes []adminAuditUseCase.Change,
+) {
+	ctx.Set(changesKey, changes)
+}
 
 // Changes returns the value set by SetChanges, or nil.
 func Changes(ctx *gin.Context) []adminAuditUseCase.Change {

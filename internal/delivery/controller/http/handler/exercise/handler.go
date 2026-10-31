@@ -144,7 +144,11 @@ type (
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
 		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
 		GetElevation(ctx context.Context, id uuid.UUID) (exerciseUseCase.ElevationView, error)
-		ListElevations(ctx context.Context, status string, author uuid.UUID) ([]exerciseUseCase.ElevationView, error)
+		ListElevations(
+			ctx context.Context,
+			status string,
+			author uuid.UUID,
+		) ([]exerciseUseCase.ElevationView, error)
 		CountPendingElevations(ctx context.Context) (int64, error)
 		ClusterFreeCapacity(ctx context.Context) (calendarUseCase.FreeCapacityView, error)
 		DecideElevation(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error)
@@ -231,11 +235,31 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("proposals/:proposalID/reject", h.prot.RequirePermission(rbac.PermExercisesPublish), h.rejectProposal)
 
 		// resource elevations: a platform admin lists and decides the requests to take devices above the frame
-		ex.GET("elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
-		ex.GET("elevations/pending-count", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.pendingElevationCount)
-		ex.GET("elevations/:elevationID", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.getElevation)
-		ex.POST("elevations/:elevationID/approve", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.approveElevation)
-		ex.POST("elevations/:elevationID/reject", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.rejectElevation)
+		ex.GET(
+			"elevations",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.listElevations,
+		)
+		ex.GET(
+			"elevations/pending-count",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.pendingElevationCount,
+		)
+		ex.GET(
+			"elevations/:elevationID",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.getElevation,
+		)
+		ex.POST(
+			"elevations/:elevationID/approve",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsWrite),
+			h.approveElevation,
+		)
+		ex.POST(
+			"elevations/:elevationID/reject",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsWrite),
+			h.rejectElevation,
+		)
 
 		// deploy routes: "deploys" is a static segment sibling to ":id" and, like
 		// "files", must be registered before the ":id" param routes. Status,

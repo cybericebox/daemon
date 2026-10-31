@@ -562,7 +562,11 @@ func TestRoleAndStatusChangesAreRecordedForTheAudit(t *testing.T) {
 			recorded = audit.Changes(ctx)
 		})
 		userHandler.NewUserAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
-		req := httptest.NewRequest(http.MethodPatch, "/api/users/"+targetID.String()+path, bytes.NewBufferString(body))
+		req := httptest.NewRequest(
+			http.MethodPatch,
+			"/api/users/"+targetID.String()+path,
+			bytes.NewBufferString(body),
+		)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
@@ -571,7 +575,8 @@ func TestRoleAndStatusChangesAreRecordedForTheAudit(t *testing.T) {
 	if code := run(&fakeUC{}, "/role", `{"Role":"admin"}`); code != http.StatusOK {
 		t.Fatalf("role: %d", code)
 	}
-	if len(recorded) != 1 || recorded[0].Field != "Role" || recorded[0].Before != "user" || recorded[0].After != "admin" {
+	if len(recorded) != 1 || recorded[0].Field != "Role" || recorded[0].Before != "user" ||
+		recorded[0].After != "admin" {
 		t.Fatalf("role change = %+v", recorded)
 	}
 	if code := run(&fakeUC{}, "/status", `{"Status":"blocked"}`); code != http.StatusOK {
@@ -580,7 +585,12 @@ func TestRoleAndStatusChangesAreRecordedForTheAudit(t *testing.T) {
 	if len(recorded) != 1 || recorded[0].Field != "Status" || recorded[0].After != "blocked" {
 		t.Fatalf("status change = %+v", recorded)
 	}
-	if code := run(&fakeUC{updateErr: authModel.ErrCannotAssignRole.Err()}, "/role", `{"Role":"super_admin"}`); code != http.StatusForbidden || len(recorded) != 0 {
+	if code := run(
+		&fakeUC{updateErr: authModel.ErrCannotAssignRole.Err()},
+		"/role",
+		`{"Role":"super_admin"}`,
+	); code != http.StatusForbidden ||
+		len(recorded) != 0 {
 		t.Fatalf("a refused change records nothing: %d %+v", code, recorded)
 	}
 }

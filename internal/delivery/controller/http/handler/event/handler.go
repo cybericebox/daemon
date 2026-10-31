@@ -1769,7 +1769,10 @@ func (h *Handler) update(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	audit.SetChanges(ctx, adminAuditUseCase.Diff(eventEditableFields(before), eventEditableFields(v)))
+	audit.SetChanges(
+		ctx,
+		adminAuditUseCase.Diff(eventEditableFields(before), eventEditableFields(v), "Tag", "Name", "AvailableFrom", "ArchiveAt"),
+	)
 	response.AbortWithData(ctx, toResponse(v))
 }
 
@@ -2363,5 +2366,10 @@ func eventEditableFields(v eventUseCase.EventView) map[string]any {
 	if v.ID == uuid.Nil {
 		return nil
 	}
-	return map[string]any{"Tag": v.Tag, "Name": v.Name, "AvailableFrom": v.AvailableFrom, "ArchiveAt": v.ArchiveAt}
+	return map[string]any{
+		"Tag":           v.Tag,
+		"Name":          v.Name,
+		"AvailableFrom": v.AvailableFrom,
+		"ArchiveAt":     v.ArchiveAt,
+	}
 }

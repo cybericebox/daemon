@@ -147,9 +147,14 @@ func TestGetSettingValue_AnswersTheValueOnly(t *testing.T) {
 
 func TestGetSetting_CarriesTheDescriptionOfAKnownKey(t *testing.T) {
 	for key, wantDescribed := range map[string]bool{platformSettingsModel.RetentionKey: true, "theme": false} {
-		uc := &fakeUseCase{got: &platformSettingsModel.PlatformSetting{Key: key, Value: json.RawMessage(`{}`)}}
+		uc := &fakeUseCase{
+			got: &platformSettingsModel.PlatformSetting{Key: key, Value: json.RawMessage(`{}`)},
+		}
 		w := httptest.NewRecorder()
-		newEngine(uc, &fakeProt{allow: true}).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/settings/"+key, nil))
+		newEngine(
+			uc,
+			&fakeProt{allow: true},
+		).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/settings/"+key, nil))
 		assert.Equal(t, http.StatusOK, w.Code)
 		var body struct {
 			Data struct {

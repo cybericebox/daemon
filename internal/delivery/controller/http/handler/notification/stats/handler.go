@@ -106,7 +106,11 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	)
 	dispatches.GET("", h.listDispatches)
 	dispatches.GET(":id", h.getDispatch)
-	router.POST("dispatches/resend", h.prot.RequirePermission(rbac.PermNotificationsBroadcast), h.resendDispatches)
+	router.POST(
+		"dispatches/resend",
+		h.prot.RequirePermission(rbac.PermNotificationsBroadcast),
+		h.resendDispatches,
+	)
 }
 
 func toDispatchResponse(d dispatchModel.DispatchInfo) dispatchResponse {

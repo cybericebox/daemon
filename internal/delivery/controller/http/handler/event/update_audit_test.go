@@ -32,7 +32,9 @@ func TestEventUpdateRecordsWhatChanged(t *testing.T) {
 	var changes []string
 	router.Use(func(ctx *gin.Context) {
 		claims := rbac.Claims{UserID: actor, Role: rbac.RoleSuperAdmin}
-		ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
+		ctx.Request = ctx.Request.WithContext(
+			rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims),
+		)
 		ctx.Next()
 		for _, c := range audit.Changes(ctx) {
 			changes = append(changes, c.Field+":"+c.Before.(string)+"->"+c.After.(string))
@@ -40,8 +42,13 @@ func TestEventUpdateRecordsWhatChanged(t *testing.T) {
 	})
 	eventHandler.NewEventAPIHandler(u, allowEventCRUD{}).Init(router.Group("api"))
 
-	req := httptest.NewRequest(http.MethodPut, "/api/events/"+eventID.String(),
-		strings.NewReader(`{"Tag":"autumn","Name":"New name","AvailableFrom":"2026-10-01T09:00:00Z","ArchiveAt":null}`))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/events/"+eventID.String(),
+		strings.NewReader(
+			`{"Tag":"autumn","Name":"New name","AvailableFrom":"2026-10-01T09:00:00Z","ArchiveAt":null}`,
+		),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

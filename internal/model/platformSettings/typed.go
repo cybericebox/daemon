@@ -94,29 +94,30 @@ type Description struct {
 	En string `json:"En"`
 }
 
-// descriptions explain the settings the platform itself reads, so the generic list can show words instead of
-// the raw key. A key that is not here has no description.
-var descriptions = map[string]Description{
-	RetentionKey: {
-		Uk: "Терміни зберігання даних: сеанси, телеметрія лабораторій і учасників, журнали та інше.",
-		En: "Data retention periods: sessions, lab and participant telemetry, logs and more.",
-	},
-	ArchiveLimitsKey: {
-		Uk: "Обмеження на розмір і вміст архівів завдань, що імпортуються.",
-		En: "Size and content limits for imported task archives.",
-	},
-	TestRunsKey: {
-		Uk: "Обмеження тестових запусків завдань: тривалість, кількість і ресурси.",
-		En: "Limits for task test runs: duration, count and resources.",
-	},
-	NodeProfilesKey: {
-		Uk: "Профілі вузлів кластера для стендів: ресурси та місткість.",
-		En: "Cluster node profiles for stands: resources and capacity.",
-	},
-}
-
-// DescribeKey returns the description of a platform setting key, or false when it has none.
+// DescribeKey returns the description of a platform setting key, or false when it has none. The settings listed
+// are the ones the platform itself reads, so the generic list can show words instead of the raw key.
 func DescribeKey(key string) (Description, bool) {
-	d, ok := descriptions[key]
-	return d, ok
+	switch key {
+	case RetentionKey:
+		return Description{
+			Uk: "Терміни зберігання даних: сеанси, телеметрія лабораторій і учасників, журнали та інше.",
+			En: "Data retention periods: sessions, lab and participant telemetry, logs and more.",
+		}, true
+	case ArchiveLimitsKey:
+		return Description{
+			Uk: "Обмеження на розмір і вміст архівів завдань, що імпортуються.",
+			En: "Size and content limits for imported task archives.",
+		}, true
+	case TestRunsKey:
+		return Description{
+			Uk: "Обмеження тестових запусків завдань: тривалість, кількість і ресурси.",
+			En: "Limits for task test runs: duration, count and resources.",
+		}, true
+	case NodeProfilesKey:
+		return Description{
+			Uk: "Профілі вузлів кластера для стендів: ресурси та місткість.",
+			En: "Cluster node profiles for stands: resources and capacity.",
+		}, true
+	}
+	return Description{}, false
 }

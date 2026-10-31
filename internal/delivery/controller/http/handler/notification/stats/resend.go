@@ -87,7 +87,12 @@ func describeBulkError(e error) (string, string, int) {
 	if errors.As(e, &coded) {
 		inner := coded.UnwrapNotInternalError()
 		if !inner.StatusCode().IsInternal() {
-			return strconv.Itoa(inner.StatusCode().FullCode()), inner.StatusCode().Message(), inner.StatusCode().HTTPCode()
+			return strconv.Itoa(
+					inner.StatusCode().FullCode(),
+				), inner.StatusCode().
+					Message(),
+				inner.StatusCode().
+					HTTPCode()
 		}
 	}
 	return "", "Internal server error", http.StatusInternalServerError

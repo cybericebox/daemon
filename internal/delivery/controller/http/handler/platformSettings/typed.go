@@ -111,8 +111,11 @@ func (h *Handler) saveRetentionSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveRetentionSettings(ctx, in) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveRetentionSettings(ctx, in) },
+	)
 	respondTyped(ctx, v, err)
 }
 
@@ -123,8 +126,11 @@ func (h *Handler) saveRetentionSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/retention [delete]
 func (h *Handler) resetRetentionSettings(ctx *gin.Context) {
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetRetentionSettings(ctx) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetRetentionSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetRetentionSettings(ctx) },
+	)
 	respondTyped(ctx, v, err)
 }
 
@@ -153,8 +159,11 @@ func (h *Handler) saveArchiveLimitSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveArchiveLimitSettings(ctx, in) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveArchiveLimitSettings(ctx, in) },
+	)
 	respondTyped(ctx, v, err)
 }
 
@@ -165,8 +174,11 @@ func (h *Handler) saveArchiveLimitSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/archive-limits [delete]
 func (h *Handler) resetArchiveLimitSettings(ctx *gin.Context) {
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetArchiveLimitSettings(ctx) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetArchiveLimitSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetArchiveLimitSettings(ctx) },
+	)
 	respondTyped(ctx, v, err)
 }
 
@@ -195,8 +207,11 @@ func (h *Handler) saveTestRunSettings(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveTestRunSettings(ctx, in) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.SaveTestRunSettings(ctx, in) },
+	)
 	respondTyped(ctx, v, err)
 }
 
@@ -207,8 +222,11 @@ func (h *Handler) saveTestRunSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=typedSettingResponse}  "the defaults"
 // @Router   /settings/test-runs [delete]
 func (h *Handler) resetTestRunSettings(ctx *gin.Context) {
-	v, err := auditTyped(ctx, func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
-		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetTestRunSettings(ctx) })
+	v, err := auditTyped(
+		ctx,
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.GetTestRunSettings(ctx) },
+		func() (platformSettingsUseCase.TypedView, error) { return h.useCase.ResetTestRunSettings(ctx) },
+	)
 	respondTyped(ctx, v, err)
 }
 

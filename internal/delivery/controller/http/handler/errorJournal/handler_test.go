@@ -275,10 +275,10 @@ func TestBulkStatusAnswersPerGroupAndAuditsEach(t *testing.T) {
 	var env struct {
 		Data struct {
 			Results []struct {
-				GroupID uuid.UUID
-				Ok      bool
-			}
-		}
+				GroupID uuid.UUID `json:"GroupID"`
+				Ok      bool      `json:"Ok"`
+			} `json:"Results"`
+		} `json:"Data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Len(t, env.Data.Results, 2, "a repeated id is handled once")
@@ -287,7 +287,12 @@ func TestBulkStatusAnswersPerGroupAndAuditsEach(t *testing.T) {
 	assert.Equal(t, "errorGroup:"+known.String(), uc.audited[0].Target)
 
 	for _, bad := range []string{`{}`, `{"GroupIDs":[]}`, `nope`} {
-		assert.Equal(t, http.StatusBadRequest, call(r, http.MethodPost, "/api/admin/errors/bulk/resolve", bad).Code, bad)
+		assert.Equal(
+			t,
+			http.StatusBadRequest,
+			call(r, http.MethodPost, "/api/admin/errors/bulk/resolve", bad).Code,
+			bad,
+		)
 	}
 	call(r, http.MethodPost, "/api/admin/errors/bulk/reopen", string(body))
 	assert.Equal(t, errorJournalModel.StatusOpen, uc.status)
