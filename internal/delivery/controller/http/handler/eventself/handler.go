@@ -652,6 +652,8 @@ func (h *Handler) listOwnChallenges(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	// The board carries the lab lifecycle the description addresses are checked against: never served from a cache.
+	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, toOwnBoardResponse(board))
 }
 
@@ -739,6 +741,8 @@ func (h *Handler) labStatus(ctx *gin.Context) {
 	out := toLabStatusResponse(v.Status)
 	out.Lab = labview.ParticipantLab(v.Lab)
 	out.State = v.State
+	// A poll must see the runtime as it is now (addresses of a lab that just became ready): no cache in between.
+	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, out)
 }
 
