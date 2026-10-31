@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/config"
@@ -699,6 +700,24 @@ func TestGoogleAuth_EmailLinkRefusedWhenTheAccountHasAnotherGoogle(t *testing.T)
 		Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return([]postgres.UserProvider{{UserID: uid, Provider: "google", ProviderUserID: "g-old"}}, nil)
 	// no CreateUserProvider: the account keeps its own Google identity
+
+	_, _, err := uc.GoogleAuth(context.Background(), "code", "state", authModel.SessionMetadata{})
+	if !errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()) {
+		t.Fatalf("want ErrAuthGoogleNotRegistered, got %v", err)
+	}
+}
+
+// Two concurrent links: the check saw no Google, the other link won, and the unique index refuses this insert; the
+// answer is the old «not registered», nothing is signed in.
+func TestGoogleAuth_EmailLinkLosingTheRaceIsRefused(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-new", Email: "a@b.test", EmailVerified: true})
+	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows).Times(2)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").
+		Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
+	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return(nil, nil)
+	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).
+		Return(postgres.UserProvider{}, &pgconn.PgError{Code: "23505", Detail: "Key (user_id, provider)=(x, google) already exists."})
 
 	_, _, err := uc.GoogleAuth(context.Background(), "code", "state", authModel.SessionMetadata{})
 	if !errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()) {

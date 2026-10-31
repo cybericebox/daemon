@@ -143,3 +143,20 @@ func TestOpenImportJobsAndDismissal(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []uuid.UUID{running, failed}, ids())
 }
+
+// An account has at most one identity of a provider, whatever the interleaving of the links.
+func TestUserProviderIsUniquePerAccountAndKind(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	user := mustSeedUser(t, db, "one-google@test.test")
+	link := func(providerUserID string) error {
+		_, err := db.Queries.CreateUserProvider(ctx, postgres.CreateUserProviderParams{ID: uuid.Must(uuid.NewV7()), UserID: user, Provider: "google", ProviderUserID: providerUserID})
+		return err
+	}
+	require.NoError(t, link("g-1"))
+	var refused *pgconn.PgError
+	require.ErrorAs(t, link("g-2"), &refused, "a second Google identity for the account")
+	require.Equal(t, "23505", refused.Code)
+	_, err := db.Queries.CreateUserProvider(ctx, postgres.CreateUserProviderParams{ID: uuid.Must(uuid.NewV7()), UserID: user, Provider: "github", ProviderUserID: "h-1"})
+	require.NoError(t, err, "another provider is not affected")
+}
