@@ -92,6 +92,8 @@ GET    /api/events/:id/manage/analytics/report | gate: self | layers: eventAnaly
 GET    /api/events/:id/manage/analytics/report/export.zip | gate: self | layers: eventAnalytics.requireExport
 GET    /api/events/:id/manage/analytics/stands | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/stands/export.csv | gate: self | layers: eventAnalytics.requireExport
+GET    /api/events/:id/manage/analytics/submissions | gate: self | layers: eventAnalytics.requireSections
+GET    /api/events/:id/manage/analytics/submissions/export.csv | gate: self | layers: eventAnalytics.requireExport
 GET    /api/events/:id/manage/analytics/tasks | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/tasks/:challengeID | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/tasks/:challengeID/wrong-answers | gate: self | layers: eventAnalytics.requireSensitive

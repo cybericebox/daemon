@@ -4559,6 +4559,76 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/analytics/submissions": {
+            "get": {
+                "description": "One row per solved task of a visible team: the participant whose submission was the first correct one, the minute from the event start and from the team's first open of the task, and the wrong attempts before it. It counts submissions, not solutions (Note).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-analytics"
+                ],
+                "summary": "Who submitted the flag of each solved task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventAnalytics.submissionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/analytics/submissions/export.csv": {
+            "get": {
+                "description": "The first line is a note that the rows count flag submissions, not solutions.",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "event-analytics"
+                ],
+                "summary": "Export the submissions per participant as CSV (UTF-8 with BOM)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "CSV",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/analytics/tasks": {
             "get": {
                 "description": "§6.3 «Завдання». Attempts, solves, solve rate (solvers ÷ teams that tried), median time to solve from the start and from the first open, first blood, hints and points spent, over the period (default: the event's window).",
@@ -17977,14 +18047,14 @@ const docTemplate = `{
         },
         "/exercises/import/jobs": {
             "get": {
-                "description": "So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).",
+                "description": "So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).\nA running import without a heartbeat for 2 minutes is listed as failed (interrupted).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "exercises"
                 ],
-                "summary": "The caller's background task imports that still run",
+                "summary": "The caller's open background task imports: running, or failed and not closed",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -18050,6 +18120,42 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "The import is no longer listed (GET /exercises/import/jobs); running it again shows it again. A\nrunning import cannot be closed (409). Only the user who started it (404 otherwise).",
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Close the row of a failed background task import",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "import job ID",
+                        "name": "jobID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -33945,6 +34051,64 @@ const docTemplate = `{
                 }
             }
         },
+        "eventAnalytics.submissionResponse": {
+            "type": "object",
+            "properties": {
+                "ChallengeID": {
+                    "type": "string"
+                },
+                "ChallengeName": {
+                    "type": "string"
+                },
+                "Email": {
+                    "type": "string"
+                },
+                "MinutesFromOpen": {
+                    "type": "integer"
+                },
+                "MinutesFromStart": {
+                    "description": "MinutesFromStart counts from the event start (0 before it); MinutesFromOpen from the team's first open of\nthe task, null when none was recorded.",
+                    "type": "integer"
+                },
+                "ParticipantName": {
+                    "type": "string"
+                },
+                "ParticipantWrong": {
+                    "description": "ParticipantWrong / TeamWrong are the wrong attempts before the correct one.",
+                    "type": "integer"
+                },
+                "SubmittedAt": {
+                    "type": "string"
+                },
+                "TeamID": {
+                    "type": "string"
+                },
+                "TeamName": {
+                    "type": "string"
+                },
+                "TeamWrong": {
+                    "type": "integer"
+                },
+                "UserID": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventAnalytics.submissionsResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventAnalytics.submissionResponse"
+                    }
+                },
+                "Note": {
+                    "description": "Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved\nthe task (code submissions_not_solutions).",
+                    "type": "string"
+                }
+            }
+        },
         "eventAnalytics.taskDetailResponse": {
             "type": "object",
             "properties": {
@@ -38383,6 +38547,14 @@ const docTemplate = `{
                 "BytesTotal": {
                     "type": "integer"
                 },
+                "Error": {
+                    "description": "Error is why it failed (failed only; an interrupted import has the interrupted code).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.importJobError"
+                        }
+                    ]
+                },
                 "ImagesDone": {
                     "type": "integer"
                 },
@@ -38393,6 +38565,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Stage": {
+                    "type": "string"
+                },
+                "State": {
+                    "description": "State is running or failed; a failed one says why in Error and is closed with DELETE.",
                     "type": "string"
                 },
                 "TasksDone": {

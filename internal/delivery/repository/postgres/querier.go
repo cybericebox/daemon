@@ -347,6 +347,7 @@ type Querier interface {
 	DiscardEventPageDraft(ctx context.Context, arg DiscardEventPageDraftParams) (int64, error)
 	// exercises.draft_version_id clears itself via ON DELETE SET NULL.
 	DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
 	DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error)
 	DismissInAppBanner(ctx context.Context, arg DismissInAppBannerParams) (int64, error)
 	// Whether an Event's email templates may use/serve the file: it must already
@@ -986,6 +987,11 @@ type Querier interface {
 	// Every participant of the event with the latest registration answers (NULL
 	// when none): the input of the «missing required fields» recount.
 	ListEventParticipantRegistrationAnswers(ctx context.Context, eventID uuid.UUID) ([]ListEventParticipantRegistrationAnswersRow, error)
+	// One row per solved task of a visible team: the participant whose submission was the first correct one (the
+	// flag was SUBMITTED by them; teammates may have found it), when, the minutes from the event start and from the
+	// team's first open of the task, and the wrong attempts before it by that participant and by the whole team.
+	// No IP or user agent exists in the data (§9.3).
+	ListEventParticipantSubmissions(ctx context.Context, eventID uuid.UUID) ([]ListEventParticipantSubmissionsRow, error)
 	// Moderation list: one query for the page including profile, pseudonym and
 	// team names (no per-row lookups). status_filter < 0 means "any status";
 	// kind '' means any, otherwise participants | applications | invitations.
@@ -1256,6 +1262,9 @@ type Querier interface {
 	// Sessions a new handshake may still extend: those ending at or after
 	// ended_after.
 	ListOpenEventVPNSessions(ctx context.Context, arg ListOpenEventVPNSessionsParams) ([]EventVpnSession, error)
+	// The imports of the user that are running or failed and not closed by the user (a running one silent since
+	// stale_before has stopped: the caller reads it as failed).
+	ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid.UUID) ([]ExerciseImportJob, error)
 	ListOpenResourceAlarmsOfReservation(ctx context.Context, reservationID uuid.UUID) ([]ResourceAlarm, error)
 	// touched_at < touched_before (the same GC grace cutoff DeleteUnreferencedFiles
 	// uses) gives a concurrent dedup upload of this exact content a grace window
@@ -1476,9 +1485,6 @@ type Querier interface {
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
 	// The labs of an event that still run in the given team groups (their cluster reservation is ending).
 	ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
-	// The imports of the user that are running or failed and not closed by the user (a running one silent since
-	// stale_before has stopped: the caller reads it as failed).
-	ListOpenExerciseImportJobs(ctx context.Context, createdBy uuid.UUID) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
 	ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error)
 	// The entries that may be closed after this pass. Chosen before the pass scrubs: anything that could still carry the

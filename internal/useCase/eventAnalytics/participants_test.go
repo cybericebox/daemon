@@ -18,19 +18,20 @@ import (
 
 // participantFake is the «Учасники» and «Комунікації» half of fakeStore.
 type participantFake struct {
-	funnel     eventAnalyticsRepo.ParticipantFunnel
-	days       []eventAnalyticsRepo.RegistrationDay
-	teams      []eventAnalyticsRepo.TeamFill
-	versions   []eventAnalyticsRepo.FormVersion
-	answers    []eventAnalyticsRepo.FormAnswer
-	dropOffs   []eventAnalyticsRepo.DropOff
-	dropTotal  int64
-	dispatches []eventAnalyticsRepo.DispatchCount
-	inApp      []eventAnalyticsRepo.InAppCount
-	forms      []eventAnalyticsRepo.FormCompletion
-	mailFunnel dispatchModel.MailFunnels
-	windowFrom *time.Time
-	windowTo   *time.Time
+	funnel      eventAnalyticsRepo.ParticipantFunnel
+	days        []eventAnalyticsRepo.RegistrationDay
+	teams       []eventAnalyticsRepo.TeamFill
+	versions    []eventAnalyticsRepo.FormVersion
+	answers     []eventAnalyticsRepo.FormAnswer
+	dropOffs    []eventAnalyticsRepo.DropOff
+	dropTotal   int64
+	dispatches  []eventAnalyticsRepo.DispatchCount
+	inApp       []eventAnalyticsRepo.InAppCount
+	forms       []eventAnalyticsRepo.FormCompletion
+	mailFunnel  dispatchModel.MailFunnels
+	submissions []eventAnalyticsRepo.Submission
+	windowFrom  *time.Time
+	windowTo    *time.Time
 }
 
 func (p *participantFake) ParticipantFunnel(context.Context, uuid.UUID) (eventAnalyticsRepo.ParticipantFunnel, error) {
@@ -48,6 +49,9 @@ func (p *participantFake) RegistrationFormVersions(context.Context, uuid.UUID) (
 }
 func (p *participantFake) RegistrationAnswers(context.Context, uuid.UUID) ([]eventAnalyticsRepo.FormAnswer, error) {
 	return p.answers, nil
+}
+func (p *participantFake) Submissions(context.Context, uuid.UUID) ([]eventAnalyticsRepo.Submission, error) {
+	return p.submissions, nil
 }
 func (p *participantFake) DropOffs(context.Context, uuid.UUID, int32) ([]eventAnalyticsRepo.DropOff, int64, error) {
 	return p.dropOffs, p.dropTotal, nil
@@ -379,5 +383,28 @@ func TestCommunications_EmptyFunnelsHaveNoRatesOrMedians(t *testing.T) {
 	if f.Invitations.AcceptRate != nil || f.Invitations.MedianAcceptSeconds != nil || f.Registration.CompletionRate != nil ||
 		f.Applications.DecidedRate != nil || f.Applications.ApprovedRate != nil || f.Applications.MedianDecisionSeconds != nil {
 		t.Fatalf("nothing to divide by: %+v", f)
+	}
+}
+
+func TestSubmissions_MinutesFromStartAndFromTheFirstOpen(t *testing.T) {
+	start := time.Date(2026, 10, 26, 11, 0, 0, 0, time.UTC)
+	opened := start.Add(10 * time.Minute)
+	store := &fakeStore{participantFake: participantFake{submissions: []eventAnalyticsRepo.Submission{
+		{ParticipantName: "Ira", TeamName: "Red", ChallengeName: "Web", SubmittedAt: start.Add(25 * time.Minute), EventStartAt: start, FirstOpenAt: &opened, ParticipantWrong: 2, TeamWrong: 3},
+		{ParticipantName: "Max", TeamName: "Blue", ChallengeName: "Pwn", SubmittedAt: start.Add(-time.Minute), EventStartAt: start},
+	}}}
+	uc, id := participationUC(store, eventConfigModel.ParticipationTeam)
+
+	v, err := uc.GetEventAnalyticsSubmissions(context.Background(), id)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Items) != 2 || v.Items[0].MinutesFromStart != 25 || v.Items[0].MinutesFromOpen == nil || *v.Items[0].MinutesFromOpen != 15 ||
+		v.Items[0].ParticipantWrong != 2 || v.Items[0].TeamWrong != 3 {
+		t.Fatalf("first submission: %+v", v.Items[0])
+	}
+	if v.Items[1].MinutesFromStart != 0 || v.Items[1].MinutesFromOpen != nil {
+		t.Fatalf("a submission before the start counts as minute 0 with no open: %+v", v.Items[1])
 	}
 }

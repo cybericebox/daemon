@@ -34,6 +34,7 @@ type ParticipantStore interface {
 	InAppStats(ctx context.Context, eventID uuid.UUID, from, to *time.Time) ([]eventAnalyticsRepo.InAppCount, error)
 	FormCompletion(ctx context.Context, eventID uuid.UUID, from, to *time.Time) ([]eventAnalyticsRepo.FormCompletion, error)
 	MailFunnels(ctx context.Context, eventID uuid.UUID, from, to *time.Time) (dispatchModel.MailFunnels, error)
+	Submissions(ctx context.Context, eventID uuid.UUID) ([]eventAnalyticsRepo.Submission, error)
 }
 
 // checkWindow validates optional report bounds: from must precede to.
@@ -215,4 +216,52 @@ func teamFillView(teams []eventAnalyticsRepo.TeamFill, minSize, maxSize int32, w
 		}
 	}
 	return view
+}
+
+// SubmissionsView lists who submitted the flag of each solved task. It counts SUBMISSIONS, not solutions: in a team
+// the person who types the flag in is not necessarily the one who found it (Note says so, for the export too).
+type SubmissionsView struct {
+	Items []SubmissionView
+}
+
+// SubmissionNote is the machine code of the caveat every export of this report carries.
+const SubmissionNote = "submissions_not_solutions"
+
+type SubmissionView struct {
+	TeamID, ChallengeID, UserID uuid.UUID
+	TeamName, ChallengeName     string
+	ParticipantName, Email      string
+	SubmittedAt                 time.Time
+	// MinutesFromStart is negative-free: a submission before the start counts as 0.
+	MinutesFromStart int64
+	// MinutesFromOpen is from the team's first open of the task; nil when no open was recorded.
+	MinutesFromOpen *int64
+	// ParticipantWrong / TeamWrong are the wrong attempts before the correct one.
+	ParticipantWrong, TeamWrong int64
+}
+
+// GetEventAnalyticsSubmissions is the per-participant submission report (K15).
+func (u *EventAnalyticsUseCase) GetEventAnalyticsSubmissions(ctx context.Context, eventID uuid.UUID) (SubmissionsView, error) {
+	if _, err := u.event(ctx, eventID); err != nil {
+		return SubmissionsView{}, err
+	}
+	rows, err := u.store.Submissions(ctx, eventID)
+	if err != nil {
+		return SubmissionsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read submissions").Err()
+	}
+	view := SubmissionsView{Items: make([]SubmissionView, 0, len(rows))}
+	for _, r := range rows {
+		item := SubmissionView{
+			TeamID: r.TeamID, ChallengeID: r.ChallengeID, UserID: r.UserID, TeamName: r.TeamName, ChallengeName: r.ChallengeName,
+			ParticipantName: r.ParticipantName, Email: r.Email, SubmittedAt: r.SubmittedAt,
+			MinutesFromStart: max(0, int64(r.SubmittedAt.Sub(r.EventStartAt)/time.Minute)),
+			ParticipantWrong: r.ParticipantWrong, TeamWrong: r.TeamWrong,
+		}
+		if r.FirstOpenAt != nil && !r.FirstOpenAt.After(r.SubmittedAt) {
+			minutes := int64(r.SubmittedAt.Sub(*r.FirstOpenAt) / time.Minute)
+			item.MinutesFromOpen = &minutes
+		}
+		view.Items = append(view.Items, item)
+	}
+	return view, nil
 }

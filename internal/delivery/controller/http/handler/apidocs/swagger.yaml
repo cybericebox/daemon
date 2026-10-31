@@ -4782,6 +4782,50 @@ definitions:
       VPNTxBytes:
         type: integer
     type: object
+  eventAnalytics.submissionResponse:
+    properties:
+      ChallengeID:
+        type: string
+      ChallengeName:
+        type: string
+      Email:
+        type: string
+      MinutesFromOpen:
+        type: integer
+      MinutesFromStart:
+        description: |-
+          MinutesFromStart counts from the event start (0 before it); MinutesFromOpen from the team's first open of
+          the task, null when none was recorded.
+        type: integer
+      ParticipantName:
+        type: string
+      ParticipantWrong:
+        description: ParticipantWrong / TeamWrong are the wrong attempts before the
+          correct one.
+        type: integer
+      SubmittedAt:
+        type: string
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+      TeamWrong:
+        type: integer
+      UserID:
+        type: string
+    type: object
+  eventAnalytics.submissionsResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/eventAnalytics.submissionResponse'
+        type: array
+      Note:
+        description: |-
+          Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved
+          the task (code submissions_not_solutions).
+        type: string
+    type: object
   eventAnalytics.taskDetailResponse:
     properties:
       FailedTeams:
@@ -7878,6 +7922,11 @@ definitions:
         type: integer
       BytesTotal:
         type: integer
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only; an interrupted import has
+          the interrupted code).
       ImagesDone:
         type: integer
       ImagesTotal:
@@ -7885,6 +7934,10 @@ definitions:
       JobID:
         type: string
       Stage:
+        type: string
+      State:
+        description: State is running or failed; a failed one says why in Error and
+          is closed with DELETE.
         type: string
       TasksDone:
         type: integer
@@ -15051,6 +15104,53 @@ paths:
           schema:
             type: string
       summary: Team stands as CSV (UTF-8 with BOM)
+      tags:
+      - event-analytics
+  /events/{id}/manage/analytics/submissions:
+    get:
+      description: 'One row per solved task of a visible team: the participant whose
+        submission was the first correct one, the minute from the event start and
+        from the team''s first open of the task, and the wrong attempts before it.
+        It counts submissions, not solutions (Note).'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventAnalytics.submissionsResponse'
+              type: object
+      summary: Who submitted the flag of each solved task
+      tags:
+      - event-analytics
+  /events/{id}/manage/analytics/submissions/export.csv:
+    get:
+      description: The first line is a note that the rows count flag submissions,
+        not solutions.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+      summary: Export the submissions per participant as CSV (UTF-8 with BOM)
       tags:
       - event-analytics
   /events/{id}/manage/analytics/tasks:
@@ -24760,8 +24860,9 @@ paths:
       - exercises
   /exercises/import/jobs:
     get:
-      description: So a page on another device, or with cleared storage, can follow
-        them (GET /exercises/import/jobs/{jobID}).
+      description: |-
+        So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).
+        A running import without a heartbeat for 2 minutes is listed as failed (interrupted).
       produces:
       - application/json
       responses:
@@ -24776,10 +24877,37 @@ paths:
                     $ref: '#/definitions/exercise.runningImport'
                   type: array
               type: object
-      summary: The caller's background task imports that still run
+      summary: 'The caller''s open background task imports: running, or failed and
+        not closed'
       tags:
       - exercises
   /exercises/import/jobs/{jobID}:
+    delete:
+      description: |-
+        The import is no longer listed (GET /exercises/import/jobs); running it again shows it again. A
+        running import cannot be closed (409). Only the user who started it (404 otherwise).
+      parameters:
+      - description: import job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Close the row of a failed background task import
+      tags:
+      - exercises
     get:
       description: |-
         running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is
