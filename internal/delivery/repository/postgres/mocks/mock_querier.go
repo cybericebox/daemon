@@ -7988,6 +7988,21 @@ func (mr *MockQuerierMockRecorder) ListEventResultChangesAfter(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventResultChangesAfter", reflect.TypeOf((*MockQuerier)(nil).ListEventResultChangesAfter), ctx, arg)
 }
 
+// ListEventScheduleChanges mocks base method.
+func (m *MockQuerier) ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventScheduleChangesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventScheduleChanges", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventScheduleChangesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventScheduleChanges indicates an expected call of ListEventScheduleChanges.
+func (mr *MockQuerierMockRecorder) ListEventScheduleChanges(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventScheduleChanges", reflect.TypeOf((*MockQuerier)(nil).ListEventScheduleChanges), ctx, eventID)
+}
+
 // ListEventScoreTimeline mocks base method.
 func (m *MockQuerier) ListEventScoreTimeline(ctx context.Context, arg postgres.ListEventScoreTimelineParams) ([]postgres.ListEventScoreTimelineRow, error) {
 	m.ctrl.T.Helper()

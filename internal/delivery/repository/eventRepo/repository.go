@@ -38,6 +38,7 @@ type Queries interface {
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
+	ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventScheduleChangesRow, error)
 }
 
 func (r *Repository) ListDueForScoringPopulation(ctx context.Context, now time.Time) ([]postgres.ListEventsDueForScoringPopulationRow, error) {
@@ -337,4 +338,56 @@ func nullablePGTime(value *time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return pgtype.Timestamptz{Time: *value, Valid: true}
+}
+
+// ScheduleChange is one recorded change of an event's schedule.
+type ScheduleChange struct {
+	ID        uuid.UUID
+	ChangedAt time.Time
+	// ChangedBy is the account the application stored as the editor (nil: unknown); ChangedByName its name or
+	// email. ByApplication false: the row changed without the application stamping the event (a hand edit); then
+	// ChangedBy is only the previous editor and DBRole says who connected.
+	ChangedBy                        *uuid.UUID
+	ChangedByName                    string
+	ByApplication                    bool
+	DBRole                           string
+	OldJoinPolicy, NewJoinPolicy     int16
+	OldPublishAt, NewPublishAt       time.Time
+	OldStartAt, NewStartAt           time.Time
+	OldFinishAt, NewFinishAt         *time.Time
+	OldWithdrawAt, NewWithdrawAt     *time.Time
+	OldManualFinish, NewManualFinish *time.Time
+}
+
+// ScheduleChanges lists the latest changes of the event's schedule, newest first.
+func (r *Repository) ScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ScheduleChange, error) {
+	rows, err := r.q.ListEventScheduleChanges(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ScheduleChange, 0, len(rows))
+	for _, row := range rows {
+		change := ScheduleChange{
+			ID: row.ID, ChangedAt: row.ChangedAt, ChangedByName: row.ChangedByName, ByApplication: row.ByApplication, DBRole: row.DbRole,
+			OldJoinPolicy: row.OldJoinPolicy, NewJoinPolicy: row.NewJoinPolicy,
+			OldPublishAt: row.OldPublishAt, NewPublishAt: row.NewPublishAt, OldStartAt: row.OldStartAt, NewStartAt: row.NewStartAt,
+			OldFinishAt: timestamptzPtr(row.OldFinishAt), NewFinishAt: timestamptzPtr(row.NewFinishAt),
+			OldWithdrawAt: timestamptzPtr(row.OldWithdrawAt), NewWithdrawAt: timestamptzPtr(row.NewWithdrawAt),
+			OldManualFinish: timestamptzPtr(row.OldManualFinishedAt), NewManualFinish: timestamptzPtr(row.NewManualFinishedAt),
+		}
+		if row.ChangedBy.Valid {
+			id := row.ChangedBy.UUID
+			change.ChangedBy = &id
+		}
+		out = append(out, change)
+	}
+	return out, nil
+}
+
+func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
 }

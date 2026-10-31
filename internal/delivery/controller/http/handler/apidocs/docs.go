@@ -9256,6 +9256,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/lifecycle/changes": {
+            "get": {
+                "description": "The latest 200 recorded changes of the schedule (publication, start, finish, withdrawal, manual finish, join policy), newest first. Every change is recorded, including one made outside the application.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Who changed the event schedule, when, and from what to what",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/event.scheduleChangeResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/list-columns/{list}": {
             "get": {
                 "produces": [
@@ -31127,6 +31171,59 @@ const docTemplate = `{
                 },
                 "ScoreboardVisibility": {
                     "$ref": "#/definitions/eventConfigModel.Visibility"
+                }
+            }
+        },
+        "event.scheduleChangeResponse": {
+            "type": "object",
+            "properties": {
+                "After": {
+                    "$ref": "#/definitions/event.scheduleResponse"
+                },
+                "Before": {
+                    "$ref": "#/definitions/event.scheduleResponse"
+                },
+                "ByApplication": {
+                    "type": "boolean"
+                },
+                "ChangedAt": {
+                    "type": "string"
+                },
+                "ChangedBy": {
+                    "type": "string"
+                },
+                "ChangedByName": {
+                    "description": "ChangedByName is the manager's name or email. ByApplication false: the schedule changed outside the\napplication (a hand edit in the database); DBRole is then the database role that did it.",
+                    "type": "string"
+                },
+                "DBRole": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.scheduleResponse": {
+            "type": "object",
+            "properties": {
+                "FinishAt": {
+                    "type": "string"
+                },
+                "JoinPolicy": {
+                    "type": "integer"
+                },
+                "ManualFinishedAt": {
+                    "type": "string"
+                },
+                "PublishAt": {
+                    "type": "string"
+                },
+                "StartAt": {
+                    "type": "string"
+                },
+                "WithdrawAt": {
+                    "type": "string"
                 }
             }
         },

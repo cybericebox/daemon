@@ -367,6 +367,79 @@ func (q *Queries) InsertEventScoringPopulation(ctx context.Context, arg InsertEv
 	return i, err
 }
 
+const listEventScheduleChanges = `-- name: ListEventScheduleChanges :many
+SELECT change.id, change.event_id, change.changed_at, change.changed_by, change.by_application, change.db_role, change.old_join_policy, change.new_join_policy, change.old_publish_at, change.new_publish_at, change.old_start_at, change.new_start_at, change.old_finish_at, change.new_finish_at, change.old_withdraw_at, change.new_withdraw_at, change.old_manual_finished_at, change.new_manual_finished_at,
+       COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''), person.email, '')::text AS changed_by_name
+FROM event_schedule_changes change
+LEFT JOIN users person ON person.id = change.changed_by
+WHERE change.event_id = $1
+ORDER BY change.changed_at DESC, change.id DESC
+LIMIT 200
+`
+
+type ListEventScheduleChangesRow struct {
+	ID                  uuid.UUID          `json:"id"`
+	EventID             uuid.UUID          `json:"event_id"`
+	ChangedAt           time.Time          `json:"changed_at"`
+	ChangedBy           uuid.NullUUID      `json:"changed_by"`
+	ByApplication       bool               `json:"by_application"`
+	DbRole              string             `json:"db_role"`
+	OldJoinPolicy       int16              `json:"old_join_policy"`
+	NewJoinPolicy       int16              `json:"new_join_policy"`
+	OldPublishAt        time.Time          `json:"old_publish_at"`
+	NewPublishAt        time.Time          `json:"new_publish_at"`
+	OldStartAt          time.Time          `json:"old_start_at"`
+	NewStartAt          time.Time          `json:"new_start_at"`
+	OldFinishAt         pgtype.Timestamptz `json:"old_finish_at"`
+	NewFinishAt         pgtype.Timestamptz `json:"new_finish_at"`
+	OldWithdrawAt       pgtype.Timestamptz `json:"old_withdraw_at"`
+	NewWithdrawAt       pgtype.Timestamptz `json:"new_withdraw_at"`
+	OldManualFinishedAt pgtype.Timestamptz `json:"old_manual_finished_at"`
+	NewManualFinishedAt pgtype.Timestamptz `json:"new_manual_finished_at"`
+	ChangedByName       string             `json:"changed_by_name"`
+}
+
+// The latest changes of the event's schedule (who, when, from what to what), newest first.
+func (q *Queries) ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ListEventScheduleChangesRow, error) {
+	rows, err := q.db.Query(ctx, listEventScheduleChanges, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventScheduleChangesRow{}
+	for rows.Next() {
+		var i ListEventScheduleChangesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.ChangedAt,
+			&i.ChangedBy,
+			&i.ByApplication,
+			&i.DbRole,
+			&i.OldJoinPolicy,
+			&i.NewJoinPolicy,
+			&i.OldPublishAt,
+			&i.NewPublishAt,
+			&i.OldStartAt,
+			&i.NewStartAt,
+			&i.OldFinishAt,
+			&i.NewFinishAt,
+			&i.OldWithdrawAt,
+			&i.NewWithdrawAt,
+			&i.OldManualFinishedAt,
+			&i.NewManualFinishedAt,
+			&i.ChangedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventsCursor = `-- name: ListEventsCursor :many
 SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events

@@ -137,6 +137,7 @@ type (
 		GetEventReadiness(ctx context.Context, eventID uuid.UUID) (eventUseCase.ReadinessView, error)
 		GetTeamCopies(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.TeamCopiesView, error)
 		SyncTeamCopies(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.TeamCopiesView, error)
+		ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.ScheduleChangeView, error)
 		MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error
 		GetTeamProfile(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.TeamProfileView, error)
 		SetTeamAdmission(ctx context.Context, eventID, teamID uuid.UUID, admittedManually bool) (eventUseCase.TeamView, error)
@@ -348,6 +349,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.GET("forms/:formID/deliveries", h.requireRead, h.listFormDeliveries)
 		manage.POST("forms/:formID/deliveries", h.requireManage, h.assignForm)
 		manage.GET("lifecycle", h.requireRead, h.getLifecycle)
+		manage.GET("lifecycle/changes", h.requireRead, h.listScheduleChanges)
 		manage.GET("readiness", h.requireRead, h.getReadiness)
 		manage.PUT("lifecycle", h.requireManage, h.updateLifecycle)
 		manage.GET("scoring", h.requireRead, h.getScoringProfile)

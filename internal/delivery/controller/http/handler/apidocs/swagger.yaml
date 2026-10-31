@@ -2917,6 +2917,43 @@ definitions:
       ScoreboardVisibility:
         $ref: '#/definitions/eventConfigModel.Visibility'
     type: object
+  event.scheduleChangeResponse:
+    properties:
+      After:
+        $ref: '#/definitions/event.scheduleResponse'
+      Before:
+        $ref: '#/definitions/event.scheduleResponse'
+      ByApplication:
+        type: boolean
+      ChangedAt:
+        type: string
+      ChangedBy:
+        type: string
+      ChangedByName:
+        description: |-
+          ChangedByName is the manager's name or email. ByApplication false: the schedule changed outside the
+          application (a hand edit in the database); DBRole is then the database role that did it.
+        type: string
+      DBRole:
+        type: string
+      ID:
+        type: string
+    type: object
+  event.scheduleResponse:
+    properties:
+      FinishAt:
+        type: string
+      JoinPolicy:
+        type: integer
+      ManualFinishedAt:
+        type: string
+      PublishAt:
+        type: string
+      StartAt:
+        type: string
+      WithdrawAt:
+        type: string
+    type: object
   event.scoringProfileResponse:
     properties:
       FloorAtPercent:
@@ -17978,6 +18015,34 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update an event's lifecycle configuration
+      tags:
+      - events
+  /events/{id}/manage/lifecycle/changes:
+    get:
+      description: The latest 200 recorded changes of the schedule (publication, start,
+        finish, withdrawal, manual finish, join policy), newest first. Every change
+        is recorded, including one made outside the application.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.scheduleChangeResponse'
+                  type: array
+              type: object
+      summary: Who changed the event schedule, when, and from what to what
       tags:
       - events
   /events/{id}/manage/list-columns/{list}:

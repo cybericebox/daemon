@@ -183,3 +183,49 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 }
 
 func (u *EventUseCase) eventsIn(repo IRepository) *eventRepo.Repository { return eventRepo.New(repo) }
+
+// ScheduleChangeView is one recorded change of the event schedule: who, when, and the schedule before and after.
+type ScheduleChangeView struct {
+	ID        uuid.UUID
+	ChangedAt time.Time
+	// ChangedBy / ChangedByName: the manager the application stamped as the editor. ByApplication false means the
+	// row changed outside the application (a hand edit); DBRole then says which database role did it.
+	ChangedBy     *uuid.UUID
+	ChangedByName string
+	ByApplication bool
+	DBRole        string
+	Before, After ScheduleView
+}
+
+// ScheduleView is the schedule columns of an event at one moment.
+type ScheduleView struct {
+	JoinPolicy       int16
+	PublishAt        time.Time
+	StartAt          time.Time
+	FinishAt         *time.Time
+	WithdrawAt       *time.Time
+	ManualFinishedAt *time.Time
+}
+
+// ListEventScheduleChanges returns the latest recorded schedule changes of the event, newest first.
+func (u *EventUseCase) ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ScheduleChangeView, error) {
+	if _, err := u.events.GetByID(ctx, eventID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil, eventModel.ErrEventNotFound.Err()
+		}
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	changes, err := u.events.ScheduleChanges(ctx, eventID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list schedule changes").Err()
+	}
+	out := make([]ScheduleChangeView, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, ScheduleChangeView{
+			ID: c.ID, ChangedAt: c.ChangedAt, ChangedBy: c.ChangedBy, ChangedByName: c.ChangedByName, ByApplication: c.ByApplication, DBRole: c.DBRole,
+			Before: ScheduleView{JoinPolicy: c.OldJoinPolicy, PublishAt: c.OldPublishAt, StartAt: c.OldStartAt, FinishAt: c.OldFinishAt, WithdrawAt: c.OldWithdrawAt, ManualFinishedAt: c.OldManualFinish},
+			After:  ScheduleView{JoinPolicy: c.NewJoinPolicy, PublishAt: c.NewPublishAt, StartAt: c.NewStartAt, FinishAt: c.NewFinishAt, WithdrawAt: c.NewWithdrawAt, ManualFinishedAt: c.NewManualFinish},
+		})
+	}
+	return out, nil
+}

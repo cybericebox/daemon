@@ -1020,6 +1020,8 @@ type Querier interface {
 	// Per-task statistics over all teams but the moderators team, in board order.
 	ListEventReportTasks(ctx context.Context, eventID uuid.UUID) ([]ListEventReportTasksRow, error)
 	ListEventResultChangesAfter(ctx context.Context, arg ListEventResultChangesAfterParams) ([]EventResultChange, error)
+	// The latest changes of the event's schedule (who, when, from what to what), newest first.
+	ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ListEventScheduleChangesRow, error)
 	// Same cutoff rules as ListEventScoreboard.
 	ListEventScoreTimeline(ctx context.Context, arg ListEventScoreTimelineParams) ([]ListEventScoreTimelineRow, error)
 	// Ranked public teams. A NULL cutoff reads live scores; a cutoff reads the

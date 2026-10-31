@@ -242,3 +242,13 @@ ORDER BY e.start_at ASC;
 -- Whether any event (archived included) carries the tag. Deleted events are gone
 -- from the table, so this is "the tag belongs to an event that still exists".
 SELECT EXISTS (SELECT 1 FROM events WHERE tag = $1);
+
+-- name: ListEventScheduleChanges :many
+-- The latest changes of the event's schedule (who, when, from what to what), newest first.
+SELECT change.*,
+       COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''), person.email, '')::text AS changed_by_name
+FROM event_schedule_changes change
+LEFT JOIN users person ON person.id = change.changed_by
+WHERE change.event_id = sqlc.arg(event_id)
+ORDER BY change.changed_at DESC, change.id DESC
+LIMIT 200;

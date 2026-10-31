@@ -200,6 +200,7 @@ GET    /api/events/:id/manage/labs/moderators/vpn/status | gate: self | layers: 
 PUT    /api/events/:id/manage/labs/settings | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/lifecycle | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/lifecycle | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/lifecycle/changes | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/list-columns/:list | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/list-columns/:list | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/logo | gate: self | layers: event.requireManage
