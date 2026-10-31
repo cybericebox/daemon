@@ -147,10 +147,14 @@ func (u *TestLabsUseCase) ListTestLabsFiltered(ctx context.Context, f TestLabsFi
 	var total int64
 	var err error
 	if source, ok := u.source.(filteredTestLabSource); ok {
-		items, total, err = source.ListTestLabsFiltered(ctx, platformStandRepo.TestLabFilter{
+		filter := platformStandRepo.TestLabFilter{
 			Search: f.Search, Status: f.Status, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID, SortBy: f.SortBy, SortDir: f.SortDir,
-			Now: u.now(), Limit: int32(pageSize), Offset: int32((page - 1) * pageSize),
-		})
+			Limit: int32(pageSize), Offset: int32((page - 1) * pageSize),
+		}
+		if f.Status != "" {
+			filter.Now = u.now() // the lease state is read against the clock
+		}
+		items, total, err = source.ListTestLabsFiltered(ctx, filter)
 	} else {
 		items, total, err = u.source.ListTestLabs(ctx, f.Search, int32(pageSize), int32((page-1)*pageSize))
 	}
