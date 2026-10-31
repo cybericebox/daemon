@@ -51,7 +51,7 @@ func toSubmissionsResponse(v eventAnalyticsUseCase.SubmissionsView) submissionsR
 }
 
 // submissionsNoteText is the caveat written into the export, in the language of its headers.
-const submissionsNoteText = "Примітка: рахуються здачі прапора (хто відправив правильну відповідь), а не розв'язання: у команді прапор може знайти і не той, хто його вводить."
+const submissionsNoteText = "Примітка: рахуються здачі прапора (хто відправив правильну відповідь), а не розвʼязання: у команді прапор може знайти і не той, хто його вводить."
 
 // submissions godoc
 // @Summary Who submitted the flag of each solved task
