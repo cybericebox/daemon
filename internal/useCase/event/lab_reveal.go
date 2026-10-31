@@ -27,8 +27,9 @@ var errPersistenceUnavailable = errors.New("state persistence is not available o
 // calModel.ErrNotEnoughReserved (the callers that only ask "does it fit" are unchanged); the wait says which room is short.
 var errSnapshotQuotaShort = errors.New("the snapshot quota of the reservation is too small")
 
-func snapshotQuotaShort() error {
-	return fmt.Errorf("%w: %w", calModel.ErrNotEnoughReserved.Err(), errSnapshotQuotaShort)
+// snapshotQuotaShort is the refusal for a snapshot quota of need bytes against have bytes.
+func snapshotQuotaShort(need, have int64) error {
+	return fmt.Errorf("%w: %w", reservationShortage{detail: eventStandModel.WaitDetail{NeedStorageBytes: need, HaveStorageBytes: have}}, errSnapshotQuotaShort)
 }
 
 // An all_ready cohort's initial copies are reserved together before any create
@@ -290,10 +291,13 @@ func (u *EventUseCase) reserveRevealCohort(ctx context.Context, eventID, setID u
 	}
 	placedSize := budget.PlacedSize()
 	if !budget.HoldsTeams(len(holdingTeams)) || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > placedSize.CPUMillicores || held.MemoryBytes > placedSize.MemoryBytes {
-		return calModel.ErrNotEnoughReserved.Err()
+		return reservationShortage{detail: eventStandModel.WaitDetail{
+			NeedCPUMillicores: held.CPUMillicores, NeedMemoryBytes: held.MemoryBytes,
+			HaveCPUMillicores: placedSize.CPUMillicores, HaveMemoryBytes: placedSize.MemoryBytes,
+		}}
 	}
 	if quota > budget.SizeSnapshotQuotaBytes {
-		return snapshotQuotaShort()
+		return snapshotQuotaShort(quota, budget.SizeSnapshotQuotaBytes)
 	}
 	for _, snapshot := range labs {
 		l := candidates[snapshot.ID]
@@ -309,15 +313,20 @@ func (u *EventUseCase) reserveRevealCohort(ctx context.Context, eventID, setID u
 	return unit.Save()
 }
 
-// revealWait is the wait reason of a refused cohort reservation; waiting is false for an error that is not a wait.
-func revealWait(err error) (reason string, waiting bool) {
+// revealWait is the wait reason of a refused cohort reservation, with what was needed and what there is when the
+// error says it; waiting is false for an error that is not a wait.
+func revealWait(err error) (reason string, detail *eventStandModel.WaitDetail, waiting bool) {
+	var shortage reservationShortage
+	if errors.As(err, &shortage) {
+		detail = &shortage.detail
+	}
 	switch {
 	case errors.Is(err, errSnapshotQuotaShort):
-		return eventStandModel.WaitSnapshotQuota, true
+		return eventStandModel.WaitSnapshotQuota, detail, true
 	case errors.Is(err, errPersistenceUnavailable):
-		return eventStandModel.WaitPersistenceUnavailable, true
+		return eventStandModel.WaitPersistenceUnavailable, nil, true
 	case errors.Is(err, calModel.ErrNotEnoughReserved.Err()):
-		return eventStandModel.WaitNotEnoughReserved, true
+		return eventStandModel.WaitNotEnoughReserved, detail, true
 	}
-	return "", false
+	return "", nil, false
 }

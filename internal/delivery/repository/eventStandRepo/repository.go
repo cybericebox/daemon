@@ -171,7 +171,7 @@ func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID, notDue []
 			Counters: eventStandModel.LabCounters{
 				PendingLabs: row.PendingLabs, FailedLabs: row.FailedLabs,
 				FailureReason: row.FailureReason, MissingAssignments: row.MissingAssignments,
-				StuckLabs: row.StuckLabs, StuckReason: row.StuckReason,
+				StuckLabs: row.StuckLabs, StuckReason: row.StuckReason, StuckDetail: row.StuckDetail,
 			},
 			LabGeneration: row.LabGeneration,
 		}

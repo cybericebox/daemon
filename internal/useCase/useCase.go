@@ -35,6 +35,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/delivery/repository/waitDetailRepo"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -305,6 +306,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
 			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
+			WaitDetails:              waitDetailRepo.New(deps.Repo.Pool()),
 			RevealDecline:            revealDeclineRepo.New(deps.Repo.Pool()),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,

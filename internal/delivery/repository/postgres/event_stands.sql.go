@@ -499,6 +499,14 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
                    AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= CASE WHEN EXISTS(SELECT 1 FROM event_lab_reveal_barriers late_barrier WHERE late_barrier.event_exercise_id = stuck_ec.event_exercise_id AND team.id <> ALL (late_barrier.eligible_team_ids))
                                    THEN now() ELSE $2::timestamptz END
                    AND stuck_ec.event_exercise_id <> ALL ($1::uuid[])), '')::text AS stuck_reason,
+       COALESCE((SELECT row_to_json(wd)::text FROM lab_bindings lb
+                 JOIN lab_binding_wait_details wd ON wd.lab_binding_id = lb.id
+                 JOIN event_challenges stuck_ec ON stuck_ec.id = lb.event_challenge_id
+                 WHERE lb.event_team_id = team.id AND lb.readiness = 0 AND lb.deployed_at IS NULL
+                   AND lb.wait_reason NOT IN ('', 'awaiting_reservation') AND lb.wait_since <= CASE WHEN EXISTS(SELECT 1 FROM event_lab_reveal_barriers late_barrier WHERE late_barrier.event_exercise_id = stuck_ec.event_exercise_id AND team.id <> ALL (late_barrier.eligible_team_ids))
+                                   THEN now() ELSE $2::timestamptz END
+                   AND stuck_ec.event_exercise_id <> ALL ($1::uuid[])
+                 ORDER BY lb.wait_reason, lb.id LIMIT 1), '')::text AS stuck_detail,
        (SELECT COALESCE(max(lb.generation), 0) FROM lab_bindings lb WHERE lb.event_team_id = team.id)::integer AS lab_generation,
        (SELECT count(*)
         FROM event_exercises exercise
@@ -542,6 +550,7 @@ type ListStandTeamsRow struct {
 	FailureReason      string             `json:"failure_reason"`
 	StuckLabs          int64              `json:"stuck_labs"`
 	StuckReason        string             `json:"stuck_reason"`
+	StuckDetail        string             `json:"stuck_detail"`
 	LabGeneration      int32              `json:"lab_generation"`
 	MissingAssignments int64              `json:"missing_assignments"`
 }
@@ -576,6 +585,7 @@ func (q *Queries) ListStandTeams(ctx context.Context, arg ListStandTeamsParams) 
 			&i.FailureReason,
 			&i.StuckLabs,
 			&i.StuckReason,
+			&i.StuckDetail,
 			&i.LabGeneration,
 			&i.MissingAssignments,
 		); err != nil {

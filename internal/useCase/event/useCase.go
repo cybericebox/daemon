@@ -60,6 +60,7 @@ import (
 	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -254,6 +255,7 @@ type EventUseCase struct {
 	resources resourcesModel.Policy
 	// autoRecreate counts the automatic recreations of failed Labs (nil: off).
 	autoRecreate AutoRecreateStore
+	waitDetails  WaitDetailStore
 	// revealDecline keeps the teams declined from a cohort (nil: off).
 	revealDecline RevealDeclineStore
 	elevations    ApprovalStore
@@ -268,12 +270,20 @@ type AutoRecreateStore interface {
 	ResetTeam(ctx context.Context, teamID uuid.UUID) error
 }
 
+// WaitDetailStore keeps what a waiting stand Lab needs and what the event reservation has left. Nil: not kept.
+type WaitDetailStore interface {
+	Set(ctx context.Context, bindingID uuid.UUID, d eventStandModel.WaitDetail, now time.Time) error
+	Clear(ctx context.Context, bindingID uuid.UUID) error
+}
+
 // RevealDeclineStore keeps the teams declined from a task's cohort for lack of room. Nil: nobody is declined.
 type RevealDeclineStore interface {
 	Decline(ctx context.Context, eventID, setID, teamID uuid.UUID, reason string, now time.Time) error
 }
 
 type Dependencies struct {
+	// WaitDetails keeps the need and the room of a waiting Lab; nil keeps nothing.
+	WaitDetails WaitDetailStore
 	// RevealDecline keeps the teams declined from a cohort; nil switches the decline off (the cohort is all or nothing).
 	RevealDecline RevealDeclineStore
 	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
@@ -403,6 +413,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		scoreboard:               scoreboardRepo.New(deps.Repo),
 		labBindings:              labBindingRepo.New(deps.Repo),
 		autoRecreate:             deps.AutoRecreate,
+		waitDetails:              deps.WaitDetails,
 		revealDecline:            deps.RevealDecline,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),

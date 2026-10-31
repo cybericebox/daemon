@@ -795,7 +795,9 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 
 // recordStandLabWait stores the wait reason of a pending Lab when it changed. A failed write is only logged: the
 // reason is information, the deploy retries on the next pass anyway.
-func (u *EventUseCase) recordStandLabWait(ctx context.Context, binding labBindingModel.Binding, reason string, now time.Time) {
+func (u *EventUseCase) recordStandLabWait(ctx context.Context, binding labBindingModel.Binding, wait string, now time.Time) {
+	reason, detail := splitWaitDetail(wait)
+	u.recordWaitDetail(ctx, binding, detail, now)
 	if binding.WaitReason == reason {
 		return
 	}
@@ -857,8 +859,8 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 	}
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
-			if wait, waiting := revealWait(err); waiting {
-				return false, wait, nil
+			if wait, detail, waiting := revealWait(err); waiting {
+				return false, withWaitDetail(wait, detail), nil
 			}
 			return false, "", err
 		}
@@ -873,8 +875,8 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 			return false, eventStandModel.WaitPersistenceUnavailable, nil
 		}
 		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
-			if wait, waiting := revealWait(admitErr); waiting {
-				return false, wait, nil
+			if wait, detail, waiting := revealWait(admitErr); waiting {
+				return false, withWaitDetail(wait, detail), nil
 			}
 			return false, "", admitErr
 		}

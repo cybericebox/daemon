@@ -192,6 +192,8 @@ type LabCounters struct {
 	// WaitAlarmAfter, StuckReason the code of one of them.
 	StuckLabs   int64
 	StuckReason string
+	// StuckDetail is the stored need and room of the stuck Lab (JSON), empty when none was recorded.
+	StuckDetail string
 }
 
 // Assess derives the stand status: any failed Lab fails the stand, any Lab or
@@ -203,7 +205,7 @@ func Assess(c LabCounters) (Status, string) {
 		return StatusFailed, Reason(c.FailureReason)
 	case c.StuckLabs > 0:
 		// A Lab that waits for long without anyone to blame needs a person: the stand reports it like a failure.
-		return StatusFailed, Reason(WaitReasonText(c.StuckReason))
+		return StatusFailed, Reason(WaitReasonText(c.StuckReason) + WaitDetailText(c.StuckDetail))
 	case c.PendingLabs > 0 || c.MissingAssignments > 0:
 		return StatusCreating, ""
 	default:
