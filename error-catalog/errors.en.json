@@ -270,6 +270,7 @@
   "23002": "A linked variant must differ from its base variant",
   "23101": "Unknown node profile, or a profile on a device that is not a node",
   "23102": "The platform does not support this node profile",
+  "23201": "This device name is reserved by the platform",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",

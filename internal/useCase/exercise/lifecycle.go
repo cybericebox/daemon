@@ -49,6 +49,9 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = version.SyncLinkedVariants(); err != nil {
 		return VersionView{}, err
 	}
+	if err = exerciseModel.ValidateDeviceNames(version.Variants); err != nil {
+		return VersionView{}, err
+	}
 	if err = u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
 		return VersionView{}, err
 	}

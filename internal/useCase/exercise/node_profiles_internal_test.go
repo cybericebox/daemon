@@ -48,3 +48,13 @@ func TestValidateImportContent_RefusesAnUnsupportedProfile(t *testing.T) {
 	err := (&ExerciseUseCase{}).validateImportContent(context.Background(), parsed, false)
 	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileNotSupported.Err())
 }
+
+// An archive version of any status is refused when a node is named like a platform endpoint; the error names the
+// version, the variant and the device.
+func TestValidateImportContent_RefusesAReservedDeviceName(t *testing.T) {
+	parsed := &ParsedExerciseArchive{Versions: []exerciseModel.ExerciseVersion{{Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{
+		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "gateway", Type: exerciseModel.DeviceTypeNode}}}},
+	}}}}
+	err := (&ExerciseUseCase{}).validateImportContent(context.Background(), parsed, false)
+	require.ErrorIs(t, err, exerciseModel.ErrDeviceNameReserved.Err())
+}

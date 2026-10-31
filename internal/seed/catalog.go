@@ -303,7 +303,7 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true, DHCP: true,
 				Devices: []deviceSpec{
-					{Key: "gw", Name: "gateway", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard},
+					{Key: "gw", Name: "front", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard},
 					{Key: "echo", Name: "echo", Image: imageWhoami, Host: 11},
 					{Key: "client", Name: "client", Image: imageWeb2},
 				},

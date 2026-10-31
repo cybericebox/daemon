@@ -3,6 +3,9 @@ package exerciseModel_test
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -91,4 +94,49 @@ func TestSupportedProfiles_UnsupportedProfileNamesTheNode(t *testing.T) {
 	ticked := exerciseModel.SupportedProfiles{Container: true, MicroVM: true}
 	require.NoError(t, ticked.UnsupportedProfile(variants))
 	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer, exerciseModel.NodeProfileMicroVM}, exerciseModel.NodeProfilesUsed(variants))
+}
+
+func TestValidateDeviceNames_RefusesTheNamesOfPlatformEndpoints(t *testing.T) {
+	node := func(name string) exerciseModel.Device {
+		return exerciseModel.Device{Name: name, Type: exerciseModel.DeviceTypeNode}
+	}
+	variants := []exerciseModel.Variant{
+		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("web"), node("vpn-box"), {Name: "vpn", Type: exerciseModel.DeviceTypeHub}}}},
+		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("db"), node("Gateway")}}},
+	}
+	err := exerciseModel.ValidateDeviceNames(variants)
+	require.ErrorIs(t, err, exerciseModel.ErrDeviceNameReserved.Err())
+	assert.Equal(t, map[string]any{"variant": 2, "device": "Gateway"}, publicContext(t, err), "a hub named vpn is only a display name")
+
+	for _, name := range exerciseModel.ReservedDeviceNames {
+		variant := exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node(name)}}}
+		require.ErrorIs(t, exerciseModel.ValidateDeviceNames([]exerciseModel.Variant{variant}), exerciseModel.ErrDeviceNameReserved.Err(), name)
+		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}
+		require.ErrorIs(t, version.ValidateStructure(), exerciseModel.ErrDeviceNameReserved.Err(), "publish refuses it too")
+	}
+}
+
+// The list is the laboratory's: when its source is at hand (the repositories side by side) the two must agree.
+func TestReservedDeviceNamesMatchTheLaboratory(t *testing.T) {
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for ; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		source := filepath.Join(dir, "laboratory", "internal", "names", "labels.go")
+		raw, readErr := os.ReadFile(source)
+		if readErr != nil {
+			source = filepath.Join(dir, "laboratory", ".worktrees", "hardening", "internal", "names", "labels.go")
+			if raw, readErr = os.ReadFile(source); readErr != nil {
+				continue
+			}
+		}
+		match := regexp.MustCompile(`ReservedDeviceNames = \[\]string\{([^}]*)\}`).FindSubmatch(raw)
+		require.NotNil(t, match, "ReservedDeviceNames in "+source)
+		var names []string
+		for _, quoted := range regexp.MustCompile(`"([^"]+)"`).FindAllSubmatch(match[1], -1) {
+			names = append(names, string(quoted[1]))
+		}
+		assert.ElementsMatch(t, names, exerciseModel.ReservedDeviceNames)
+		return
+	}
+	t.Skip("the laboratory source is not next to the daemon")
 }

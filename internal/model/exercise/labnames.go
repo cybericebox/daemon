@@ -32,3 +32,26 @@ func LabDeviceNames(devices []Device) []string {
 	}
 	return names
 }
+
+// ReservedDeviceNames are the names of the endpoints the platform provides in every lab (the VPN, the internet
+// gateway); the laboratory refuses a device with one of them. Keep in sync with laboratory
+// internal/names.ReservedDeviceNames (TestReservedDeviceNamesMatchTheLaboratory checks it when that source is at hand).
+var ReservedDeviceNames = []string{"vpn", "gateway", "internet"}
+
+// ValidateDeviceNames refuses the first device of the variants named like a platform endpoint. A switch or a hub has
+// a display name only and is named in the lab by its id, so it is not checked.
+func ValidateDeviceNames(variants []Variant) error {
+	for vi, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if !device.IsNode() {
+				continue
+			}
+			for _, reserved := range ReservedDeviceNames {
+				if strings.EqualFold(strings.TrimSpace(device.Name), reserved) {
+					return ErrDeviceNameReserved.WithPublicContext("variant", vi+1).WithPublicContext("device", device.Name).Err()
+				}
+			}
+		}
+	}
+	return nil
+}

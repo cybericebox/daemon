@@ -253,6 +253,9 @@ func (v *ExerciseVersion) ValidateStructure() error {
 	if len(v.Variants) == 0 {
 		return ErrVersionNoVariants.Err()
 	}
+	if err := ValidateDeviceNames(v.Variants); err != nil {
+		return err
+	}
 	canonicalTasks := v.Variants[0].Tasks
 	taskCount := len(canonicalTasks)
 	for variantIndex, variant := range v.Variants {

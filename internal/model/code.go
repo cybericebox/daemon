@@ -36,4 +36,5 @@ const (
 	ExerciseImportObjectCode
 	LinkedVariantObjectCode
 	NodeProfileObjectCode
+	DeviceObjectCode
 )
