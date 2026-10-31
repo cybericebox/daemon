@@ -31,6 +31,7 @@ type Queries interface {
 	UpdateTeamChallengeReadiness(context.Context, postgres.UpdateTeamChallengeReadinessParams) (int64, error)
 	PublishAvailableTeamChallenges(context.Context, postgres.PublishAvailableTeamChallengesParams) ([]uuid.UUID, error)
 	ListTeamChallengesForRefresh(context.Context, []uuid.UUID) ([]postgres.ListTeamChallengesForRefreshRow, error)
+	ListTeamChallengeCopies(context.Context, uuid.UUID) ([]postgres.ListTeamChallengeCopiesRow, error)
 	UpdateTeamChallengeContent(context.Context, postgres.UpdateTeamChallengeContentParams) (int64, error)
 	GetTeamChallengeHints(context.Context, postgres.GetTeamChallengeHintsParams) (postgres.GetTeamChallengeHintsRow, error)
 	CreateHintUnlock(context.Context, postgres.CreateHintUnlockParams) (postgres.CreateHintUnlockRow, error)
@@ -396,6 +397,29 @@ func (r *Repository) ForRefresh(ctx context.Context, challengeIDs []uuid.UUID) (
 	for _, row := range rows {
 		out = append(out, RefreshRow{ID: row.ID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, VariantIndex: row.VariantIndex,
 			Snapshot: row.Snapshot, Hints: UnmarshalHints(row.Hints), ExpectedFlag: row.ExpectedFlag, Solved: row.Solved, Moderators: row.Moderators})
+	}
+	return out, nil
+}
+
+// CopyRow is a team copy of a task with the team's name.
+type CopyRow struct {
+	RefreshRow
+	TeamName string
+}
+
+// Copies lists, without locking, the team copies of the tasks of one event set.
+func (r *Repository) Copies(ctx context.Context, eventExerciseID uuid.UUID) ([]CopyRow, error) {
+	rows, err := r.q.ListTeamChallengeCopies(ctx, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CopyRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, CopyRow{
+			RefreshRow: RefreshRow{ID: row.ID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, VariantIndex: row.VariantIndex,
+				Snapshot: row.Snapshot, Hints: UnmarshalHints(row.Hints), Solved: row.Solved, Moderators: row.Moderators},
+			TeamName: row.TeamName,
+		})
 	}
 	return out, nil
 }

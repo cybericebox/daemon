@@ -349,3 +349,15 @@ WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND tc.variant_index < sqlc.arg(variant_count)::integer
 ORDER BY tc.created_at DESC, tc.id DESC
 LIMIT 1;
+
+-- name: ListTeamChallengeCopies :many
+-- Every team copy of the tasks of one event set, with the team name, for the organizers' "copies differ" check.
+SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
+       (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators,
+       event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS team_name
+FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+ORDER BY ec.order_index, team.name, tc.id;

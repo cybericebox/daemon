@@ -714,6 +714,61 @@ func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoard
 	return items, nil
 }
 
+const listTeamChallengeCopies = `-- name: ListTeamChallengeCopies :many
+SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
+       (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators,
+       event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS team_name
+FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
+WHERE ec.event_exercise_id = $1
+ORDER BY ec.order_index, team.name, tc.id
+`
+
+type ListTeamChallengeCopiesRow struct {
+	ID               uuid.UUID `json:"id"`
+	EventTeamID      uuid.UUID `json:"event_team_id"`
+	EventChallengeID uuid.UUID `json:"event_challenge_id"`
+	VariantIndex     int32     `json:"variant_index"`
+	Snapshot         []byte    `json:"snapshot"`
+	Hints            []byte    `json:"hints"`
+	Solved           bool      `json:"solved"`
+	Moderators       bool      `json:"moderators"`
+	TeamName         string    `json:"team_name"`
+}
+
+// Every team copy of the tasks of one event set, with the team name, for the organizers' "copies differ" check.
+func (q *Queries) ListTeamChallengeCopies(ctx context.Context, eventExerciseID uuid.UUID) ([]ListTeamChallengeCopiesRow, error) {
+	rows, err := q.db.Query(ctx, listTeamChallengeCopies, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeamChallengeCopiesRow{}
+	for rows.Next() {
+		var i ListTeamChallengeCopiesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventTeamID,
+			&i.EventChallengeID,
+			&i.VariantIndex,
+			&i.Snapshot,
+			&i.Hints,
+			&i.Solved,
+			&i.Moderators,
+			&i.TeamName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeamChallengePrerequisites = `-- name: ListTeamChallengePrerequisites :many
 SELECT prerequisite.challenge_id,
        prerequisite.prerequisite_challenge_id,

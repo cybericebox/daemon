@@ -1513,6 +1513,8 @@ type Querier interface {
 	ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoardChallengesParams) ([]ListTeamBoardChallengesRow, error)
 	// GetTeamChallengeAttemptLimit for every limited team challenge of one team (the participant board).
 	ListTeamChallengeAttemptLimits(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamChallengeAttemptLimitsRow, error)
+	// Every team copy of the tasks of one event set, with the team name, for the organizers' "copies differ" check.
+	ListTeamChallengeCopies(ctx context.Context, eventExerciseID uuid.UUID) ([]ListTeamChallengeCopiesRow, error)
 	// Every prerequisite edge of the team's assigned challenges, named by the
 	// team's own snapshot of the prerequisite (fallback: the board snapshot) and
 	// marked solved when the team solved it.

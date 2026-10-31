@@ -10328,6 +10328,21 @@ func (mr *MockQuerierMockRecorder) ListTeamChallengeAttemptLimits(ctx, eventTeam
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamChallengeAttemptLimits", reflect.TypeOf((*MockQuerier)(nil).ListTeamChallengeAttemptLimits), ctx, eventTeamID)
 }
 
+// ListTeamChallengeCopies mocks base method.
+func (m *MockQuerier) ListTeamChallengeCopies(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.ListTeamChallengeCopiesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTeamChallengeCopies", ctx, eventExerciseID)
+	ret0, _ := ret[0].([]postgres.ListTeamChallengeCopiesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTeamChallengeCopies indicates an expected call of ListTeamChallengeCopies.
+func (mr *MockQuerierMockRecorder) ListTeamChallengeCopies(ctx, eventExerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamChallengeCopies", reflect.TypeOf((*MockQuerier)(nil).ListTeamChallengeCopies), ctx, eventExerciseID)
+}
+
 // ListTeamChallengePrerequisites mocks base method.
 func (m *MockQuerier) ListTeamChallengePrerequisites(ctx context.Context, eventTeamID uuid.UUID) ([]postgres.ListTeamChallengePrerequisitesRow, error) {
 	m.ctrl.T.Helper()

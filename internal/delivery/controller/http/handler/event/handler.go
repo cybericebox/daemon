@@ -135,6 +135,8 @@ type (
 		AcceptParticipantInvitationFor(ctx context.Context, eventID, userID, by uuid.UUID) (eventUseCase.JoinInfoView, error)
 		ChangeParticipantInvitationEmail(ctx context.Context, eventID, userID, by uuid.UUID, newEmail string, noEmail bool) (eventUseCase.ParticipantInvitationResult, error)
 		GetEventReadiness(ctx context.Context, eventID uuid.UUID) (eventUseCase.ReadinessView, error)
+		GetTeamCopies(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.TeamCopiesView, error)
+		SyncTeamCopies(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.TeamCopiesView, error)
 		MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error
 		GetTeamProfile(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.TeamProfileView, error)
 		SetTeamAdmission(ctx context.Context, eventID, teamID uuid.UUID, admittedManually bool) (eventUseCase.TeamView, error)
@@ -437,6 +439,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/hints", h.requireManage, h.updateChallengeHintCosts)
 		manage.GET("hint-unlocks", h.requireRead, h.listHintUnlocks)
 		manage.GET("exercises/:exerciseID/challenges", h.requireRead, h.listEventChallenges)
+		manage.GET("exercises/:exerciseID/team-copies", h.requireRead, h.getTeamCopies)
+		manage.POST("exercises/:exerciseID/team-copies/sync", h.requireManage, h.syncTeamCopies)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID", h.requireManage, h.updateEventChallenge)
 		manage.PUT("exercises/:exerciseID/challenges/scoring", h.requireManage, h.bulkUpdateChallengeScoring)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/relations", h.requireManage, h.updateEventChallengeRelations)

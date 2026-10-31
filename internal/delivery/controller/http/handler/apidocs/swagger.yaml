@@ -3238,6 +3238,39 @@ definitions:
       TeardownDelayMinutes:
         type: integer
     type: object
+  event.teamCopiesResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/event.teamCopyDiffResponse'
+        type: array
+      Outdated:
+        type: integer
+      Total:
+        description: Total counts the team copies of the set, Outdated those that
+          differ from the task now.
+        type: integer
+    type: object
+  event.teamCopyDiffResponse:
+    properties:
+      ChallengeID:
+        type: string
+      ChallengeName:
+        type: string
+      Differs:
+        description: 'Differs lists what differs: name, description, difficulty, attachments,
+          placeholders, hints.'
+        items:
+          type: string
+        type: array
+      Solved:
+        description: Solved copies keep their pinned content and are not synced.
+        type: boolean
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+    type: object
   event.teamInvitationResponse:
     properties:
       CreatedAt:
@@ -16884,6 +16917,68 @@ paths:
                   $ref: '#/definitions/event.eventExerciseResponse'
               type: object
       summary: Attach an exercise set to a stage (or to the whole event)
+      tags:
+      - events
+  /events/{id}/manage/exercises/{exerciseID}/team-copies:
+    get:
+      description: 'Compares every team copy with the task of the version the set
+        is pinned to (for the variant the team plays) and lists the copies that differ:
+        text, attachments, hints.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.teamCopiesResponse'
+              type: object
+      summary: Team copies of a set's tasks that differ from the task now
+      tags:
+      - events
+  /events/{id}/manage/exercises/{exerciseID}/team-copies/sync:
+    post:
+      description: Refreshes text, attachments and hints of the differing copies from
+        the pinned version and marks them updated on the board. The variant and the
+        flag stay; solved copies are left alone. Returns what was updated.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.teamCopiesResponse'
+              type: object
+      summary: Bring the differing team copies of a set up to date
       tags:
       - events
   /events/{id}/manage/exercises/{exerciseID}/update:

@@ -164,6 +164,8 @@ POST   /api/events/:id/manage/exercises/:exerciseID/fork | gate: self | layers: 
 POST   /api/events/:id/manage/exercises/:exerciseID/replace | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/revert | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/exercises/:exerciseID/stage | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/exercises/:exerciseID/team-copies | gate: self | layers: event.requireRead
+POST   /api/events/:id/manage/exercises/:exerciseID/team-copies/sync | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/update | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/update/preview | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/exercises/:exerciseID/visibility | gate: self | layers: event.requireManage

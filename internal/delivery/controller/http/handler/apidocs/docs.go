@@ -7754,6 +7754,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/exercises/{exerciseID}/team-copies": {
+            "get": {
+                "description": "Compares every team copy with the task of the version the set is pinned to (for the variant the team plays) and lists the copies that differ: text, attachments, hints.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Team copies of a set's tasks that differ from the task now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event exercise attachment ID",
+                        "name": "exerciseID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.teamCopiesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/{exerciseID}/team-copies/sync": {
+            "post": {
+                "description": "Refreshes text, attachments and hints of the differing copies from the pinned version and marks them updated on the board. The variant and the flag stay; solved copies are left alone. Returns what was updated.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Bring the differing team copies of a set up to date",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event exercise attachment ID",
+                        "name": "exerciseID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.teamCopiesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/exercises/{exerciseID}/update": {
             "post": {
                 "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nBoard challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.",
@@ -31506,6 +31602,52 @@ const docTemplate = `{
                 },
                 "TeardownDelayMinutes": {
                     "type": "integer"
+                }
+            }
+        },
+        "event.teamCopiesResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.teamCopyDiffResponse"
+                    }
+                },
+                "Outdated": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "description": "Total counts the team copies of the set, Outdated those that differ from the task now.",
+                    "type": "integer"
+                }
+            }
+        },
+        "event.teamCopyDiffResponse": {
+            "type": "object",
+            "properties": {
+                "ChallengeID": {
+                    "type": "string"
+                },
+                "ChallengeName": {
+                    "type": "string"
+                },
+                "Differs": {
+                    "description": "Differs lists what differs: name, description, difficulty, attachments, placeholders, hints.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Solved": {
+                    "description": "Solved copies keep their pinned content and are not synced.",
+                    "type": "boolean"
+                },
+                "TeamID": {
+                    "type": "string"
+                },
+                "TeamName": {
+                    "type": "string"
                 }
             }
         },
