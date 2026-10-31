@@ -2002,6 +2002,17 @@ definitions:
         description: 'State is computed from time: upcoming | open | closed.'
         type: string
     type: object
+  event.facetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          Counts maps a value of the field to the number of events with it under the other filters; values with no
+          events are absent.
+        type: object
+    type: object
   event.flagsRepeatResponse:
     properties:
       Flags:
@@ -2519,6 +2530,15 @@ definitions:
       Description:
         type: string
       Name:
+        type: string
+    type: object
+  event.organizerResponse:
+    properties:
+      Email:
+        type: string
+      Name:
+        type: string
+      UserID:
         type: string
     type: object
   event.participantDetailResponse:
@@ -12702,6 +12722,17 @@ definitions:
         type: array
       Status:
         $ref: '#/definitions/userModel.UserStatus'
+    type: object
+  user.userFacetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          Counts maps a value of the field to the number of users with it under the other filters; values with no
+          users are absent. signIn counts a user once per method (email, google).
+        type: object
     type: object
   user.userParticipationResponse:
     properties:
@@ -23034,6 +23065,52 @@ paths:
       summary: Archive many events
       tags:
       - events
+  /events/facets:
+    get:
+      description: How many events have each value of field (status, infrastructure
+        or organizer) under the same filters as GET /events (search, status, startFrom,
+        startTo, organizer, infrastructure, needsReservation) except the field's own.
+      parameters:
+      - description: status | infrastructure | organizer
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.facetResponse'
+              type: object
+      summary: Facet counts of the events table
+      tags:
+      - events
+  /events/organizers:
+    get:
+      description: Feeds the organizer filter of the events table.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.organizerResponse'
+                  type: array
+              type: object
+      summary: Everyone who manages at least one event
+      tags:
+      - events
   /events/self/answer-files:
     post:
       consumes:
@@ -30052,6 +30129,32 @@ paths:
                   $ref: '#/definitions/user.bulkUsersResponse'
               type: object
       summary: Unblock many users
+      tags:
+      - users
+  /users/facets:
+    get:
+      description: How many users have each value of field (role, status, emailConfirmed
+        or signIn) under the same filters as GET /users (search, role, status, emailConfirmed,
+        signIn, inactiveDays) except the field's own.
+      parameters:
+      - description: role | status | emailConfirmed | signIn
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.userFacetResponse'
+              type: object
+      summary: Facet counts of the users table
       tags:
       - users
   /users/invite:

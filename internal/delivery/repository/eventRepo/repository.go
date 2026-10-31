@@ -37,6 +37,8 @@ type Queries interface {
 	ListEventsCursor(ctx context.Context, arg postgres.ListEventsCursorParams) ([]postgres.Event, error)
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
+	CountEventsFacet(ctx context.Context, arg postgres.CountEventsFacetParams) ([]postgres.CountEventsFacetRow, error)
+	ListEventOrganizers(ctx context.Context) ([]postgres.ListEventOrganizersRow, error)
 	ListEventCounts(
 		ctx context.Context,
 		eventIds []uuid.UUID,
@@ -468,4 +470,41 @@ func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
 	}
 	t := value.Time
 	return &t
+}
+
+// Facet counts the events per value of a field (status, infrastructure, organizer) under the filters of the table;
+// the caller has already left the field's own filter empty.
+func (r *Repository) Facet(ctx context.Context, field string, p PageParams) (map[string]int64, error) {
+	rows, err := r.q.CountEventsFacet(ctx, postgres.CountEventsFacetParams{
+		Field: field, Now: p.Now, Search: p.Search, Status: p.Status,
+		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
+		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Value] = row.Total
+	}
+	return out, nil
+}
+
+// Organizer is someone who manages at least one event.
+type Organizer struct {
+	UserID      uuid.UUID
+	Name, Email string
+}
+
+// Organizers lists everyone who manages at least one event.
+func (r *Repository) Organizers(ctx context.Context) ([]Organizer, error) {
+	rows, err := r.q.ListEventOrganizers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Organizer, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Organizer{UserID: row.ID, Name: row.Name, Email: row.Email})
+	}
+	return out, nil
 }

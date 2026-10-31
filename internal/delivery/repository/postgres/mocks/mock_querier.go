@@ -860,6 +860,21 @@ func (mr *MockQuerierMockRecorder) CountEvents(ctx, search any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEvents", reflect.TypeOf((*MockQuerier)(nil).CountEvents), ctx, search)
 }
 
+// CountEventsFacet mocks base method.
+func (m *MockQuerier) CountEventsFacet(ctx context.Context, arg postgres.CountEventsFacetParams) ([]postgres.CountEventsFacetRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEventsFacet", ctx, arg)
+	ret0, _ := ret[0].([]postgres.CountEventsFacetRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEventsFacet indicates an expected call of CountEventsFacet.
+func (mr *MockQuerierMockRecorder) CountEventsFacet(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventsFacet", reflect.TypeOf((*MockQuerier)(nil).CountEventsFacet), ctx, arg)
+}
+
 // CountEventsPage mocks base method.
 func (m *MockQuerier) CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -1203,6 +1218,21 @@ func (m *MockQuerier) CountUsersCreatedSince(ctx context.Context, createdAt time
 func (mr *MockQuerierMockRecorder) CountUsersCreatedSince(ctx, createdAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUsersCreatedSince", reflect.TypeOf((*MockQuerier)(nil).CountUsersCreatedSince), ctx, createdAt)
+}
+
+// CountUsersFacet mocks base method.
+func (m *MockQuerier) CountUsersFacet(ctx context.Context, arg postgres.CountUsersFacetParams) ([]postgres.CountUsersFacetRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountUsersFacet", ctx, arg)
+	ret0, _ := ret[0].([]postgres.CountUsersFacetRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountUsersFacet indicates an expected call of CountUsersFacet.
+func (mr *MockQuerierMockRecorder) CountUsersFacet(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUsersFacet", reflect.TypeOf((*MockQuerier)(nil).CountUsersFacet), ctx, arg)
 }
 
 // CreateAdminAuditLog mocks base method.
@@ -7996,6 +8026,21 @@ func (m *MockQuerier) ListEventNotificationDispatchStats(ctx context.Context, ar
 func (mr *MockQuerierMockRecorder) ListEventNotificationDispatchStats(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventNotificationDispatchStats", reflect.TypeOf((*MockQuerier)(nil).ListEventNotificationDispatchStats), ctx, arg)
+}
+
+// ListEventOrganizers mocks base method.
+func (m *MockQuerier) ListEventOrganizers(ctx context.Context) ([]postgres.ListEventOrganizersRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventOrganizers", ctx)
+	ret0, _ := ret[0].([]postgres.ListEventOrganizersRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventOrganizers indicates an expected call of ListEventOrganizers.
+func (mr *MockQuerierMockRecorder) ListEventOrganizers(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventOrganizers", reflect.TypeOf((*MockQuerier)(nil).ListEventOrganizers), ctx)
 }
 
 // ListEventPages mocks base method.

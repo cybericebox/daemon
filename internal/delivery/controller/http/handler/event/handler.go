@@ -29,6 +29,7 @@ import (
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
@@ -77,6 +78,8 @@ type (
 		UpdateEventScoringProfile(ctx context.Context, id uuid.UUID, in eventUseCase.UpdateEventScoringProfileInput, updatedBy uuid.UUID) (eventUseCase.EventScoringProfileView, error)
 		ArchiveEvent(ctx context.Context, id uuid.UUID, updatedBy uuid.UUID) (eventUseCase.EventView, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
+		EventFacets(ctx context.Context, field string, f eventUseCase.ListEventsFilter) (map[string]int64, error)
+		ListEventOrganizers(ctx context.Context) ([]eventRepo.Organizer, error)
 		DeleteEvent(ctx context.Context, id uuid.UUID) error
 
 		GetEventConfig(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventConfigView, error)
@@ -283,6 +286,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(contentMedia))
 		ev.POST("", h.prot.RequirePermission(rbac.PermEventsWrite), h.create)
 		ev.POST("bulk/archive", h.prot.RequirePermission(rbac.PermEventsWrite), h.bulkArchive)
+		ev.GET("facets", h.prot.RequirePermission(rbac.PermEventsRead), h.facets)
+		ev.GET("organizers", h.prot.RequirePermission(rbac.PermEventsRead), h.organizers)
 
 		ev.GET(":id", h.prot.RequirePermission(rbac.PermEventsRead), h.get)
 		ev.PUT(":id", h.prot.RequirePermission(rbac.PermEventsWrite), h.update)

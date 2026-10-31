@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -115,5 +116,35 @@ func TestEventListFiltersAreValidated(t *testing.T) {
 		u.listFilter.StartFrom == nil ||
 		u.listFilter.StartTo == nil {
 		t.Fatalf("filter = %+v", u.listFilter)
+	}
+}
+
+func (u *eventCRUDContractUC) EventFacets(_ context.Context, field string, f eventUseCase.ListEventsFilter) (map[string]int64, error) {
+	u.facetField, u.listFilter = field, f
+	return map[string]int64{"true": 2}, nil
+}
+
+func (u *eventCRUDContractUC) ListEventOrganizers(context.Context) ([]eventRepo.Organizer, error) {
+	return []eventRepo.Organizer{{UserID: uuid.Nil, Name: "Ann", Email: "ann@example.test"}}, nil
+}
+
+func TestEventFacetsAndOrganizers(t *testing.T) {
+	u := &eventCRUDContractUC{}
+	router := testEventCRUDRouter(u, uuid.Must(uuid.NewV7()))
+
+	got := eventRequest(t, router, http.MethodGet, "/api/events/facets?field=infrastructure&status=published&startFrom=2026-10-01T00:00:00Z", "")
+	if u.facetField != "infrastructure" || u.listFilter.Status != "published" || u.listFilter.StartFrom == nil || !strings.Contains(string(got["Data"]), `"true":2`) {
+		t.Fatalf("field = %q filter = %+v data = %s", u.facetField, u.listFilter, got["Data"])
+	}
+	for _, target := range []string{"/api/events/facets", "/api/events/facets?field=name", "/api/events/facets?field=status&infrastructure=maybe"} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d", target, w.Code)
+		}
+	}
+	list := eventRequest(t, router, http.MethodGet, "/api/events/organizers", "")
+	if !strings.Contains(string(list["Data"]), "ann@example.test") {
+		t.Fatalf("organizers = %s", list["Data"])
 	}
 }

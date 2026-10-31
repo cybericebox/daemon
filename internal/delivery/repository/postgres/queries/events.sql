@@ -291,3 +291,52 @@ SELECT e.id                                                                     
         WHERE s.event_id = e.id AND NOT t.moderators)::bigint                                       AS stands_total
 FROM events e
 WHERE e.id = ANY (sqlc.arg(event_ids)::uuid[]);
+
+-- name: CountEventsFacet :many
+-- How many events have each value of a field under the other filters of the table (the caller leaves the faceted
+-- field's own filter empty). field: status, infrastructure or organizer (an event counts once per manager).
+SELECT v.value::text AS value, count(*)::bigint AS total
+FROM events
+CROSS JOIN LATERAL (
+    SELECT unnest(CASE sqlc.arg(field)::text
+        WHEN 'status' THEN ARRAY[CASE WHEN archive_at IS NOT NULL AND archive_at <= sqlc.arg(now)::timestamptz THEN 'archived'
+         WHEN available_from > sqlc.arg(now)::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > sqlc.arg(now)::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= sqlc.arg(now)::timestamptz THEN 'withdrawn'
+         WHEN start_at > sqlc.arg(now)::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= sqlc.arg(now)::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= sqlc.arg(now)::timestamptz) THEN 'finished'
+         ELSE 'started' END]
+        WHEN 'infrastructure' THEN ARRAY[events.infrastructure_allowed::text]
+        WHEN 'organizer' THEN COALESCE((SELECT array_agg(m.user_id::text) FROM event_managers m WHERE m.event_id = events.id), ARRAY[]::text[])
+        ELSE ARRAY[]::text[] END) AS value) v
+WHERE (sqlc.arg(search)::text = '' OR tag ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR internal_name ILIKE '%' || sqlc.arg(search)::text || '%')
+  AND (sqlc.arg(status)::text = '' OR
+    CASE WHEN archive_at IS NOT NULL AND archive_at <= sqlc.arg(now)::timestamptz THEN 'archived'
+         WHEN available_from > sqlc.arg(now)::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > sqlc.arg(now)::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= sqlc.arg(now)::timestamptz THEN 'withdrawn'
+         WHEN start_at > sqlc.arg(now)::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= sqlc.arg(now)::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= sqlc.arg(now)::timestamptz) THEN 'finished'
+         ELSE 'started' END = sqlc.arg(status)::text)
+  AND (sqlc.narg(start_from)::timestamptz IS NULL OR start_at >= sqlc.narg(start_from)::timestamptz)
+  AND (sqlc.narg(start_to)::timestamptz IS NULL OR start_at < sqlc.narg(start_to)::timestamptz)
+  AND (sqlc.narg(organizer_id)::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = sqlc.narg(organizer_id)::uuid))
+  AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'))
+  AND (sqlc.arg(needs_reservation)::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > sqlc.arg(now)::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > sqlc.arg(now)::timestamptz)
+       AND (finish_at IS NULL OR finish_at > sqlc.arg(now)::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
+GROUP BY v.value
+ORDER BY v.value;
+
+-- name: ListEventOrganizers :many
+-- Everyone who manages at least one event, for the organizer filter.
+SELECT u.id, COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)::text AS name, u.email
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND EXISTS (SELECT 1 FROM event_managers m WHERE m.user_id = u.id)
+ORDER BY lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)), u.id;

@@ -202,3 +202,42 @@ func TestPlatformStandsListSorting(t *testing.T) {
 	require.Equal(t, []string{"Blue", "Alpha"}, names("team", "desc"))
 	require.Equal(t, []string{"Blue", "Alpha"}, names("generation", "desc"))
 }
+
+func TestEventsFacetsAndOrganizers(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventRepo.New(db.Queries)
+	big := anSeed(t, db, "facetbig")
+	small := mustSeedEventForParticipants(t, db, "facetsmall")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, big.event)
+	var owner uuid.UUID
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT created_by FROM events WHERE id = $1`, small.ID).Scan(&owner))
+	rtExec(t, db, `INSERT INTO event_managers (event_id, user_id, role, created_at) VALUES ($1, $2, 0, now())`, small.ID, owner)
+	base := eventRepo.PageParams{Search: "facet", Now: anStart.Add(time.Hour)}
+
+	infra, err := repo.Facet(ctx, "infrastructure", base)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int64{"true": 1, "false": 1}, infra)
+
+	onlyInfra := base
+	onlyInfra.Infrastructure = "true"
+	status, err := repo.Facet(ctx, "status", onlyInfra)
+	require.NoError(t, err)
+	var total int64
+	for _, n := range status {
+		total += n
+	}
+	require.EqualValues(t, 1, total, "the other filters apply to the status facet")
+
+	organizers, err := repo.Facet(ctx, "organizer", base)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, organizers[owner.String()])
+
+	list, err := repo.Organizers(ctx)
+	require.NoError(t, err)
+	found := false
+	for _, o := range list {
+		found = found || o.UserID == owner
+	}
+	require.True(t, found, "a manager is listed as an organizer")
+}

@@ -1,6 +1,7 @@
 package event
 
 import (
+	"slices"
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -142,7 +143,12 @@ func (u *EventUseCase) GetEvent(ctx context.Context, id uuid.UUID) (EventView, e
 		}
 		return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
-	return toEventView(e, time.Now()), nil
+	view := toEventView(e, time.Now())
+	if counts, countErr := u.events.CountsOf(ctx, []uuid.UUID{id}); countErr == nil {
+		c := counts[id]
+		view.Counts = &EventCountsView{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
+	}
+	return view, nil
 }
 
 // ResolveEventByTag resolves the live tenant event for a subdomain tag —
@@ -419,4 +425,41 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, id uuid.UUID) error {
 	u.cancelEventNotices(ctx, id)
 	u.tagsChanged()
 	return nil
+}
+
+// EventFacetFields are the fields of the events table that have a facet.
+func EventFacetFields() []string { return []string{"status", "infrastructure", "organizer"} }
+
+// EventFacets counts the events per value of one field under the other filters of the table (the field's own filter
+// is ignored). Route gate: events.read.
+func (u *EventUseCase) EventFacets(ctx context.Context, field string, f ListEventsFilter) (map[string]int64, error) {
+	if !slices.Contains(EventFacetFields(), field) {
+		return nil, eventModel.ErrEventLifecycleInvalid.WithMessage("Unknown facet field").Err()
+	}
+	switch field {
+	case "status":
+		f.Status = ""
+	case "infrastructure":
+		f.Infrastructure = ""
+	case "organizer":
+		f.OrganizerID = uuid.Nil
+	}
+	counts, err := u.events.Facet(ctx, field, eventRepo.PageParams{
+		Search: f.Search, Status: f.Status, Now: time.Now(), StartFrom: f.StartFrom, StartTo: f.StartTo,
+		OrganizerID: uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil}, Infrastructure: f.Infrastructure,
+		NeedsReservation: f.NeedsReservation,
+	})
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the events per value").Err()
+	}
+	return counts, nil
+}
+
+// ListEventOrganizers lists everyone who manages at least one event (the organizer filter). Route gate: events.read.
+func (u *EventUseCase) ListEventOrganizers(ctx context.Context) ([]eventRepo.Organizer, error) {
+	out, err := u.events.Organizers(ctx)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the organizers").Err()
+	}
+	return out, nil
 }

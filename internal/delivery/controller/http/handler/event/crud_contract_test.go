@@ -26,6 +26,7 @@ type eventCRUDContractUC struct {
 	updateInput  eventUseCase.UpdateEventInput
 	listFilter   eventUseCase.ListEventsFilter
 	archiveCalls int
+	facetField   string
 	deleteCalls  int
 	config       eventUseCase.EventConfigView
 	configInput  eventUseCase.UpdateConfigInput

@@ -40,6 +40,7 @@ type (
 			ids []uuid.UUID,
 		) ([]authUseCase.BulkUserResult, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
+		UserFacets(ctx context.Context, field string, f authUseCase.UsersFilter) (map[string]int64, error)
 	}
 
 	IProtection interface {
@@ -138,6 +139,7 @@ func NewUserAPIHandler(useCase IUseCase, prot IProtection) *Handler {
 func (h *Handler) Init(router *gin.RouterGroup) {
 	usersAPI := router.Group("users")
 	usersAPI.GET("", h.prot.RequirePermission(rbac.PermUsersRead), h.listUsers)
+	usersAPI.GET("facets", h.prot.RequirePermission(rbac.PermUsersRead), h.facets)
 	usersAPI.GET("stats", h.prot.RequirePermission(rbac.PermUsersRead), h.getUserStats)
 	usersAPI.GET(":userID", h.prot.RequirePermission(rbac.PermUsersRead), h.getUser)
 	usersAPI.PATCH(":userID/role", h.prot.RequirePermission(rbac.PermUsersRoleWrite), h.updateRole)

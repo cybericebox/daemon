@@ -37,6 +37,7 @@ type Queries interface {
 	GetUserByProvider(ctx context.Context, arg postgres.GetUserByProviderParams) (postgres.User, error)
 	CreateUserProvider(ctx context.Context, arg postgres.CreateUserProviderParams) (postgres.UserProvider, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]postgres.UserProvider, error)
+	CountUsersFacet(ctx context.Context, arg postgres.CountUsersFacetParams) ([]postgres.CountUsersFacetRow, error)
 	ListUserParticipations(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -464,6 +465,23 @@ func (r *Repository) Participations(
 			item.TeamID = &id
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+// Facet counts the users per value of a field (role, status, emailConfirmed, signIn) under the filters of the table;
+// the caller has already left the field's own filter empty.
+func (r *Repository) Facet(ctx context.Context, field string, p PageParams) (map[string]int64, error) {
+	rows, err := r.q.CountUsersFacet(ctx, postgres.CountUsersFacetParams{
+		Field: field, Search: p.Search, Roles: p.Roles, Status: p.Status,
+		EmailConfirmed: p.EmailConfirmed, SignIn: p.SignIn, InactiveDays: p.InactiveDays,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Value] = row.Total
 	}
 	return out, nil
 }

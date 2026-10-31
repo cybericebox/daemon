@@ -202,3 +202,31 @@ JOIN events e ON e.id = m.event_id
 WHERE m.user_id = sqlc.arg(user_id)
 ORDER BY start_at DESC, event_id
 LIMIT 500;
+
+-- name: CountUsersFacet :many
+-- How many users have each value of a field under the other filters of the table (the caller leaves the faceted
+-- field's own filter empty). field: role, status, emailConfirmed or signIn (a user counts once per method).
+SELECT v.value::text AS value, count(*)::bigint AS total
+FROM users
+CROSS JOIN LATERAL (
+    SELECT unnest(CASE sqlc.arg(field)::text
+        WHEN 'role' THEN ARRAY[users.role]
+        WHEN 'status' THEN ARRAY[users.status]
+        WHEN 'emailConfirmed' THEN ARRAY[users.email_confirmed::text]
+        WHEN 'signIn' THEN array_remove(ARRAY[
+            CASE WHEN users.hashed_password IS NOT NULL AND users.hashed_password <> '' THEN 'password' END,
+            CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 'google' END], NULL)
+        ELSE ARRAY[]::text[] END) AS value) v
+WHERE deleted_at IS NULL
+  AND (sqlc.arg(search)::text = '' OR email ILIKE '%' || sqlc.arg(search)::text || '%'
+       OR first_name ILIKE '%' || sqlc.arg(search)::text || '%'
+       OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
+  AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
+  AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
+  AND (sqlc.arg(email_confirmed)::text = '' OR email_confirmed = (sqlc.arg(email_confirmed)::text = 'true'))
+  AND (sqlc.arg(sign_in)::text = ''
+       OR (sqlc.arg(sign_in)::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR (sqlc.arg(sign_in)::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND (sqlc.arg(inactive_days)::int = 0 OR last_seen < now() - make_interval(days => sqlc.arg(inactive_days)::int))
+GROUP BY v.value
+ORDER BY v.value;

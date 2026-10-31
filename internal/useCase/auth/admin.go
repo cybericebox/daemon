@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"context"
 	"time"
 
@@ -481,4 +482,37 @@ func (u *AuthUseCase) blockUnlessSelf(
 		return authModel.ErrInsufficientPermission.Err()
 	}
 	return u.UpdateUserStatus(ctx, id, status)
+}
+
+// UserFacetFields are the fields of the user table that have a facet.
+func UserFacetFields() []string { return []string{"role", "status", "emailConfirmed", "signIn"} }
+
+// UserFacets counts the users per value of one field under the other filters of the table (the field's own filter is
+// ignored, so the chip shows what choosing each value would give). Requires PermUsersRead.
+func (u *AuthUseCase) UserFacets(ctx context.Context, field string, f UsersFilter) (map[string]int64, error) {
+	if !slices.Contains(UserFacetFields(), field) {
+		return nil, authModel.ErrInvalidUserStatus.WithMessage("Unknown facet field").Err()
+	}
+	params := userRepo.PageParams{
+		Search: f.Search, Status: string(f.Status), EmailConfirmed: f.EmailConfirmed, SignIn: f.SignIn, InactiveDays: int32(f.InactiveDays),
+		Roles: []string{},
+	}
+	for _, r := range f.Roles {
+		params.Roles = append(params.Roles, string(r))
+	}
+	switch field {
+	case "role":
+		params.Roles = []string{}
+	case "status":
+		params.Status = ""
+	case "emailConfirmed":
+		params.EmailConfirmed = ""
+	case "signIn":
+		params.SignIn = ""
+	}
+	counts, err := u.users.Facet(ctx, field, params)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the users per value").Err()
+	}
+	return counts, nil
 }

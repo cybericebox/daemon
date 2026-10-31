@@ -118,6 +118,9 @@ type Querier interface {
 	// Mirrors ListEventTeamsTable's filters.
 	CountEventTeamsTable(ctx context.Context, arg CountEventTeamsTableParams) (int64, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
+	// How many events have each value of a field under the other filters of the table (the caller leaves the faceted
+	// field's own filter empty). field: status, infrastructure or organizer (an event counts once per manager).
+	CountEventsFacet(ctx context.Context, arg CountEventsFacetParams) ([]CountEventsFacetRow, error)
 	CountEventsPage(ctx context.Context, arg CountEventsPageParams) (int64, error)
 	CountExercises(ctx context.Context, arg CountExercisesParams) (int64, error)
 	CountExercisesPage(ctx context.Context, arg CountExercisesPageParams) (int64, error)
@@ -150,6 +153,9 @@ type Querier interface {
 	CountUsersByRoleAll(ctx context.Context) ([]CountUsersByRoleAllRow, error)
 	CountUsersByStatus(ctx context.Context, status string) (int64, error)
 	CountUsersCreatedSince(ctx context.Context, createdAt time.Time) (int64, error)
+	// How many users have each value of a field under the other filters of the table (the caller leaves the faceted
+	// field's own filter empty). field: role, status, emailConfirmed or signIn (a user counts once per method).
+	CountUsersFacet(ctx context.Context, arg CountUsersFacetParams) ([]CountUsersFacetRow, error)
 	CreateAdminAuditLog(ctx context.Context, arg CreateAdminAuditLogParams) error
 	CreateChallengeAttempt(ctx context.Context, arg CreateChallengeAttemptParams) (ChallengeAttempt, error)
 	CreateChallengeAttemptDecision(ctx context.Context, arg CreateChallengeAttemptDecisionParams) (ChallengeAttemptDecision, error)
@@ -1011,6 +1017,8 @@ type Querier interface {
 	// Dispatch targets of the event's notifications per type, channel and
 	// status (done: handed to the transport, error: failed) in the window.
 	ListEventNotificationDispatchStats(ctx context.Context, arg ListEventNotificationDispatchStatsParams) ([]ListEventNotificationDispatchStatsRow, error)
+	// Everyone who manages at least one event, for the organizer filter.
+	ListEventOrganizers(ctx context.Context) ([]ListEventOrganizersRow, error)
 	ListEventPages(ctx context.Context, eventID uuid.UUID) ([]EventPage, error)
 	// Every participant of the event with the latest registration answers (NULL
 	// when none): the input of the «missing required fields» recount.

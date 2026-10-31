@@ -169,6 +169,78 @@ func (q *Queries) CountUsersCreatedSince(ctx context.Context, createdAt time.Tim
 	return count, err
 }
 
+const countUsersFacet = `-- name: CountUsersFacet :many
+SELECT v.value::text AS value, count(*)::bigint AS total
+FROM users
+CROSS JOIN LATERAL (
+    SELECT unnest(CASE $1::text
+        WHEN 'role' THEN ARRAY[users.role]
+        WHEN 'status' THEN ARRAY[users.status]
+        WHEN 'emailConfirmed' THEN ARRAY[users.email_confirmed::text]
+        WHEN 'signIn' THEN array_remove(ARRAY[
+            CASE WHEN users.hashed_password IS NOT NULL AND users.hashed_password <> '' THEN 'password' END,
+            CASE WHEN EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google') THEN 'google' END], NULL)
+        ELSE ARRAY[]::text[] END) AS value) v
+WHERE deleted_at IS NULL
+  AND ($2::text = '' OR email ILIKE '%' || $2::text || '%'
+       OR first_name ILIKE '%' || $2::text || '%'
+       OR last_name ILIKE '%' || $2::text || '%')
+  AND (coalesce(cardinality($3::text[]), 0) = 0 OR role = ANY ($3::text[]))
+  AND ($4::text = '' OR status = $4::text)
+  AND ($5::text = '' OR email_confirmed = ($5::text = 'true'))
+  AND ($6::text = ''
+       OR ($6::text = 'password' AND hashed_password IS NOT NULL AND hashed_password <> '')
+       OR ($6::text = 'google' AND EXISTS (SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = 'google')))
+  AND ($7::int = 0 OR last_seen < now() - make_interval(days => $7::int))
+GROUP BY v.value
+ORDER BY v.value
+`
+
+type CountUsersFacetParams struct {
+	Field          string   `json:"field"`
+	Search         string   `json:"search"`
+	Roles          []string `json:"roles"`
+	Status         string   `json:"status"`
+	EmailConfirmed string   `json:"email_confirmed"`
+	SignIn         string   `json:"sign_in"`
+	InactiveDays   int32    `json:"inactive_days"`
+}
+
+type CountUsersFacetRow struct {
+	Value string `json:"value"`
+	Total int64  `json:"total"`
+}
+
+// How many users have each value of a field under the other filters of the table (the caller leaves the faceted
+// field's own filter empty). field: role, status, emailConfirmed or signIn (a user counts once per method).
+func (q *Queries) CountUsersFacet(ctx context.Context, arg CountUsersFacetParams) ([]CountUsersFacetRow, error) {
+	rows, err := q.db.Query(ctx, countUsersFacet,
+		arg.Field,
+		arg.Search,
+		arg.Roles,
+		arg.Status,
+		arg.EmailConfirmed,
+		arg.SignIn,
+		arg.InactiveDays,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountUsersFacetRow{}
+	for rows.Next() {
+		var i CountUsersFacetRow
+		if err := rows.Scan(&i.Value, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, first_name, last_name, hashed_password, picture, role, status,
                    email_confirmed, last_seen, updated_at, created_at)

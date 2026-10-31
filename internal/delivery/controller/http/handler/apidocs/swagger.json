@@ -2278,6 +2278,82 @@
                 }
             }
         },
+        "/events/facets": {
+            "get": {
+                "description": "How many events have each value of field (status, infrastructure or organizer) under the same filters as GET /events (search, status, startFrom, startTo, organizer, infrastructure, needsReservation) except the field's own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Facet counts of the events table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "status | infrastructure | organizer",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.facetResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/organizers": {
+            "get": {
+                "description": "Feeds the organizer filter of the events table.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Everyone who manages at least one event",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/event.organizerResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/self/answer-files": {
             "post": {
                 "consumes": [
@@ -27081,6 +27157,47 @@
                 }
             }
         },
+        "/users/facets": {
+            "get": {
+                "description": "How many users have each value of field (role, status, emailConfirmed or signIn) under the same filters as GET /users (search, role, status, emailConfirmed, signIn, inactiveDays) except the field's own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Facet counts of the users table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "role | status | emailConfirmed | signIn",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/user.userFacetResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/users/invite": {
             "post": {
                 "consumes": [
@@ -30438,6 +30555,19 @@
                 }
             }
         },
+        "event.facetResponse": {
+            "type": "object",
+            "properties": {
+                "Counts": {
+                    "description": "Counts maps a value of the field to the number of events with it under the other filters; values with no\nevents are absent.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            }
+        },
         "event.flagsRepeatResponse": {
             "type": "object",
             "properties": {
@@ -31205,6 +31335,20 @@
                     "type": "string"
                 },
                 "Name": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.organizerResponse": {
+            "type": "object",
+            "properties": {
+                "Email": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "UserID": {
                     "type": "string"
                 }
             }
@@ -45979,6 +46123,19 @@
                 },
                 "Status": {
                     "$ref": "#/definitions/userModel.UserStatus"
+                }
+            }
+        },
+        "user.userFacetResponse": {
+            "type": "object",
+            "properties": {
+                "Counts": {
+                    "description": "Counts maps a value of the field to the number of users with it under the other filters; values with no\nusers are absent. signIn counts a user once per method (email, google).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
                 }
             }
         },

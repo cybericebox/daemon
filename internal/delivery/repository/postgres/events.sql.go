@@ -75,6 +75,95 @@ func (q *Queries) CountEvents(ctx context.Context, search string) (int64, error)
 	return count, err
 }
 
+const countEventsFacet = `-- name: CountEventsFacet :many
+SELECT v.value::text AS value, count(*)::bigint AS total
+FROM events
+CROSS JOIN LATERAL (
+    SELECT unnest(CASE $1::text
+        WHEN 'status' THEN ARRAY[CASE WHEN archive_at IS NOT NULL AND archive_at <= $2::timestamptz THEN 'archived'
+         WHEN available_from > $2::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > $2::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= $2::timestamptz THEN 'withdrawn'
+         WHEN start_at > $2::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $2::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= $2::timestamptz) THEN 'finished'
+         ELSE 'started' END]
+        WHEN 'infrastructure' THEN ARRAY[events.infrastructure_allowed::text]
+        WHEN 'organizer' THEN COALESCE((SELECT array_agg(m.user_id::text) FROM event_managers m WHERE m.event_id = events.id), ARRAY[]::text[])
+        ELSE ARRAY[]::text[] END) AS value) v
+WHERE ($3::text = '' OR tag ILIKE '%' || $3::text || '%'
+    OR internal_name ILIKE '%' || $3::text || '%')
+  AND ($4::text = '' OR
+    CASE WHEN archive_at IS NOT NULL AND archive_at <= $2::timestamptz THEN 'archived'
+         WHEN available_from > $2::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > $2::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= $2::timestamptz THEN 'withdrawn'
+         WHEN start_at > $2::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $2::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= $2::timestamptz) THEN 'finished'
+         ELSE 'started' END = $4::text)
+  AND ($5::timestamptz IS NULL OR start_at >= $5::timestamptz)
+  AND ($6::timestamptz IS NULL OR start_at < $6::timestamptz)
+  AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $7::uuid))
+  AND ($8::text = '' OR infrastructure_allowed = ($8::text = 'true'))
+  AND ($9::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $2::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $2::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $2::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
+GROUP BY v.value
+ORDER BY v.value
+`
+
+type CountEventsFacetParams struct {
+	Field            string             `json:"field"`
+	Now              time.Time          `json:"now"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
+}
+
+type CountEventsFacetRow struct {
+	Value string `json:"value"`
+	Total int64  `json:"total"`
+}
+
+// How many events have each value of a field under the other filters of the table (the caller leaves the faceted
+// field's own filter empty). field: status, infrastructure or organizer (an event counts once per manager).
+func (q *Queries) CountEventsFacet(ctx context.Context, arg CountEventsFacetParams) ([]CountEventsFacetRow, error) {
+	rows, err := q.db.Query(ctx, countEventsFacet,
+		arg.Field,
+		arg.Now,
+		arg.Search,
+		arg.Status,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.OrganizerID,
+		arg.Infrastructure,
+		arg.NeedsReservation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountEventsFacetRow{}
+	for rows.Next() {
+		var i CountEventsFacetRow
+		if err := rows.Scan(&i.Value, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countEventsPage = `-- name: CountEventsPage :one
 SELECT count(*)
 FROM events
@@ -428,6 +517,41 @@ func (q *Queries) ListEventCounts(ctx context.Context, eventIds []uuid.UUID) ([]
 			&i.StandsReady,
 			&i.StandsTotal,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventOrganizers = `-- name: ListEventOrganizers :many
+SELECT u.id, COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)::text AS name, u.email
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND EXISTS (SELECT 1 FROM event_managers m WHERE m.user_id = u.id)
+ORDER BY lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)), u.id
+`
+
+type ListEventOrganizersRow struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+}
+
+// Everyone who manages at least one event, for the organizer filter.
+func (q *Queries) ListEventOrganizers(ctx context.Context) ([]ListEventOrganizersRow, error) {
+	rows, err := q.db.Query(ctx, listEventOrganizers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventOrganizersRow{}
+	for rows.Next() {
+		var i ListEventOrganizersRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Email); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
