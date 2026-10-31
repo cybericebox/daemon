@@ -110,6 +110,8 @@ type ListEventsFilter struct {
 	StartFrom, StartTo *time.Time
 	OrganizerID        uuid.UUID
 	Infrastructure     string
+	// NeedsReservation "true": only the stand events that have not finished and have no reservation.
+	NeedsReservation string
 }
 
 // UpdateConfigInput carries the general config fields plus Participation.

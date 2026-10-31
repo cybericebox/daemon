@@ -21941,6 +21941,18 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "event | team | status | updatedAt | statusChangedAt | generation",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc",
+                        "name": "sortDir",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "1-based page",
                         "name": "page",
@@ -21966,6 +21978,52 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/pagination.OffsetPage-infrastructure_standResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/stands/bulk/recreate": {
+            "post": {
+                "description": "1 to 50 stands; each gets the checks of the single recreation; one result and one audit entry per stand in request order, a refusal never stops the others. Requires infrastructure.write (super_admin only).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Recreate many team stands",
+                "parameters": [
+                    {
+                        "description": "stands",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/infrastructure.bulkRecreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/infrastructure.bulkResponse"
                                         }
                                     }
                                 }
@@ -22300,6 +22358,36 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "active | expired",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "author user ID",
+                        "name": "author",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "exercise",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "exercise | author | createdAt | expiresAt",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc",
+                        "name": "sortDir",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "1-based page",
                         "name": "page",
@@ -22325,6 +22413,52 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/pagination.OffsetPage-infrastructure_testLabResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/test-labs/bulk/terminate": {
+            "post": {
+                "description": "1 to 100 labs; each gets the checks of the single termination; one result and one audit entry per lab in request order. Requires infrastructure.write (super_admin only).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "End many catalog test labs",
+                "parameters": [
+                    {
+                        "description": "test labs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/infrastructure.bulkTerminateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/infrastructure.bulkResponse"
                                         }
                                     }
                                 }
@@ -40544,6 +40678,73 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/infrastructure.agentAdminResponse"
+                    }
+                }
+            }
+        },
+        "infrastructure.bulkRecreateRequest": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/infrastructure.bulkStandItem"
+                    }
+                }
+            }
+        },
+        "infrastructure.bulkResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/infrastructure.bulkResult"
+                    }
+                }
+            }
+        },
+        "infrastructure.bulkResult": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Ok": {
+                    "type": "boolean"
+                },
+                "TeamID": {
+                    "type": "string"
+                }
+            }
+        },
+        "infrastructure.bulkStandItem": {
+            "type": "object",
+            "properties": {
+                "EventID": {
+                    "type": "string"
+                },
+                "TeamID": {
+                    "type": "string"
+                }
+            }
+        },
+        "infrastructure.bulkTerminateRequest": {
+            "type": "object",
+            "properties": {
+                "IDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }

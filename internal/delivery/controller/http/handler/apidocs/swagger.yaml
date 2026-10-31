@@ -9113,6 +9113,49 @@ definitions:
           $ref: '#/definitions/infrastructure.agentAdminResponse'
         type: array
     type: object
+  infrastructure.bulkRecreateRequest:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/infrastructure.bulkStandItem'
+        type: array
+    type: object
+  infrastructure.bulkResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/infrastructure.bulkResult'
+        type: array
+    type: object
+  infrastructure.bulkResult:
+    properties:
+      Code:
+        type: string
+      Error:
+        type: string
+      EventID:
+        type: string
+      ID:
+        type: string
+      Ok:
+        type: boolean
+      TeamID:
+        type: string
+    type: object
+  infrastructure.bulkStandItem:
+    properties:
+      EventID:
+        type: string
+      TeamID:
+        type: string
+    type: object
+  infrastructure.bulkTerminateRequest:
+    properties:
+      IDs:
+        items:
+          type: string
+        type: array
+    type: object
   infrastructure.capabilitiesResponse:
     properties:
       Laboratories:
@@ -26651,6 +26694,14 @@ paths:
         in: query
         name: search
         type: string
+      - description: event | team | status | updatedAt | statusChangedAt | generation
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
       - description: 1-based page
         in: query
         name: page
@@ -26818,6 +26869,35 @@ paths:
       summary: Recreate one team stand
       tags:
       - infrastructure
+  /infrastructure/stands/bulk/recreate:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 50 stands; each gets the checks of the single recreation;
+        one result and one audit entry per stand in request order, a refusal never
+        stops the others. Requires infrastructure.write (super_admin only).
+      parameters:
+      - description: stands
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/infrastructure.bulkRecreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.bulkResponse'
+              type: object
+      summary: Recreate many team stands
+      tags:
+      - infrastructure
   /infrastructure/stands/events:
     get:
       description: Feeds the event filter of the stand table. Requires infrastructure.read
@@ -26887,6 +26967,26 @@ paths:
       - description: exercise name, author name or email
         in: query
         name: search
+        type: string
+      - description: active | expired
+        in: query
+        name: status
+        type: string
+      - description: author user ID
+        in: query
+        name: author
+        type: string
+      - description: exercise ID
+        in: query
+        name: exercise
+        type: string
+      - description: exercise | author | createdAt | expiresAt
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
         type: string
       - description: 1-based page
         in: query
@@ -27013,6 +27113,35 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: End a catalog test lab
+      tags:
+      - infrastructure
+  /infrastructure/test-labs/bulk/terminate:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 100 labs; each gets the checks of the single termination;
+        one result and one audit entry per lab in request order. Requires infrastructure.write
+        (super_admin only).
+      parameters:
+      - description: test labs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/infrastructure.bulkTerminateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.bulkResponse'
+              type: object
+      summary: End many catalog test labs
       tags:
       - infrastructure
   /mail/settings:

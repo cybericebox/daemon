@@ -118,10 +118,42 @@ func NewTestLabsUseCase(deps TestLabsDependencies) *TestLabsUseCase {
 	return &TestLabsUseCase{source: deps.Source, agent: deps.Agent, destroyer: deps.Destroyer, now: now}
 }
 
+// TestLabsFilter narrows and orders the test labs of the admin table.
+type TestLabsFilter struct {
+	Search string
+	// Status is "", "active" (the lease runs) or "expired" (waits for the cleanup).
+	Status               string
+	AuthorID, ExerciseID uuid.NullUUID
+	// SortBy is exercise, author, createdAt or expiresAt; SortDir asc or desc.
+	SortBy, SortDir string
+	Page, PageSize  int
+}
+
+// filteredTestLabSource is the source that can filter and sort (the repository); a plain source lists newest first.
+type filteredTestLabSource interface {
+	ListTestLabsFiltered(ctx context.Context, f platformStandRepo.TestLabFilter) ([]platformStandRepo.TestLab, int64, error)
+}
+
 // ListTestLabs returns one page of the catalog test labs, newest first. The live
 // state comes from the agent; a lab the agent cannot answer for is "unknown".
 func (u *TestLabsUseCase) ListTestLabs(ctx context.Context, search string, page, pageSize int) (TestLabsPage, error) {
-	items, total, err := u.source.ListTestLabs(ctx, search, int32(pageSize), int32((page-1)*pageSize))
+	return u.ListTestLabsFiltered(ctx, TestLabsFilter{Search: search, Page: page, PageSize: pageSize})
+}
+
+// ListTestLabsFiltered is ListTestLabs with the filters and the sorting of the admin table.
+func (u *TestLabsUseCase) ListTestLabsFiltered(ctx context.Context, f TestLabsFilter) (TestLabsPage, error) {
+	page, pageSize := f.Page, f.PageSize
+	var items []platformStandRepo.TestLab
+	var total int64
+	var err error
+	if source, ok := u.source.(filteredTestLabSource); ok {
+		items, total, err = source.ListTestLabsFiltered(ctx, platformStandRepo.TestLabFilter{
+			Search: f.Search, Status: f.Status, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID, SortBy: f.SortBy, SortDir: f.SortDir,
+			Now: u.now(), Limit: int32(pageSize), Offset: int32((page - 1) * pageSize),
+		})
+	} else {
+		items, total, err = u.source.ListTestLabs(ctx, f.Search, int32(pageSize), int32((page-1)*pageSize))
+	}
 	if err != nil {
 		return TestLabsPage{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list test laboratories").Err()
 	}
@@ -290,4 +322,30 @@ func (u *TestLabsUseCase) testLabRef(ctx context.Context, id uuid.UUID) (platfor
 		return platformStandRepo.TestLabRef{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test laboratory").Err()
 	}
 	return ref, nil
+}
+
+// MaxBulkTestLabs bounds one bulk termination.
+const MaxBulkTestLabs = 100
+
+// BulkTestLabResult is the outcome for one lab; Err is nil when it was ended.
+type BulkTestLabResult struct {
+	ID  uuid.UUID
+	Err error
+}
+
+// BulkTerminateTestLabs ends many test labs with the checks of the single action; one failure never stops the rest.
+func (u *TestLabsUseCase) BulkTerminateTestLabs(ctx context.Context, ids []uuid.UUID) ([]BulkTestLabResult, error) {
+	if len(ids) == 0 || len(ids) > MaxBulkTestLabs {
+		return nil, infraModel.ErrTestLabNotFound.WithMessage("Provide 1 to 100 test laboratories").Err()
+	}
+	out := make([]BulkTestLabResult, 0, len(ids))
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, BulkTestLabResult{ID: id, Err: u.TerminateTestLab(ctx, id)})
+	}
+	return out, nil
 }

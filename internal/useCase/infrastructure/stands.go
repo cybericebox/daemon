@@ -21,10 +21,12 @@ type (
 		EventID  uuid.NullUUID
 		Statuses []eventStandModel.Status
 		// Kind is "" for every stand, "event" for event teams or "moderators" for the moderators team.
-		Kind     string
-		Search   string
-		Page     int
-		PageSize int
+		Kind   string
+		Search string
+		// SortBy is event, team, status, updatedAt, statusChangedAt or generation; SortDir asc or desc.
+		SortBy, SortDir string
+		Page            int
+		PageSize        int
 	}
 
 	PlatformStandView struct {
@@ -92,7 +94,7 @@ type (
 // ListStands returns one page of stands across events.
 func (u *InfrastructureUseCase) ListStands(ctx context.Context, filter StandsFilter) (StandsPage, error) {
 	items, total, err := u.stands.List(ctx, platformStandRepo.Filter{
-		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search,
+		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search, SortBy: filter.SortBy, SortDir: filter.SortDir,
 		Limit: int32(filter.PageSize), Offset: int32((filter.Page - 1) * filter.PageSize),
 	})
 	if err != nil {

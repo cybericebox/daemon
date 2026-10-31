@@ -71,6 +71,35 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 	if err != nil || counts.Active != 1 || counts.Expired != 1 {
 		t.Fatalf("counts = %+v, %v", counts, err)
 	}
+
+	// The admin table filters by lease state, author and exercise and sorts by its columns; the total follows the filter.
+	filtered := func(f platformStandRepo.TestLabFilter) ([]platformStandRepo.TestLab, int64) {
+		t.Helper()
+		f.Now, f.Limit = now, 10
+		rows, count, listErr := repo.ListTestLabsFiltered(ctx, f)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		return rows, count
+	}
+	if rows, count := filtered(platformStandRepo.TestLabFilter{Status: "active"}); count != 1 || len(rows) != 1 || rows[0].ID != active.ID {
+		t.Fatalf("active filter: %d %+v", count, rows)
+	}
+	if rows, count := filtered(platformStandRepo.TestLabFilter{Status: "expired"}); count != 1 || len(rows) != 1 || rows[0].AuthorID != second {
+		t.Fatalf("expired filter: %d %+v", count, rows)
+	}
+	if rows, count := filtered(platformStandRepo.TestLabFilter{AuthorID: uuid.NullUUID{UUID: first, Valid: true}}); count != 1 || rows[0].AuthorID != first {
+		t.Fatalf("author filter: %d %+v", count, rows)
+	}
+	if _, count := filtered(platformStandRepo.TestLabFilter{ExerciseID: uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}}); count != 0 {
+		t.Fatalf("another exercise: %d", count)
+	}
+	if rows, _ := filtered(platformStandRepo.TestLabFilter{SortBy: "expiresAt", SortDir: "asc"}); len(rows) != 2 || rows[0].AuthorID != second {
+		t.Fatalf("expiresAt asc: %+v", rows)
+	}
+	if rows, _ := filtered(platformStandRepo.TestLabFilter{SortBy: "author", SortDir: "desc"}); len(rows) != 2 || rows[0].AuthorEmail != "ptl-second@test.test" {
+		t.Fatalf("author desc: %+v", rows)
+	}
 	ref, err := repo.GetTestLab(ctx, active.ID)
 	if err != nil || ref.OwnerID != first || ref.GroupName != active.GroupName {
 		t.Fatalf("ref = %+v, %v", ref, err)

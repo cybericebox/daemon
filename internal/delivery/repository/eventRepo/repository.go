@@ -74,6 +74,8 @@ type PageParams struct {
 	StartFrom, StartTo *time.Time
 	OrganizerID        uuid.NullUUID
 	Infrastructure     string
+	// NeedsReservation "true" keeps the events that run stands, have not finished and have no active reservation.
+	NeedsReservation string
 }
 
 type Repository struct {
@@ -113,7 +115,7 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.E
 		Search: p.Search, Status: p.Status, SortBy: p.SortBy, SortDir: p.SortDir,
 		Now: p.Now, LimitVal: p.Limit, OffsetVal: p.Offset,
 		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
-		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure,
+		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
 	})
 	if err != nil {
 		return nil, err
@@ -129,7 +131,7 @@ func (r *Repository) CountPage(ctx context.Context, p PageParams) (int64, error)
 	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{
 		Search: p.Search, Status: p.Status, Now: p.Now,
 		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
-		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure,
+		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
 	})
 }
 

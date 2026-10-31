@@ -199,7 +199,7 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 		params := eventRepo.PageParams{
 			Search: f.Search, Status: f.Status, SortBy: sortBy, SortDir: sortDir, Now: now,
 			Limit: int32(limit), Offset: int32(offset),
-			StartFrom: f.StartFrom, StartTo: f.StartTo, Infrastructure: f.Infrastructure,
+			StartFrom: f.StartFrom, StartTo: f.StartTo, Infrastructure: f.Infrastructure, NeedsReservation: f.NeedsReservation,
 			OrganizerID: uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil},
 		}
 		rows, err := u.events.ListPage(ctx, params)

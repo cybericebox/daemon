@@ -125,8 +125,21 @@ WHERE ($1::uuid IS NULL OR s.event_id = $1::uuid)
     OR e.name ILIKE '%' || $4::text || '%'
     OR e.tag ILIKE '%' || $4::text || '%'
     OR event_team_public_name(t.individual, t.event_id, t.captain_id, t.name) ILIKE '%' || $4::text || '%')
-ORDER BY s.updated_at DESC, s.event_team_id
-LIMIT $6 OFFSET $5
+ORDER BY
+  CASE WHEN $5::text = 'event' AND $6::text = 'asc' THEN lower(e.name) END ASC,
+  CASE WHEN $5::text = 'event' AND $6::text = 'desc' THEN lower(e.name) END DESC,
+  CASE WHEN $5::text = 'team' AND $6::text = 'asc' THEN lower(event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)) END ASC,
+  CASE WHEN $5::text = 'team' AND $6::text = 'desc' THEN lower(event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)) END DESC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'asc' THEN s.status END ASC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'desc' THEN s.status END DESC,
+  CASE WHEN $5::text = 'updatedAt' AND $6::text = 'asc' THEN s.updated_at END ASC,
+  CASE WHEN $5::text = 'updatedAt' AND $6::text = 'desc' THEN s.updated_at END DESC,
+  CASE WHEN $5::text = 'generation' AND $6::text = 'asc' THEN s.generation END ASC,
+  CASE WHEN $5::text = 'generation' AND $6::text = 'desc' THEN s.generation END DESC,
+  CASE WHEN $5::text = 'statusChangedAt' AND $6::text = 'asc' THEN s.status_changed_at END ASC,
+  CASE WHEN $5::text = 'statusChangedAt' AND $6::text = 'desc' THEN s.status_changed_at END DESC,
+  s.updated_at DESC, s.event_team_id
+LIMIT $8 OFFSET $7
 `
 
 type ListPlatformStandsParams struct {
@@ -134,6 +147,8 @@ type ListPlatformStandsParams struct {
 	Statuses  []int16       `json:"statuses"`
 	Kind      string        `json:"kind"`
 	Search    string        `json:"search"`
+	SortBy    string        `json:"sort_by"`
+	SortDir   string        `json:"sort_dir"`
 	OffsetVal int32         `json:"offset_val"`
 	LimitVal  int32         `json:"limit_val"`
 }
@@ -161,6 +176,8 @@ func (q *Queries) ListPlatformStands(ctx context.Context, arg ListPlatformStands
 		arg.Statuses,
 		arg.Kind,
 		arg.Search,
+		arg.SortBy,
+		arg.SortDir,
 		arg.OffsetVal,
 		arg.LimitVal,
 	)

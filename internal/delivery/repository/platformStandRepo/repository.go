@@ -87,8 +87,10 @@ type (
 		// Kind is "" for every stand, KindEvent or KindModerators.
 		Kind   string
 		Search string
-		Limit  int32
-		Offset int32
+		// SortBy is event, team, status, updatedAt, statusChangedAt or generation ("": the newest change first).
+		SortBy, SortDir string
+		Limit           int32
+		Offset          int32
 	}
 
 	EventRef struct {
@@ -111,6 +113,7 @@ func (r *Repository) List(ctx context.Context, filter Filter) ([]Stand, int64, e
 	}
 	rows, err := r.q.ListPlatformStands(ctx, postgres.ListPlatformStandsParams{
 		EventID: filter.EventID, Statuses: statuses, Kind: filter.Kind, Search: filter.Search, LimitVal: filter.Limit, OffsetVal: filter.Offset,
+		SortBy: filter.SortBy, SortDir: filter.SortDir,
 	})
 	if err != nil {
 		return nil, 0, err
@@ -173,7 +176,26 @@ func (r *Repository) CountByKind(ctx context.Context) (event, moderators StandKi
 
 // ListTestLabs returns one page of the catalog test labs, newest first, and the total.
 func (r *Repository) ListTestLabs(ctx context.Context, search string, limit, offset int32) ([]TestLab, int64, error) {
-	rows, err := r.q.ListPlatformTestLabs(ctx, postgres.ListPlatformTestLabsParams{Search: search, LimitVal: limit, OffsetVal: offset})
+	return r.ListTestLabsFiltered(ctx, TestLabFilter{Search: search, Limit: limit, Offset: offset})
+}
+
+// TestLabFilter narrows and orders the test labs. Status is "", "active" (the lease runs) or "expired"; SortBy is
+// exercise, author, createdAt or expiresAt ("": the newest first).
+type TestLabFilter struct {
+	Search               string
+	Status               string
+	AuthorID, ExerciseID uuid.NullUUID
+	SortBy, SortDir      string
+	Now                  time.Time
+	Limit, Offset        int32
+}
+
+// ListTestLabsFiltered returns one page of the catalog test labs and the total behind the filter.
+func (r *Repository) ListTestLabsFiltered(ctx context.Context, f TestLabFilter) ([]TestLab, int64, error) {
+	rows, err := r.q.ListPlatformTestLabs(ctx, postgres.ListPlatformTestLabsParams{
+		Search: f.Search, Status: f.Status, Now: f.Now, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID,
+		SortBy: f.SortBy, SortDir: f.SortDir, LimitVal: f.Limit, OffsetVal: f.Offset,
+	})
 	if err != nil {
 		return nil, 0, err
 	}

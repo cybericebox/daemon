@@ -16,6 +16,7 @@ import (
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 	"github.com/cybericebox/daemon/pkg/pagination"
@@ -45,6 +46,9 @@ type (
 		RecreateTeamStand(ctx context.Context, eventID, teamID, by uuid.UUID) (eventUseCase.StandTeamView, error)
 		ListTestLabs(ctx context.Context, search string, page, pageSize int) (infrastructureUseCase.TestLabsPage, error)
 		TerminateTestLab(ctx context.Context, id uuid.UUID) error
+		ListTestLabsFiltered(ctx context.Context, f infrastructureUseCase.TestLabsFilter) (infrastructureUseCase.TestLabsPage, error)
+		BulkTerminateTestLabs(ctx context.Context, ids []uuid.UUID) ([]infrastructureUseCase.BulkTestLabResult, error)
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 		GetTeamStandDetail(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.StandDetailView, error)
 		ResetStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string) error
 		RescueStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string, enable bool) error
@@ -256,11 +260,21 @@ type (
 		// Kind is event (event teams) or moderators (the moderators team); empty for both.
 		Kind   string `form:"kind"`
 		Search string `form:"search"`
+		// SortBy is event, team, status, updatedAt, statusChangedAt or generation; SortDir asc or desc.
+		SortBy  string `form:"sortBy"`
+		SortDir string `form:"sortDir"`
 	}
 
 	testLabsQuery struct {
 		pagination.OffsetParams
 		Search string `form:"search"`
+		// Status is active (the lease runs) or expired; Author and Exercise are ids.
+		Status   string `form:"status"`
+		Author   string `form:"author"`
+		Exercise string `form:"exercise"`
+		// SortBy is exercise, author, createdAt or expiresAt; SortDir asc or desc.
+		SortBy  string `form:"sortBy"`
+		SortDir string `form:"sortDir"`
 	}
 )
 
@@ -286,6 +300,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	router.POST("infrastructure/agents/:agentID/renew-certificate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.renewAgentCertificate)
 	router.POST("infrastructure/agents/:agentID/rotate-access-key", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.rotateAgentAccessKey)
 	router.GET("infrastructure/stands", read, h.listStands)
+	router.POST("infrastructure/stands/bulk/recreate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.bulkRecreateStands)
+	router.POST("infrastructure/test-labs/bulk/terminate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.bulkTerminateTestLabs)
 	router.GET("infrastructure/stands/events", read, h.listStandEvents)
 	// The target ids live in the route so the audit entry names the stand.
 	router.POST(
@@ -476,6 +492,8 @@ func (h *Handler) listCapacityMonitoring(ctx *gin.Context) {
 //	@Param		status		query	string	false	"creating | ready | failed | removed | active"
 //	@Param		kind		query	string	false	"event | moderators"
 //	@Param		search		query	string	false	"event name or tag, team name"
+//	@Param		sortBy		query	string	false	"event | team | status | updatedAt | statusChangedAt | generation"
+//	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"
 //	@Success	200	{object}	response.Response{data=pagination.OffsetPage[standResponse]}
@@ -490,7 +508,13 @@ func (h *Handler) listStands(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	filter := infrastructureUseCase.StandsFilter{Search: strings.TrimSpace(query.Search), Page: query.Page, PageSize: query.PageSize}
+	if !validSort(query.SortBy, query.SortDir, "event", "team", "status", "updatedAt", "statusChangedAt", "generation") {
+		response.AbortWithBadRequest(ctx, errInvalidSort)
+		return
+	}
+	filter := infrastructureUseCase.StandsFilter{
+		Search: strings.TrimSpace(query.Search), Page: query.Page, PageSize: query.PageSize, SortBy: query.SortBy, SortDir: query.SortDir,
+	}
 	if query.EventID != "" {
 		id, err := uuid.FromString(query.EventID)
 		if err != nil {
@@ -613,6 +637,11 @@ func (h *Handler) recreateStand(ctx *gin.Context) {
 //	@Tags		infrastructure
 //	@Produce	json
 //	@Param		search		query	string	false	"exercise name, author name or email"
+//	@Param		status		query	string	false	"active | expired"
+//	@Param		author		query	string	false	"author user ID"
+//	@Param		exercise	query	string	false	"exercise ID"
+//	@Param		sortBy		query	string	false	"exercise | author | createdAt | expiresAt"
+//	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"
 //	@Success	200	{object}	response.Response{data=pagination.OffsetPage[testLabResponse]}
@@ -627,7 +656,12 @@ func (h *Handler) listTestLabs(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	page, err := h.useCase.ListTestLabs(ctx, strings.TrimSpace(query.Search), query.Page, query.PageSize)
+	filter, err := testLabsFilter(query)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	page, err := h.useCase.ListTestLabsFiltered(ctx, filter)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

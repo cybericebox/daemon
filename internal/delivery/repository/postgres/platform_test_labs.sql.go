@@ -85,14 +85,34 @@ WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
     OR v.name ILIKE '%' || $1::text || '%'
     OR u.email ILIKE '%' || $1::text || '%'
     OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $1::text || '%')
-ORDER BY d.created_at DESC, d.id
-LIMIT $3 OFFSET $2
+  AND ($2::text = ''
+    OR ($2::text = 'active' AND d.expires_at > $3::timestamptz)
+    OR ($2::text = 'expired' AND d.expires_at <= $3::timestamptz))
+  AND ($4::uuid IS NULL OR d.created_by = $4::uuid)
+  AND ($5::uuid IS NULL OR v.exercise_id = $5::uuid)
+ORDER BY
+  CASE WHEN $6::text = 'exercise' AND $7::text = 'asc' THEN lower(v.name) END ASC,
+  CASE WHEN $6::text = 'exercise' AND $7::text = 'desc' THEN lower(v.name) END DESC,
+  CASE WHEN $6::text = 'author' AND $7::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END ASC,
+  CASE WHEN $6::text = 'author' AND $7::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END DESC,
+  CASE WHEN $6::text = 'createdAt' AND $7::text = 'asc' THEN d.created_at END ASC,
+  CASE WHEN $6::text = 'createdAt' AND $7::text = 'desc' THEN d.created_at END DESC,
+  CASE WHEN $6::text = 'expiresAt' AND $7::text = 'asc' THEN d.expires_at END ASC,
+  CASE WHEN $6::text = 'expiresAt' AND $7::text = 'desc' THEN d.expires_at END DESC,
+  d.created_at DESC, d.id
+LIMIT $9 OFFSET $8
 `
 
 type ListPlatformTestLabsParams struct {
-	Search    string `json:"search"`
-	OffsetVal int32  `json:"offset_val"`
-	LimitVal  int32  `json:"limit_val"`
+	Search     string        `json:"search"`
+	Status     string        `json:"status"`
+	Now        time.Time     `json:"now"`
+	AuthorID   uuid.NullUUID `json:"author_id"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+	SortBy     string        `json:"sort_by"`
+	SortDir    string        `json:"sort_dir"`
+	OffsetVal  int32         `json:"offset_val"`
+	LimitVal   int32         `json:"limit_val"`
 }
 
 type ListPlatformTestLabsRow struct {
@@ -118,7 +138,17 @@ type ListPlatformTestLabsRow struct {
 // when the lab is stopped or its expired lease is cleaned up.
 // A static test (no group, no lab name, no event) is not a laboratory and never appears here.
 func (q *Queries) ListPlatformTestLabs(ctx context.Context, arg ListPlatformTestLabsParams) ([]ListPlatformTestLabsRow, error) {
-	rows, err := q.db.Query(ctx, listPlatformTestLabs, arg.Search, arg.OffsetVal, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listPlatformTestLabs,
+		arg.Search,
+		arg.Status,
+		arg.Now,
+		arg.AuthorID,
+		arg.ExerciseID,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}

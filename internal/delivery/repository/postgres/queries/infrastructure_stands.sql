@@ -15,7 +15,20 @@ WHERE (sqlc.narg(event_id)::uuid IS NULL OR s.event_id = sqlc.narg(event_id)::uu
     OR e.name ILIKE '%' || sqlc.arg(search)::text || '%'
     OR e.tag ILIKE '%' || sqlc.arg(search)::text || '%'
     OR event_team_public_name(t.individual, t.event_id, t.captain_id, t.name) ILIKE '%' || sqlc.arg(search)::text || '%')
-ORDER BY s.updated_at DESC, s.event_team_id
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'event' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(e.name) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'event' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(e.name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'team' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'team' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN s.status END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN s.status END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'updatedAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN s.updated_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'updatedAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN s.updated_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'generation' AND sqlc.arg(sort_dir)::text = 'asc' THEN s.generation END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'generation' AND sqlc.arg(sort_dir)::text = 'desc' THEN s.generation END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'statusChangedAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN s.status_changed_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'statusChangedAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN s.status_changed_at END DESC,
+  s.updated_at DESC, s.event_team_id
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
 -- name: ListPlatformStandEvents :many

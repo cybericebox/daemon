@@ -63,6 +63,12 @@ func parseEventListFilters(ctx *gin.Context, f *eventUseCase.ListEventsFilter) e
 	default:
 		return errors.New("infrastructure must be true or false")
 	}
+	switch needs := ctx.Query("needsReservation"); needs {
+	case "", "true":
+		f.NeedsReservation = needs
+	default:
+		return errors.New("needsReservation must be true")
+	}
 	return nil
 }
 

@@ -23,7 +23,21 @@ WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
     OR v.name ILIKE '%' || sqlc.arg(search)::text || '%'
     OR u.email ILIKE '%' || sqlc.arg(search)::text || '%'
     OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
-ORDER BY d.created_at DESC, d.id
+  AND (sqlc.arg(status)::text = ''
+    OR (sqlc.arg(status)::text = 'active' AND d.expires_at > sqlc.arg(now)::timestamptz)
+    OR (sqlc.arg(status)::text = 'expired' AND d.expires_at <= sqlc.arg(now)::timestamptz))
+  AND (sqlc.narg(author_id)::uuid IS NULL OR d.created_by = sqlc.narg(author_id)::uuid)
+  AND (sqlc.narg(exercise_id)::uuid IS NULL OR v.exercise_id = sqlc.narg(exercise_id)::uuid)
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'exercise' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(v.name) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'exercise' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(v.name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'createdAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'createdAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.created_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'expiresAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.expires_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'expiresAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.expires_at END DESC,
+  d.created_at DESC, d.id
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
 -- name: GetPlatformTestLab :one

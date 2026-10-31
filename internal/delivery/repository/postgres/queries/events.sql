@@ -147,6 +147,11 @@ WHERE (sqlc.arg(search)::text = '' OR tag ILIKE '%' || sqlc.arg(search)::text ||
   AND (sqlc.narg(start_to)::timestamptz IS NULL OR start_at < sqlc.narg(start_to)::timestamptz)
   AND (sqlc.narg(organizer_id)::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = sqlc.narg(organizer_id)::uuid))
   AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'))
+  AND (sqlc.arg(needs_reservation)::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > sqlc.arg(now)::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > sqlc.arg(now)::timestamptz)
+       AND (finish_at IS NULL OR finish_at > sqlc.arg(now)::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
 ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(tag) END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'tag' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(tag) END DESC,
@@ -204,7 +209,12 @@ WHERE (sqlc.arg(search)::text = '' OR tag ILIKE '%' || sqlc.arg(search)::text ||
   AND (sqlc.narg(start_from)::timestamptz IS NULL OR start_at >= sqlc.narg(start_from)::timestamptz)
   AND (sqlc.narg(start_to)::timestamptz IS NULL OR start_at < sqlc.narg(start_to)::timestamptz)
   AND (sqlc.narg(organizer_id)::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = sqlc.narg(organizer_id)::uuid))
-  AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'));
+  AND (sqlc.arg(infrastructure)::text = '' OR infrastructure_allowed = (sqlc.arg(infrastructure)::text = 'true'))
+  AND (sqlc.arg(needs_reservation)::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > sqlc.arg(now)::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > sqlc.arg(now)::timestamptz)
+       AND (finish_at IS NULL OR finish_at > sqlc.arg(now)::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)));
 
 -- name: CountLiveEventsWithTag :one
 -- Conflict means overlapping HALF-OPEN platform windows, not merely a reused

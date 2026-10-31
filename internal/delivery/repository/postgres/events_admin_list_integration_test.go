@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/platformStandRepo"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
@@ -62,4 +63,57 @@ func TestEventsAdminList_CountersFiltersAndSorting(t *testing.T) {
 	require.Equal(t, []uuid.UUID{big.event, small.ID}, page(eventRepo.PageParams{Search: search, SortBy: "participants", SortDir: "desc"}))
 	require.Equal(t, []uuid.UUID{big.event, small.ID}, page(eventRepo.PageParams{Search: search, SortBy: "start", SortDir: "asc"}))
 	require.Equal(t, []uuid.UUID{small.ID, big.event}, page(eventRepo.PageParams{Search: search, SortBy: "stands", SortDir: "asc"}))
+}
+
+// "Needs a reservation" is a filter of the events table, paginated like the rest (no fixed cap).
+func TestEventsAdminList_NeedsReservationFilter(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventRepo.New(db.Queries)
+	f := anSeed(t, db, "needres")
+	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true, archive_at = NULL WHERE id = $1`, f.event)
+	params := eventRepo.PageParams{Limit: 50, Now: anStart.Add(time.Hour), NeedsReservation: "true"}
+
+	rows, err := repo.ListPage(ctx, params)
+	require.NoError(t, err)
+	total, err := repo.CountPage(ctx, params)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.EqualValues(t, 1, total)
+
+	rtExec(t, db, `INSERT INTO resource_reservations (id, kind, event_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes,
+		largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds,
+		size_cpu_millicores, size_memory_bytes, placement, unplaced, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes, created_at, updated_at)
+		VALUES (gen_random_uuid(), 'event', $1, $2, $3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '[]'::jsonb, 0, 0, 0, 0, now(), now())`, f.event, anStart.Add(-time.Hour), anStart.Add(6*time.Hour))
+	rows, err = repo.ListPage(ctx, params)
+	require.NoError(t, err)
+	total, err = repo.CountPage(ctx, params)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+	require.Zero(t, total)
+}
+
+// The stand table sorts by every column it shows.
+func TestPlatformStandsListSorting(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "standsort")
+	other := eaTeam(t, db, f.event, mustSeedUser(t, db, "standsort-other@test.test"), "Alpha")
+	for _, team := range []uuid.UUID{f.team, other} {
+		rtExec(t, db, `INSERT INTO event_team_stands (event_team_id, event_id, status, generation, created_at, updated_at, status_changed_at) VALUES ($1, $2, 2, 1, $3, $3, $3)`,
+			team, f.event, anStart)
+	}
+	rtExec(t, db, `UPDATE event_team_stands SET generation = 5 WHERE event_team_id = $1`, f.team)
+	names := func(by, dir string) []string {
+		rows, _, err := platformStandRepo.New(db.Queries).List(ctx, platformStandRepo.Filter{SortBy: by, SortDir: dir, Limit: 10})
+		require.NoError(t, err)
+		out := make([]string, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, row.TeamName)
+		}
+		return out
+	}
+	require.Equal(t, []string{"Alpha", "Blue"}, names("team", "asc"))
+	require.Equal(t, []string{"Blue", "Alpha"}, names("team", "desc"))
+	require.Equal(t, []string{"Blue", "Alpha"}, names("generation", "desc"))
 }

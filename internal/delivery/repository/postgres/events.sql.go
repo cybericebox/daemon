@@ -93,16 +93,22 @@ WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
   AND ($5::timestamptz IS NULL OR start_at < $5::timestamptz)
   AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $6::uuid))
   AND ($7::text = '' OR infrastructure_allowed = ($7::text = 'true'))
+  AND ($8::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $3::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $3::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $3::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
 `
 
 type CountEventsPageParams struct {
-	Search         string             `json:"search"`
-	Status         string             `json:"status"`
-	Now            time.Time          `json:"now"`
-	StartFrom      pgtype.Timestamptz `json:"start_from"`
-	StartTo        pgtype.Timestamptz `json:"start_to"`
-	OrganizerID    uuid.NullUUID      `json:"organizer_id"`
-	Infrastructure string             `json:"infrastructure"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	Now              time.Time          `json:"now"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
 }
 
 func (q *Queries) CountEventsPage(ctx context.Context, arg CountEventsPageParams) (int64, error) {
@@ -114,6 +120,7 @@ func (q *Queries) CountEventsPage(ctx context.Context, arg CountEventsPageParams
 		arg.StartTo,
 		arg.OrganizerID,
 		arg.Infrastructure,
+		arg.NeedsReservation,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -630,12 +637,17 @@ WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
   AND ($5::timestamptz IS NULL OR start_at < $5::timestamptz)
   AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $6::uuid))
   AND ($7::text = '' OR infrastructure_allowed = ($7::text = 'true'))
+  AND ($8::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $3::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $3::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $3::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
 ORDER BY
-  CASE WHEN $8::text = 'tag' AND $9::text = 'asc' THEN lower(tag) END ASC,
-  CASE WHEN $8::text = 'tag' AND $9::text = 'desc' THEN lower(tag) END DESC,
-  CASE WHEN $8::text = 'name' AND $9::text = 'asc' THEN lower(internal_name) END ASC,
-  CASE WHEN $8::text = 'name' AND $9::text = 'desc' THEN lower(internal_name) END DESC,
-  CASE WHEN $8::text = 'status' AND $9::text = 'asc' THEN
+  CASE WHEN $9::text = 'tag' AND $10::text = 'asc' THEN lower(tag) END ASC,
+  CASE WHEN $9::text = 'tag' AND $10::text = 'desc' THEN lower(tag) END DESC,
+  CASE WHEN $9::text = 'name' AND $10::text = 'asc' THEN lower(internal_name) END ASC,
+  CASE WHEN $9::text = 'name' AND $10::text = 'desc' THEN lower(internal_name) END DESC,
+  CASE WHEN $9::text = 'status' AND $10::text = 'asc' THEN
     CASE WHEN archive_at IS NOT NULL AND archive_at <= $3::timestamptz THEN 6
          WHEN available_from > $3::timestamptz THEN 0
          WHEN NOT lifecycle_configured OR publish_at > $3::timestamptz THEN 1
@@ -644,7 +656,7 @@ ORDER BY
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 4
          ELSE 3 END END ASC,
-  CASE WHEN $8::text = 'status' AND $9::text = 'desc' THEN
+  CASE WHEN $9::text = 'status' AND $10::text = 'desc' THEN
     CASE WHEN archive_at IS NOT NULL AND archive_at <= $3::timestamptz THEN 6
          WHEN available_from > $3::timestamptz THEN 0
          WHEN NOT lifecycle_configured OR publish_at > $3::timestamptz THEN 1
@@ -653,36 +665,37 @@ ORDER BY
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 4
          ELSE 3 END END DESC,
-  CASE WHEN $8::text = 'availableFrom' AND $9::text = 'asc' THEN available_from END ASC,
-  CASE WHEN $8::text = 'availableFrom' AND $9::text = 'desc' THEN available_from END DESC,
-  CASE WHEN $8::text = 'archiveAt' AND $9::text = 'asc' THEN archive_at END ASC NULLS LAST,
-  CASE WHEN $8::text = 'archiveAt' AND $9::text = 'desc' THEN archive_at END DESC NULLS LAST,
-  CASE WHEN $8::text = 'updated' AND $9::text = 'asc' THEN updated_at END ASC,
-  CASE WHEN $8::text = 'updated' AND $9::text = 'desc' THEN updated_at END DESC,
-  CASE WHEN $8::text = 'start' AND $9::text = 'asc' THEN start_at END ASC,
-  CASE WHEN $8::text = 'start' AND $9::text = 'desc' THEN start_at END DESC,
-  CASE WHEN $8::text = 'participants' AND $9::text = 'asc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END ASC,
-  CASE WHEN $8::text = 'participants' AND $9::text = 'desc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END DESC,
-  CASE WHEN $8::text = 'teams' AND $9::text = 'asc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END ASC,
-  CASE WHEN $8::text = 'teams' AND $9::text = 'desc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END DESC,
-  CASE WHEN $8::text = 'stands' AND $9::text = 'asc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END ASC,
-  CASE WHEN $8::text = 'stands' AND $9::text = 'desc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END DESC,
+  CASE WHEN $9::text = 'availableFrom' AND $10::text = 'asc' THEN available_from END ASC,
+  CASE WHEN $9::text = 'availableFrom' AND $10::text = 'desc' THEN available_from END DESC,
+  CASE WHEN $9::text = 'archiveAt' AND $10::text = 'asc' THEN archive_at END ASC NULLS LAST,
+  CASE WHEN $9::text = 'archiveAt' AND $10::text = 'desc' THEN archive_at END DESC NULLS LAST,
+  CASE WHEN $9::text = 'updated' AND $10::text = 'asc' THEN updated_at END ASC,
+  CASE WHEN $9::text = 'updated' AND $10::text = 'desc' THEN updated_at END DESC,
+  CASE WHEN $9::text = 'start' AND $10::text = 'asc' THEN start_at END ASC,
+  CASE WHEN $9::text = 'start' AND $10::text = 'desc' THEN start_at END DESC,
+  CASE WHEN $9::text = 'participants' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END ASC,
+  CASE WHEN $9::text = 'participants' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END DESC,
+  CASE WHEN $9::text = 'teams' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END ASC,
+  CASE WHEN $9::text = 'teams' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END DESC,
+  CASE WHEN $9::text = 'stands' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END ASC,
+  CASE WHEN $9::text = 'stands' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END DESC,
   created_at DESC, id DESC
-LIMIT $11 OFFSET $10
+LIMIT $12 OFFSET $11
 `
 
 type ListEventsPageParams struct {
-	Search         string             `json:"search"`
-	Status         string             `json:"status"`
-	Now            time.Time          `json:"now"`
-	StartFrom      pgtype.Timestamptz `json:"start_from"`
-	StartTo        pgtype.Timestamptz `json:"start_to"`
-	OrganizerID    uuid.NullUUID      `json:"organizer_id"`
-	Infrastructure string             `json:"infrastructure"`
-	SortBy         string             `json:"sort_by"`
-	SortDir        string             `json:"sort_dir"`
-	OffsetVal      int32              `json:"offset_val"`
-	LimitVal       int32              `json:"limit_val"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	Now              time.Time          `json:"now"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
+	SortBy           string             `json:"sort_by"`
+	SortDir          string             `json:"sort_dir"`
+	OffsetVal        int32              `json:"offset_val"`
+	LimitVal         int32              `json:"limit_val"`
 }
 
 func (q *Queries) ListEventsPage(ctx context.Context, arg ListEventsPageParams) ([]Event, error) {
@@ -694,6 +707,7 @@ func (q *Queries) ListEventsPage(ctx context.Context, arg ListEventsPageParams) 
 		arg.StartTo,
 		arg.OrganizerID,
 		arg.Infrastructure,
+		arg.NeedsReservation,
 		arg.SortBy,
 		arg.SortDir,
 		arg.OffsetVal,
