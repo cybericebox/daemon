@@ -373,7 +373,12 @@ func (p Policy) Devices(t exerciseModel.Topology) []DeviceUsage {
 			continue
 		}
 		preset := p.resolvePreset(d)
-		usage := DeviceUsage{DeviceID: d.ID, Name: d.Name, Blocks: preset.Blocks, Amount: preset.Amount}
+		usage := DeviceUsage{
+			DeviceID: d.ID,
+			Name:     d.Name,
+			Blocks:   preset.Blocks,
+			Amount:   preset.Amount,
+		}
 		// The author sets only the device's own size; the platform adds what the profile costs on top (a microVM's
 		// guest and its monitor), in the amount and in whole blocks.
 		if overhead := p.Overheads.Get(d.EffectiveProfile()); overhead != (Amount{}) {

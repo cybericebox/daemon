@@ -233,7 +233,9 @@ func validateLinkedVariant(number int, linked, base Variant) error {
 		}
 		own := linked.Tasks[taskIndex]
 		if len(baseTask.Attachments) > 0 && len(own.Attachments) == 0 {
-			return ErrLinkedAttachmentMissing.WithPublicContext("variant", number).WithPublicContext("task", baseTask.Name).Err()
+			return ErrLinkedAttachmentMissing.WithPublicContext("variant", number).
+				WithPublicContext("task", baseTask.Name).
+				Err()
 		}
 		if len(own.Attachments) > 0 || !slices.Equal(own.Flag, baseTask.Flag) {
 			differs = true

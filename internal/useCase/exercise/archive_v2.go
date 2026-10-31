@@ -685,7 +685,10 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".type", string(device.Type))
 		}
 		if device.Profile != "" && !device.Profile.Valid() {
-			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".profile", string(device.Profile))
+			return exerciseModel.Topology{}, nil, unknownEnum(
+				devicePath+".profile",
+				string(device.Profile),
+			)
 		}
 		if device.SecurityPreset != "" && !device.SecurityPreset.Valid() {
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".security_preset", string(device.SecurityPreset))

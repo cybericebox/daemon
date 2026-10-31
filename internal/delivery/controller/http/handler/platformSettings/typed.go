@@ -219,7 +219,13 @@ func respondNodeProfiles(ctx *gin.Context, v platformSettingsUseCase.NodeProfile
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, nodeProfilesResponse{typedSettingResponse: toTypedResponse(v.TypedView), RunnableNow: v.RunnableNow})
+	response.AbortWithData(
+		ctx,
+		nodeProfilesResponse{
+			typedSettingResponse: toTypedResponse(v.TypedView),
+			RunnableNow:          v.RunnableNow,
+		},
+	)
 }
 
 // GetNodeProfileSettings godoc

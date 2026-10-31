@@ -18,7 +18,11 @@ import (
 )
 
 func nodeOf(profile exerciseModel.NodeProfile) exerciseModel.Topology {
-	return exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "box", Type: exerciseModel.DeviceTypeNode, Profile: profile}}}
+	return exerciseModel.Topology{
+		Devices: []exerciseModel.Device{
+			{Name: "box", Type: exerciseModel.DeviceTypeNode, Profile: profile},
+		},
+	}
 }
 
 func memberWith(enabled bool, reports map[exerciseModel.NodeProfile]ProfileCapacity) *Member {
@@ -32,13 +36,23 @@ func memberWith(enabled bool, reports map[exerciseModel.NodeProfile]ProfileCapac
 // An agent that reports no profile list is an older one: it offers the container.
 func TestProfilesOf_OlderAgentOffersTheContainer(t *testing.T) {
 	got := ProfilesOf(&labpb.CapacityResponse{})
-	assert.Equal(t, map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}}, got)
+	assert.Equal(
+		t,
+		map[exerciseModel.NodeProfile]ProfileCapacity{
+			exerciseModel.NodeProfileContainer: {AvailableNow: true},
+		},
+		got,
+	)
 }
 
 func TestProfileCapacity_Runnable(t *testing.T) {
 	assert.True(t, ProfileCapacity{AvailableNow: true}.Runnable())
 	assert.True(t, ProfileCapacity{ScaleUpKnown: true, AvailableAfterScaleUp: true}.Runnable())
-	assert.False(t, ProfileCapacity{AvailableAfterScaleUp: true}.Runnable(), "scale-up counts only when the agent knows it")
+	assert.False(
+		t,
+		ProfileCapacity{AvailableAfterScaleUp: true}.Runnable(),
+		"scale-up counts only when the agent knows it",
+	)
 	assert.False(t, ProfileCapacity{}.Runnable())
 }
 
@@ -47,17 +61,36 @@ func TestRequireProfiles(t *testing.T) {
 		exerciseModel.NodeProfileContainer: {AvailableNow: true},
 		exerciseModel.NodeProfileMicroVM:   {AvailableNow: true},
 	}
-	container := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}}
+	container := map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileContainer: {AvailableNow: true},
+	}
 
 	require.NoError(t, requireProfiles(memberWith(true, container), nodeOf("")))
-	require.NoError(t, requireProfiles(memberWith(true, ready), nodeOf(exerciseModel.NodeProfileMicroVM)))
-	require.NoError(t, requireProfiles(memberWith(true, nil), nodeOf(exerciseModel.NodeProfileMicroVM)), "no report yet: the agent answers itself")
-	require.ErrorIs(t, requireProfiles(memberWith(true, container), nodeOf(exerciseModel.NodeProfileMicroVM)), exerciseModel.ErrNodeProfileUnavailable.Err())
-	require.ErrorIs(t, requireProfiles(memberWith(true, ready), nodeOf(exerciseModel.NodeProfileVM)), exerciseModel.ErrNodeProfileVMUnsupported.Err())
+	require.NoError(
+		t,
+		requireProfiles(memberWith(true, ready), nodeOf(exerciseModel.NodeProfileMicroVM)),
+	)
+	require.NoError(
+		t,
+		requireProfiles(memberWith(true, nil), nodeOf(exerciseModel.NodeProfileMicroVM)),
+		"no report yet: the agent answers itself",
+	)
+	require.ErrorIs(
+		t,
+		requireProfiles(memberWith(true, container), nodeOf(exerciseModel.NodeProfileMicroVM)),
+		exerciseModel.ErrNodeProfileUnavailable.Err(),
+	)
+	require.ErrorIs(
+		t,
+		requireProfiles(memberWith(true, ready), nodeOf(exerciseModel.NodeProfileVM)),
+		exerciseModel.ErrNodeProfileVMUnsupported.Err(),
+	)
 }
 
 func TestFleet_RunnableNodeProfilesAndTheEarlyRefusal(t *testing.T) {
-	container := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}}
+	container := map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileContainer: {AvailableNow: true},
+	}
 	microvm := map[exerciseModel.NodeProfile]ProfileCapacity{
 		exerciseModel.NodeProfileContainer: {AvailableNow: true},
 		exerciseModel.NodeProfileMicroVM:   {AvailableNow: true},
@@ -65,20 +98,46 @@ func TestFleet_RunnableNodeProfilesAndTheEarlyRefusal(t *testing.T) {
 	disabled := memberWith(false, microvm)
 	fleet := NewFleet(nil, nil, memberWith(true, container), disabled)
 
-	assert.Equal(t, map[exerciseModel.NodeProfile]bool{exerciseModel.NodeProfileContainer: true}, fleet.RunnableNodeProfiles(context.Background()))
-	require.ErrorIs(t, fleet.requireProfilesSomewhere(nodeOf(exerciseModel.NodeProfileMicroVM)), exerciseModel.ErrNodeProfileUnavailable.Err(), "a disabled agent does not count")
+	assert.Equal(
+		t,
+		map[exerciseModel.NodeProfile]bool{exerciseModel.NodeProfileContainer: true},
+		fleet.RunnableNodeProfiles(context.Background()),
+	)
+	require.ErrorIs(
+		t,
+		fleet.requireProfilesSomewhere(nodeOf(exerciseModel.NodeProfileMicroVM)),
+		exerciseModel.ErrNodeProfileUnavailable.Err(),
+		"a disabled agent does not count",
+	)
 
 	fleet = NewFleet(nil, nil, memberWith(true, container), memberWith(true, microvm))
-	assert.True(t, fleet.RunnableNodeProfiles(context.Background())[exerciseModel.NodeProfileMicroVM])
+	assert.True(
+		t,
+		fleet.RunnableNodeProfiles(context.Background())[exerciseModel.NodeProfileMicroVM],
+	)
 	require.NoError(t, fleet.requireProfilesSomewhere(nodeOf(exerciseModel.NodeProfileMicroVM)))
 }
 
 // The agent is sent the profile only when it is not the container, and the container stays the agent's type.
 func TestBuildDevice_Profile(t *testing.T) {
-	web := buildDevice(exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileContainer}, "web")
+	web := buildDevice(
+		exerciseModel.Device{
+			Name:    "web",
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: exerciseModel.NodeProfileContainer,
+		},
+		"web",
+	)
 	assert.Equal(t, "container", web.Type)
 	assert.Empty(t, web.Profile)
-	box := buildDevice(exerciseModel.Device{Name: "box", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileMicroVM}, "box")
+	box := buildDevice(
+		exerciseModel.Device{
+			Name:    "box",
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: exerciseModel.NodeProfileMicroVM,
+		},
+		"box",
+	)
 	assert.Equal(t, "container", box.Type)
 	assert.Equal(t, "microvm", box.Profile)
 	sw := buildDevice(exerciseModel.Device{Name: "sw", Type: exerciseModel.DeviceTypeHub}, "sw-1")
@@ -99,12 +158,22 @@ func profileSet(profiles ...exerciseModel.NodeProfile) exerciseModel.NodeProfile
 func TestFleetPlacesANewGroupOnAnAgentThatRunsTheProfiles(t *testing.T) {
 	f := newFleetFixture(t)
 	f.am.Profiles = NewProfileCell() // a: highest priority, container only
-	f.am.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+	f.am.Profiles.Set(
+		map[exerciseModel.NodeProfile]ProfileCapacity{
+			exerciseModel.NodeProfileContainer: {AvailableNow: true},
+		},
+	)
 	f.bm.Profiles = NewProfileCell()
 	f.bm.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{
-		exerciseModel.NodeProfileContainer: {AvailableNow: true}, exerciseModel.NodeProfileMicroVM: {AvailableNow: true},
+		exerciseModel.NodeProfileContainer: {
+			AvailableNow: true,
+		},
+		exerciseModel.NodeProfileMicroVM: {AvailableNow: true},
 	})
-	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)})
+	ctx := infraModel.WithPlacementNeed(
+		context.Background(),
+		infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)},
+	)
 	require.NoError(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"))
 	assert.Equal(t, f.bm.ID, f.store.groups["e-1-t-1"], "a cannot run microvm")
 	assert.NotNil(t, f.b.createGroup)
@@ -118,17 +187,31 @@ func TestFleetRefusesANewGroupWhenNoAgentRunsTheProfiles(t *testing.T) {
 	f := newFleetFixture(t)
 	for _, m := range []*Member{f.am, f.bm} {
 		m.Profiles = NewProfileCell()
-		m.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+		m.Profiles.Set(
+			map[exerciseModel.NodeProfile]ProfileCapacity{
+				exerciseModel.NodeProfileContainer: {AvailableNow: true},
+			},
+		)
 	}
-	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)})
+	ctx := infraModel.WithPlacementNeed(
+		context.Background(),
+		infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileMicroVM)},
+	)
 	err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1")
 	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileUnavailable.Err())
 	assert.Nil(t, f.a.createGroup)
 	assert.Nil(t, f.b.createGroup)
 	assert.Empty(t, f.store.groups, "nothing is placed")
 
-	ctx = infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileVM)})
-	require.ErrorIs(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-2"), exerciseModel.ErrNodeProfileVMUnsupported.Err())
+	ctx = infraModel.WithPlacementNeed(
+		context.Background(),
+		infraModel.PlacementNeed{Profiles: profileSet(exerciseModel.NodeProfileVM)},
+	)
+	require.ErrorIs(
+		t,
+		f.fleet.EnsureVPNGroup(ctx, "e-1-t-2"),
+		exerciseModel.ErrNodeProfileVMUnsupported.Err(),
+	)
 }
 
 // A group that lives on an agent stays; a lab of a task added later with a profile that agent cannot run is refused
@@ -136,14 +219,29 @@ func TestFleetRefusesANewGroupWhenNoAgentRunsTheProfiles(t *testing.T) {
 func TestFleetDoesNotMoveAnExistingGroupForANewProfile(t *testing.T) {
 	f := newFleetFixture(t)
 	f.am.Profiles = NewProfileCell()
-	f.am.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}})
+	f.am.Profiles.Set(
+		map[exerciseModel.NodeProfile]ProfileCapacity{
+			exerciseModel.NodeProfileContainer: {AvailableNow: true},
+		},
+	)
 	f.bm.Profiles = NewProfileCell()
-	f.bm.Profiles.Set(map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}, exerciseModel.NodeProfileMicroVM: {AvailableNow: true}})
+	f.bm.Profiles.Set(
+		map[exerciseModel.NodeProfile]ProfileCapacity{
+			exerciseModel.NodeProfileContainer: {AvailableNow: true},
+			exerciseModel.NodeProfileMicroVM:   {AvailableNow: true},
+		},
+	)
 	ctx := context.Background()
 	require.NoError(t, f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"))
 	require.Equal(t, f.am.ID, f.store.groups["e-1-t-1"])
 
-	err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, nodeOf(exerciseModel.NodeProfileMicroVM))
+	err := f.fleet.DeployLab(
+		ctx,
+		"e-1-t-1",
+		"c-2",
+		infraModel.LabMeta{},
+		nodeOf(exerciseModel.NodeProfileMicroVM),
+	)
 	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileUnavailable.Err())
 	assert.Equal(t, f.am.ID, f.store.groups["e-1-t-1"], "the group stays")
 	assert.Nil(t, f.b.createLabs)
@@ -171,14 +269,24 @@ func TestProfilesEncodeDecodeRoundTrip(t *testing.T) {
 // A report is taken only when it is not older than the one held; the dependants hear about taken reports only.
 func TestProfileCells_NewerReportWinsAndStoredOnesApplyAtStart(t *testing.T) {
 	var heard int
-	cells := NewProfileCells(func(uuid.UUID, map[exerciseModel.NodeProfile]ProfileCapacity) { heard++ })
+	cells := NewProfileCells(
+		func(uuid.UUID, map[exerciseModel.NodeProfile]ProfileCapacity) { heard++ },
+	)
 	agent := uuid.Must(uuid.NewV7())
 	now := time.Now()
-	microvm := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileMicroVM: {AvailableNow: true}}
-	none := map[exerciseModel.NodeProfile]ProfileCapacity{exerciseModel.NodeProfileContainer: {AvailableNow: true}}
+	microvm := map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileMicroVM: {AvailableNow: true},
+	}
+	none := map[exerciseModel.NodeProfile]ProfileCapacity{
+		exerciseModel.NodeProfileContainer: {AvailableNow: true},
+	}
 
 	cells.Update(agent, microvm, now)
-	cells.Update(agent, none, now.Add(-time.Hour)) // a stale stored report does not undo the live one
+	cells.Update(
+		agent,
+		none,
+		now.Add(-time.Hour),
+	) // a stale stored report does not undo the live one
 	capacity, known := cells.Cell(agent).Get(exerciseModel.NodeProfileMicroVM)
 	assert.True(t, known && capacity.AvailableNow)
 	assert.Equal(t, 1, heard)

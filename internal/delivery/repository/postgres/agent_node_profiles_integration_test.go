@@ -20,15 +20,40 @@ func TestAgentNodeProfileReportIsKeptAndOverwritten(t *testing.T) {
 	ctx := context.Background()
 	id := uuid.Must(uuid.NewV7())
 	_, err := db.Queries.CreateInfrastructureAgent(ctx, postgres.CreateInfrastructureAgentParams{
-		ID: id, Key: "profiles-agent", Name: "profiles-agent", Source: "admin", Endpoint: "agent:443", Tenant: "t",
-		ClientCertPem: "c", ClientKeyCiphertext: "k", CaPem: "ca", Enabled: true, CreatedAt: itNow, UpdatedAt: itNow,
+		ID:                  id,
+		Key:                 "profiles-agent",
+		Name:                "profiles-agent",
+		Source:              "admin",
+		Endpoint:            "agent:443",
+		Tenant:              "t",
+		ClientCertPem:       "c",
+		ClientKeyCiphertext: "k",
+		CaPem:               "ca",
+		Enabled:             true,
+		CreatedAt:           itNow,
+		UpdatedAt:           itNow,
 	})
 	require.NoError(t, err)
 
 	repo := agentProfileRepo.New(db.Pool)
-	require.NoError(t, repo.Save(ctx, id, []byte(`[{"profile":"container","available_now":true}]`), itNow))
-	require.NoError(t, repo.Save(ctx, id, []byte(`[{"profile":"microvm","available_now":true}]`), itNow.Add(time.Minute)))
-	require.NoError(t, repo.Save(ctx, id, []byte(`[]`), itNow.Add(-time.Hour)), "an older report changes nothing")
+	require.NoError(
+		t,
+		repo.Save(ctx, id, []byte(`[{"profile":"container","available_now":true}]`), itNow),
+	)
+	require.NoError(
+		t,
+		repo.Save(
+			ctx,
+			id,
+			[]byte(`[{"profile":"microvm","available_now":true}]`),
+			itNow.Add(time.Minute),
+		),
+	)
+	require.NoError(
+		t,
+		repo.Save(ctx, id, []byte(`[]`), itNow.Add(-time.Hour)),
+		"an older report changes nothing",
+	)
 
 	got, err := repo.List(ctx)
 	require.NoError(t, err)

@@ -62,17 +62,33 @@ func (f *fakeUseCase) ResetTestRunSettings(context.Context) (platformSettingsUse
 	return f.typed("reset test runs", nil)
 }
 
-func (f *fakeUseCase) nodeProfiles(call string, in platformSettingsModel.Values) (platformSettingsUseCase.NodeProfilesView, error) {
+func (f *fakeUseCase) nodeProfiles(
+	call string,
+	in platformSettingsModel.Values,
+) (platformSettingsUseCase.NodeProfilesView, error) {
 	view, err := f.typed(call, in)
-	return platformSettingsUseCase.NodeProfilesView{TypedView: view, RunnableNow: map[string]bool{"Container": true, "MicroVM": false, "VM": false}}, err
+	return platformSettingsUseCase.NodeProfilesView{
+		TypedView:   view,
+		RunnableNow: map[string]bool{"Container": true, "MicroVM": false, "VM": false},
+	}, err
 }
-func (f *fakeUseCase) GetNodeProfileSettings(context.Context) (platformSettingsUseCase.NodeProfilesView, error) {
+
+func (f *fakeUseCase) GetNodeProfileSettings(
+	context.Context,
+) (platformSettingsUseCase.NodeProfilesView, error) {
 	return f.nodeProfiles("get node profiles", nil)
 }
-func (f *fakeUseCase) SaveNodeProfileSettings(_ context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.NodeProfilesView, error) {
+
+func (f *fakeUseCase) SaveNodeProfileSettings(
+	_ context.Context,
+	in platformSettingsModel.Values,
+) (platformSettingsUseCase.NodeProfilesView, error) {
 	return f.nodeProfiles("save node profiles", in)
 }
-func (f *fakeUseCase) ResetNodeProfileSettings(context.Context) (platformSettingsUseCase.NodeProfilesView, error) {
+
+func (f *fakeUseCase) ResetNodeProfileSettings(
+	context.Context,
+) (platformSettingsUseCase.NodeProfilesView, error) {
 	return f.nodeProfiles("reset node profiles", nil)
 }
 
@@ -185,12 +201,21 @@ func TestTypedPut_DomainRefusalKeepsTheField(t *testing.T) {
 
 // The node profile setting answers like a typed one plus, per profile, whether an agent can run it now.
 func TestNodeProfilesGet_SaysWhichProfileRunsNow(t *testing.T) {
-	w := serve(newEngine(&fakeUseCase{}, &fakeProt{allow: true}), http.MethodGet, "/api/settings/node-profiles", "")
+	w := serve(
+		newEngine(&fakeUseCase{}, &fakeProt{allow: true}),
+		http.MethodGet,
+		"/api/settings/node-profiles",
+		"",
+	)
 	require.Equal(t, http.StatusOK, w.Code)
 	var got struct {
 		Data map[string]any `json:"Data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.Equal(t, map[string]any{"Container": true, "MicroVM": false, "VM": false}, got.Data["RunnableNow"])
+	assert.Equal(
+		t,
+		map[string]any{"Container": true, "MicroVM": false, "VM": false},
+		got.Data["RunnableNow"],
+	)
 	assert.Len(t, got.Data["Fields"], 1)
 }

@@ -34,21 +34,40 @@ func startProxied(t *testing.T, clientAuth string, from ...string) *proxyStand {
 	return startProxiedWith(t, clientAuth, nil, from...)
 }
 
-func startProxiedWith(t *testing.T, clientAuth string, mutate func(*config.HTTPServerConfig), from ...string) *proxyStand {
+func startProxiedWith(
+	t *testing.T,
+	clientAuth string,
+	mutate func(*config.HTTPServerConfig),
+	from ...string,
+) *proxyStand {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	st := &tlsStand{serverCA: newTestCA(t, "server-ca"), clientCA: newTestCA(t, "aop-ca"), dir: t.TempDir()}
+	st := &tlsStand{
+		serverCA: newTestCA(t, "server-ca"),
+		clientCA: newTestCA(t, "aop-ca"),
+		dir:      t.TempDir(),
+	}
 	certPEM, keyPEM := st.serverCA.issue(t, "api.example.test", true)
 	write(t, filepath.Join(st.dir, "tls.crt"), certPEM)
 	write(t, filepath.Join(st.dir, "tls.key"), keyPEM)
 	write(t, filepath.Join(st.dir, "ca.crt"), st.clientCA.pem)
 	port := freePort(t)
 	st.cfg = config.HTTPServerConfig{
-		Host: "127.0.0.1", HTTPSPort: port, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, MaxHeaderMegabytes: 1,
-		ProxyProtocolFrom: from,
+		Host:               "127.0.0.1",
+		HTTPSPort:          port,
+		ReadTimeout:        3 * time.Second,
+		WriteTimeout:       3 * time.Second,
+		MaxHeaderMegabytes: 1,
+		ProxyProtocolFrom:  from,
 		TLS: config.HTTPServerTLSConfig{
-			ClientAuth: clientAuth, MinVersion: "1.2",
-			CertFile: filepath.Join(st.dir, "tls.crt"), KeyFile: filepath.Join(st.dir, "tls.key"), ClientCAFile: filepath.Join(st.dir, "ca.crt"),
+			ClientAuth: clientAuth,
+			MinVersion: "1.2",
+			CertFile: filepath.Join(
+				st.dir,
+				"tls.crt",
+			),
+			KeyFile:      filepath.Join(st.dir, "tls.key"),
+			ClientCAFile: filepath.Join(st.dir, "ca.crt"),
 		},
 	}
 	if mutate != nil {
@@ -72,13 +91,24 @@ func startProxiedWith(t *testing.T, clientAuth string, mutate func(*config.HTTPS
 }
 
 // ipOver dials, optionally sends a PROXY v2 header claiming source, runs TLS and returns what /ip answers.
-func (s *proxyStand) ipOver(t *testing.T, source string, cert *tls.Certificate, headers map[string]string) (string, error) {
+func (s *proxyStand) ipOver(
+	t *testing.T,
+	source string,
+	cert *tls.Certificate,
+	headers map[string]string,
+) (string, error) {
 	t.Helper()
 	return s.ipOverTLV(t, source, nil, cert, headers)
 }
 
 // ipOverTLV is ipOver with a secret TLV (type 0xE0) in the header when secret is not nil.
-func (s *proxyStand) ipOverTLV(t *testing.T, source string, secret *string, cert *tls.Certificate, headers map[string]string) (string, error) {
+func (s *proxyStand) ipOverTLV(
+	t *testing.T,
+	source string,
+	secret *string,
+	cert *tls.Certificate,
+	headers map[string]string,
+) (string, error) {
 	t.Helper()
 	conn, err := net.Dial("tcp", s.tlsAddr)
 	require.NoError(t, err)
@@ -91,7 +121,10 @@ func (s *proxyStand) ipOverTLV(t *testing.T, source string, secret *string, cert
 			DestinationAddr: &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 443},
 		}
 		if secret != nil {
-			require.NoError(t, header.SetTLVs([]proxyproto.TLV{{Type: ProxySecretTLV, Value: []byte(*secret)}}))
+			require.NoError(
+				t,
+				header.SetTLVs([]proxyproto.TLV{{Type: ProxySecretTLV, Value: []byte(*secret)}}),
+			)
 		}
 		_, err = header.WriteTo(conn)
 		require.NoError(t, err)
@@ -159,9 +192,19 @@ func TestProxyProtocol_MTLSStillVerifiesBehindTheHeader(t *testing.T) {
 func TestProxyProtocol_CloudflareHeaderStillWinsOnAVerifiedConnection(t *testing.T) {
 	st := startProxied(t, "require", "127.0.0.1")
 	cert := clientCertFrom(t, st.clientCA)
-	got, err := st.ipOver(t, "104.16.0.1", cert, map[string]string{"CF-Connecting-IP": "203.0.113.9"})
+	got, err := st.ipOver(
+		t,
+		"104.16.0.1",
+		cert,
+		map[string]string{"CF-Connecting-IP": "203.0.113.9"},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, "203.0.113.9", got, "behind Cloudflare the PROXY address is an edge address; the header overrides it")
+	assert.Equal(
+		t,
+		"203.0.113.9",
+		got,
+		"behind Cloudflare the PROXY address is an edge address; the header overrides it",
+	)
 }
 
 func TestProxyProtocol_OffLeavesTheListenerAsItWas(t *testing.T) {
@@ -170,13 +213,23 @@ func TestProxyProtocol_OffLeavesTheListenerAsItWas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1", got)
 	_, err = st.ipOver(t, "198.51.100.7", nil, nil)
-	require.Error(t, err, "without the setting a PROXY header is not TLS and the handshake fails, as before")
+	require.Error(
+		t,
+		err,
+		"without the setting a PROXY header is not TLS and the handshake fails, as before",
+	)
 }
 
 func TestParseProxyProtocolFrom(t *testing.T) {
-	got, err := config.ParseProxyProtocolFrom([]string{"10.64.3.2", " 10.64.3.0/24 ", "", "::ffff:10.0.0.1", "2001:db8::/32"})
+	got, err := config.ParseProxyProtocolFrom(
+		[]string{"10.64.3.2", " 10.64.3.0/24 ", "", "::ffff:10.0.0.1", "2001:db8::/32"},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"10.64.3.2/32", "10.64.3.0/24", "10.0.0.1/32", "2001:db8::/32"}, prefixStrings(got))
+	assert.Equal(
+		t,
+		[]string{"10.64.3.2/32", "10.64.3.0/24", "10.0.0.1/32", "2001:db8::/32"},
+		prefixStrings(got),
+	)
 	_, err = config.ParseProxyProtocolFrom([]string{"nope"})
 	require.Error(t, err)
 }
@@ -256,13 +309,24 @@ func TestProxyProtocolSecret_WarnsAtStartWithoutASecret(t *testing.T) {
 }
 
 func TestProxyProtocolSecretConfig(t *testing.T) {
-	good := config.HTTPServerConfig{Port: "8080", ProxyProtocolSecret: secretNow, ProxyProtocolSecretNext: secretNext}
-	require.NoError(t, config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(good)}.Validate())
+	good := config.HTTPServerConfig{
+		Port:                    "8080",
+		ProxyProtocolSecret:     secretNow,
+		ProxyProtocolSecretNext: secretNext,
+	}
+	require.NoError(
+		t,
+		config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(good)}.Validate(),
+	)
 	for name, cfg := range map[string]config.HTTPServerConfig{
 		"next without current": {Port: "8080", ProxyProtocolSecretNext: secretNext},
 		"too short":            {Port: "8080", ProxyProtocolSecret: "short"},
 	} {
-		require.Error(t, config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(cfg)}.Validate(), name)
+		require.Error(
+			t,
+			config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(cfg)}.Validate(),
+			name,
+		)
 	}
 }
 
@@ -275,15 +339,35 @@ func captureServerLog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	previous := log.Logger
-	log.Logger = zerolog.New(&buf)              //nolint:reassign // the test reads what the server logs
+	log.Logger = zerolog.New(
+		&buf,
+	) //nolint:reassign // the test reads what the server logs
 	t.Cleanup(func() { log.Logger = previous }) //nolint:reassign // restores the logger
 	return &buf
 }
 
 func TestProxyProtocolSecret_TLVTypeIsConfigurable(t *testing.T) {
-	st := startProxiedWith(t, "off", func(cfg *config.HTTPServerConfig) { withSecrets(cfg); cfg.ProxyProtocolSecretTLV = 225 }, "127.0.0.1")
+	st := startProxiedWith(
+		t,
+		"off",
+		func(cfg *config.HTTPServerConfig) { withSecrets(cfg); cfg.ProxyProtocolSecretTLV = 225 },
+		"127.0.0.1",
+	)
 	got, err := st.ipOverTLV(t, "198.51.100.7", strPtr(secretNow), nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "127.0.0.1", got, "the secret in the default type 0xE0 is not the configured 0xE1")
-	require.Error(t, config.HTTPControllerConfig{MaxBodyBytes: 1, Server: withTLSOff(config.HTTPServerConfig{Port: "8080", ProxyProtocolSecretTLV: 100})}.Validate())
+	assert.Equal(
+		t,
+		"127.0.0.1",
+		got,
+		"the secret in the default type 0xE0 is not the configured 0xE1",
+	)
+	require.Error(
+		t,
+		config.HTTPControllerConfig{
+			MaxBodyBytes: 1,
+			Server: withTLSOff(
+				config.HTTPServerConfig{Port: "8080", ProxyProtocolSecretTLV: 100},
+			),
+		}.Validate(),
+	)
 }

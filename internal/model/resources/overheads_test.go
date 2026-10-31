@@ -15,8 +15,19 @@ import (
 func TestPolicyDevices_AddsTheMicroVMOverhead(t *testing.T) {
 	policy := resourcesModel.DefaultPolicy()
 	topology := exerciseModel.Topology{Devices: []exerciseModel.Device{
-		{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeNode, ResourcePreset: "small"},
-		{ID: uuid.Must(uuid.NewV7()), Name: "kernel", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileMicroVM, ResourcePreset: "small"},
+		{
+			ID:             uuid.Must(uuid.NewV7()),
+			Name:           "web",
+			Type:           exerciseModel.DeviceTypeNode,
+			ResourcePreset: "small",
+		},
+		{
+			ID:             uuid.Must(uuid.NewV7()),
+			Name:           "kernel",
+			Type:           exerciseModel.DeviceTypeNode,
+			Profile:        exerciseModel.NodeProfileMicroVM,
+			ResourcePreset: "small",
+		},
 	}}
 	own := policy.Devices(topology)
 	assert.Equal(t, own[0].Amount, own[1].Amount, "no report, no overhead")
@@ -24,8 +35,18 @@ func TestPolicyDevices_AddsTheMicroVMOverhead(t *testing.T) {
 	policy.Overheads = resourcesModel.NewProfileOverheads()
 	small := resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 100 << 20}
 	large := resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 120 << 20}
-	policy.Overheads.Set(uuid.Must(uuid.NewV7()), map[exerciseModel.NodeProfile]resourcesModel.Amount{exerciseModel.NodeProfileMicroVM: small})
-	policy.Overheads.Set(uuid.Must(uuid.NewV7()), map[exerciseModel.NodeProfile]resourcesModel.Amount{exerciseModel.NodeProfileMicroVM: large})
+	policy.Overheads.Set(
+		uuid.Must(uuid.NewV7()),
+		map[exerciseModel.NodeProfile]resourcesModel.Amount{
+			exerciseModel.NodeProfileMicroVM: small,
+		},
+	)
+	policy.Overheads.Set(
+		uuid.Must(uuid.NewV7()),
+		map[exerciseModel.NodeProfile]resourcesModel.Amount{
+			exerciseModel.NodeProfileMicroVM: large,
+		},
+	)
 
 	got := policy.Devices(topology)
 	assert.Equal(t, own[0], got[0], "a container costs its preset")

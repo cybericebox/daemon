@@ -23,21 +23,43 @@ func setStart(t *testing.T, f *standFixture, startsIn time.Duration) {
 func seedBarrier(t *testing.T, f *standFixture, setID uuid.UUID, opened bool, teams ...uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := f.db.Pool.Exec(ctx, `DELETE FROM event_lab_reveal_barriers WHERE event_exercise_id=$1`, setID)
+	_, err := f.db.Pool.Exec(
+		ctx,
+		`DELETE FROM event_lab_reveal_barriers WHERE event_exercise_id=$1`,
+		setID,
+	)
 	require.NoError(t, err)
-	_, err = f.db.Pool.Exec(ctx, `INSERT INTO event_lab_reveal_barriers(event_id,event_exercise_id,revision,mode,eligible_team_ids,created_at,opened_at)
-		SELECT event_id,id,revision,'all_ready',$2::uuid[],now(),CASE WHEN $3 THEN now() END FROM event_exercises WHERE id=$1`, setID, teams, opened)
+	_, err = f.db.Pool.Exec(
+		ctx,
+		`INSERT INTO event_lab_reveal_barriers(event_id,event_exercise_id,revision,mode,eligible_team_ids,created_at,opened_at)
+		SELECT event_id,id,revision,'all_ready',$2::uuid[],now(),CASE WHEN $3 THEN now() END FROM event_exercises WHERE id=$1`,
+		setID,
+		teams,
+		opened,
+	)
 	require.NoError(t, err)
 }
 
 func TestRevealCohort_IsRecomputedBeforeTheStart(t *testing.T) {
 	f, set, _, _ := prepareLifecycle(t)
 	setStart(t, f, time.Hour)
-	seedBarrier(t, f, set.exerciseID, false, f.blueID) // red became eligible after the cohort was written
+	seedBarrier(
+		t,
+		f,
+		set.exerciseID,
+		false,
+		f.blueID,
+	) // red became eligible after the cohort was written
 
-	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
+	got, err := eventLabRevealRepo.New(f.db.Queries).
+		Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
 	require.NoError(t, err)
-	require.ElementsMatch(t, []uuid.UUID{f.blueID, f.redID}, got, "a team eligible before the start joins the cohort")
+	require.ElementsMatch(
+		t,
+		[]uuid.UUID{f.blueID, f.redID},
+		got,
+		"a team eligible before the start joins the cohort",
+	)
 }
 
 func TestRevealCohort_IsFrozenFromTheStart(t *testing.T) {
@@ -45,7 +67,8 @@ func TestRevealCohort_IsFrozenFromTheStart(t *testing.T) {
 	setStart(t, f, -time.Minute)
 	seedBarrier(t, f, set.exerciseID, false, f.blueID)
 
-	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
+	got, err := eventLabRevealRepo.New(f.db.Queries).
+		Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, []uuid.UUID{f.blueID}, got, "after the start a late team stays outside")
 }
@@ -55,7 +78,8 @@ func TestRevealCohort_AnOpenedBarrierIsNeverRecomputed(t *testing.T) {
 	setStart(t, f, time.Hour)
 	seedBarrier(t, f, set.exerciseID, true, f.blueID)
 
-	got, err := eventLabRevealRepo.New(f.db.Queries).Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
+	got, err := eventLabRevealRepo.New(f.db.Queries).
+		Freeze(context.Background(), f.eventID, set.exerciseID, time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, []uuid.UUID{f.blueID}, got, "tasks of an opened cohort are already shown")
 }
@@ -67,12 +91,18 @@ func TestRevealCohort_LateTeamWaitIsReportedAtOnce(t *testing.T) {
 	ctx := context.Background()
 	setStart(t, f, -time.Minute)
 	seedBarrier(t, f, set.exerciseID, false, f.blueID) // red is outside
-	_, err := f.db.Pool.Exec(ctx, `UPDATE lab_bindings SET readiness=0,deployed_at=NULL,wait_reason='cluster_reservation',wait_since=now()-interval '1 second'
-		WHERE event_team_id=ANY($1)`, []uuid.UUID{f.blueID, f.redID})
+	_, err := f.db.Pool.Exec(
+		ctx,
+		`UPDATE lab_bindings SET readiness=0,deployed_at=NULL,wait_reason='cluster_reservation',wait_since=now()-interval '1 second'
+		WHERE event_team_id=ANY($1)`,
+		[]uuid.UUID{f.blueID, f.redID},
+	)
 	require.NoError(t, err)
 
 	rows, err := f.db.Queries.ListStandTeams(ctx, postgres.ListStandTeamsParams{
-		EventID: f.eventID, NotDueExerciseIds: []uuid.UUID{}, StuckBefore: time.Now().Add(-3 * time.Minute),
+		EventID:           f.eventID,
+		NotDueExerciseIds: []uuid.UUID{},
+		StuckBefore:       time.Now().Add(-3 * time.Minute),
 	})
 	require.NoError(t, err)
 	stuck := map[uuid.UUID]int64{}

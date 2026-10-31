@@ -71,7 +71,9 @@ func (c *ProfileCell) SetAt(v map[exerciseModel.NodeProfile]ProfileCapacity, at 
 
 // Get reports what the agent said about the profile: known is false before the first report, then a profile the
 // agent does not list is not runnable.
-func (c *ProfileCell) Get(profile exerciseModel.NodeProfile) (capacity ProfileCapacity, known bool) {
+func (c *ProfileCell) Get(
+	profile exerciseModel.NodeProfile,
+) (capacity ProfileCapacity, known bool) {
 	if c == nil {
 		return ProfileCapacity{}, false
 	}
@@ -138,10 +140,14 @@ func requireProfiles(m *Member, topo exerciseModel.Topology) error {
 		switch profile { //nolint:exhaustive // the other profiles take the default
 		case "", exerciseModel.NodeProfileContainer:
 		case exerciseModel.NodeProfileVM:
-			return exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("device", d.Name).WithPublicContext("profile", string(profile)).Err()
+			return exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(profile)).
+				Err()
 		default:
 			if capacity, known := m.Profiles.Get(profile); known && !capacity.Runnable() {
-				return exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("device", d.Name).WithPublicContext("profile", string(profile)).Err()
+				return exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("device", d.Name).
+					WithPublicContext("profile", string(profile)).
+					Err()
 			}
 		}
 	}
@@ -163,7 +169,9 @@ func (f *Fleet) requireProfilesSomewhere(topo exerciseModel.Topology) error {
 			continue
 		}
 		if profile == exerciseModel.NodeProfileVM {
-			return exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("device", d.Name).WithPublicContext("profile", string(profile)).Err()
+			return exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(profile)).
+				Err()
 		}
 		runnable := false
 		for _, m := range members {
@@ -173,7 +181,9 @@ func (f *Fleet) requireProfilesSomewhere(topo exerciseModel.Topology) error {
 			}
 		}
 		if len(members) > 0 && !runnable {
-			return exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("device", d.Name).WithPublicContext("profile", string(profile)).Err()
+			return exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(profile)).
+				Err()
 		}
 	}
 	return nil
@@ -193,15 +203,21 @@ func profileRunners(members []*Member, profiles exerciseModel.NodeProfileSet) ([
 	}
 	for _, profile := range profiles.List() {
 		if profile == exerciseModel.NodeProfileVM {
-			return nil, exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("profile", string(profile)).Err()
+			return nil, exerciseModel.ErrNodeProfileVMUnsupported.WithPublicContext("profile", string(profile)).
+				Err()
 		}
-		if !slices.ContainsFunc(members, func(m *Member) bool { return canRunAll(m, exerciseModel.NodeProfileSet(0).Add(profile)) }) {
-			return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(profile)).Err()
+		if !slices.ContainsFunc(
+			members,
+			func(m *Member) bool { return canRunAll(m, exerciseModel.NodeProfileSet(0).Add(profile)) },
+		) {
+			return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(profile)).
+				Err()
 		}
 	}
 	// Every profile runs somewhere, but no single agent runs them all.
 	first := profiles.List()[0]
-	return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(first)).Err()
+	return nil, exerciseModel.ErrNodeProfileUnavailable.WithPublicContext("profile", string(first)).
+		Err()
 }
 
 func canRunAll(m *Member, profiles exerciseModel.NodeProfileSet) bool {
@@ -234,8 +250,14 @@ func EncodeProfiles(v map[exerciseModel.NodeProfile]ProfileCapacity) []byte {
 	for _, profile := range exerciseModel.NodeProfiles {
 		if c, ok := v[profile]; ok {
 			items = append(items, storedProfile{
-				Profile: string(profile), AvailableNow: c.AvailableNow, ScaleUpKnown: c.ScaleUpKnown,
-				AvailableAfterScaleUp: c.AvailableAfterScaleUp, OverheadCPUMillicores: c.Overhead.CPUMillicores, OverheadMemoryBytes: c.Overhead.MemoryBytes,
+				Profile: string(
+					profile,
+				),
+				AvailableNow:          c.AvailableNow,
+				ScaleUpKnown:          c.ScaleUpKnown,
+				AvailableAfterScaleUp: c.AvailableAfterScaleUp,
+				OverheadCPUMillicores: c.Overhead.CPUMillicores,
+				OverheadMemoryBytes:   c.Overhead.MemoryBytes,
 			})
 		}
 	}
@@ -256,8 +278,13 @@ func DecodeProfiles(data []byte) (map[exerciseModel.NodeProfile]ProfileCapacity,
 			continue
 		}
 		out[profile] = ProfileCapacity{
-			AvailableNow: item.AvailableNow, ScaleUpKnown: item.ScaleUpKnown, AvailableAfterScaleUp: item.AvailableAfterScaleUp,
-			Overhead: resourcesModel.Amount{CPUMillicores: item.OverheadCPUMillicores, MemoryBytes: item.OverheadMemoryBytes},
+			AvailableNow:          item.AvailableNow,
+			ScaleUpKnown:          item.ScaleUpKnown,
+			AvailableAfterScaleUp: item.AvailableAfterScaleUp,
+			Overhead: resourcesModel.Amount{
+				CPUMillicores: item.OverheadCPUMillicores,
+				MemoryBytes:   item.OverheadMemoryBytes,
+			},
 		}
 	}
 	return out, nil
@@ -272,7 +299,9 @@ type ProfileCells struct {
 	onChange func(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity)
 }
 
-func NewProfileCells(onChange func(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity)) *ProfileCells {
+func NewProfileCells(
+	onChange func(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity),
+) *ProfileCells {
 	return &ProfileCells{cells: map[uuid.UUID]*ProfileCell{}, onChange: onChange}
 }
 
@@ -290,7 +319,11 @@ func (r *ProfileCells) Cell(agent uuid.UUID) *ProfileCell {
 }
 
 // Update takes a report received at the time unless the agent's cell has a newer one.
-func (r *ProfileCells) Update(agent uuid.UUID, v map[exerciseModel.NodeProfile]ProfileCapacity, at time.Time) {
+func (r *ProfileCells) Update(
+	agent uuid.UUID,
+	v map[exerciseModel.NodeProfile]ProfileCapacity,
+	at time.Time,
+) {
 	if r == nil || !r.Cell(agent).SetAt(v, at) {
 		return
 	}

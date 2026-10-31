@@ -177,7 +177,12 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 			ip = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic, AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: spec.Host}}
 		}
 		built := exerciseModel.Device{
-			ID: id, Name: spec.Name, Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileContainer, Image: spec.Image, SecurityPreset: spec.Preset,
+			ID:             id,
+			Name:           spec.Name,
+			Type:           exerciseModel.DeviceTypeNode,
+			Profile:        exerciseModel.NodeProfileContainer,
+			Image:          spec.Image,
+			SecurityPreset: spec.Preset,
 			ResourcePreset: "small",
 			Interfaces:     []exerciseModel.Interface{{Name: "eth0", IP: ip}},
 			EnvVars:        []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},
@@ -303,7 +308,14 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true, DHCP: true,
 				Devices: []deviceSpec{
-					{Key: "gw", Name: "front", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard},
+					{
+						Key:    "gw",
+						Name:   "front",
+						Image:  imageWeb,
+						Web:    true,
+						Host:   10,
+						Preset: exerciseModel.SecurityPresetStandard,
+					},
 					{Key: "echo", Name: "echo", Image: imageWhoami, Host: 11},
 					{Key: "client", Name: "client", Image: imageWeb2},
 				},

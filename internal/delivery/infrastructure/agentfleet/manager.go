@@ -195,7 +195,9 @@ func (m *Manager) Reload(ctx context.Context) error {
 	}
 	if m.cfg.ProfileSource != nil {
 		if stored, listErr := m.cfg.ProfileSource.List(ctx); listErr != nil {
-			log.Warn().Err(listErr).Msg("Agent fleet: the stored node profile reports cannot be read")
+			log.Warn().
+				Err(listErr).
+				Msg("Agent fleet: the stored node profile reports cannot be read")
 		} else {
 			m.cfg.Profiles.ApplyStored(stored)
 		}
@@ -255,7 +257,17 @@ func (m *Manager) member(r infraModel.AgentRecord) *running {
 		log.Error().Err(err).Str("agent", r.Name).Msg("Agent fleet: cannot connect to the agent, it is skipped")
 		return nil
 	}
-	member := &labagent.Member{ID: r.ID, Name: r.Name, Priority: r.Priority, Enabled: r.Enabled, Client: client, Tenant: r.Tenant, AccessKeyID: r.AccessKeyID, Features: labagent.NewFeatureCell(r.Features), Profiles: m.cfg.Profiles.Cell(r.ID)}
+	member := &labagent.Member{
+		ID:          r.ID,
+		Name:        r.Name,
+		Priority:    r.Priority,
+		Enabled:     r.Enabled,
+		Client:      client,
+		Tenant:      r.Tenant,
+		AccessKeyID: r.AccessKeyID,
+		Features:    labagent.NewFeatureCell(r.Features),
+		Profiles:    m.cfg.Profiles.Cell(r.ID),
+	}
 	if r.AccessPrivateKeyCiphertext != "" {
 		plain, openErr := m.cfg.Cipher.DecryptWithContext(r.AccessPrivateKeyCiphertext, infraModel.AgentSecretContext(r.ID, "access"))
 		if openErr == nil {

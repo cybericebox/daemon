@@ -292,7 +292,8 @@ func wireDeviceType(d exerciseModel.Device) string {
 // wireProfile is the profile the agent is sent: none for the container (the agent's default, so an old agent and
 // every stored lab spec stay as they are).
 func wireProfile(d exerciseModel.Device) string {
-	if profile := d.EffectiveProfile(); profile != "" && profile != exerciseModel.NodeProfileContainer {
+	if profile := d.EffectiveProfile(); profile != "" &&
+		profile != exerciseModel.NodeProfileContainer {
 		return string(profile)
 	}
 	return ""

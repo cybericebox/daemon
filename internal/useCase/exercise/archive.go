@@ -210,7 +210,11 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 
 // validateImportContent is the write-free parse/content preparation shared by
 // preview and commit. Destination policy and random secret encryption follow it.
-func (u *ExerciseUseCase) validateImportContent(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
+func (u *ExerciseUseCase) validateImportContent(
+	ctx context.Context,
+	parsed *ParsedExerciseArchive,
+	protected bool,
+) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err

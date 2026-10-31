@@ -207,7 +207,11 @@ func (s SupportedProfiles) Values() platformSettingsModel.Values {
 		}
 		return 0
 	}
-	return platformSettingsModel.Values{"Container": tick(s.Container), "MicroVM": tick(s.MicroVM), "VM": tick(s.VM)}
+	return platformSettingsModel.Values{
+		"Container": tick(s.Container),
+		"MicroVM":   tick(s.MicroVM),
+		"VM":        tick(s.VM),
+	}
 }
 
 // WithValues returns the ticks of v, refusing an unknown or missing field, a value other than 0 or 1, and no tick at
@@ -216,9 +220,14 @@ func (s SupportedProfiles) WithValues(v platformSettingsModel.Values) (Supported
 	if err := platformSettingsModel.ValidateValues(NodeProfileFields, v); err != nil {
 		return SupportedProfiles{}, err
 	}
-	out := SupportedProfiles{Container: v["Container"] == 1, MicroVM: v["MicroVM"] == 1, VM: v["VM"] == 1}
+	out := SupportedProfiles{
+		Container: v["Container"] == 1,
+		MicroVM:   v["MicroVM"] == 1,
+		VM:        v["VM"] == 1,
+	}
 	if len(out.List()) == 0 {
-		return SupportedProfiles{}, platformSettingsModel.ErrNodeProfilesNoneSupported.WithPublicContext("field", "Container").Err()
+		return SupportedProfiles{}, platformSettingsModel.ErrNodeProfilesNoneSupported.WithPublicContext("field", "Container").
+			Err()
 	}
 	return out, nil
 }
@@ -230,7 +239,8 @@ func (s SupportedProfiles) UnsupportedProfile(variants []Variant) error {
 		for _, device := range variant.Topology.Devices {
 			if profile := device.EffectiveProfile(); profile != "" && !s.Has(profile) {
 				return ErrNodeProfileNotSupported.WithPublicContext("variant", vi+1).
-					WithPublicContext("device", device.Name).WithPublicContext("profile", string(profile)).Err()
+					WithPublicContext("device", device.Name).
+					WithPublicContext("profile", string(profile)).Err()
 			}
 		}
 	}

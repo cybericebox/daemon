@@ -21,11 +21,17 @@ func publicContext(t *testing.T, err error) map[string]any {
 
 // linkedPublishVersion is a base with one subtask and n linked variants, each with a flag of its own.
 func linkedPublishVersion(n int) exerciseModel.ExerciseVersion {
-	base := exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Tasks: []exerciseModel.Task{validTask()}}
+	base := exerciseModel.Variant{
+		ID:    uuid.Must(uuid.NewV7()),
+		Tasks: []exerciseModel.Task{validTask()},
+	}
 	base.Tasks[0].Flag = []string{"ICE{base}"}
 	variants := []exerciseModel.Variant{base}
 	for i := range n {
-		linked := exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true}}
+		linked := exerciseModel.Variant{
+			ID:       uuid.Must(uuid.NewV7()),
+			LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true},
+		}
 		task := base.Tasks[0]
 		task.Flag = []string{"ICE{linked" + string(rune('a'+i)) + "}"}
 		linked.Tasks = []exerciseModel.Task{task}
@@ -67,7 +73,14 @@ func templateLinkedVersion(n int) exerciseModel.ExerciseVersion {
 		task.LinkedDeviceID = uuid.NullUUID{UUID: deviceID, Valid: true}
 		task.DeviceFlagVar = "FLAG"
 		task.Flag = []string{`template:ICE{\d}`}
-		version.Variants[i].Topology.Devices = []exerciseModel.Device{{ID: deviceID, Name: "srv", Type: exerciseModel.DeviceTypeContainer, Image: "platform:srv@sha256:" + strings.Repeat("ab", 32)}}
+		version.Variants[i].Topology.Devices = []exerciseModel.Device{
+			{
+				ID:    deviceID,
+				Name:  "srv",
+				Type:  exerciseModel.DeviceTypeContainer,
+				Image: "platform:srv@sha256:" + strings.Repeat("ab", 32),
+			},
+		}
 	}
 	return version
 }
@@ -87,7 +100,9 @@ func TestValidateForPublish_LinkedVariantMustDifferFromItsBase(t *testing.T) {
 	t.Run("an image override makes it differ", func(t *testing.T) {
 		version := templateLinkedVersion(1)
 		device := version.Variants[1].Topology.Devices[0]
-		version.Variants[1].ImageOverrides = []exerciseModel.ImageOverride{{DeviceID: device.ID, Image: "platform:other@sha256:" + strings.Repeat("cd", 32)}}
+		version.Variants[1].ImageOverrides = []exerciseModel.ImageOverride{
+			{DeviceID: device.ID, Image: "platform:other@sha256:" + strings.Repeat("cd", 32)},
+		}
 		require.NoError(t, version.ValidateForPublish())
 	})
 	t.Run("a flag of its own makes it differ", func(t *testing.T) {
@@ -115,15 +130,31 @@ func TestValidateForPublish_KhctfShape(t *testing.T) {
 		task.LinkedDeviceID = uuid.NullUUID{UUID: deviceID, Valid: true}
 		task.DeviceFlagVar = "FLAG"
 		task.Flag = []string{"ICE{pwn" + string(rune('a'+i)) + "}"}
-		version.Variants[i].Topology.Devices = []exerciseModel.Device{{ID: deviceID, Name: "pwn", Type: exerciseModel.DeviceTypeContainer, Image: "platform:pwn@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}
+		version.Variants[i].Topology.Devices = []exerciseModel.Device{
+			{
+				ID:    deviceID,
+				Name:  "pwn",
+				Type:  exerciseModel.DeviceTypeContainer,
+				Image: "platform:pwn@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			},
+		}
 	}
 	version.Variants[0].Tasks[0].Attachments = attachment("pwn")
 
 	err := version.ValidateForPublish()
 	if errors.Is(err, exerciseModel.ErrLinkedAttachmentMissing.Err()) {
-		assert.Equal(t, map[string]any{"variant": 2, "task": "Find the flag"}, publicContext(t, err))
+		assert.Equal(
+			t,
+			map[string]any{"variant": 2, "task": "Find the flag"},
+			publicContext(t, err),
+		)
 	} else {
-		require.Fail(t, "the missing binary on the linked variants must block publishing", "got %v", err)
+		require.Fail(
+			t,
+			"the missing binary on the linked variants must block publishing",
+			"got %v",
+			err,
+		)
 	}
 
 	for i := 1; i < len(version.Variants); i++ {

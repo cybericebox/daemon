@@ -24,6 +24,9 @@ func (u *ExerciseUseCase) SupportedProfiles(ctx context.Context) exerciseModel.S
 
 // requireProfilesSupported refuses a version with a node whose profile the platform does not support (save, publish
 // and import all pass it).
-func (u *ExerciseUseCase) requireProfilesSupported(ctx context.Context, variants []exerciseModel.Variant) error {
+func (u *ExerciseUseCase) requireProfilesSupported(
+	ctx context.Context,
+	variants []exerciseModel.Variant,
+) error {
 	return u.SupportedProfiles(ctx).UnsupportedProfile(variants)
 }

@@ -55,7 +55,12 @@ func TestCohortFreezesAtPreparationAfterZeroTeamConfigOrSourceEdit(t *testing.T)
 			require.NoError(t, err)
 			frozen, err := repo.Freeze(ctx, f.eventID, set.exerciseID, now)
 			require.NoError(t, err)
-			require.Equal(t, original, frozen, "after the start the prepared cohort remains immutable")
+			require.Equal(
+				t,
+				original,
+				frozen,
+				"after the start the prepared cohort remains immutable",
+			)
 			// Exact synthetic current-generation receipts exercise the SQL boundary;
 			// this test makes no native readiness/fabric/cgroup assertion.
 			for _, team := range []uuid.UUID{f.blueID, f.redID} {

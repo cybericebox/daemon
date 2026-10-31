@@ -14,8 +14,16 @@ import (
 
 func importedLinkedTask(flag string, files ...exerciseModel.AttachmentRef) exerciseModel.Task {
 	return exerciseModel.Task{
-		ID: uuid.Must(uuid.NewV7()), Name: "Pwn", Difficulty: exerciseModel.DifficultyEasy, Flag: []string{flag}, Attachments: files,
-		Description: json.RawMessage(`{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Pwn it"}]}]}}`),
+		ID: uuid.Must(
+			uuid.NewV7(),
+		),
+		Name:        "Pwn",
+		Difficulty:  exerciseModel.DifficultyEasy,
+		Flag:        []string{flag},
+		Attachments: files,
+		Description: json.RawMessage(
+			`{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":"Pwn it"}]}]}}`,
+		),
 	}
 }
 
@@ -31,7 +39,11 @@ func TestRequireImportedPublishable_LinkedVariantWithoutFiles(t *testing.T) {
 		Status: exerciseModel.VersionStatusPublished,
 		Variants: []exerciseModel.Variant{
 			{ID: baseID, Tasks: []exerciseModel.Task{baseTask}},
-			{ID: linkedID, LinkedTo: uuid.NullUUID{UUID: baseID, Valid: true}, Tasks: []exerciseModel.Task{linkedTask}},
+			{
+				ID:       linkedID,
+				LinkedTo: uuid.NullUUID{UUID: baseID, Valid: true},
+				Tasks:    []exerciseModel.Task{linkedTask},
+			},
 		},
 	}}
 
@@ -39,9 +51,16 @@ func TestRequireImportedPublishable_LinkedVariantWithoutFiles(t *testing.T) {
 	require.ErrorIs(t, err, exerciseModel.ErrLinkedAttachmentMissing.Err())
 	var carrier interface{ PublicContext() map[string]any }
 	require.ErrorAs(t, err, &carrier)
-	assert.Equal(t, map[string]any{"variant": 2, "task": "Pwn", "field": "versions[1]"}, carrier.PublicContext())
+	assert.Equal(
+		t,
+		map[string]any{"variant": 2, "task": "Pwn", "field": "versions[1]"},
+		carrier.PublicContext(),
+	)
 
 	// A draft in the same archive may stay incomplete.
 	versions[0].Status = exerciseModel.VersionStatusDraft
-	require.NoError(t, (&ExerciseUseCase{}).requireImportedPublishable(context.Background(), versions, nil))
+	require.NoError(
+		t,
+		(&ExerciseUseCase{}).requireImportedPublishable(context.Background(), versions, nil),
+	)
 }

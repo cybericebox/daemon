@@ -18,11 +18,17 @@ import (
 
 func TestDevice_FormerContainerLoadsAsNodeWithContainerProfile(t *testing.T) {
 	var device exerciseModel.Device
-	require.NoError(t, json.Unmarshal([]byte(`{"name":"web","type":"container","image":"nginx:1"}`), &device))
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(`{"name":"web","type":"container","image":"nginx:1"}`), &device),
+	)
 	assert.Equal(t, exerciseModel.DeviceTypeNode, device.Type)
 	assert.Equal(t, exerciseModel.NodeProfileContainer, device.Profile)
 
-	require.NoError(t, json.Unmarshal([]byte(`{"name":"vm1","type":"node","profile":"microvm"}`), &device))
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(`{"name":"vm1","type":"node","profile":"microvm"}`), &device),
+	)
 	assert.Equal(t, exerciseModel.NodeProfileMicroVM, device.Profile)
 
 	require.NoError(t, json.Unmarshal([]byte(`{"name":"sw","type":"unmanaged-switch"}`), &device))
@@ -31,9 +37,24 @@ func TestDevice_FormerContainerLoadsAsNodeWithContainerProfile(t *testing.T) {
 }
 
 func TestDevice_EffectiveProfile(t *testing.T) {
-	assert.Equal(t, exerciseModel.NodeProfileContainer, exerciseModel.Device{Type: exerciseModel.DeviceTypeContainer}.EffectiveProfile())
-	assert.Equal(t, exerciseModel.NodeProfileContainer, exerciseModel.Device{Type: exerciseModel.DeviceTypeNode}.EffectiveProfile())
-	assert.Equal(t, exerciseModel.NodeProfileVM, exerciseModel.Device{Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileVM}.EffectiveProfile())
+	assert.Equal(
+		t,
+		exerciseModel.NodeProfileContainer,
+		exerciseModel.Device{Type: exerciseModel.DeviceTypeContainer}.EffectiveProfile(),
+	)
+	assert.Equal(
+		t,
+		exerciseModel.NodeProfileContainer,
+		exerciseModel.Device{Type: exerciseModel.DeviceTypeNode}.EffectiveProfile(),
+	)
+	assert.Equal(
+		t,
+		exerciseModel.NodeProfileVM,
+		exerciseModel.Device{
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: exerciseModel.NodeProfileVM,
+		}.EffectiveProfile(),
+	)
 	assert.Empty(t, exerciseModel.Device{Type: exerciseModel.DeviceTypeHub}.EffectiveProfile())
 }
 
@@ -55,45 +76,103 @@ func TestValidateStructure_NodeProfile(t *testing.T) {
 			if tc.valid {
 				require.NoError(t, err)
 			} else {
-				require.True(t, errors.Is(err, exerciseModel.ErrNodeProfileInvalid.Err()), "got %v", err)
+				require.True(
+					t,
+					errors.Is(err, exerciseModel.ErrNodeProfileInvalid.Err()),
+					"got %v",
+					err,
+				)
 			}
 		})
 	}
 }
 
 func TestSupportedProfiles_DefaultIsTheContainerOnly(t *testing.T) {
-	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer}, exerciseModel.DefaultSupportedProfiles().List())
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer},
+		exerciseModel.DefaultSupportedProfiles().List(),
+	)
 }
 
 func TestSupportedProfiles_WithValues(t *testing.T) {
-	got, err := exerciseModel.SupportedProfiles{}.WithValues(platformSettingsModel.Values{"Container": 1, "MicroVM": 1, "VM": 0})
+	got, err := exerciseModel.SupportedProfiles{}.WithValues(
+		platformSettingsModel.Values{"Container": 1, "MicroVM": 1, "VM": 0},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer, exerciseModel.NodeProfileMicroVM}, got.List())
-	assert.Equal(t, platformSettingsModel.Values{"Container": 1, "MicroVM": 1, "VM": 0}, got.Values())
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{
+			exerciseModel.NodeProfileContainer,
+			exerciseModel.NodeProfileMicroVM,
+		},
+		got.List(),
+	)
+	assert.Equal(
+		t,
+		platformSettingsModel.Values{"Container": 1, "MicroVM": 1, "VM": 0},
+		got.Values(),
+	)
 
-	_, err = exerciseModel.SupportedProfiles{}.WithValues(platformSettingsModel.Values{"Container": 0, "MicroVM": 0, "VM": 0})
+	_, err = exerciseModel.SupportedProfiles{}.WithValues(
+		platformSettingsModel.Values{"Container": 0, "MicroVM": 0, "VM": 0},
+	)
 	require.ErrorIs(t, err, platformSettingsModel.ErrNodeProfilesNoneSupported.Err())
-	_, err = exerciseModel.SupportedProfiles{}.WithValues(platformSettingsModel.Values{"Container": 2, "MicroVM": 0, "VM": 0})
+	_, err = exerciseModel.SupportedProfiles{}.WithValues(
+		platformSettingsModel.Values{"Container": 2, "MicroVM": 0, "VM": 0},
+	)
 	require.ErrorIs(t, err, platformSettingsModel.ErrSettingValueOutOfRange.Err())
-	_, err = exerciseModel.SupportedProfiles{}.WithValues(platformSettingsModel.Values{"Container": 1})
+	_, err = exerciseModel.SupportedProfiles{}.WithValues(
+		platformSettingsModel.Values{"Container": 1},
+	)
 	require.ErrorIs(t, err, platformSettingsModel.ErrSettingValueMissing.Err())
 }
 
 func TestSupportedProfiles_UnsupportedProfileNamesTheNode(t *testing.T) {
 	node := func(name string, profile exerciseModel.NodeProfile) exerciseModel.Device {
-		return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: exerciseModel.DeviceTypeNode, Profile: profile}
+		return exerciseModel.Device{
+			ID:      uuid.Must(uuid.NewV7()),
+			Name:    name,
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: profile,
+		}
 	}
 	variants := []exerciseModel.Variant{
-		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("web", ""), node("db", exerciseModel.NodeProfileContainer)}}},
-		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("web", ""), node("kernel", exerciseModel.NodeProfileMicroVM)}}},
+		{
+			Topology: exerciseModel.Topology{
+				Devices: []exerciseModel.Device{
+					node("web", ""),
+					node("db", exerciseModel.NodeProfileContainer),
+				},
+			},
+		},
+		{
+			Topology: exerciseModel.Topology{
+				Devices: []exerciseModel.Device{
+					node("web", ""),
+					node("kernel", exerciseModel.NodeProfileMicroVM),
+				},
+			},
+		},
 	}
 	err := exerciseModel.DefaultSupportedProfiles().UnsupportedProfile(variants)
 	require.ErrorIs(t, err, exerciseModel.ErrNodeProfileNotSupported.Err())
-	assert.Equal(t, map[string]any{"variant": 2, "device": "kernel", "profile": "microvm"}, publicContext(t, err))
+	assert.Equal(
+		t,
+		map[string]any{"variant": 2, "device": "kernel", "profile": "microvm"},
+		publicContext(t, err),
+	)
 
 	ticked := exerciseModel.SupportedProfiles{Container: true, MicroVM: true}
 	require.NoError(t, ticked.UnsupportedProfile(variants))
-	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer, exerciseModel.NodeProfileMicroVM}, exerciseModel.NodeProfilesUsed(variants))
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{
+			exerciseModel.NodeProfileContainer,
+			exerciseModel.NodeProfileMicroVM,
+		},
+		exerciseModel.NodeProfilesUsed(variants),
+	)
 }
 
 func TestValidateDeviceNames_RefusesTheNamesOfPlatformEndpoints(t *testing.T) {
@@ -101,18 +180,47 @@ func TestValidateDeviceNames_RefusesTheNamesOfPlatformEndpoints(t *testing.T) {
 		return exerciseModel.Device{Name: name, Type: exerciseModel.DeviceTypeNode}
 	}
 	variants := []exerciseModel.Variant{
-		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("web"), node("vpn-box"), {Name: "vpn", Type: exerciseModel.DeviceTypeHub}}}},
-		{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node("db"), node("Gateway")}}},
+		{
+			Topology: exerciseModel.Topology{
+				Devices: []exerciseModel.Device{
+					node("web"),
+					node("vpn-box"),
+					{Name: "vpn", Type: exerciseModel.DeviceTypeHub},
+				},
+			},
+		},
+		{
+			Topology: exerciseModel.Topology{
+				Devices: []exerciseModel.Device{node("db"), node("Gateway")},
+			},
+		},
 	}
 	err := exerciseModel.ValidateDeviceNames(variants)
 	require.ErrorIs(t, err, exerciseModel.ErrDeviceNameReserved.Err())
-	assert.Equal(t, map[string]any{"variant": 2, "device": "Gateway"}, publicContext(t, err), "a hub named vpn is only a display name")
+	assert.Equal(
+		t,
+		map[string]any{"variant": 2, "device": "Gateway"},
+		publicContext(t, err),
+		"a hub named vpn is only a display name",
+	)
 
 	for _, name := range exerciseModel.ReservedDeviceNames {
-		variant := exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node(name)}}}
-		require.ErrorIs(t, exerciseModel.ValidateDeviceNames([]exerciseModel.Variant{variant}), exerciseModel.ErrDeviceNameReserved.Err(), name)
+		variant := exerciseModel.Variant{
+			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node(name)}},
+		}
+		require.ErrorIs(
+			t,
+			exerciseModel.ValidateDeviceNames([]exerciseModel.Variant{variant}),
+			exerciseModel.ErrDeviceNameReserved.Err(),
+			name,
+		)
 		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}
-		require.ErrorIs(t, version.ValidateStructure(), exerciseModel.ErrDeviceNameReserved.Err(), "publish refuses it too")
+		require.ErrorIs(
+			t,
+			version.ValidateStructure(),
+			exerciseModel.ErrDeviceNameReserved.Err(),
+			"publish refuses it too",
+		)
 	}
 }
 
@@ -124,7 +232,15 @@ func TestReservedDeviceNamesMatchTheLaboratory(t *testing.T) {
 		source := filepath.Join(dir, "laboratory", "internal", "names", "labels.go")
 		raw, readErr := os.ReadFile(source)
 		if readErr != nil {
-			source = filepath.Join(dir, "laboratory", ".worktrees", "hardening", "internal", "names", "labels.go")
+			source = filepath.Join(
+				dir,
+				"laboratory",
+				".worktrees",
+				"hardening",
+				"internal",
+				"names",
+				"labels.go",
+			)
 			if raw, readErr = os.ReadFile(source); readErr != nil {
 				continue
 			}

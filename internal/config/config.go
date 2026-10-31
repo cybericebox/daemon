@@ -710,7 +710,10 @@ func ParseProxyProtocolFrom(entries []string) ([]netip.Prefix, error) {
 		if err != nil {
 			addr, addrErr := netip.ParseAddr(entry)
 			if addrErr != nil {
-				return nil, fmt.Errorf("HTTP_SERVER_PROXY_PROTOCOL_FROM: %q is not an address or a CIDR", entry)
+				return nil, fmt.Errorf(
+					"HTTP_SERVER_PROXY_PROTOCOL_FROM: %q is not an address or a CIDR",
+					entry,
+				)
 			}
 			prefix = netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen())
 		}
@@ -728,11 +731,16 @@ func (c HTTPServerConfig) validate() error {
 	if _, err := ParseProxyProtocolFrom(c.ProxyProtocolFrom); err != nil {
 		return err
 	}
-	if c.ProxyProtocolSecretTLV != 0 && (c.ProxyProtocolSecretTLV < 224 || c.ProxyProtocolSecretTLV > 239) {
-		return errors.New("HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV must be in the custom range 224-239")
+	if c.ProxyProtocolSecretTLV != 0 &&
+		(c.ProxyProtocolSecretTLV < 224 || c.ProxyProtocolSecretTLV > 239) {
+		return errors.New(
+			"HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV must be in the custom range 224-239",
+		)
 	}
 	if c.ProxyProtocolSecret == "" && c.ProxyProtocolSecretNext != "" {
-		return errors.New("HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT needs HTTP_SERVER_PROXY_PROTOCOL_SECRET")
+		return errors.New(
+			"HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT needs HTTP_SERVER_PROXY_PROTOCOL_SECRET",
+		)
 	}
 	for name, secret := range map[string]string{"HTTP_SERVER_PROXY_PROTOCOL_SECRET": c.ProxyProtocolSecret, "HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT": c.ProxyProtocolSecretNext} {
 		if secret != "" && len(secret) < MinProxyProtocolSecretLen {

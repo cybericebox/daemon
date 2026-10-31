@@ -11,8 +11,10 @@ var (
 	// ErrLinkedAttachmentMissing: a subtask of the base variant has files and the same subtask of a linked variant has
 	// none, so the teams given that variant would miss the files.
 	ErrLinkedAttachmentMissing = err.ErrInvalidData.WithObjectCode(model.LinkedVariantObjectCode).
-					WithMessage("A linked variant has no files for a subtask whose base variant has files").WithDetailCode(1)
+					WithMessage("A linked variant has no files for a subtask whose base variant has files").
+					WithDetailCode(1)
 	// ErrLinkedVariantIdentical: a linked variant has no flag, files or image of its own that differ from its base.
 	ErrLinkedVariantIdentical = err.ErrInvalidData.WithObjectCode(model.LinkedVariantObjectCode).
-					WithMessage("A linked variant must differ from its base variant").WithDetailCode(2)
+					WithMessage("A linked variant must differ from its base variant").
+					WithDetailCode(2)
 )

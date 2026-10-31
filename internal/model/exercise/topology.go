@@ -276,7 +276,9 @@ func (t Topology) validateStructure() error {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		if d.Profile != "" && (!d.Type.IsNode() || !d.Profile.Valid()) {
-			return ErrNodeProfileInvalid.WithPublicContext("device", d.Name).WithPublicContext("profile", string(d.Profile)).Err()
+			return ErrNodeProfileInvalid.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(d.Profile)).
+				Err()
 		}
 		if reason := invalidPersistence(d); reason != "" {
 			return ErrDevicePersistenceInvalid.WithContext("device", d.Name).WithContext("reason", reason).Err()

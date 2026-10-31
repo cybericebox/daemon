@@ -142,13 +142,15 @@ func Run(cfg *config.Config) {
 	trafficIngest := labMonitoring.NewTrafficIngest(labTrafficRepo.New(repo.Queries))
 	observations := eventLabObservationRepo.New(repo.Queries)
 	agentProfiles := agentProfileRepo.New(repo.Pool())
-	profileCells := labagent.NewProfileCells(func(agent uuid.UUID, v map[exerciseModel.NodeProfile]labagent.ProfileCapacity) {
-		overheads := make(map[exerciseModel.NodeProfile]resourcesModel.Amount, len(v))
-		for profile, reported := range v {
-			overheads[profile] = reported.Overhead
-		}
-		resourcesPolicy.Overheads.Set(agent, overheads)
-	})
+	profileCells := labagent.NewProfileCells(
+		func(agent uuid.UUID, v map[exerciseModel.NodeProfile]labagent.ProfileCapacity) {
+			overheads := make(map[exerciseModel.NodeProfile]resourcesModel.Amount, len(v))
+			for profile, reported := range v {
+				overheads[profile] = reported.Overhead
+			}
+			resourcesPolicy.Overheads.Set(agent, overheads)
+		},
+	)
 	agentManager := agentfleet.New(agentfleet.Config{
 		Profiles:      profileCells,
 		ProfileSource: agentProfiles,

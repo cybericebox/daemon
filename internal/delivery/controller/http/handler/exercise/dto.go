@@ -828,7 +828,15 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
-		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Profile: exerciseModel.NodeProfile(dev.Profile), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
+		domainDev := exerciseModel.Device{
+			Name:           dev.Name,
+			Type:           exerciseModel.DeviceType(dev.Type),
+			Profile:        exerciseModel.NodeProfile(dev.Profile),
+			Image:          dev.Image,
+			SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset),
+			ResourcePreset: dev.ResourcePreset,
+			WaitReadyFile:  dev.WaitReadyFile,
+		}
 		domainDev.Normalize()
 		if dev.Resources != nil {
 			domainDev.Resources = &exerciseModel.DeviceResources{
@@ -949,7 +957,16 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	}
 	for _, dev := range t.Devices {
 		id := dev.ID
-		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Profile: string(dev.Profile), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
+		dtoDev := deviceDTO{
+			ID:             &id,
+			Name:           dev.Name,
+			Type:           string(dev.Type),
+			Profile:        string(dev.Profile),
+			Image:          dev.Image,
+			SecurityPreset: string(dev.SecurityPreset),
+			ResourcePreset: dev.ResourcePreset,
+			WaitReadyFile:  dev.WaitReadyFile,
+		}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
 				Name: iface.Name, MAC: iface.MAC,

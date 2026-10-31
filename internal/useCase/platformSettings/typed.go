@@ -95,7 +95,11 @@ func (u *PlatformSettingsUseCase) testRunSetting() typedSetting[exerciseModel.Te
 }
 
 func (u *PlatformSettingsUseCase) nodeProfileSetting() typedSetting[exerciseModel.SupportedProfiles] {
-	return typedSetting[exerciseModel.SupportedProfiles]{key: platformSettingsModel.NodeProfilesKey, specs: exerciseModel.NodeProfileFields, defaults: exerciseModel.DefaultSupportedProfiles()}
+	return typedSetting[exerciseModel.SupportedProfiles]{
+		key:      platformSettingsModel.NodeProfilesKey,
+		specs:    exerciseModel.NodeProfileFields,
+		defaults: exerciseModel.DefaultSupportedProfiles(),
+	}
 }
 
 // specMax is the spec's own upper bound of the field key.
@@ -164,11 +168,18 @@ var nodeProfileFieldKeys = map[exerciseModel.NodeProfile]string{
 	exerciseModel.NodeProfileVM:        "VM",
 }
 
-func (u *PlatformSettingsUseCase) nodeProfilesView(ctx context.Context, v TypedView, err error) (NodeProfilesView, error) {
+func (u *PlatformSettingsUseCase) nodeProfilesView(
+	ctx context.Context,
+	v TypedView,
+	err error,
+) (NodeProfilesView, error) {
 	if err != nil {
 		return NodeProfilesView{}, err
 	}
-	out := NodeProfilesView{TypedView: v, RunnableNow: make(map[string]bool, len(nodeProfileFieldKeys))}
+	out := NodeProfilesView{
+		TypedView:   v,
+		RunnableNow: make(map[string]bool, len(nodeProfileFieldKeys)),
+	}
 	var runnable map[exerciseModel.NodeProfile]bool
 	if u.profiles != nil {
 		runnable = u.profiles.RunnableNodeProfiles(ctx)
@@ -179,23 +190,32 @@ func (u *PlatformSettingsUseCase) nodeProfilesView(ctx context.Context, v TypedV
 	return out, nil
 }
 
-func (u *PlatformSettingsUseCase) GetNodeProfileSettings(ctx context.Context) (NodeProfilesView, error) {
+func (u *PlatformSettingsUseCase) GetNodeProfileSettings(
+	ctx context.Context,
+) (NodeProfilesView, error) {
 	v, err := getTyped(ctx, u, u.nodeProfileSetting())
 	return u.nodeProfilesView(ctx, v, err)
 }
 
-func (u *PlatformSettingsUseCase) SaveNodeProfileSettings(ctx context.Context, in platformSettingsModel.Values) (NodeProfilesView, error) {
+func (u *PlatformSettingsUseCase) SaveNodeProfileSettings(
+	ctx context.Context,
+	in platformSettingsModel.Values,
+) (NodeProfilesView, error) {
 	v, err := saveTyped(ctx, u, u.nodeProfileSetting(), in)
 	return u.nodeProfilesView(ctx, v, err)
 }
 
-func (u *PlatformSettingsUseCase) ResetNodeProfileSettings(ctx context.Context) (NodeProfilesView, error) {
+func (u *PlatformSettingsUseCase) ResetNodeProfileSettings(
+	ctx context.Context,
+) (NodeProfilesView, error) {
 	v, err := resetTyped(ctx, u, u.nodeProfileSetting())
 	return u.nodeProfilesView(ctx, v, err)
 }
 
 // NodeProfiles are the node profiles the platform supports: the ticks saved over the default (the container only).
-func (u *PlatformSettingsUseCase) NodeProfiles(ctx context.Context) (exerciseModel.SupportedProfiles, error) {
+func (u *PlatformSettingsUseCase) NodeProfiles(
+	ctx context.Context,
+) (exerciseModel.SupportedProfiles, error) {
 	p, _, _, err := loadTyped(ctx, u, u.nodeProfileSetting())
 	return p, err
 }

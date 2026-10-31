@@ -251,16 +251,42 @@ func TestResourcePlanCountsTheModeratorsTeamOnceWithoutALimit(t *testing.T) {
 func TestPlanTaskCollectsTheNodeProfilesOfThePlannedVariants(t *testing.T) {
 	policy := resourcesModel.DefaultPolicy()
 	plain := variant(false, container("web", ""))
-	box := variant(false, exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "box", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileMicroVM})
+	box := variant(
+		false,
+		exerciseModel.Device{
+			ID:      uuid.Must(uuid.NewV7()),
+			Name:    "box",
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: exerciseModel.NodeProfileMicroVM,
+		},
+	)
 	exerciseID := uuid.Must(uuid.NewV7())
 
-	perTeam := eventExerciseModel.EventExercise{ExerciseID: exerciseID, VariantMode: eventExerciseModel.VariantModePerTeam}
+	perTeam := eventExerciseModel.EventExercise{
+		ExerciseID:  exerciseID,
+		VariantMode: eventExerciseModel.VariantModePerTeam,
+	}
 	task := planTask(policy, perTeam, []exerciseModel.Variant{plain, box}, nil)
-	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer, exerciseModel.NodeProfileMicroVM}, task.profiles.List())
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{
+			exerciseModel.NodeProfileContainer,
+			exerciseModel.NodeProfileMicroVM,
+		},
+		task.profiles.List(),
+	)
 
 	zero := int32(0)
-	fixed := eventExerciseModel.EventExercise{ExerciseID: exerciseID, VariantMode: eventExerciseModel.VariantModeFixed, FixedVariantIndex: &zero}
-	assert.Equal(t, []exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer}, planTask(policy, fixed, []exerciseModel.Variant{plain, box}, nil).profiles.List())
+	fixed := eventExerciseModel.EventExercise{
+		ExerciseID:        exerciseID,
+		VariantMode:       eventExerciseModel.VariantModeFixed,
+		FixedVariantIndex: &zero,
+	}
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer},
+		planTask(policy, fixed, []exerciseModel.Variant{plain, box}, nil).profiles.List(),
+	)
 
 	in := planInputs{profiles: task.profiles}
 	assert.Equal(t, task.profiles, in.placementNeed().Profiles)

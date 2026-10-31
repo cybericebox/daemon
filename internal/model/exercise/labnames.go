@@ -48,7 +48,9 @@ func ValidateDeviceNames(variants []Variant) error {
 			}
 			for _, reserved := range ReservedDeviceNames {
 				if strings.EqualFold(strings.TrimSpace(device.Name), reserved) {
-					return ErrDeviceNameReserved.WithPublicContext("variant", vi+1).WithPublicContext("device", device.Name).Err()
+					return ErrDeviceNameReserved.WithPublicContext("variant", vi+1).
+						WithPublicContext("device", device.Name).
+						Err()
 				}
 			}
 		}
