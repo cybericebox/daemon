@@ -472,12 +472,26 @@ type eventResourcesDTO struct {
 	// Covered: the reservation is placed in full. False means the platform admin has been alerted.
 	Covered bool                 `json:"Covered"`
 	Changes []organizerChangeDTO `json:"Changes"`
+	// Unplaced counts the units no agent could take; Units has the state of every team that has a place (no
+	// laboratory is named): Ended after its labs were deleted, EndsAt while the ending notice runs.
+	Unplaced int                `json:"Unplaced"`
+	Units    []organizerUnitDTO `json:"Units"`
+}
+
+type organizerUnitDTO struct {
+	TeamID uuid.UUID  `json:"TeamID"`
+	EndsAt *time.Time `json:"EndsAt"`
+	Ended  bool       `json:"Ended"`
 }
 
 func eventResources(v calUseCase.OrganizerReservationView) eventResourcesDTO {
 	out := eventResourcesDTO{
 		Observation: v.Observation, Reserved: v.Reserved, From: v.From, To: v.To, Teams: v.Teams, Allocated: amount(v.Allocated), InUse: amount(v.InUse), Free: amount(v.Free),
 		BufferPercent: v.BufferPercent, Dynamic: amount(v.Dynamic), Covered: v.Covered, Changes: make([]organizerChangeDTO, 0, len(v.Changes)),
+		Unplaced: v.Unplaced, Units: make([]organizerUnitDTO, 0, len(v.Units)),
+	}
+	for _, unit := range v.Units {
+		out.Units = append(out.Units, organizerUnitDTO{TeamID: unit.TeamID, EndsAt: unit.EndsAt, Ended: unit.Ended})
 	}
 	for _, c := range v.Changes {
 		out.Changes = append(out.Changes, organizerChange(c))

@@ -237,6 +237,8 @@ func TestOrganizerSeesAllocatedVsUsedWithoutAgents(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, v.Reserved)
 	assert.True(t, v.Covered)
+	assert.Zero(t, v.Unplaced, "every unit has a place")
+	assert.NotNil(t, v.Units)
 	assert.Equal(t, int64(3000), v.InUse.CPUMillicores)
 	assert.Equal(t, v.Allocated.CPUMillicores-3000, v.Free.CPUMillicores)
 }

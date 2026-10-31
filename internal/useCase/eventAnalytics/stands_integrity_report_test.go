@@ -198,3 +198,42 @@ func newUCWithStore(store eventAnalyticsStore, event eventModel.Event, clock *ti
 }
 
 type eventAnalyticsStore = eventAnalytics.Store
+
+type periodSpy struct {
+	*sectionsStore
+	got eventAnalyticsModel.Period
+}
+
+func (s *periodSpy) StandResources(_ context.Context, _ uuid.UUID, p eventAnalyticsModel.Period) ([]eventAnalyticsRepo.StandResources, error) {
+	s.got = p
+	return nil, nil
+}
+
+type reservationAt struct{ start time.Time }
+
+func (r reservationAt) EventReservationStart(context.Context, uuid.UUID) (time.Time, bool, error) {
+	return r.start, true, nil
+}
+
+// The stands exist from the start of the reservation: the default period of the report starts there, not at the
+// event start; an explicit "from" wins.
+func TestGetEventAnalyticsStands_PeriodStartsWithTheReservation(t *testing.T) {
+	clock := now
+	event := runningEvent()
+	event.InfrastructureAllowed = true
+	reserved := event.Lifecycle.StartAt.Add(-3 * time.Hour)
+	spy := &periodSpy{sectionsStore: &sectionsStore{fakeStore: &fakeStore{}}}
+	uc := eventAnalytics.New(eventAnalytics.Dependencies{
+		Store: spy, Events: fakeEvents{event}, Configs: fakeConfigs{}, Memberships: fakeMemberships{},
+		Reservations: reservationAt{start: reserved}, Now: func() time.Time { return clock },
+	})
+
+	_, err := uc.GetEventAnalyticsStands(context.Background(), event.ID, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, reserved.Truncate(eventAnalyticsModel.BucketSize), spy.got.From)
+
+	explicit := event.Lifecycle.StartAt
+	_, err = uc.GetEventAnalyticsStands(context.Background(), event.ID, &explicit, nil)
+	require.NoError(t, err)
+	require.Equal(t, explicit.Truncate(eventAnalyticsModel.BucketSize), spy.got.From)
+}

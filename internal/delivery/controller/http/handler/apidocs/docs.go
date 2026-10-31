@@ -43695,6 +43695,16 @@ const docTemplate = `{
                 },
                 "To": {
                     "type": "string"
+                },
+                "Units": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.organizerUnitDTO"
+                    }
+                },
+                "Unplaced": {
+                    "description": "Unplaced counts the units no agent could take; Units has the state of every team that has a place (no\nlaboratory is named): Ended after its labs were deleted, EndsAt while the ending notice runs.",
+                    "type": "integer"
                 }
             }
         },
@@ -43801,6 +43811,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "WindowStart": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.organizerUnitDTO": {
+            "type": "object",
+            "properties": {
+                "Ended": {
+                    "type": "boolean"
+                },
+                "EndsAt": {
+                    "type": "string"
+                },
+                "TeamID": {
                     "type": "string"
                 }
             }

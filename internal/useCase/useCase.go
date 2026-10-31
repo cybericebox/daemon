@@ -550,11 +550,12 @@ func NewUseCase(deps Dependencies) *UseCase {
 		mailUC,
 		retentionUC,
 		eventAnalyticsUseCase.New(eventAnalyticsUseCase.Dependencies{
-			Store:       eventAnalyticsRepo.New(deps.Repo),
-			Events:      eventRepo.New(deps.Repo),
-			Configs:     eventConfigRepo.New(deps.Repo),
-			Memberships: eventManagerRepo.New(deps.Repo),
-			LabTraffic:  labTrafficRepo.New(deps.Repo),
+			Store:        eventAnalyticsRepo.New(deps.Repo),
+			Events:       eventRepo.New(deps.Repo),
+			Configs:      eventConfigRepo.New(deps.Repo),
+			Memberships:  eventManagerRepo.New(deps.Repo),
+			LabTraffic:   labTrafficRepo.New(deps.Repo),
+			Reservations: calendarUC,
 		}),
 		platformAnalyticsUseCase.New(platformAnalyticsUseCase.Dependencies{Store: platformAnalyticsRepo.New(deps.Repo), TestLabResources: testLabsUC.TotalResources}),
 		broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{

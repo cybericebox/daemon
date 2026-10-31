@@ -260,6 +260,18 @@ type OrganizerReservationView struct {
 	Covered bool
 	// Changes are the event's change requests, newest first.
 	Changes []OrganizerChangeView
+	// Unplaced counts the units no agent could take; Units says, per team that has a place, how its part of the
+	// reservation stands. No laboratory is named.
+	Unplaced int
+	Units    []OrganizerUnitView
+}
+
+// OrganizerUnitView is the reservation state of one team's unit: Ended after its part ended and the labs were
+// deleted, EndsAt while it is ending (its notice).
+type OrganizerUnitView struct {
+	TeamID uuid.UUID
+	EndsAt *time.Time
+	Ended  bool
 }
 
 // OrganizerChangeView is a change request as the organizer sees it.

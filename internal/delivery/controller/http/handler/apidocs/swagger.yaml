@@ -11474,6 +11474,15 @@ definitions:
         type: integer
       To:
         type: string
+      Units:
+        items:
+          $ref: '#/definitions/resourceCalendar.organizerUnitDTO'
+        type: array
+      Unplaced:
+        description: |-
+          Unplaced counts the units no agent could take; Units has the state of every team that has a place (no
+          laboratory is named): Ended after its labs were deleted, EndsAt while the ending notice runs.
+        type: integer
     type: object
   resourceCalendar.eventStatDTO:
     properties:
@@ -11544,6 +11553,15 @@ definitions:
       WindowEnd:
         type: string
       WindowStart:
+        type: string
+    type: object
+  resourceCalendar.organizerUnitDTO:
+    properties:
+      Ended:
+        type: boolean
+      EndsAt:
+        type: string
+      TeamID:
         type: string
     type: object
   resourceCalendar.partDTO:
