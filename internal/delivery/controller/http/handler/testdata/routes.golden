@@ -35,6 +35,9 @@ POST   /api/auth/account/email | gate: self | layers: recaptcha,middleware.RateL
 POST   /api/auth/account/email/confirm | gate: - | layers: -
 GET    /api/auth/account/export | gate: self | layers: -
 PATCH  /api/auth/account/profile | gate: self | layers: -
+DELETE /api/auth/account/table-prefs/:tableKey | gate: self | layers: -
+GET    /api/auth/account/table-prefs/:tableKey | gate: self | layers: -
+PUT    /api/auth/account/table-prefs/:tableKey | gate: self | layers: -
 GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
 GET    /api/auth/google | gate: - | layers: -
 GET    /api/auth/google/callback | gate: - | layers: -

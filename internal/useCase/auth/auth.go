@@ -14,6 +14,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/passkeyRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/tablePrefsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userExportRepo"
@@ -38,6 +39,7 @@ type IRepository interface {
 	temporalCodeRepo.Queries
 	passkeyRepo.Queries
 	userExportRepo.Queries
+	tablePrefsRepo.Queries
 }
 
 // ITokenClient is the crypto port (satisfied by *token.Client).
@@ -87,11 +89,12 @@ type IAvatarStorage interface {
 }
 
 type AuthUseCase struct {
-	sessions *sessionRepo.Repository
-	users    *userRepo.Repository
-	codes    *temporalCodeRepo.Repository
-	passkeys *passkeyRepo.Repository
-	exports  *userExportRepo.Repository
+	sessions   *sessionRepo.Repository
+	users      *userRepo.Repository
+	codes      *temporalCodeRepo.Repository
+	passkeys   *passkeyRepo.Repository
+	exports    *userExportRepo.Repository
+	tablePrefs *tablePrefsRepo.Repository
 	// webauthn is the relying party of passkey sign-in; nil when the hosts do not allow one.
 	webauthn           *webauthn.WebAuthn
 	token              ITokenClient
@@ -171,6 +174,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		codes:             temporalCodeRepo.New(deps.Repo),
 		passkeys:          passkeyRepo.New(deps.Repo),
 		exports:           userExportRepo.New(deps.Repo),
+		tablePrefs:        tablePrefsRepo.New(deps.Repo),
 		token:             deps.Token,
 		password:          deps.Password,
 		notifier:          deps.Notifier,
@@ -284,6 +288,9 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 	}
 	if _, err := u.users.DeleteProviders(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user providers").Err()
+	}
+	if err := u.tablePrefs.DeleteAll(ctx, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user table views").Err()
 	}
 	if _, err := u.passkeys.DeleteAll(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user passkeys").Err()

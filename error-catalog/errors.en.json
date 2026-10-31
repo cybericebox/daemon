@@ -278,6 +278,8 @@
   "23303": "Passkey limit reached",
   "23305": "Passkey registration failed",
   "23306": "Invalid passkey name",
+  "23401": "Invalid table view",
+  "23402": "Too many saved table views",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",

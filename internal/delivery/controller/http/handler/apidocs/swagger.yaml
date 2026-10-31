@@ -12536,6 +12536,32 @@ definitions:
       UpdatedAt:
         type: string
     type: object
+  tablePrefsModel.Prefs:
+    properties:
+      ColumnOrder:
+        items:
+          type: string
+        type: array
+      ColumnWidths:
+        additionalProperties:
+          type: integer
+        type: object
+      Hidden:
+        items:
+          type: string
+        type: array
+      PageSize:
+        type: integer
+      Sort:
+        $ref: '#/definitions/tablePrefsModel.Sort'
+    type: object
+  tablePrefsModel.Sort:
+    properties:
+      Dir:
+        type: string
+      Key:
+        type: string
+    type: object
   template.createEmailRequest:
     properties:
       Body:
@@ -13032,6 +13058,10 @@ definitions:
         items:
           $ref: '#/definitions/userModel.ExportSignInMethod'
         type: array
+      tableViews:
+        items:
+          $ref: '#/definitions/userModel.ExportTableView'
+        type: array
     type: object
   userModel.ExportEventRole:
     properties:
@@ -13186,6 +13216,17 @@ definitions:
         type: string
       type:
         description: Type is "password", "google" or "passkey".
+        type: string
+    type: object
+  userModel.ExportTableView:
+    properties:
+      prefs:
+        items:
+          type: integer
+        type: array
+      table:
+        type: string
+      updatedAt:
         type: string
     type: object
   userModel.UserStatus:
@@ -14386,6 +14427,88 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update the authenticated user's profile (first name, last name)
+      tags:
+      - auth
+  /auth/account/table-prefs/{tableKey}:
+    delete:
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Forget the current user's view of a table (back to the default)
+      tags:
+      - auth
+    get:
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/tablePrefsModel.Prefs'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Get the current user's saved view of a table (null when none)
+      tags:
+      - auth
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      - description: the view
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/tablePrefsModel.Prefs'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/tablePrefsModel.Prefs'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save the current user's view of a table
       tags:
       - auth
   /auth/avatar/{id}:

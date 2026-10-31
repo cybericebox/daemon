@@ -38,4 +38,5 @@ const (
 	NodeProfileObjectCode
 	DeviceObjectCode
 	PasskeyObjectCode
+	TablePrefsObjectCode
 )

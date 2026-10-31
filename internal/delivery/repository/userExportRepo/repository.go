@@ -33,6 +33,7 @@ type Queries interface {
 		userID uuid.UUID,
 	) ([]postgres.ExportUserFormAnswersRow, error)
 	ExportUserInbox(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserInboxRow, error)
+	ExportUserTablePrefs(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserTablePrefsRow, error)
 	ExportUserNotificationSettings(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -166,6 +167,14 @@ func (r *Repository) fillActivity(ctx context.Context, userID uuid.UUID, out *us
 				Type: v.NotificationType, Channel: v.Channel, Enabled: v.Enabled,
 			},
 		)
+	}
+	views, err := r.q.ExportUserTablePrefs(ctx, userID)
+	if err != nil {
+		return err
+	}
+	out.TableViews = make([]userModel.ExportTableView, 0, len(views))
+	for _, v := range views {
+		out.TableViews = append(out.TableViews, userModel.ExportTableView{Table: v.TableKey, Prefs: json.RawMessage(v.Prefs), UpdatedAt: v.UpdatedAt})
 	}
 	return nil
 }

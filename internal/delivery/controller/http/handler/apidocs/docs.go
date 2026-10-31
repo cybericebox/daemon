@@ -1818,6 +1818,140 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/account/table-prefs/{tableKey}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get the current user's saved view of a table (null when none)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "table key, up to 64 of [a-z0-9._-]",
+                        "name": "tableKey",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/tablePrefsModel.Prefs"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Save the current user's view of a table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "table key, up to 64 of [a-z0-9._-]",
+                        "name": "tableKey",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "the view",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/tablePrefsModel.Prefs"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/tablePrefsModel.Prefs"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Forget the current user's view of a table (back to the default)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "table key, up to 64 of [a-z0-9._-]",
+                        "name": "tableKey",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/avatar/{id}": {
             "get": {
                 "produces": [
@@ -46618,6 +46752,46 @@ const docTemplate = `{
                 }
             }
         },
+        "tablePrefsModel.Prefs": {
+            "type": "object",
+            "properties": {
+                "ColumnOrder": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ColumnWidths": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "Hidden": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "PageSize": {
+                    "type": "integer"
+                },
+                "Sort": {
+                    "$ref": "#/definitions/tablePrefsModel.Sort"
+                }
+            }
+        },
+        "tablePrefsModel.Sort": {
+            "type": "object",
+            "properties": {
+                "Dir": {
+                    "type": "string"
+                },
+                "Key": {
+                    "type": "string"
+                }
+            }
+        },
         "template.createEmailRequest": {
             "type": "object",
             "properties": {
@@ -47360,6 +47534,12 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/userModel.ExportSignInMethod"
                     }
+                },
+                "tableViews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userModel.ExportTableView"
+                    }
                 }
             }
         },
@@ -47594,6 +47774,23 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "Type is \"password\", \"google\" or \"passkey\".",
+                    "type": "string"
+                }
+            }
+        },
+        "userModel.ExportTableView": {
+            "type": "object",
+            "properties": {
+                "prefs": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "table": {
+                    "type": "string"
+                },
+                "updatedAt": {
                     "type": "string"
                 }
             }

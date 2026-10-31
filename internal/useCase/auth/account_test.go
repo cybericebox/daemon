@@ -75,6 +75,7 @@ func TestDeleteAccount_SoftDeletesAndCutsLinks(t *testing.T) {
 		})
 	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(2), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
+	repo.EXPECT().DeleteAllUserTablePrefs(gomock.Any(), uid).Return(int64(0), nil)
 	repo.EXPECT().DeleteUserPasskeys(gomock.Any(), uid).Return(int64(0), nil)
 
 	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
@@ -137,6 +138,7 @@ func TestDeleteAccount_SuperAdminWithPeer_Allowed(t *testing.T) {
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
+	repo.EXPECT().DeleteAllUserTablePrefs(gomock.Any(), uid).Return(int64(0), nil)
 	repo.EXPECT().DeleteUserPasskeys(gomock.Any(), uid).Return(int64(0), nil)
 
 	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
@@ -160,6 +162,7 @@ func TestDeleteInactiveAccount_StillInactive_Deletes(t *testing.T) {
 		})
 	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(0), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
+	repo.EXPECT().DeleteAllUserTablePrefs(gomock.Any(), uid).Return(int64(0), nil)
 	repo.EXPECT().DeleteUserPasskeys(gomock.Any(), uid).Return(int64(0), nil)
 
 	deleted, err := uc.DeleteInactiveAccount(context.Background(), uid, warnedAt)
@@ -216,6 +219,7 @@ func TestDeleteAccount_GoogleOnlyNeedsARecentSignIn(t *testing.T) {
 				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 				repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
+				repo.EXPECT().DeleteAllUserTablePrefs(gomock.Any(), uid).Return(int64(0), nil)
 				repo.EXPECT().DeleteUserPasskeys(gomock.Any(), uid).Return(int64(0), nil)
 				if err := uc.DeleteAccount(ctx, uid, ""); err != nil {
 					t.Fatalf("a recent sign-in must be enough: %v", err)

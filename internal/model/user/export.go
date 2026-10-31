@@ -22,6 +22,7 @@ type DataExport struct {
 	FormAnswers          []ExportFormAnswer
 	Inbox                []ExportInboxItem
 	NotificationSettings []ExportNotificationSetting
+	TableViews           []ExportTableView
 }
 
 type ExportProfile struct {
@@ -112,4 +113,11 @@ type ExportNotificationSetting struct {
 	Type    string
 	Channel string
 	Enabled bool
+}
+
+// ExportTableView is a saved table layout; Prefs is the stored JSON as it is.
+type ExportTableView struct {
+	Table     string
+	Prefs     json.RawMessage
+	UpdatedAt time.Time
 }

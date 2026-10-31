@@ -135,6 +135,9 @@ func expectOwnRows(repo *postgresMocks.MockQuerier, uid uuid.UUID) {
 		},
 	}, nil)
 	repo.EXPECT().ExportUserNotificationSettings(gomock.Any(), uid).Return(nil, nil)
+	repo.EXPECT().ExportUserTablePrefs(gomock.Any(), uid).Return([]postgres.ExportUserTablePrefsRow{
+		{TableKey: "admin.users", Prefs: []byte(`{"PageSize":50}`), UpdatedAt: now},
+	}, nil)
 }
 
 func TestExportMyData_OwnDataOnlyAndNoSecrets(t *testing.T) {
@@ -149,7 +152,7 @@ func TestExportMyData_OwnDataOnlyAndNoSecrets(t *testing.T) {
 	raw, _ := json.Marshal(data) //nolint:musttag // PascalCase field names are the file format
 	text := string(raw)
 
-	for _, want := range []string{"me@b.test", "Red Team", "flag{mine}", "Warmup", "Laptop", "Firefox", "203.0.113.7", "No 5", "Welcome"} {
+	for _, want := range []string{"me@b.test", "Red Team", "flag{mine}", "Warmup", "Laptop", "Firefox", "203.0.113.7", "No 5", "Welcome", "admin.users"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the export must contain %q", want)
 		}

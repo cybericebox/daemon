@@ -286,6 +286,7 @@ type Querier interface {
 	DecideExerciseResourceElevation(ctx context.Context, arg DecideExerciseResourceElevationParams) (int64, error)
 	// Writes the decision of a pending request; 0 rows: it was decided meanwhile.
 	DecideResourceChangeRequest(ctx context.Context, arg DecideResourceChangeRequestParams) (int64, error)
+	DeleteAllUserTablePrefs(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Guarded delete: refuses when the blob got re-referenced between the S3
 	// removal decision and this call.
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
@@ -375,6 +376,7 @@ type Querier interface {
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]DeleteUnreferencedFilesRow, error)
 	DeleteUserProvider(ctx context.Context, arg DeleteUserProviderParams) (int64, error)
 	DeleteUserProviders(ctx context.Context, userID uuid.UUID) (int64, error)
+	DeleteUserTablePrefs(ctx context.Context, arg DeleteUserTablePrefsParams) (int64, error)
 	DeleteUserVPNConfig(ctx context.Context, arg DeleteUserVPNConfigParams) (int64, error)
 	DetachEventExercise(ctx context.Context, arg DetachEventExerciseParams) (int64, error)
 	DiscardEventLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error)
@@ -414,6 +416,7 @@ type Querier interface {
 	// The "download my data" export. Every query is keyed on the caller's own user id and reads only that person's
 	// rows; names of other people never leave (a team shows only its title).
 	ExportUserParticipations(ctx context.Context, userID uuid.UUID) ([]ExportUserParticipationsRow, error)
+	ExportUserTablePrefs(ctx context.Context, userID uuid.UUID) ([]ExportUserTablePrefsRow, error)
 	// Grows the latest segment of the same collector boot when the new span joins
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)
@@ -749,6 +752,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]UserProvider, error)
+	GetUserTablePrefs(ctx context.Context, arg GetUserTablePrefsParams) (GetUserTablePrefsRow, error)
 	GetUserUIPreference(ctx context.Context, arg GetUserUIPreferenceParams) ([]byte, error)
 	// IS NOT DISTINCT FROM matches a null scope_ref (the test scope) NULL-safely.
 	GetUserVPNConfig(ctx context.Context, arg GetUserVPNConfigParams) (UserVpnConfig, error)
@@ -2245,6 +2249,8 @@ type Querier interface {
 	UpsertTeamChallengePracticeSolve(ctx context.Context, arg UpsertTeamChallengePracticeSolveParams) error
 	UpsertTeamChallengeSolve(ctx context.Context, arg UpsertTeamChallengeSolveParams) error
 	UpsertUserSetting(ctx context.Context, arg UpsertUserSettingParams) error
+	// Refuses (no row) a new table key once the person holds max_tables of them; changing a known one always works.
+	UpsertUserTablePrefs(ctx context.Context, arg UpsertUserTablePrefsParams) (int64, error)
 	UpsertUserUIPreference(ctx context.Context, arg UpsertUserUIPreferenceParams) error
 	// Store (or replace) a user's VPN config for a scope. The unique
 	// (user_id, scope, scope_ref) constraint (NULLS NOT DISTINCT) makes this an

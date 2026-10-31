@@ -14,6 +14,7 @@ import (
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	tablePrefsModel "github.com/cybericebox/daemon/internal/model/tablePrefs"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
@@ -82,6 +83,9 @@ type (
 		// slice 4a — account self-management
 		GetAccount(ctx context.Context, userID uuid.UUID) (*authUseCase.AccountInfo, error)
 		GetSelfProfile(ctx context.Context, userID uuid.UUID) (*authUseCase.UserInfo, error)
+		GetTablePrefs(ctx context.Context, userID uuid.UUID, key string) (*tablePrefsModel.Prefs, error)
+		SaveTablePrefs(ctx context.Context, userID uuid.UUID, key string, prefs tablePrefsModel.Prefs) (tablePrefsModel.Prefs, error)
+		ResetTablePrefs(ctx context.Context, userID uuid.UUID, key string) error
 		ExportMyData(ctx context.Context, userID uuid.UUID) (*userModel.DataExport, error)
 		UpdateAccountProfile(
 			ctx context.Context,
@@ -197,6 +201,9 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.GET("account", self, h.getAccount)
 	sec.GET("me", self, h.getSelfProfile)
 	sec.GET("account/export", self, h.exportMyData)
+	sec.GET("account/table-prefs/:tableKey", self, h.getTablePrefs)
+	sec.PUT("account/table-prefs/:tableKey", self, h.saveTablePrefs)
+	sec.DELETE("account/table-prefs/:tableKey", self, h.resetTablePrefs)
 	sec.PATCH("account/profile", self, h.updateProfile)
 	sec.POST(
 		"account/email",

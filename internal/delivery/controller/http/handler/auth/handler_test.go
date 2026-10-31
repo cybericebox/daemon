@@ -19,6 +19,7 @@ import (
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	tablePrefsModel "github.com/cybericebox/daemon/internal/model/tablePrefs"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
@@ -48,6 +49,8 @@ type fakeUC struct {
 	setupStartToken   string
 	passkeyErr        error
 	exportErr         error
+	tablePrefs        *tablePrefsModel.Prefs
+	tableKey          string
 	passkeys          []passkeyModel.Passkey
 }
 
@@ -209,6 +212,19 @@ func (f *fakeUC) UploadAvatar(
 func (f *fakeUC) RemoveAvatar(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeUC) GetAvatar(_ context.Context, _ uuid.UUID) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader(f.avatarBody)), f.avatarType, nil
+}
+
+func (f *fakeUC) GetTablePrefs(_ context.Context, _ uuid.UUID, key string) (*tablePrefsModel.Prefs, error) {
+	f.tableKey = key
+	return f.tablePrefs, f.passkeyErr
+}
+func (f *fakeUC) SaveTablePrefs(_ context.Context, _ uuid.UUID, key string, p tablePrefsModel.Prefs) (tablePrefsModel.Prefs, error) {
+	f.tableKey = key
+	return p, f.passkeyErr
+}
+func (f *fakeUC) ResetTablePrefs(_ context.Context, _ uuid.UUID, key string) error {
+	f.tableKey = key
+	return f.passkeyErr
 }
 
 func (f *fakeUC) ExportMyData(_ context.Context, _ uuid.UUID) (*userModel.DataExport, error) {
