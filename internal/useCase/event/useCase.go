@@ -6,9 +6,10 @@ package event
 import (
 	"context"
 	"errors"
-	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
 	"io"
 	"time"
+
+	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgerrcode"

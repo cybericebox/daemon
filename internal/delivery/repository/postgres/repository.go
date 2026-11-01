@@ -5,11 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/advisory"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cybericebox/daemon/internal/advisory"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
