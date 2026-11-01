@@ -29,7 +29,10 @@ type Queries interface {
 		ctx context.Context,
 		arg postgres.CountBroadcastDeliveriesParams,
 	) (int64, error)
-	CountNotificationBroadcasts(ctx context.Context, arg postgres.CountNotificationBroadcastsParams) (int64, error)
+	CountNotificationBroadcasts(
+		ctx context.Context,
+		arg postgres.CountNotificationBroadcastsParams,
+	) (int64, error)
 	CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error)
 	ListPlatformBroadcastAudience(ctx context.Context, arg postgres.ListPlatformBroadcastAudienceParams) ([]postgres.ListPlatformBroadcastAudienceRow, error)
 	ListEventBroadcastAudience(ctx context.Context, arg postgres.ListEventBroadcastAudienceParams) ([]postgres.ListEventBroadcastAudienceRow, error)

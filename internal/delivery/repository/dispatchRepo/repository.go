@@ -23,13 +23,34 @@ type Queries interface {
 	GetDispatch(ctx context.Context, id uuid.UUID) (postgres.GetDispatchRow, error)
 	ListDispatches(ctx context.Context, arg postgres.ListDispatchesParams) ([]postgres.ListDispatchesRow, error)
 	CountDispatches(ctx context.Context, arg postgres.CountDispatchesParams) (int64, error)
-	FacetDispatches(ctx context.Context, arg postgres.FacetDispatchesParams) ([]postgres.FacetDispatchesRow, error)
-	ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID) ([]postgres.NotificationDispatchTarget, error)
-	ListDispatchTargetsByDispatches(ctx context.Context, dispatchIds []uuid.UUID) ([]postgres.NotificationDispatchTarget, error)
-	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]postgres.CountDispatchesByStatusSinceRow, error)
-	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]postgres.CountDispatchesByTypeSinceRow, error)
-	CountTargetsByChannelStatusSince(ctx context.Context, createdAt time.Time) ([]postgres.CountTargetsByChannelStatusSinceRow, error)
-	CountEmailDeliveredSince(ctx context.Context, arg postgres.CountEmailDeliveredSinceParams) (int64, error)
+	FacetDispatches(
+		ctx context.Context,
+		arg postgres.FacetDispatchesParams,
+	) ([]postgres.FacetDispatchesRow, error)
+	ListDispatchTargets(
+		ctx context.Context,
+		dispatchID uuid.UUID,
+	) ([]postgres.NotificationDispatchTarget, error)
+	ListDispatchTargetsByDispatches(
+		ctx context.Context,
+		dispatchIds []uuid.UUID,
+	) ([]postgres.NotificationDispatchTarget, error)
+	CountDispatchesByStatusSince(
+		ctx context.Context,
+		createdAt time.Time,
+	) ([]postgres.CountDispatchesByStatusSinceRow, error)
+	CountDispatchesByTypeSince(
+		ctx context.Context,
+		createdAt time.Time,
+	) ([]postgres.CountDispatchesByTypeSinceRow, error)
+	CountTargetsByChannelStatusSince(
+		ctx context.Context,
+		createdAt time.Time,
+	) ([]postgres.CountTargetsByChannelStatusSinceRow, error)
+	CountEmailDeliveredSince(
+		ctx context.Context,
+		arg postgres.CountEmailDeliveredSinceParams,
+	) (int64, error)
 }
 
 type Repository struct {
@@ -304,11 +325,23 @@ func FacetFields() []string {
 
 // Facet counts the dispatches per value of one field under the other filters of the log; the field's own filter is
 // ignored. The cursor, limit and sort of the filter do not matter.
-func (r *Repository) Facet(ctx context.Context, field string, f dispatchModel.ListDispatchesFilter) (map[string]int64, error) {
+func (r *Repository) Facet(
+	ctx context.Context,
+	field string,
+	f dispatchModel.ListDispatchesFilter,
+) (map[string]int64, error) {
 	rows, err := r.q.FacetDispatches(ctx, postgres.FacetDispatchesParams{
-		Field: field, TypeFilter: f.Type, StatusFilter: f.Status, UserFilter: f.User, EventFilter: f.Event,
-		RecipientFilter: f.Recipient, FromFilter: f.From, ToFilter: f.To,
-		ChannelFilter: f.Channel, ResultFilter: f.Result, TransportFilter: f.Transport,
+		Field:           field,
+		TypeFilter:      f.Type,
+		StatusFilter:    f.Status,
+		UserFilter:      f.User,
+		EventFilter:     f.Event,
+		RecipientFilter: f.Recipient,
+		FromFilter:      f.From,
+		ToFilter:        f.To,
+		ChannelFilter:   f.Channel,
+		ResultFilter:    f.Result,
+		TransportFilter: f.Transport,
 	})
 	if err != nil {
 		return nil, err

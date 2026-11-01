@@ -35,7 +35,11 @@ type (
 		) ([]dispatchModel.DispatchDetail, int64, error)
 		GetDispatch(ctx context.Context, id uuid.UUID) (*dispatchModel.DispatchDetail, error)
 		GetStats(ctx context.Context, since time.Time) (*dispatchModel.Stats, error)
-		DispatchFacets(ctx context.Context, field string, f dispatchModel.ListDispatchesFilter) (map[string]int64, error)
+		DispatchFacets(
+			ctx context.Context,
+			field string,
+			f dispatchModel.ListDispatchesFilter,
+		) (map[string]int64, error)
 		ResendDispatches(ctx context.Context, ids []uuid.UUID) []statsUseCase.ResendResult
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
@@ -344,7 +348,11 @@ func (h *Handler) listDispatchesPage(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	f.Limit, f.Offset = int32(page.PageSize), int32(page.Offset()) //nolint:gosec // bounded by Validate
+	f.Limit, f.Offset = int32(
+		page.PageSize,
+	), int32(
+		page.Offset(),
+	) //nolint:gosec // bounded by Validate
 	rows, total, err := h.useCase.ListDispatches(ctx.Request.Context(), f)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -358,7 +366,13 @@ func (h *Handler) listDispatchesPage(ctx *gin.Context) {
 }
 
 // journalSortColumns are the columns of the page-number mode a log can be sorted by.
-var journalSortColumns = map[string]bool{"type": true, "recipient": true, "event": true, "status": true, "created": true}
+var journalSortColumns = map[string]bool{
+	"type":      true,
+	"recipient": true,
+	"event":     true,
+	"status":    true,
+	"created":   true,
+}
 
 // parseJournalPageFilter reads the filters of the log and the sort of the page-number mode.
 func parseJournalPageFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, bool) {
@@ -368,7 +382,8 @@ func parseJournalPageFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilte
 	}
 	f.Cursor = ""
 	f.SortBy, f.SortDir = ctx.Query("sortBy"), ctx.Query("sortDir")
-	if f.SortBy != "" && !journalSortColumns[f.SortBy] || f.SortDir != "" && f.SortDir != "asc" && f.SortDir != "desc" {
+	if f.SortBy != "" && !journalSortColumns[f.SortBy] ||
+		f.SortDir != "" && f.SortDir != "asc" && f.SortDir != "desc" {
 		response.AbortWithBadRequest(ctx, errors.New("sortBy or sortDir is not valid"))
 		return f, false
 	}

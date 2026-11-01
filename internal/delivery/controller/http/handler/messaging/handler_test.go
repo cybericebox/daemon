@@ -102,7 +102,11 @@ func (f *fakeUseCase) SendBroadcast(_ context.Context, in broadcastUseCase.SendI
 	f.sent = append(f.sent, in)
 	return broadcastModel.Broadcast{ID: uuid.Must(uuid.NewV7()), Content: in.Content, Audience: in.Audience, RecipientCount: 7}, nil
 }
-func (f *fakeUseCase) ListBroadcastsPage(_ context.Context, filter broadcastModel.ListFilter) ([]broadcastModel.Broadcast, int64, error) {
+
+func (f *fakeUseCase) ListBroadcastsPage(
+	_ context.Context,
+	filter broadcastModel.ListFilter,
+) ([]broadcastModel.Broadcast, int64, error) {
 	f.pageFilter = filter
 	return []broadcastModel.Broadcast{{ID: uuid.Must(uuid.NewV7())}}, 7, nil
 }
@@ -344,16 +348,34 @@ func TestCancelBroadcastRoute(t *testing.T) {
 
 func TestBroadcastHistoryPageNumberMode(t *testing.T) {
 	uc := &fakeUseCase{role: "owner"}
-	w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts?page=2&pageSize=10&search=%20news%20&status=done&sortBy=recipients&sortDir=desc", string(rbac.PermNotificationsBroadcast), "")
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":7`) || !strings.Contains(w.Body.String(), `"Page":2`) {
+	w := do(
+		t,
+		uc,
+		http.MethodGet,
+		"/api/notifications/broadcasts?page=2&pageSize=10&search=%20news%20&status=done&sortBy=recipients&sortDir=desc",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":7`) ||
+		!strings.Contains(w.Body.String(), `"Page":2`) {
 		t.Fatalf("page: %d %s", w.Code, w.Body.String())
 	}
 	f := uc.pageFilter
-	if f.Scope != "platform" || f.Limit != 10 || f.Offset != 10 || f.Search != "news" || f.Status != "done" || f.SortBy != "recipients" || f.SortDir != "desc" {
+	if f.Scope != "platform" || f.Limit != 10 || f.Offset != 10 || f.Search != "news" ||
+		f.Status != "done" ||
+		f.SortBy != "recipients" ||
+		f.SortDir != "desc" {
 		t.Fatalf("filter = %+v", f)
 	}
 	for _, bad := range []string{"?page=1&status=bogus", "?page=1&sortBy=password", "?page=1&sortBy=subject&sortDir=up", "?page=1&pageSize=99999"} {
-		if w = do(t, uc, http.MethodGet, "/api/notifications/broadcasts"+bad, string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusBadRequest {
+		if w = do(
+			t,
+			uc,
+			http.MethodGet,
+			"/api/notifications/broadcasts"+bad,
+			string(rbac.PermNotificationsBroadcast),
+			"",
+		); w.Code != http.StatusBadRequest {
 			t.Errorf("%s must be refused: %d", bad, w.Code)
 		}
 	}

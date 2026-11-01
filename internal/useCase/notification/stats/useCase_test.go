@@ -34,7 +34,11 @@ func (f *fakeRepo) ListDispatches(ctx context.Context, a postgres.ListDispatches
 func (f *fakeRepo) CountDispatches(ctx context.Context, a postgres.CountDispatchesParams) (int64, error) {
 	return f.countDispatch(ctx, a)
 }
-func (f *fakeRepo) FacetDispatches(context.Context, postgres.FacetDispatchesParams) ([]postgres.FacetDispatchesRow, error) {
+
+func (f *fakeRepo) FacetDispatches(
+	context.Context,
+	postgres.FacetDispatchesParams,
+) ([]postgres.FacetDispatchesRow, error) {
 	return []postgres.FacetDispatchesRow{{Key: "done", Count: 2}, {Key: "pending", Count: 1}}, nil
 }
 func (f *fakeRepo) ListDispatchTargets(ctx context.Context, id uuid.UUID) ([]postgres.NotificationDispatchTarget, error) {
@@ -241,11 +245,22 @@ func TestResendDispatches_OneResultPerDistinctIDAndFailuresDoNotStopTheRest(t *t
 
 func TestDispatchFacetsCountsAndRefusesUnknownFields(t *testing.T) {
 	uc := NewNotificationStatsUseCase(Dependencies{Repo: &fakeRepo{}})
-	counts, err := uc.DispatchFacets(context.Background(), "status", dispatchModel.ListDispatchesFilter{})
+	counts, err := uc.DispatchFacets(
+		context.Background(),
+		"status",
+		dispatchModel.ListDispatchesFilter{},
+	)
 	if err != nil || counts["done"] != 2 || counts["pending"] != 1 {
 		t.Fatalf("counts = %v err = %v", counts, err)
 	}
-	if _, err = uc.DispatchFacets(context.Background(), "password", dispatchModel.ListDispatchesFilter{}); !errors.Is(err, ErrUnknownFacetField) {
+	if _, err = uc.DispatchFacets(
+		context.Background(),
+		"password",
+		dispatchModel.ListDispatchesFilter{},
+	); !errors.Is(
+		err,
+		ErrUnknownFacetField,
+	) {
 		t.Fatalf("an unknown field is refused: %v", err)
 	}
 }

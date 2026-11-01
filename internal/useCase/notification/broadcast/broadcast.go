@@ -309,15 +309,22 @@ func (u *NotificationBroadcastUseCase) ListBroadcasts(ctx context.Context, f bro
 }
 
 // ListBroadcastsPage is the history in the page-number mode: one page behind the filter and the total.
-func (u *NotificationBroadcastUseCase) ListBroadcastsPage(ctx context.Context, f broadcastModel.ListFilter) ([]broadcastModel.Broadcast, int64, error) {
+func (u *NotificationBroadcastUseCase) ListBroadcastsPage(
+	ctx context.Context,
+	f broadcastModel.ListFilter,
+) ([]broadcastModel.Broadcast, int64, error) {
 	f.Limit, f.Cursor = clampLimit(f.Limit), ""
 	items, err := u.broadcasts.List(ctx, f)
 	if err != nil {
-		return nil, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list broadcasts").Err()
+		return nil, 0, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to list broadcasts").
+			Err()
 	}
 	total, err := u.broadcasts.Count(ctx, f)
 	if err != nil {
-		return nil, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to count broadcasts").Err()
+		return nil, 0, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to count broadcasts").
+			Err()
 	}
 	return items, total, nil
 }

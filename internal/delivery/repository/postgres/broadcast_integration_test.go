@@ -297,8 +297,11 @@ func TestBroadcast_HistoryPageNumberMode(t *testing.T) {
 		bc := broadcastModel.Broadcast{
 			ID: uuid.Must(uuid.NewV7()),
 			Content: broadcastModel.Content{
-				Channels: []notificationTypes.NotificationChannel{notificationTypes.NotificationChannelEmail},
-				Subject:  subject, EmailBody: json.RawMessage(`[{"type":"paragraph"}]`),
+				Channels: []notificationTypes.NotificationChannel{
+					notificationTypes.NotificationChannelEmail,
+				},
+				Subject:   subject,
+				EmailBody: json.RawMessage(`[{"type":"paragraph"}]`),
 			},
 			Audience:       broadcastModel.Audience{Kind: broadcastModel.KindAll},
 			RecipientCount: recipients,
@@ -338,16 +341,28 @@ func TestBroadcast_HistoryPageNumberMode(t *testing.T) {
 		}
 		return n
 	}
-	if got := subjects(broadcastModel.ListFilter{SortBy: "recipients", SortDir: "desc"}); len(got) != 3 || got[0] != "Beta news" || got[2] != "Gamma" {
+	if got := subjects(
+		broadcastModel.ListFilter{SortBy: "recipients", SortDir: "desc"},
+	); len(got) != 3 || got[0] != "Beta news" ||
+		got[2] != "Gamma" {
 		t.Fatalf("recipients desc: %v", got)
 	}
-	if got := subjects(broadcastModel.ListFilter{SortBy: "subject", SortDir: "asc", Offset: 1}); len(got) != 2 || got[0] != "Beta news" {
+	if got := subjects(
+		broadcastModel.ListFilter{SortBy: "subject", SortDir: "asc", Offset: 1},
+	); len(got) != 2 ||
+		got[0] != "Beta news" {
 		t.Fatalf("subject asc, second page row: %v", got)
 	}
-	if got := subjects(broadcastModel.ListFilter{Search: "NEWS", SortBy: "subject", SortDir: "desc"}); len(got) != 2 || got[0] != "Beta news" {
+	if got := subjects(
+		broadcastModel.ListFilter{Search: "NEWS", SortBy: "subject", SortDir: "desc"},
+	); len(got) != 2 ||
+		got[0] != "Beta news" {
 		t.Fatalf("search is case-insensitive: %v", got)
 	}
-	if got := subjects(broadcastModel.ListFilter{Status: "canceled"}); len(got) != 1 || got[0] != "Alpha news" {
+	if got := subjects(
+		broadcastModel.ListFilter{Status: "canceled"},
+	); len(got) != 1 ||
+		got[0] != "Alpha news" {
 		t.Fatalf("status filter: %v", got)
 	}
 	if n := count(broadcastModel.ListFilter{Search: "news"}); n != 2 {

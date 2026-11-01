@@ -393,7 +393,12 @@ func (h *Handler) broadcastRef(ctx *gin.Context, scope scopeFn) (uuid.UUID, *uui
 }
 
 // broadcastSortColumns are the columns of the page-number mode a history can be sorted by.
-var broadcastSortColumns = map[string]bool{"subject": true, "status": true, "recipients": true, "created": true}
+var broadcastSortColumns = map[string]bool{
+	"subject":    true,
+	"status":     true,
+	"recipients": true,
+	"created":    true,
+}
 
 // listBroadcastsPage answers the history in the page-number mode: page, pageSize, search, status and a sort, with
 // the total.
@@ -408,16 +413,21 @@ func (h *Handler) listBroadcastsPage(ctx *gin.Context, eventID *uuid.UUID) {
 		return
 	}
 	filter := broadcastModel.ListFilter{
-		Scope: "platform", Search: strings.TrimSpace(ctx.Query("search")), Status: ctx.Query("status"),
-		SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
-		Limit:  int32(page.PageSize), //nolint:gosec // bounded by Validate
-		Offset: int32(page.Offset()), //nolint:gosec // page and page size are bounded by Validate
+		Scope:   "platform",
+		Search:  strings.TrimSpace(ctx.Query("search")),
+		Status:  ctx.Query("status"),
+		SortBy:  ctx.Query("sortBy"),
+		SortDir: ctx.Query("sortDir"),
+		Limit:   int32(page.PageSize), //nolint:gosec // bounded by Validate
+		Offset:  int32(page.Offset()), //nolint:gosec // page and page size are bounded by Validate
 	}
 	if eventID != nil {
 		filter.Scope = eventID.String()
 	}
 	validStatus := filter.Status == "" || filter.Status == string(broadcastModel.StatusSending) ||
-		filter.Status == string(broadcastModel.StatusDone) || filter.Status == string(broadcastModel.StatusFailed) ||
+		filter.Status == string(
+			broadcastModel.StatusDone,
+		) || filter.Status == string(broadcastModel.StatusFailed) ||
 		filter.Status == string(broadcastModel.StatusCanceled)
 	if !validStatus || filter.SortBy != "" && !broadcastSortColumns[filter.SortBy] ||
 		filter.SortDir != "" && filter.SortDir != "asc" && filter.SortDir != "desc" {

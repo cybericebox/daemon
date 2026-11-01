@@ -267,10 +267,16 @@ func TestJournalAndInbox_EventScope(t *testing.T) {
 		t.Fatalf("count honours the recipient search: %d %v", n, err)
 	}
 	// Page-number mode: offset and sort.
-	if rows := list(postgres.ListDispatchesParams{SortBy: "event", SortDir: "desc", OffsetVal: 1}); len(rows) != 1 || rows[0].ID != platformDispatch {
+	if rows := list(
+		postgres.ListDispatchesParams{SortBy: "event", SortDir: "desc", OffsetVal: 1},
+	); len(rows) != 1 ||
+		rows[0].ID != platformDispatch {
 		t.Fatalf("event desc, second row: %+v", rows)
 	}
-	if rows := list(postgres.ListDispatchesParams{SortBy: "event", SortDir: "asc"}); len(rows) != 2 || rows[0].ID != platformDispatch {
+	if rows := list(
+		postgres.ListDispatchesParams{SortBy: "event", SortDir: "asc"},
+	); len(rows) != 2 ||
+		rows[0].ID != platformDispatch {
 		t.Fatalf("event asc puts the dispatch without an event first: %+v", rows)
 	}
 	if rows := list(postgres.ListDispatchesParams{OffsetVal: 5}); len(rows) != 0 {
@@ -289,22 +295,43 @@ func TestJournalAndInbox_EventScope(t *testing.T) {
 		}
 		return out
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "type"}); got["participant.event.start_reminder"] != 2 {
+	if got := facet(
+		postgres.FacetDispatchesParams{Field: "type"},
+	); got["participant.event.start_reminder"] != 2 {
 		t.Fatalf("type facet: %v", got)
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "type", TypeFilter: "other"}); got["participant.event.start_reminder"] != 2 {
+	if got := facet(
+		postgres.FacetDispatchesParams{Field: "type", TypeFilter: "other"},
+	); got["participant.event.start_reminder"] != 2 {
 		t.Fatalf("type facet ignores the type filter: %v", got)
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "type", StatusFilter: "pending"}); len(got) != 0 {
+	if got := facet(
+		postgres.FacetDispatchesParams{Field: "type", StatusFilter: "pending"},
+	); len(
+		got,
+	) != 0 {
 		t.Fatalf("type facet follows the status filter: %v", got)
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "channel"}); got["email"] != 1 || len(got) != 1 {
+	if got := facet(
+		postgres.FacetDispatchesParams{Field: "channel"},
+	); got["email"] != 1 ||
+		len(got) != 1 {
 		t.Fatalf("channel facet counts dispatches with a target: %v", got)
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "transport", ChannelFilter: "email", ResultFilter: "done"}); got["platform"] != 1 {
+	if got := facet(
+		postgres.FacetDispatchesParams{
+			Field:         "transport",
+			ChannelFilter: "email",
+			ResultFilter:  "done",
+		},
+	); got["platform"] != 1 {
 		t.Fatalf("transport facet under channel and result: %v", got)
 	}
-	if got := facet(postgres.FacetDispatchesParams{Field: "type", ResultFilter: "error"}); len(got) != 0 {
+	if got := facet(
+		postgres.FacetDispatchesParams{Field: "type", ResultFilter: "error"},
+	); len(
+		got,
+	) != 0 {
 		t.Fatalf("a target filter narrows a non-target facet: %v", got)
 	}
 	if got := facet(postgres.FacetDispatchesParams{Field: "event"}); got[eventID.String()] != 1 {
