@@ -306,3 +306,15 @@ func TestCompareWithThePreviousPeriodAndTheEventTables(t *testing.T) {
 		t.Fatalf("tasks table: status = %d", w.Code)
 	}
 }
+
+// compare=true asks for the previous period like compare=previous; any other value does not.
+func TestCompareTrueIsTheSameAsPrevious(t *testing.T) {
+	uc := &catalogUseCase{events: platformAnalyticsUseCase.EventsView{}}
+	base := "/api/analytics/events?from=2026-09-08T00:00:00Z&to=2026-09-15T00:00:00Z"
+	for compare, wrapped := range map[string]bool{"true": true, "previous": true, "false": false, "": false} {
+		w := serveCatalog(t, uc, &catalogProt{}, base+"&compare="+compare)
+		if got := strings.Contains(w.Body.String(), `"PreviousPeriod"`); got != wrapped {
+			t.Errorf("compare=%q: envelope = %v, want %v (%s)", compare, got, wrapped, w.Body)
+		}
+	}
+}

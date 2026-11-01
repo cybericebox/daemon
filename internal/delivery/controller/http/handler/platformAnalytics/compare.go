@@ -38,7 +38,7 @@ func previousWindow(from, to *time.Time, now time.Time) (time.Time, time.Time, b
 	return from.Add(-length), *from, true
 }
 
-// answer writes a report. With compare=previous it also loads the report of the previous period and wraps both;
+// answer writes a report. With compare=previous (or compare=true) it also loads the report of the previous period and wraps both;
 // without it the answer is the report itself, as before.
 func answer[T any](
 	ctx *gin.Context,
@@ -50,7 +50,7 @@ func answer[T any](
 		response.AbortWithError(ctx, err)
 		return
 	}
-	if ctx.Query("compare") != "previous" {
+	if mode := ctx.Query("compare"); mode != "previous" && mode != "true" {
 		response.AbortWithData(ctx, current)
 		return
 	}
