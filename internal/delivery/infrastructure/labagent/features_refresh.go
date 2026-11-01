@@ -18,6 +18,8 @@ const (
 	// featuresRefusalRefresh is the least time between two reads forced by a refusal, so a burst of refused labs
 	// asks the agent once.
 	featuresRefusalRefresh = 10 * time.Second
+	// featuresFailuresBeforeWarning is how many reads in a row may fail before it is worth a warning.
+	featuresFailuresBeforeWarning = 3
 )
 
 // PollFeatures reads the features of one agent every interval until ctx ends and hands each successful read to apply.
@@ -25,6 +27,7 @@ const (
 func PollFeatures(ctx context.Context, agent string, interval time.Duration, fetch func(context.Context) (*labpb.FeaturesResponse, error), apply func(context.Context, *labpb.FeaturesResponse) error) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	failures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -33,9 +36,15 @@ func PollFeatures(ctx context.Context, agent string, interval time.Duration, fet
 		}
 		response, err := fetch(ctx)
 		if err != nil {
-			log.Debug().Err(err).Str("agent", agent).Msg("Features of the agent are not available")
+			failures++
+			if failures == featuresFailuresBeforeWarning {
+				log.Warn().Err(err).Str("agent", agent).Int("reads", failures).Msg("The features of the agent could not be read again; the last known ones stay")
+			} else {
+				log.Debug().Err(err).Str("agent", agent).Msg("Features of the agent are not available")
+			}
 			continue
 		}
+		failures = 0
 		if err = apply(ctx, response); err != nil {
 			log.Warn().Err(err).Str("agent", agent).Msg("Failed to record the features of the agent")
 		}

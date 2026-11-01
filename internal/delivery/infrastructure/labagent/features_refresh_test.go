@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/encoding/protowire"
+
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -83,4 +85,48 @@ func TestPollFeaturesAppliesEachRead(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, reads.Load(), int32(3), "the failed read did not stop the poll")
 	assert.EqualValues(t, 2, applied.Load())
+}
+
+// The agent changes what it offers (persistence became available, the reason is gone): the cell the fleet reads holds
+// the new report after the next poll, the reason included.
+func TestPollFeaturesFollowsTheAgent(t *testing.T) {
+	cell := NewFeatureCell(nil)
+	reports := []*labpb.FeaturesResponse{
+		persistenceReportWithReason(false, "NODE_UNCONFIRMED:2/3"),
+		persistenceReport(true),
+	}
+	var reads atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		PollFeatures(ctx, "a", 5*time.Millisecond,
+			func(context.Context) (*labpb.FeaturesResponse, error) {
+				n := int(reads.Add(1))
+				return reports[min(n, len(reports))-1], nil
+			},
+			func(_ context.Context, r *labpb.FeaturesResponse) error {
+				cell.Set(FeaturesOf(r))
+				if reads.Load() >= 2 {
+					cancel()
+				}
+				return nil
+			})
+	}()
+	<-done
+	got := cell.Get()
+	require.NotNil(t, got)
+	assert.True(t, got.Persistence.Available)
+	assert.Nil(t, got.PersistenceUnavailable, "the reason of the first report is gone with it")
+
+	first := FeaturesOf(reports[0])
+	require.NotNil(t, first.PersistenceUnavailable)
+	assert.Equal(t, "NODE_UNCONFIRMED", first.PersistenceUnavailable.Code)
+}
+
+func persistenceReportWithReason(available bool, reason string) *labpb.FeaturesResponse {
+	p := &labpb.StatePersistenceFeature{Available: available}
+	raw := protowire.AppendTag(nil, persistenceUnavailableReasonField, protowire.BytesType)
+	p.ProtoReflect().SetUnknown(protowire.AppendString(raw, reason))
+	return &labpb.FeaturesResponse{StatePersistence: p}
 }
