@@ -2173,6 +2173,176 @@
                 }
             }
         },
+        "/auth/google/pending": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "The Google link waiting for the owner's confirmation (ticket cookie)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.googleLinkPendingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Give up the pending Google link",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/google/pending/code": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Mail the one-time code that confirms the pending Google link (60 s apart, 5 per hour; recaptcha action googleLinkCode)",
+                "parameters": [
+                    {
+                        "description": "RecaptchaToken",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/auth.recaptchaBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.googleLinkCodeResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/google/pending/confirm": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Confirm the pending Google link with the password or the mailed code, link it and sign in",
+                "parameters": [
+                    {
+                        "description": "exactly one of Password and Code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.googleLinkConfirmRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/google/register": {
             "get": {
                 "tags": [
@@ -2239,6 +2409,51 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/last-email": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "The address of the last sign-in in this browser (cookie), for prefilling the sign-in page; empty without functional consent (cib_consent)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.lastEmailResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Forget the remembered sign-in address («not you»)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -29112,10 +29327,67 @@
                 }
             }
         },
+        "auth.googleLinkCodeResponse": {
+            "type": "object",
+            "properties": {
+                "ResendAfterSeconds": {
+                    "description": "ResendAfterSeconds is how long to wait before asking for the next code.",
+                    "type": "integer"
+                }
+            }
+        },
+        "auth.googleLinkConfirmRequest": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "string"
+                },
+                "Password": {
+                    "description": "Exactly one of Password and Code.",
+                    "type": "string"
+                }
+            }
+        },
+        "auth.googleLinkPendingResponse": {
+            "type": "object",
+            "properties": {
+                "CodeSentAt": {
+                    "description": "CodeSentAt is when the last code was mailed, null if none was.",
+                    "type": "string"
+                },
+                "Email": {
+                    "description": "Email is the address of the account, masked (a***@example.org).",
+                    "type": "string"
+                },
+                "ExpiresAt": {
+                    "type": "string"
+                },
+                "GoogleEmail": {
+                    "description": "GoogleEmail and GoogleName are the Google account that will be linked; show them on the confirmation screen.",
+                    "type": "string"
+                },
+                "GoogleName": {
+                    "type": "string"
+                },
+                "HasPassword": {
+                    "description": "HasPassword: confirm with the password or the mailed code; false: only the code.",
+                    "type": "boolean"
+                }
+            }
+        },
         "auth.googleLinkResponse": {
             "type": "object",
             "properties": {
                 "Url": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.lastEmailResponse": {
+            "type": "object",
+            "properties": {
+                "Email": {
+                    "description": "Email is the remembered address, \"\" when the browser has none.",
                     "type": "string"
                 }
             }
@@ -29238,6 +29510,14 @@
             "type": "object",
             "properties": {
                 "CurrentPassword": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.recaptchaBody": {
+            "type": "object",
+            "properties": {
+                "RecaptchaToken": {
                     "type": "string"
                 }
             }

@@ -101,9 +101,51 @@ definitions:
       Code:
         type: string
     type: object
+  auth.googleLinkCodeResponse:
+    properties:
+      ResendAfterSeconds:
+        description: ResendAfterSeconds is how long to wait before asking for the
+          next code.
+        type: integer
+    type: object
+  auth.googleLinkConfirmRequest:
+    properties:
+      Code:
+        type: string
+      Password:
+        description: Exactly one of Password and Code.
+        type: string
+    type: object
+  auth.googleLinkPendingResponse:
+    properties:
+      CodeSentAt:
+        description: CodeSentAt is when the last code was mailed, null if none was.
+        type: string
+      Email:
+        description: Email is the address of the account, masked (a***@example.org).
+        type: string
+      ExpiresAt:
+        type: string
+      GoogleEmail:
+        description: GoogleEmail and GoogleName are the Google account that will be
+          linked; show them on the confirmation screen.
+        type: string
+      GoogleName:
+        type: string
+      HasPassword:
+        description: 'HasPassword: confirm with the password or the mailed code; false:
+          only the code.'
+        type: boolean
+    type: object
   auth.googleLinkResponse:
     properties:
       Url:
+        type: string
+    type: object
+  auth.lastEmailResponse:
+    properties:
+      Email:
+        description: Email is the remembered address, "" when the browser has none.
         type: string
     type: object
   auth.passkeyCeremonyResponse:
@@ -186,6 +228,11 @@ definitions:
   auth.reauthRequest:
     properties:
       CurrentPassword:
+        type: string
+    type: object
+  auth.recaptchaBody:
+    properties:
+      RecaptchaToken:
         type: string
     type: object
   auth.requestEmailChangeRequest:
@@ -14735,6 +14782,109 @@ paths:
         first)
       tags:
       - auth
+  /auth/google/pending:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Give up the pending Google link
+      tags:
+      - auth
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.googleLinkPendingResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: The Google link waiting for the owner's confirmation (ticket cookie)
+      tags:
+      - auth
+  /auth/google/pending/code:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: RecaptchaToken
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.recaptchaBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.googleLinkCodeResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Mail the one-time code that confirms the pending Google link (60 s
+        apart, 5 per hour; recaptcha action googleLinkCode)
+      tags:
+      - auth
+  /auth/google/pending/confirm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exactly one of Password and Code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.googleLinkConfirmRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Confirm the pending Google link with the password or the mailed code,
+        link it and sign in
+      tags:
+      - auth
   /auth/google/register:
     get:
       parameters:
@@ -14781,6 +14931,33 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Link Google to an incomplete (setup) account
+      tags:
+      - auth
+  /auth/last-email:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Forget the remembered sign-in address («not you»)
+      tags:
+      - auth
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.lastEmailResponse'
+              type: object
+      summary: The address of the last sign-in in this browser (cookie), for prefilling
+        the sign-in page; empty without functional consent (cib_consent)
       tags:
       - auth
   /auth/me:
