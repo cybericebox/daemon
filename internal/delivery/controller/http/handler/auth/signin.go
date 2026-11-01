@@ -66,7 +66,7 @@ func (h *Handler) signIn(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	h.prot.Authenticate(ctx, cookie)
+	h.startSession(ctx, cookie)
 	response.AbortWithData(ctx, gin.H{"RedirectURL": redirect})
 }
 

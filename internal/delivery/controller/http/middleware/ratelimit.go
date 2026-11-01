@@ -180,6 +180,8 @@ func UngatedPublicRoutes() []string {
 		"POST /api/auth/sign-up",
 		"POST /api/auth/passkeys/sign-in/begin",
 		"POST /api/auth/passkeys/sign-in/finish",
+		"GET /api/auth/last-email",
+		"DELETE /api/auth/last-email",
 		"GET /api/auth/setup",
 		"POST /api/auth/setup",
 		"POST /api/auth/password/reset-request",

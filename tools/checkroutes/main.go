@@ -42,6 +42,8 @@ var pathArg = map[string]int{
 var publicRoutes = map[string]bool{
 	"POST pub/sign-in":                   true, // recaptcha-gated credential entry
 	"POST pub/sign-up":                   true, // recaptcha-gated registration entry
+	"GET pub/last-email":                 true, // the browser's own cookie, nothing else
+	"DELETE pub/last-email":              true, // clears the browser's own cookie
 	"GET pub/setup":                      true, // setup-token flow (context)
 	"POST pub/setup":                     true, // setup-token flow (complete)
 	"POST passkeys/begin":                true, // recaptcha-gated passkey sign-in start (one-time server challenge)

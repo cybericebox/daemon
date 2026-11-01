@@ -103,7 +103,7 @@ func (h *Handler) googleLinkConfirm(ctx *gin.Context) {
 		return
 	}
 	clearGoogleLinkTicket(ctx)
-	h.prot.Authenticate(ctx, cookie)
+	h.startSession(ctx, cookie)
 	response.AbortWithData(ctx, gin.H{"RedirectURL": redirect})
 }
 

@@ -29,6 +29,15 @@ const (
 	oauthCookiePath = "/"
 )
 
+// loginHint is the address Google's chooser preselects: the one in the query, else the last sign-in address this
+// browser remembers (the cookie), else none.
+func (h *Handler) loginHint(ctx *gin.Context) string {
+	if hint := ctx.Query("login_hint"); hint != "" {
+		return hint
+	}
+	return lastEmail(ctx)
+}
+
 // redirectFromQuery validates the ?return_to= query param against the platform
 // domain, returning "" for missing/untrusted input — GetGoogleLoginURL then
 // resolves "" to the default landing page at callback time.
@@ -52,7 +61,7 @@ func (h *Handler) redirectFromQuery(ctx *gin.Context) string {
 func (h *Handler) googleRedirect(ctx *gin.Context) {
 	url, state, err := h.useCase.GetGoogleLoginURL(
 		h.redirectFromQuery(ctx),
-		ctx.Query("login_hint"),
+		h.loginHint(ctx),
 	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -75,7 +84,7 @@ func (h *Handler) googleRedirect(ctx *gin.Context) {
 func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
 	url, state, err := h.useCase.GetGoogleLoginURL(
 		h.redirectFromQuery(ctx),
-		ctx.Query("login_hint"),
+		h.loginHint(ctx),
 	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -179,7 +188,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		}
 		if res.SessionCookie != "" {
 			// Google already linked to a finished account: plain sign-in.
-			h.prot.Authenticate(ctx, res.SessionCookie)
+			h.startSession(ctx, res.SessionCookie)
 			response.TemporaryRedirect(ctx, res.Redirect)
 			return
 		}
@@ -269,7 +278,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 			}
 			return
 		}
-		h.prot.Authenticate(ctx, cookie)
+		h.startSession(ctx, cookie)
 		response.TemporaryRedirect(ctx, redirect)
 	}
 }

@@ -223,5 +223,6 @@ func (h *Handler) deleteAccount(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	clearLastEmail(ctx)        // the address of a deleted account is not remembered
 	h.prot.DeAuthenticate(ctx) // clears cookies + returns success
 }

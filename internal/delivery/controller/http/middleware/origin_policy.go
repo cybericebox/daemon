@@ -207,6 +207,7 @@ var PublicReadRoutes = map[string]bool{
 	"/api/auth/google":                          true,
 	"/api/auth/google/callback":                 true,
 	"/api/auth/google/pending":                  true,
+	"/api/auth/last-email":                      true,
 	"/api/auth/google/register":                 true,
 	"/api/auth/google/setup":                    true,
 	"/api/auth/password/policy":                 true,

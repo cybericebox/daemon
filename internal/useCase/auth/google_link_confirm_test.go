@@ -375,3 +375,21 @@ func TestCancelGoogleLink(t *testing.T) {
 		t.Fatalf("an unknown ticket is silently done: %v", err)
 	}
 }
+
+// The address behind a fresh session cookie is what the browser remembers as its last sign-in address.
+func TestSessionEmail(t *testing.T) {
+	f := newLinkFixture(t, &oauth.GoogleUser{})
+	f.expectTicket("", 0, f.user("Secret!1"))
+	f.expectLinkAndSession()
+	cookie, _, err := f.uc.ConfirmGoogleLink(context.Background(), rawTicket, "Secret!1", "", authModel.SessionMetadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.uc.SessionEmail(context.Background(), cookie)
+	if err != nil || got != account {
+		t.Fatalf("SessionEmail = %q %v", got, err)
+	}
+	if _, err = f.uc.SessionEmail(context.Background(), "garbage"); err == nil {
+		t.Fatal("a cookie that does not open gives no address")
+	}
+}

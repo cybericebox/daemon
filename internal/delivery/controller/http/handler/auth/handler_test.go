@@ -52,6 +52,7 @@ type fakeUC struct {
 	tablePrefs        *tablePrefsModel.Prefs
 	tableKey          string
 	passkeys          []passkeyModel.Passkey
+	sessionEmailErr   error
 }
 
 func (f *fakeUC) SignIn(
@@ -141,6 +142,12 @@ func (f *fakeUC) SendGoogleLinkCode(context.Context, string) (authUseCase.Google
 }
 func (f *fakeUC) ConfirmGoogleLink(context.Context, string, string, string, authModel.SessionMetadata) (string, string, error) {
 	return "", "", nil
+}
+func (f *fakeUC) SessionEmail(context.Context, string) (string, error) {
+	if f.sessionEmailErr != nil {
+		return "", f.sessionEmailErr
+	}
+	return "me@example.org", nil
 }
 func (f *fakeUC) CancelGoogleLink(context.Context, string) error { return nil }
 

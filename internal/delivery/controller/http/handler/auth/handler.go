@@ -79,6 +79,7 @@ type (
 			ctx context.Context,
 			setupToken, code, state string,
 		) (string, error)
+		SessionEmail(ctx context.Context, sessionCookie string) (string, error)
 		GoogleLinkPendingOf(ctx context.Context, ticket string) (authUseCase.GoogleLinkPending, error)
 		SendGoogleLinkCode(ctx context.Context, ticket string) (authUseCase.GoogleLinkCodeSent, error)
 		ConfirmGoogleLink(ctx context.Context, ticket, password, code string, meta authModel.SessionMetadata) (string, string, error)
@@ -172,6 +173,8 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	pub := public.Group("auth")
 	pub.POST("sign-in", h.prot.RequireCaptcha("signIn"), h.signIn)
 	pub.POST("sign-up", h.prot.RequireCaptcha("signUp"), h.signUp)
+	pub.GET("last-email", h.getLastEmail)
+	pub.DELETE("last-email", h.forgetLastEmail)
 	pub.GET("setup", h.getSetup)
 	pub.POST("setup", h.completeSetup)
 
