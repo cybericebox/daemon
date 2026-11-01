@@ -101,6 +101,9 @@ type (
 		Permission string            `json:"Permission"`
 		Limiter    string            `json:"Limiter"`
 		Details    map[string]string `json:"Details"`
+		// DispatchID is the notification dispatch behind a mail failure (GET /notifications/dispatches/{id}); null
+		// when the occurrence has none.
+		DispatchID *uuid.UUID `json:"DispatchID"`
 	}
 
 	listResponse struct {
@@ -232,8 +235,13 @@ func sampleOf(s errorJournalModel.Sample) sampleResponse {
 	if details == nil {
 		details = map[string]string{}
 	}
+	var dispatchID *uuid.UUID
+	if id, err := uuid.FromString(details["dispatch_id"]); err == nil {
+		dispatchID = &id
+	}
 	return sampleResponse{
-		ID: s.ID, OccurredAt: s.OccurredAt, Message: s.Message, Stack: s.Stack, Method: s.Method, Route: s.Route,
+		DispatchID: dispatchID,
+		ID:         s.ID, OccurredAt: s.OccurredAt, Message: s.Message, Stack: s.Stack, Method: s.Method, Route: s.Route,
 		HTTPStatus: s.HTTPStatus, RequestID: s.RequestID, UserID: s.UserID, Role: s.Role, Permission: s.Permission,
 		Limiter: s.Limiter, Details: details,
 	}

@@ -29881,6 +29881,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "DispatchID": {
+                    "description": "DispatchID is the notification dispatch behind a mail failure (GET /notifications/dispatches/{id}); null\nwhen the occurrence has none.",
+                    "type": "string"
+                },
                 "HTTPStatus": {
                     "type": "integer"
                 },

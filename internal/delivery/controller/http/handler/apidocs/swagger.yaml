@@ -607,6 +607,11 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      DispatchID:
+        description: |-
+          DispatchID is the notification dispatch behind a mail failure (GET /notifications/dispatches/{id}); null
+          when the occurrence has none.
+        type: string
       HTTPStatus:
         type: integer
       ID:

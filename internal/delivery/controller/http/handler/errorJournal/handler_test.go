@@ -297,3 +297,16 @@ func TestBulkStatusAnswersPerGroupAndAuditsEach(t *testing.T) {
 	call(r, http.MethodPost, "/api/admin/errors/bulk/reopen", string(body))
 	assert.Equal(t, errorJournalModel.StatusOpen, uc.status)
 }
+
+func TestSampleCarriesTheDispatchOfAMailFailure(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
+	with := sampleOf(errorJournalModel.Sample{Details: map[string]string{"dispatch_id": id.String()}})
+	if with.DispatchID == nil || *with.DispatchID != id {
+		t.Fatalf("dispatch id = %v", with.DispatchID)
+	}
+	for _, details := range []map[string]string{nil, {"dispatch_id": "not-a-uuid"}, {"other": "x"}} {
+		if got := sampleOf(errorJournalModel.Sample{Details: details}); got.DispatchID != nil {
+			t.Fatalf("no dispatch for %v: %v", details, got.DispatchID)
+		}
+	}
+}
