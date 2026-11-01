@@ -403,17 +403,19 @@ const listNotificationBroadcasts = `-- name: ListNotificationBroadcasts :many
 SELECT b.id, b.scope_event_id, b.created_by, b.channels, b.subject, b.preheader, b.email_body, b.email_styling, b.inapp_title, b.inapp_body, b.inapp_link, b.audience, b.recipient_count, b.status, b.created_at, b.finished_at,
        COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')::text AS created_by_name,
        COALESCE(e.name, '')::text                                                          AS event_name,
-       (SELECT count(*) FROM notification_dispatches d
-        WHERE d.broadcast_id = b.id AND EXISTS (SELECT 1 FROM notification_dispatch_targets t
-                                                WHERE t.dispatch_id = d.id AND t.status = 'error'))::bigint AS failed_count,
-       (SELECT count(*) FROM notification_dispatches d
-        WHERE d.broadcast_id = b.id
-          AND d.status = 'done'
-          AND NOT EXISTS (SELECT 1 FROM notification_dispatch_targets t
-                          WHERE t.dispatch_id = d.id AND t.status = 'error'))::bigint AS sent_count
+       c.failed::bigint                                                                    AS failed_count,
+       c.sent::bigint                                                                      AS sent_count
 FROM notification_broadcasts b
 LEFT JOIN users u ON u.id = b.created_by
 LEFT JOIN events e ON e.id = b.scope_event_id
+LEFT JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM notification_dispatch_targets t
+                                          WHERE t.dispatch_id = d.id AND t.status = 'error'))      AS failed,
+           count(*) FILTER (WHERE d.status = 'done'
+                              AND NOT EXISTS (SELECT 1 FROM notification_dispatch_targets t
+                                              WHERE t.dispatch_id = d.id AND t.status = 'error')) AS sent
+    FROM notification_dispatches d
+    WHERE d.broadcast_id = b.id) c ON true
 WHERE ($1::text = ''
     OR ($1::text = 'platform' AND b.scope_event_id IS NULL)
     OR b.scope_event_id::text = $1::text)
@@ -432,6 +434,16 @@ ORDER BY
   CASE WHEN $5::text = 'status' AND $6::text = 'desc' THEN b.status END DESC,
   CASE WHEN $5::text = 'recipients' AND $6::text = 'asc' THEN b.recipient_count END ASC,
   CASE WHEN $5::text = 'recipients' AND $6::text = 'desc' THEN b.recipient_count END DESC,
+  CASE WHEN $5::text = 'channels' AND $6::text = 'asc' THEN array_to_string(b.channels, ',') END ASC,
+  CASE WHEN $5::text = 'channels' AND $6::text = 'desc' THEN array_to_string(b.channels, ',') END DESC,
+  CASE WHEN $5::text = 'audience' AND $6::text = 'asc' THEN b.audience ->> 'kind' END ASC,
+  CASE WHEN $5::text = 'audience' AND $6::text = 'desc' THEN b.audience ->> 'kind' END DESC,
+  CASE WHEN $5::text = 'delivered' AND $6::text = 'asc' THEN c.sent END ASC,
+  CASE WHEN $5::text = 'delivered' AND $6::text = 'desc' THEN c.sent END DESC,
+  CASE WHEN $5::text = 'failed' AND $6::text = 'asc' THEN c.failed END ASC,
+  CASE WHEN $5::text = 'failed' AND $6::text = 'desc' THEN c.failed END DESC,
+  CASE WHEN $5::text = 'author' AND $6::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')) END ASC,
+  CASE WHEN $5::text = 'author' AND $6::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')) END DESC,
   CASE WHEN $5::text = 'created' AND $6::text = 'asc' THEN b.created_at END ASC,
   b.created_at DESC, b.id DESC
 LIMIT $8 OFFSET $7

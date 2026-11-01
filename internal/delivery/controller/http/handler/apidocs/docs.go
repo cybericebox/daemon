@@ -6471,7 +6471,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "subject | status | recipients | created (page-number mode)",
+                        "description": "subject | channels | audience | recipients | delivered | failed | status | author | created (page-number mode)",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -24652,7 +24652,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "subject | status | recipients | created (page-number mode)",
+                        "description": "subject | channels | audience | recipients | delivered | failed | status | author | created (page-number mode)",
                         "name": "sortBy",
                         "in": "query"
                     },

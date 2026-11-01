@@ -380,3 +380,13 @@ func TestBroadcastHistoryPageNumberMode(t *testing.T) {
 		}
 	}
 }
+
+func TestBroadcastHistoryAcceptsEveryColumnForSorting(t *testing.T) {
+	uc := &fakeUseCase{role: "owner"}
+	for _, column := range []string{"subject", "channels", "audience", "recipients", "delivered", "failed", "status", "author", "created"} {
+		w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts?page=1&sortBy="+column+"&sortDir=asc", string(rbac.PermNotificationsBroadcast), "")
+		if w.Code != http.StatusOK || uc.pageFilter.SortBy != column {
+			t.Errorf("sortBy=%s: %d (%s)", column, w.Code, uc.pageFilter.SortBy)
+		}
+	}
+}

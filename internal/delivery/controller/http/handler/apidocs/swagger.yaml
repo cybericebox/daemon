@@ -17087,7 +17087,8 @@ paths:
         in: query
         name: status
         type: string
-      - description: subject | status | recipients | created (page-number mode)
+      - description: subject | channels | audience | recipients | delivered | failed
+          | status | author | created (page-number mode)
         in: query
         name: sortBy
         type: string
@@ -28983,7 +28984,8 @@ paths:
         in: query
         name: status
         type: string
-      - description: subject | status | recipients | created (page-number mode)
+      - description: subject | channels | audience | recipients | delivered | failed
+          | status | author | created (page-number mode)
         in: query
         name: sortBy
         type: string

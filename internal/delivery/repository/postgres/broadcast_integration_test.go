@@ -320,6 +320,30 @@ func TestBroadcast_HistoryPageNumberMode(t *testing.T) {
 		t.Fatalf("cancel: %v %v", canceled, err)
 	}
 
+	// Beta reached one person, Gamma failed for another: delivered and failed order the history.
+	reached := mustSeedUser(t, db, "bc-page-reached@test.test")
+	missed := mustSeedUser(t, db, "bc-page-missed@test.test")
+	dispatches := dispatchRepo.New(db.Queries)
+	reachedDispatch, missedDispatch := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var gamma uuid.UUID
+	items, err := repo.List(ctx, broadcastModel.ListFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range items {
+		if b.Content.Subject == "Gamma" {
+			gamma = b.ID
+		}
+	}
+	if err = dispatches.CreateForBroadcast(ctx, reachedDispatch, "broadcast", reached, nil, &beta); err != nil {
+		t.Fatal(err)
+	}
+	if err = dispatches.CreateForBroadcast(ctx, missedDispatch, "broadcast", missed, nil, &gamma); err != nil {
+		t.Fatal(err)
+	}
+	rtExec(t, db, `UPDATE notification_dispatches SET status = 'done' WHERE id = ANY($1)`, []uuid.UUID{reachedDispatch, missedDispatch})
+	rtExec(t, db, `INSERT INTO notification_dispatch_targets (dispatch_id, channel, status) VALUES ($1, 'email', 'done'), ($2, 'email', 'error')`, reachedDispatch, missedDispatch)
+
 	subjects := func(f broadcastModel.ListFilter) []string {
 		t.Helper()
 		f.Scope, f.Limit = "", 10
@@ -340,6 +364,17 @@ func TestBroadcast_HistoryPageNumberMode(t *testing.T) {
 			t.Fatal(err)
 		}
 		return n
+	}
+	if got := subjects(broadcastModel.ListFilter{SortBy: "delivered", SortDir: "desc"}); len(got) != 3 || got[0] != "Beta news" {
+		t.Fatalf("delivered desc puts the broadcast that reached someone first: %v", got)
+	}
+	if got := subjects(broadcastModel.ListFilter{SortBy: "failed", SortDir: "desc"}); len(got) != 3 || got[0] != "Gamma" {
+		t.Fatalf("failed desc puts the broadcast with a failure first: %v", got)
+	}
+	for _, column := range []string{"channels", "audience", "author"} {
+		if got := subjects(broadcastModel.ListFilter{SortBy: column, SortDir: "desc"}); len(got) != 3 {
+			t.Fatalf("%s desc: %v", column, got)
+		}
 	}
 	if got := subjects(
 		broadcastModel.ListFilter{SortBy: "recipients", SortDir: "desc"},

@@ -125,7 +125,7 @@ func (h *Handler) send(scope scopeFn) gin.HandlerFunc {
 // @Param    pageSize  query  int     false  "page size of the page-number mode (default 50)"
 // @Param    search    query  string  false  "subject, in-app title or event name (page-number mode)"
 // @Param    status    query  string  false  "sending | done | failed | canceled (page-number mode)"
-// @Param    sortBy    query  string  false  "subject | status | recipients | created (page-number mode)"
+// @Param    sortBy    query  string  false  "subject | channels | audience | recipients | delivered | failed | status | author | created (page-number mode)"
 // @Param    sortDir   query  string  false  "asc | desc (page-number mode)"
 // @Success  200  {object}  response.Response{data=pagination.CursorPage[broadcastResponse]}
 // @Router   /notifications/broadcasts [get]
@@ -395,8 +395,13 @@ func (h *Handler) broadcastRef(ctx *gin.Context, scope scopeFn) (uuid.UUID, *uui
 // broadcastSortColumns are the columns of the page-number mode a history can be sorted by.
 var broadcastSortColumns = map[string]bool{
 	"subject":    true,
-	"status":     true,
+	"channels":   true,
+	"audience":   true,
 	"recipients": true,
+	"delivered":  true,
+	"failed":     true,
+	"status":     true,
+	"author":     true,
 	"created":    true,
 }
 
