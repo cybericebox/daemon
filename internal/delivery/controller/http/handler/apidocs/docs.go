@@ -22530,7 +22530,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "event | team | status | reason | updatedAt | statusChangedAt | generation",
+                        "description": "event | team | status | reason | cpu | memory | updatedAt | statusChangedAt | generation",
                         "name": "sortBy",
                         "in": "query"
                     },

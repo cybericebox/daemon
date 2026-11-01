@@ -167,6 +167,8 @@ func TestListFiltersAndSortingAreValidated(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/infrastructure/stands?page=1&pageSize=10&sortBy=reason",
+		"/api/infrastructure/stands?page=1&pageSize=10&sortBy=cpu&sortDir=desc",
+		"/api/infrastructure/stands?page=1&pageSize=10&sortBy=memory",
 		"/api/infrastructure/test-labs?page=1&pageSize=10&sortBy=variant",
 		"/api/infrastructure/test-labs?page=1&pageSize=10&sortBy=status&sortDir=asc",
 	} {

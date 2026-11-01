@@ -27290,7 +27290,7 @@ paths:
         in: query
         name: search
         type: string
-      - description: event | team | status | reason | updatedAt | statusChangedAt
+      - description: event | team | status | reason | cpu | memory | updatedAt | statusChangedAt
           | generation
         in: query
         name: sortBy
