@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"google.golang.org/protobuf/encoding/protowire"
-
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -125,8 +123,5 @@ func TestPollFeaturesFollowsTheAgent(t *testing.T) {
 }
 
 func persistenceReportWithReason(available bool, reason string) *labpb.FeaturesResponse {
-	p := &labpb.StatePersistenceFeature{Available: available}
-	raw := protowire.AppendTag(nil, persistenceUnavailableReasonField, protowire.BytesType)
-	p.ProtoReflect().SetUnknown(protowire.AppendString(raw, reason))
-	return &labpb.FeaturesResponse{StatePersistence: p}
+	return &labpb.FeaturesResponse{StatePersistence: &labpb.StatePersistenceFeature{Available: available, UnavailableReason: reason}}
 }

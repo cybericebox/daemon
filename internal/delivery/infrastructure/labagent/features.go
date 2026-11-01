@@ -5,10 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
-
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
@@ -105,8 +101,8 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
 		Reservations:           infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
-		PersistenceUnavailable: unavailableReasonOf(p, persistenceUnavailableReasonField),
-		LifecycleUnavailable:   unavailableReasonOf(life, lifecycleUnavailableReasonField),
+		PersistenceUnavailable: infraModel.ParseUnavailableReason(p.GetUnavailableReason()),
+		LifecycleUnavailable:   infraModel.ParseUnavailableReason(life.GetUnavailableReason()),
 	}
 }
 
@@ -474,48 +470,4 @@ func fleetLifecycleCapabilities(members []*Member) (infraModel.LifecycleCapabili
 		out.FullGroupStop = out.FullGroupStop || l.FullGroupStop
 	}
 	return out, true
-}
-
-// Field numbers of `unavailable_reason` in the agent API 1.4: the pinned SDK predates it, so the field is not in its
-// compiled descriptor and arrives as an unknown field of the message.
-const (
-	persistenceUnavailableReasonField protoreflect.FieldNumber = 8 // StatePersistenceFeature
-	lifecycleUnavailableReasonField   protoreflect.FieldNumber = 6 // LifecycleFeature
-)
-
-// unavailableReasonOf reads the `unavailable_reason` string of a feature message (the agent API contract 1.4 has it):
-// by name when the SDK knows the field, else from the unknown fields of the message by its number. Only a value of the
-// fixed grammar and code list passes (infraModel.ParseUnavailableReason); the rest of what an agent says is dropped.
-func unavailableReasonOf(feature proto.Message, number protoreflect.FieldNumber) *infraModel.UnavailableReason {
-	if feature == nil || !feature.ProtoReflect().IsValid() {
-		return nil
-	}
-	message := feature.ProtoReflect()
-	if field := message.Descriptor().Fields().ByName("unavailable_reason"); field != nil {
-		if field.Kind() != protoreflect.StringKind {
-			return nil
-		}
-		return infraModel.ParseUnavailableReason(message.Get(field).String())
-	}
-	raw := message.GetUnknown()
-	for len(raw) > 0 {
-		fieldNumber, wireType, n := protowire.ConsumeTag(raw)
-		if n < 0 {
-			return nil
-		}
-		raw = raw[n:]
-		if fieldNumber == number && wireType == protowire.BytesType {
-			value, m := protowire.ConsumeString(raw)
-			if m < 0 {
-				return nil
-			}
-			return infraModel.ParseUnavailableReason(value)
-		}
-		skip := protowire.ConsumeFieldValue(fieldNumber, wireType, raw)
-		if skip < 0 {
-			return nil
-		}
-		raw = raw[skip:]
-	}
-	return nil
 }
