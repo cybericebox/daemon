@@ -24,6 +24,7 @@ import (
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/pkg/oauth"
@@ -288,6 +289,11 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 	}
 	if _, err := u.users.DeleteProviders(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user providers").Err()
+	}
+	// Nothing issued to the old account may survive it: reset links, email-change and setup links.
+	if err := u.revokeCodes(ctx, userID,
+		temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType, temporalCodeModel.SetupLinkCodeType); err != nil {
+		return err
 	}
 	if err := u.tablePrefs.DeleteAll(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user table views").Err()

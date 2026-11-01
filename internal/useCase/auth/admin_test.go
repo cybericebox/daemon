@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	"sync"
 	"testing"
 	"time"
@@ -338,6 +339,9 @@ func TestAdminDeleteUser_Success(t *testing.T) {
 		})
 	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
+	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType, temporalCodeModel.SetupLinkCodeType} {
+		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(0), nil)
+	}
 	repo.EXPECT().DeleteAllUserTablePrefs(gomock.Any(), uid).Return(int64(0), nil)
 	repo.EXPECT().DeleteUserPasskeys(gomock.Any(), uid).Return(int64(0), nil)
 
