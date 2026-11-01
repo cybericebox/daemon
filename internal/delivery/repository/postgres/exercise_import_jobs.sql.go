@@ -12,6 +12,29 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const dismissExerciseImportJob = `-- name: DismissExerciseImportJob :execrows
+INSERT INTO exercise_import_dismissals (job_id, dismissed_at)
+SELECT j.id, $1
+FROM exercise_import_jobs j
+WHERE j.id = $2 AND j.created_by = $3
+ON CONFLICT (job_id) DO UPDATE SET dismissed_at = EXCLUDED.dismissed_at
+`
+
+type DismissExerciseImportJobParams struct {
+	DismissedAt time.Time `json:"dismissed_at"`
+	JobID       uuid.UUID `json:"job_id"`
+	CreatedBy   uuid.UUID `json:"created_by"`
+}
+
+// Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
+func (q *Queries) DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, dismissExerciseImportJob, arg.DismissedAt, arg.JobID, arg.CreatedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getExerciseImportJob = `-- name: GetExerciseImportJob :one
 SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 FROM exercise_import_jobs
@@ -88,29 +111,6 @@ func (q *Queries) GetOwnedExerciseImportJobBySource(ctx context.Context, arg Get
 		&i.Results,
 	)
 	return i, err
-}
-
-const dismissExerciseImportJob = `-- name: DismissExerciseImportJob :execrows
-INSERT INTO exercise_import_dismissals (job_id, dismissed_at)
-SELECT j.id, $1
-FROM exercise_import_jobs j
-WHERE j.id = $2 AND j.created_by = $3
-ON CONFLICT (job_id) DO UPDATE SET dismissed_at = EXCLUDED.dismissed_at
-`
-
-type DismissExerciseImportJobParams struct {
-	DismissedAt time.Time `json:"dismissed_at"`
-	JobID       uuid.UUID `json:"job_id"`
-	CreatedBy   uuid.UUID `json:"created_by"`
-}
-
-// Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
-func (q *Queries) DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error) {
-	result, err := q.db.Exec(ctx, dismissExerciseImportJob, arg.DismissedAt, arg.JobID, arg.CreatedBy)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const listOpenExerciseImportJobs = `-- name: ListOpenExerciseImportJobs :many

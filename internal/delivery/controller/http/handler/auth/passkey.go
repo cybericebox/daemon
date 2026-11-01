@@ -117,7 +117,7 @@ func (h *Handler) passkeySignInFinish(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	h.prot.Authenticate(ctx, cookie)
+	h.startSession(ctx, cookie)
 	response.AbortWithData(ctx, gin.H{redirectURLKey: redirect})
 }
 

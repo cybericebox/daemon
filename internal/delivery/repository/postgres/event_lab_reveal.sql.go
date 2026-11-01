@@ -13,6 +13,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const declineEventLabRevealTeam = `-- name: DeclineEventLabRevealTeam :exec
+WITH declined AS (
+    INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at, revision, mode)
+    SELECT ee.id, $1::uuid, $4::text, $5, ee.revision, cfg.task_reveal_mode
+    FROM event_exercises ee
+             JOIN event_configs cfg ON cfg.event_id = ee.event_id
+    WHERE ee.event_id = $2 AND ee.id = $3
+    ON CONFLICT (event_exercise_id, event_team_id) DO UPDATE SET reason = EXCLUDED.reason,
+                                                                declined_at = EXCLUDED.declined_at,
+                                                                revision = EXCLUDED.revision,
+                                                                mode = EXCLUDED.mode
+    RETURNING event_exercise_id
+)
+UPDATE event_lab_reveal_barriers barrier
+SET eligible_team_ids = array_remove(barrier.eligible_team_ids, $1::uuid)
+WHERE barrier.event_id = $2
+  AND barrier.event_exercise_id = $3
+  AND barrier.opened_at IS NULL
+`
+
+type DeclineEventLabRevealTeamParams struct {
+	TeamID          uuid.UUID `json:"team_id"`
+	EventID         uuid.UUID `json:"event_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	Reason          string    `json:"reason"`
+	Now             time.Time `json:"now"`
+}
+
+// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
+// removed from the unopened barrier at once.
+func (q *Queries) DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error {
+	_, err := q.db.Exec(ctx, declineEventLabRevealTeam,
+		arg.TeamID,
+		arg.EventID,
+		arg.EventExerciseID,
+		arg.Reason,
+		arg.Now,
+	)
+	return err
+}
+
 const freezeEventLabRevealBarrier = `-- name: FreezeEventLabRevealBarrier :one
 WITH candidate AS (
  SELECT ee.event_id,ee.id AS event_exercise_id,ee.revision,ec.task_reveal_mode AS mode,
@@ -47,7 +88,10 @@ type FreezeEventLabRevealBarrierParams struct {
 	Now             time.Time `json:"now"`
 }
 
-// An empty eligible roster is deferred, not an immutable prepared cohort.
+// An empty eligible roster is deferred, not an immutable prepared cohort. Until the tasks are shown (the barrier is
+// opened) the cohort is recomputed on every call: a team that becomes eligible, before or after the start, joins it, and a
+// team declined for lack of room (event_lab_reveal_declined, in the same revision and mode) stays out; once opened
+// it is frozen.
 func (q *Queries) FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, freezeEventLabRevealBarrier, arg.EventExerciseID, arg.EventID, arg.Now)
 	var eligible_team_ids []uuid.UUID
@@ -100,7 +144,7 @@ type InvalidateEventLabRevealBarrierParams struct {
 	EventExerciseID uuid.UUID `json:"event_exercise_id"`
 }
 
-// Authorized edits invalidate a different preparation tuple atomically. They
+// Authorized edits invalidate a different preparation tuple atomically (and the declines made in the old one). They
 // never insert/freeze a cohort before the assignment preparation boundary.
 func (q *Queries) InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error {
 	_, err := q.db.Exec(ctx, invalidateEventLabRevealBarrier, arg.EventID, arg.EventExerciseID)
@@ -271,45 +315,4 @@ func (q *Queries) OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenR
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const declineEventLabRevealTeam = `-- name: DeclineEventLabRevealTeam :exec
-WITH declined AS (
-    INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at, revision, mode)
-    SELECT ee.id, $1, $2, $3, ee.revision, cfg.task_reveal_mode
-    FROM event_exercises ee
-             JOIN event_configs cfg ON cfg.event_id = ee.event_id
-    WHERE ee.event_id = $4 AND ee.id = $5
-    ON CONFLICT (event_exercise_id, event_team_id) DO UPDATE SET reason = EXCLUDED.reason,
-                                                                declined_at = EXCLUDED.declined_at,
-                                                                revision = EXCLUDED.revision,
-                                                                mode = EXCLUDED.mode
-    RETURNING event_exercise_id
-)
-UPDATE event_lab_reveal_barriers barrier
-SET eligible_team_ids = array_remove(barrier.eligible_team_ids, $1)
-WHERE barrier.event_id = $4
-  AND barrier.event_exercise_id = $5
-  AND barrier.opened_at IS NULL
-`
-
-type DeclineEventLabRevealTeamParams struct {
-	TeamID          uuid.UUID `json:"team_id"`
-	Reason          string    `json:"reason"`
-	Now             time.Time `json:"now"`
-	EventID         uuid.UUID `json:"event_id"`
-	EventExerciseID uuid.UUID `json:"event_exercise_id"`
-}
-
-// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
-// removed from the unopened barrier at once.
-func (q *Queries) DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error {
-	_, err := q.db.Exec(ctx, declineEventLabRevealTeam,
-		arg.TeamID,
-		arg.Reason,
-		arg.Now,
-		arg.EventID,
-		arg.EventExerciseID,
-	)
-	return err
 }

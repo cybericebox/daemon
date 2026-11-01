@@ -35,6 +35,9 @@ func (h *Handler) loginHint(ctx *gin.Context) string {
 	if hint := ctx.Query("login_hint"); hint != "" {
 		return hint
 	}
+	if !hasFunctionalConsent(ctx) {
+		return ""
+	}
 	return lastEmail(ctx)
 }
 

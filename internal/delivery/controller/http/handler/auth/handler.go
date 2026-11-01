@@ -198,7 +198,7 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	// The pending link of a Google sign-in whose owner is not confirmed yet (the ticket is in a cookie).
 	pending := google.Group("pending")
 	pending.GET("", h.googleLinkPending)
-	pending.POST("code", h.googleLinkSendCode)
+	pending.POST("code", h.prot.RequireCaptcha("googleLinkCode"), h.googleLinkSendCode)
 	pending.POST("confirm", h.googleLinkConfirm)
 	pending.DELETE("", h.googleLinkCancel)
 

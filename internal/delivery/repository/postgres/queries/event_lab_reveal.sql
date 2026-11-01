@@ -98,7 +98,7 @@ WHERE d.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
 -- removed from the unopened barrier at once.
 WITH declined AS (
     INSERT INTO event_lab_reveal_declined (event_exercise_id, event_team_id, reason, declined_at, revision, mode)
-    SELECT ee.id, sqlc.arg(team_id), sqlc.arg(reason), sqlc.arg(now), ee.revision, cfg.task_reveal_mode
+    SELECT ee.id, sqlc.arg(team_id)::uuid, sqlc.arg(reason)::text, sqlc.arg(now), ee.revision, cfg.task_reveal_mode
     FROM event_exercises ee
              JOIN event_configs cfg ON cfg.event_id = ee.event_id
     WHERE ee.event_id = sqlc.arg(event_id) AND ee.id = sqlc.arg(event_exercise_id)
@@ -109,7 +109,7 @@ WITH declined AS (
     RETURNING event_exercise_id
 )
 UPDATE event_lab_reveal_barriers barrier
-SET eligible_team_ids = array_remove(barrier.eligible_team_ids, sqlc.arg(team_id))
+SET eligible_team_ids = array_remove(barrier.eligible_team_ids, sqlc.arg(team_id)::uuid)
 WHERE barrier.event_id = sqlc.arg(event_id)
   AND barrier.event_exercise_id = sqlc.arg(event_exercise_id)
   AND barrier.opened_at IS NULL;

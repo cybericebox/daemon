@@ -45,7 +45,7 @@ DELETE /api/auth/google/link | gate: self | layers: -
 POST   /api/auth/google/link | gate: self | layers: -
 DELETE /api/auth/google/pending | gate: - | layers: -
 GET    /api/auth/google/pending | gate: - | layers: -
-POST   /api/auth/google/pending/code | gate: - | layers: -
+POST   /api/auth/google/pending/code | gate: - | layers: recaptcha
 POST   /api/auth/google/pending/confirm | gate: - | layers: -
 GET    /api/auth/google/register | gate: - | layers: -
 GET    /api/auth/google/setup | gate: - | layers: -

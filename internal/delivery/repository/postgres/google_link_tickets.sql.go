@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const consumeGoogleLinkTicket = `-- name: ConsumeGoogleLinkTicket :execrows
@@ -168,9 +169,9 @@ WHERE id = $3
 `
 
 type SetGoogleLinkTicketCodeParams struct {
-	CodeHash string    `json:"code_hash"`
-	SentAt   time.Time `json:"sent_at"`
-	ID       uuid.UUID `json:"id"`
+	CodeHash string             `json:"code_hash"`
+	SentAt   pgtype.Timestamptz `json:"sent_at"`
+	ID       uuid.UUID          `json:"id"`
 }
 
 // A fresh mailed code replaces the earlier one and has all its attempts again.

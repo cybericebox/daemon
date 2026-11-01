@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 )
@@ -68,7 +69,7 @@ func (r *Repository) Get(ctx context.Context, ticketHash string, now time.Time) 
 
 // SetCode keeps the hash of a newly mailed code (all attempts again); false when the ticket is gone.
 func (r *Repository) SetCode(ctx context.Context, id uuid.UUID, codeHash string, sentAt time.Time) (bool, error) {
-	n, err := r.q.SetGoogleLinkTicketCode(ctx, postgres.SetGoogleLinkTicketCodeParams{ID: id, CodeHash: codeHash, SentAt: sentAt})
+	n, err := r.q.SetGoogleLinkTicketCode(ctx, postgres.SetGoogleLinkTicketCodeParams{ID: id, CodeHash: codeHash, SentAt: pgtype.Timestamptz{Time: sentAt, Valid: true}})
 	return n > 0, err
 }
 

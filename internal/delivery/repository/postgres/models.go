@@ -820,6 +820,21 @@ type File struct {
 	CreatedBy   uuid.NullUUID `json:"created_by"`
 }
 
+type GoogleLinkTicket struct {
+	ID           uuid.UUID          `json:"id"`
+	TicketHash   string             `json:"ticket_hash"`
+	UserID       uuid.UUID          `json:"user_id"`
+	GoogleID     string             `json:"google_id"`
+	GoogleEmail  string             `json:"google_email"`
+	GoogleName   string             `json:"google_name"`
+	ReturnTo     string             `json:"return_to"`
+	CodeHash     string             `json:"code_hash"`
+	CodeSentAt   pgtype.Timestamptz `json:"code_sent_at"`
+	CodeAttempts int32              `json:"code_attempts"`
+	CreatedAt    time.Time          `json:"created_at"`
+	ExpiresAt    time.Time          `json:"expires_at"`
+}
+
 type ImageBlobPush struct {
 	Digest    string    `json:"digest"`
 	State     string    `json:"state"`
@@ -1354,19 +1369,4 @@ type UserVpnConfig struct {
 	Config    string        `json:"config"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
-}
-
-type GoogleLinkTicket struct {
-	ID           uuid.UUID          `json:"id"`
-	TicketHash   string             `json:"ticket_hash"`
-	UserID       uuid.UUID          `json:"user_id"`
-	GoogleID     string             `json:"google_id"`
-	GoogleEmail  string             `json:"google_email"`
-	GoogleName   string             `json:"google_name"`
-	ReturnTo     string             `json:"return_to"`
-	CodeHash     string             `json:"code_hash"`
-	CodeSentAt   pgtype.Timestamptz `json:"code_sent_at"`
-	CodeAttempts int32              `json:"code_attempts"`
-	CreatedAt    time.Time          `json:"created_at"`
-	ExpiresAt    time.Time          `json:"expires_at"`
 }

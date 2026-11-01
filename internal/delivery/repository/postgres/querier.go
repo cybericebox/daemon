@@ -71,6 +71,8 @@ type Querier interface {
 	CompleteSignalHookExecution(ctx context.Context, arg CompleteSignalHookExecutionParams) (int64, error)
 	CompleteSignalOutbox(ctx context.Context, arg CompleteSignalOutboxParams) (int64, error)
 	ConsumeEventStageRuntimeSelection(ctx context.Context, arg ConsumeEventStageRuntimeSelectionParams) (int64, error)
+	// The delete is the claim: of two concurrent confirmations only one removes the row.
+	ConsumeGoogleLinkTicket(ctx context.Context, arg ConsumeGoogleLinkTicketParams) (int64, error)
 	// A board challenge copied into another event's set: same task, order, points, scoring, hints and attempt limit; the
 	// copy is not published and has no team copies, attempts or solves.
 	CopyEventChallenge(ctx context.Context, arg CopyEventChallengeParams) error
@@ -129,6 +131,8 @@ type Querier interface {
 	CountEventsPage(ctx context.Context, arg CountEventsPageParams) (int64, error)
 	CountExercises(ctx context.Context, arg CountExercisesParams) (int64, error)
 	CountExercisesPage(ctx context.Context, arg CountExercisesPageParams) (int64, error)
+	// Counts one check of the mailed code and returns how many were made; zero rows: no attempts are left.
+	CountGoogleLinkTicketCodeAttempt(ctx context.Context, arg CountGoogleLinkTicketCodeAttemptParams) (int32, error)
 	// Tab badges. An item needs attention while it is an open request (whether
 	// read or not) or unread; resolved requests are read, so they drop out.
 	// other_events counts attention items of OTHER Events and is meaningful only
@@ -331,11 +335,13 @@ type Querier interface {
 	DeleteEventVPNSessions(ctx context.Context, arg DeleteEventVPNSessionsParams) error
 	DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error
+	DeleteExpiredGoogleLinkTickets(ctx context.Context, now time.Time) error
 	DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error)
 	DeleteExpiredResourceTestLabHolds(ctx context.Context, now time.Time) (int64, error)
 	DeleteExpiredSessionRevocations(ctx context.Context) (int64, error)
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
+	DeleteGoogleLinkTicket(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteImageBlobPush(ctx context.Context, digest string) error
 	DeleteImageRegistrySettings(ctx context.Context) error
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
@@ -427,11 +433,18 @@ type Querier interface {
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)
 	ExtendOwnedExerciseTestDeploy(ctx context.Context, arg ExtendOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
+	// Counts of the dispatch log per value of one field (type, status, event, channel, result or transport) under
+	// the other filters: the filter of the field itself is ignored. The target filters (channel, result, transport)
+	// are met by one target of the dispatch, like in the list.
+	FacetDispatches(ctx context.Context, arg FacetDispatchesParams) ([]FacetDispatchesRow, error)
+	// Counts of the stand table per value of one field (status, kind or event) under the other filters: the filter
+	// of the field itself is ignored. The status key is the persisted smallint.
+	FacetPlatformStands(ctx context.Context, arg FacetPlatformStandsParams) ([]FacetPlatformStandsRow, error)
+	// Counts of the test lab table per value of one field (status, author or exercise) under the other filters: the
+	// filter of the field itself is ignored.
+	FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error)
 	// Final disposal follows a persisted exact tombstone and retired children,
 	// never a names-only command result or an absent monitoring frame.
-	FacetDispatches(ctx context.Context, arg FacetDispatchesParams) ([]FacetDispatchesRow, error)
-	FacetPlatformStands(ctx context.Context, arg FacetPlatformStandsParams) ([]FacetPlatformStandsRow, error)
-	FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error)
 	FinalizeRetiredLabGroupPlacement(ctx context.Context, arg FinalizeRetiredLabGroupPlacementParams) (int64, error)
 	FindActiveEventTeamsByLabGroup(ctx context.Context, arg FindActiveEventTeamsByLabGroupParams) ([]FindActiveEventTeamsByLabGroupRow, error)
 	// The event's own, active fork of a source exercise (reused by "fork").
@@ -615,6 +628,7 @@ type Querier interface {
 	// a ref_type/ref_id with no rows simply yields an empty slice, not an error.
 	GetFileReferenceIDs(ctx context.Context, arg GetFileReferenceIDsParams) ([]uuid.UUID, error)
 	GetFirstEventLiveScreen(ctx context.Context, eventID uuid.UUID) (EventLiveScreen, error)
+	GetGoogleLinkTicket(ctx context.Context, arg GetGoogleLinkTicketParams) (GoogleLinkTicket, error)
 	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
 	// Caller has already checked ActionWrite and the archive freeze for this ID.
@@ -1933,6 +1947,8 @@ type Querier interface {
 	// Kept rows are never touched, so the delete CTE cannot collide with the
 	// insert (same-statement visibility).
 	ReplaceFileReferences(ctx context.Context, arg ReplaceFileReferencesParams) error
+	// One ticket per (account, Google identity): a new sign-in replaces the earlier one (fresh ticket, no code, new life).
+	ReplaceGoogleLinkTicket(ctx context.Context, arg ReplaceGoogleLinkTicketParams) error
 	// Reconnect: the same cluster enrolled again for new keys. The record, its priority and its lab groups stay.
 	ReplaceInfrastructureAgentCredentials(ctx context.Context, arg ReplaceInfrastructureAgentCredentialsParams) (int64, error)
 	RequestEventLabAccessSync(ctx context.Context, arg RequestEventLabAccessSyncParams) (EventLabAccessSync, error)
@@ -2072,6 +2088,8 @@ type Querier interface {
 	SetEventVPNCursor(ctx context.Context, arg SetEventVPNCursorParams) error
 	// The ending notice of the run's cluster reservation: when the lab is deleted unless extended (narrow write).
 	SetExerciseTestDeployEndingAt(ctx context.Context, arg SetExerciseTestDeployEndingAtParams) (int64, error)
+	// A fresh mailed code replaces the earlier one and has all its attempts again.
+	SetGoogleLinkTicketCode(ctx context.Context, arg SetGoogleLinkTicketCodeParams) (int64, error)
 	SetImportedExercisePointers(ctx context.Context, arg SetImportedExercisePointersParams) error
 	// A rotated access key: the new key signs from now on, the previous ones are recorded as retired.
 	SetInfrastructureAgentAccessKey(ctx context.Context, arg SetInfrastructureAgentAccessKeyParams) (int64, error)
@@ -2273,13 +2291,6 @@ type Querier interface {
 	UseUserPasskey(ctx context.Context, arg UseUserPasskeyParams) (int64, error)
 	VacateEventChallengeGroupOrders(ctx context.Context, eventID uuid.UUID) error
 	VacateEventChallengeOrders(ctx context.Context, eventExerciseID uuid.UUID) error
-	ConsumeGoogleLinkTicket(ctx context.Context, arg ConsumeGoogleLinkTicketParams) (int64, error)
-	CountGoogleLinkTicketCodeAttempt(ctx context.Context, arg CountGoogleLinkTicketCodeAttemptParams) (int32, error)
-	DeleteExpiredGoogleLinkTickets(ctx context.Context, now time.Time) error
-	DeleteGoogleLinkTicket(ctx context.Context, id uuid.UUID) (int64, error)
-	GetGoogleLinkTicket(ctx context.Context, arg GetGoogleLinkTicketParams) (GoogleLinkTicket, error)
-	ReplaceGoogleLinkTicket(ctx context.Context, arg ReplaceGoogleLinkTicketParams) error
-	SetGoogleLinkTicketCode(ctx context.Context, arg SetGoogleLinkTicketCodeParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

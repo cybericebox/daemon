@@ -173,3 +173,54 @@ func TestGoogleLinkCancel(t *testing.T) {
 		t.Fatalf("%d %+v", w.Code, uc)
 	}
 }
+
+// capturingProt records the captcha actions the routes ask for and refuses the request when the token is absent.
+type capturingProt struct {
+	fakeProt
+	actions []string
+}
+
+func (p *capturingProt) RequireCaptcha(action string) gin.HandlerFunc {
+	p.actions = append(p.actions, action)
+	return func(ctx *gin.Context) {
+		if ctx.GetHeader("X-Test-Captcha") == "" {
+			response.AbortWithError(ctx, authModel.ErrAuthNoRecaptchaToken.Err())
+			return
+		}
+		ctx.Next()
+	}
+}
+
+// Every mail resend is behind the captcha, like the other mail-code routes.
+func TestGoogleLinkSendCode_RequiresTheCaptcha(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	uc := &googleLinkFake{fakeUC: &fakeUC{}}
+	prot := &capturingProt{}
+	authHandler.NewAuthAPIHandler(uc, prot, testAuthConfig).Init(r.Group("api"), r.Group("api"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/google/pending/code", nil)
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_google_link", Value: "tk"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code == http.StatusOK || uc.ticket != "" {
+		t.Fatalf("without a token the code must not be sent: %d ticket=%q", w.Code, uc.ticket)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/google/pending/code", nil)
+	req.Header.Set("X-Test-Captcha", "1")
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_google_link", Value: "tk"})
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || uc.ticket != "tk" {
+		t.Fatalf("with a token: %d", w.Code)
+	}
+	found := false
+	for _, a := range prot.actions {
+		found = found || a == "googleLinkCode"
+	}
+	if !found {
+		t.Fatalf("captcha actions %v", prot.actions)
+	}
+}

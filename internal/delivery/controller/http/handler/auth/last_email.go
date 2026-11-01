@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -23,11 +24,31 @@ type lastEmailResponse struct {
 	Email string `json:"Email"`
 }
 
+// consentCookie is the cookie of the consent banner: `analytics:granted|denied,functional:granted|denied`. Remembering
+// the sign-in address is a functional cookie, so it is set (and read) only while functional consent is granted.
+const consentCookie = "cib_consent"
+
+var functionalConsent = regexp.MustCompile(`\bfunctional:granted\b`)
+
+// hasFunctionalConsent: the request carries a consent cookie that grants the functional category. An absent cookie, an
+// old-format value without the functional token and `functional:denied` are no consent.
+func hasFunctionalConsent(ctx *gin.Context) bool {
+	value, err := ctx.Cookie(consentCookie)
+	return err == nil && functionalConsent.MatchString(value)
+}
+
 // startSession signs the browser in with the session cookie and remembers the account's address as its last
 // sign-in address (best effort: a failure to read it only leaves the hint out).
 func (h *Handler) startSession(ctx *gin.Context, sessionCookie string) {
 	h.prot.Authenticate(ctx, sessionCookie)
 	if sessionCookie == "" {
+		return
+	}
+	if !hasFunctionalConsent(ctx) {
+		// No functional consent (or it was withdrawn): the address is not remembered, and one remembered earlier goes.
+		if lastEmail(ctx) != "" {
+			clearLastEmail(ctx)
+		}
 		return
 	}
 	email, err := h.useCase.SessionEmail(ctx.Request.Context(), sessionCookie)
@@ -50,12 +71,19 @@ func lastEmail(ctx *gin.Context) string {
 }
 
 // getLastEmail godoc
-// @Summary  The address of the last sign-in in this browser (cookie), for prefilling the sign-in page
+// @Summary  The address of the last sign-in in this browser (cookie), for prefilling the sign-in page; empty without functional consent (cib_consent)
 // @Tags     auth
 // @Produce  json
 // @Success  200  {object}  response.Response{data=lastEmailResponse}
 // @Router   /auth/last-email [get]
 func (h *Handler) getLastEmail(ctx *gin.Context) {
+	if !hasFunctionalConsent(ctx) {
+		if lastEmail(ctx) != "" {
+			clearLastEmail(ctx) // consent was withdrawn: the remembered address goes
+		}
+		response.AbortWithData(ctx, lastEmailResponse{})
+		return
+	}
 	response.AbortWithData(ctx, lastEmailResponse{Email: lastEmail(ctx)})
 }
 

@@ -18,6 +18,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/googleLinkTicketRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/limits"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
@@ -168,7 +169,7 @@ func (u *AuthUseCase) SendGoogleLinkCode(ctx context.Context, rawTicket string) 
 	}
 	allowed, release := u.limits.mail.Reserve(mailKindGoogleLink, normalizeEmail(account.Email))
 	if !allowed {
-		return GoogleLinkCodeSent{}, tooManyRequests(u.limits.mailGap)
+		return GoogleLinkCodeSent{}, tooManyRequests(limits.Get().AccountMailGap)
 	}
 	sent := false
 	defer func() {
@@ -194,7 +195,7 @@ func (u *AuthUseCase) SendGoogleLinkCode(ctx context.Context, rawTicket string) 
 		return GoogleLinkCodeSent{}, model.ErrPlatform.WithError(err).WithMessage("Failed to send the confirmation code").Err()
 	}
 	sent = true
-	return GoogleLinkCodeSent{ResendAfter: u.limits.mailGap}, nil
+	return GoogleLinkCodeSent{ResendAfter: limits.Get().AccountMailGap}, nil
 }
 
 // CancelGoogleLink drops a pending link; it reports nothing about a ticket that is not there.
