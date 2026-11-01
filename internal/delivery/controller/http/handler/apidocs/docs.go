@@ -2260,6 +2260,302 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/passkeys": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List the current user's passkeys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/auth.passkeyResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/passkeys/registration/begin": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Begin adding a passkey (the owner is confirmed first)",
+                "parameters": [
+                    {
+                        "description": "current password (accounts without a password need a recent sign-in instead)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/auth.reauthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.passkeyCeremonyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/passkeys/registration/finish": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Finish adding a passkey with the authenticator's attestation",
+                "parameters": [
+                    {
+                        "description": "ceremony, name and attestation",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.passkeyRegistrationFinishRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.passkeyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/passkeys/sign-in/begin": {
+            "post": {
+                "description": "The body carries the captcha token: {\"RecaptchaToken\": \"...\"}.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Begin a usernameless passkey sign-in",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.passkeyCeremonyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/passkeys/sign-in/finish": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Finish a passkey sign-in with the authenticator's assertion",
+                "parameters": [
+                    {
+                        "description": "ceremony and assertion",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.passkeySignInFinishRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/passkeys/{id}": {
+            "delete": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Remove one of the current user's passkeys (the owner is confirmed first; refused when it is the last way to sign in)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "passkey ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "current password (accounts without a password need a recent sign-in instead)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/auth.reauthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/password/change": {
             "post": {
                 "consumes": [
@@ -28672,6 +28968,94 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Url": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.passkeyCeremonyResponse": {
+            "type": "object",
+            "properties": {
+                "CeremonyID": {
+                    "type": "string"
+                },
+                "Options": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "auth.passkeyRegistrationFinishRequest": {
+            "type": "object",
+            "properties": {
+                "CeremonyID": {
+                    "type": "string"
+                },
+                "Credential": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.passkeyResponse": {
+            "type": "object",
+            "properties": {
+                "AAGUID": {
+                    "type": "string"
+                },
+                "BackedUp": {
+                    "type": "boolean"
+                },
+                "BackupEligible": {
+                    "type": "boolean"
+                },
+                "Compromised": {
+                    "description": "Compromised is true once the key's counter went backwards; CompromisedAt says when. Such a key cannot sign in.",
+                    "type": "boolean"
+                },
+                "CompromisedAt": {
+                    "type": "string"
+                },
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "LastUsedAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Transports": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "auth.passkeySignInFinishRequest": {
+            "type": "object",
+            "properties": {
+                "CeremonyID": {
+                    "type": "string"
+                },
+                "Credential": {
+                    "description": "Credential is the PublicKeyCredential the browser returned, as its toJSON() form.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Redirect": {
                     "type": "string"
                 }
             }

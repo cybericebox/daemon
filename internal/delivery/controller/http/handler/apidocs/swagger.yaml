@@ -106,6 +106,66 @@ definitions:
       Url:
         type: string
     type: object
+  auth.passkeyCeremonyResponse:
+    properties:
+      CeremonyID:
+        type: string
+      Options:
+        items:
+          type: integer
+        type: array
+    type: object
+  auth.passkeyRegistrationFinishRequest:
+    properties:
+      CeremonyID:
+        type: string
+      Credential:
+        items:
+          type: integer
+        type: array
+      Name:
+        type: string
+    type: object
+  auth.passkeyResponse:
+    properties:
+      AAGUID:
+        type: string
+      BackedUp:
+        type: boolean
+      BackupEligible:
+        type: boolean
+      Compromised:
+        description: Compromised is true once the key's counter went backwards; CompromisedAt
+          says when. Such a key cannot sign in.
+        type: boolean
+      CompromisedAt:
+        type: string
+      CreatedAt:
+        type: string
+      ID:
+        type: string
+      LastUsedAt:
+        type: string
+      Name:
+        type: string
+      Transports:
+        items:
+          type: string
+        type: array
+    type: object
+  auth.passkeySignInFinishRequest:
+    properties:
+      CeremonyID:
+        type: string
+      Credential:
+        description: Credential is the PublicKeyCredential the browser returned, as
+          its toJSON() form.
+        items:
+          type: integer
+        type: array
+      Redirect:
+        type: string
+    type: object
   auth.passwordPolicyResponse:
     properties:
       MaxLength:
@@ -14709,6 +14769,186 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get the authenticated user's public profile
+      tags:
+      - auth
+  /auth/passkeys:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/auth.passkeyResponse'
+                  type: array
+              type: object
+      summary: List the current user's passkeys
+      tags:
+      - auth
+  /auth/passkeys/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: passkey ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Remove one of the current user's passkeys (the owner is confirmed first;
+        refused when it is the last way to sign in)
+      tags:
+      - auth
+  /auth/passkeys/registration/begin:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyCeremonyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Begin adding a passkey (the owner is confirmed first)
+      tags:
+      - auth
+  /auth/passkeys/registration/finish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: ceremony, name and attestation
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.passkeyRegistrationFinishRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Finish adding a passkey with the authenticator's attestation
+      tags:
+      - auth
+  /auth/passkeys/sign-in/begin:
+    post:
+      consumes:
+      - application/json
+      description: 'The body carries the captcha token: {"RecaptchaToken": "..."}.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyCeremonyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Begin a usernameless passkey sign-in
+      tags:
+      - auth
+  /auth/passkeys/sign-in/finish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: ceremony and assertion
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.passkeySignInFinishRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Finish a passkey sign-in with the authenticator's assertion
       tags:
       - auth
   /auth/password/change:

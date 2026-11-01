@@ -1190,6 +1190,21 @@ func (mr *MockQuerierMockRecorder) CountUserLoginMethods(ctx, id any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUserLoginMethods", reflect.TypeOf((*MockQuerier)(nil).CountUserLoginMethods), ctx, id)
 }
 
+// CountUserPasskeys mocks base method.
+func (m *MockQuerier) CountUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountUserPasskeys", ctx, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountUserPasskeys indicates an expected call of CountUserPasskeys.
+func (mr *MockQuerierMockRecorder) CountUserPasskeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUserPasskeys", reflect.TypeOf((*MockQuerier)(nil).CountUserPasskeys), ctx, userID)
+}
+
 // CountUsers mocks base method.
 func (m *MockQuerier) CountUsers(ctx context.Context, arg postgres.CountUsersParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2209,6 +2224,21 @@ func (mr *MockQuerierMockRecorder) CreateUser(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockQuerier)(nil).CreateUser), ctx, arg)
 }
 
+// CreateUserPasskey mocks base method.
+func (m *MockQuerier) CreateUserPasskey(ctx context.Context, arg postgres.CreateUserPasskeyParams) (postgres.UserPasskey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUserPasskey", ctx, arg)
+	ret0, _ := ret[0].(postgres.UserPasskey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUserPasskey indicates an expected call of CreateUserPasskey.
+func (mr *MockQuerierMockRecorder) CreateUserPasskey(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserPasskey", reflect.TypeOf((*MockQuerier)(nil).CreateUserPasskey), ctx, arg)
+}
+
 // CreateUserProvider mocks base method.
 func (m *MockQuerier) CreateUserProvider(ctx context.Context, arg postgres.CreateUserProviderParams) (postgres.UserProvider, error) {
 	m.ctrl.T.Helper()
@@ -2386,6 +2416,21 @@ func (m *MockQuerier) DeclineEventLabRevealTeam(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) DeclineEventLabRevealTeam(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeclineEventLabRevealTeam", reflect.TypeOf((*MockQuerier)(nil).DeclineEventLabRevealTeam), ctx, arg)
+}
+
+// DeleteAllUserTablePrefs mocks base method.
+func (m *MockQuerier) DeleteAllUserTablePrefs(ctx context.Context, userID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllUserTablePrefs", ctx, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteAllUserTablePrefs indicates an expected call of DeleteAllUserTablePrefs.
+func (mr *MockQuerierMockRecorder) DeleteAllUserTablePrefs(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllUserTablePrefs", reflect.TypeOf((*MockQuerier)(nil).DeleteAllUserTablePrefs), ctx, userID)
 }
 
 // DeleteBlob mocks base method.
@@ -3252,6 +3297,36 @@ func (mr *MockQuerierMockRecorder) DeleteUnreferencedFiles(ctx, createdBefore an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUnreferencedFiles", reflect.TypeOf((*MockQuerier)(nil).DeleteUnreferencedFiles), ctx, createdBefore)
 }
 
+// DeleteUserPasskey mocks base method.
+func (m *MockQuerier) DeleteUserPasskey(ctx context.Context, arg postgres.DeleteUserPasskeyParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUserPasskey", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUserPasskey indicates an expected call of DeleteUserPasskey.
+func (mr *MockQuerierMockRecorder) DeleteUserPasskey(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserPasskey", reflect.TypeOf((*MockQuerier)(nil).DeleteUserPasskey), ctx, arg)
+}
+
+// DeleteUserPasskeys mocks base method.
+func (m *MockQuerier) DeleteUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUserPasskeys", ctx, userID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUserPasskeys indicates an expected call of DeleteUserPasskeys.
+func (mr *MockQuerierMockRecorder) DeleteUserPasskeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserPasskeys", reflect.TypeOf((*MockQuerier)(nil).DeleteUserPasskeys), ctx, userID)
+}
+
 // DeleteUserProvider mocks base method.
 func (m *MockQuerier) DeleteUserProvider(ctx context.Context, arg postgres.DeleteUserProviderParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3280,6 +3355,21 @@ func (m *MockQuerier) DeleteUserProviders(ctx context.Context, userID uuid.UUID)
 func (mr *MockQuerierMockRecorder) DeleteUserProviders(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserProviders", reflect.TypeOf((*MockQuerier)(nil).DeleteUserProviders), ctx, userID)
+}
+
+// DeleteUserTablePrefs mocks base method.
+func (m *MockQuerier) DeleteUserTablePrefs(ctx context.Context, arg postgres.DeleteUserTablePrefsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUserTablePrefs", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUserTablePrefs indicates an expected call of DeleteUserTablePrefs.
+func (mr *MockQuerierMockRecorder) DeleteUserTablePrefs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserTablePrefs", reflect.TypeOf((*MockQuerier)(nil).DeleteUserTablePrefs), ctx, arg)
 }
 
 // DeleteUserVPNConfig mocks base method.
@@ -3594,6 +3684,21 @@ func (m *MockQuerier) ExportUserParticipations(ctx context.Context, userID uuid.
 func (mr *MockQuerierMockRecorder) ExportUserParticipations(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserParticipations", reflect.TypeOf((*MockQuerier)(nil).ExportUserParticipations), ctx, userID)
+}
+
+// ExportUserTablePrefs mocks base method.
+func (m *MockQuerier) ExportUserTablePrefs(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserTablePrefsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExportUserTablePrefs", ctx, userID)
+	ret0, _ := ret[0].([]postgres.ExportUserTablePrefsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExportUserTablePrefs indicates an expected call of ExportUserTablePrefs.
+func (mr *MockQuerierMockRecorder) ExportUserTablePrefs(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExportUserTablePrefs", reflect.TypeOf((*MockQuerier)(nil).ExportUserTablePrefs), ctx, userID)
 }
 
 // ExtendLabTrafficCoverage mocks base method.
@@ -6324,6 +6429,21 @@ func (mr *MockQuerierMockRecorder) GetUserByProvider(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByProvider", reflect.TypeOf((*MockQuerier)(nil).GetUserByProvider), ctx, arg)
 }
 
+// GetUserPasskeyByCredentialID mocks base method.
+func (m *MockQuerier) GetUserPasskeyByCredentialID(ctx context.Context, credentialID []byte) (postgres.UserPasskey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserPasskeyByCredentialID", ctx, credentialID)
+	ret0, _ := ret[0].(postgres.UserPasskey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserPasskeyByCredentialID indicates an expected call of GetUserPasskeyByCredentialID.
+func (mr *MockQuerierMockRecorder) GetUserPasskeyByCredentialID(ctx, credentialID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserPasskeyByCredentialID", reflect.TypeOf((*MockQuerier)(nil).GetUserPasskeyByCredentialID), ctx, credentialID)
+}
+
 // GetUserProviders mocks base method.
 func (m *MockQuerier) GetUserProviders(ctx context.Context, userID uuid.UUID) ([]postgres.UserProvider, error) {
 	m.ctrl.T.Helper()
@@ -6337,6 +6457,21 @@ func (m *MockQuerier) GetUserProviders(ctx context.Context, userID uuid.UUID) ([
 func (mr *MockQuerierMockRecorder) GetUserProviders(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserProviders", reflect.TypeOf((*MockQuerier)(nil).GetUserProviders), ctx, userID)
+}
+
+// GetUserTablePrefs mocks base method.
+func (m *MockQuerier) GetUserTablePrefs(ctx context.Context, arg postgres.GetUserTablePrefsParams) (postgres.GetUserTablePrefsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserTablePrefs", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetUserTablePrefsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserTablePrefs indicates an expected call of GetUserTablePrefs.
+func (mr *MockQuerierMockRecorder) GetUserTablePrefs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserTablePrefs", reflect.TypeOf((*MockQuerier)(nil).GetUserTablePrefs), ctx, arg)
 }
 
 // GetUserUIPreference mocks base method.
@@ -11088,6 +11223,21 @@ func (mr *MockQuerierMockRecorder) ListUserParticipations(ctx, userID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUserParticipations", reflect.TypeOf((*MockQuerier)(nil).ListUserParticipations), ctx, userID)
 }
 
+// ListUserPasskeys mocks base method.
+func (m *MockQuerier) ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]postgres.UserPasskey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUserPasskeys", ctx, userID)
+	ret0, _ := ret[0].([]postgres.UserPasskey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUserPasskeys indicates an expected call of ListUserPasskeys.
+func (mr *MockQuerierMockRecorder) ListUserPasskeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUserPasskeys", reflect.TypeOf((*MockQuerier)(nil).ListUserPasskeys), ctx, userID)
+}
+
 // ListUserProvidersForUsers mocks base method.
 func (m *MockQuerier) ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]postgres.ListUserProvidersForUsersRow, error) {
 	m.ctrl.T.Helper()
@@ -15279,6 +15429,21 @@ func (mr *MockQuerierMockRecorder) UpsertUserSetting(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserSetting", reflect.TypeOf((*MockQuerier)(nil).UpsertUserSetting), ctx, arg)
 }
 
+// UpsertUserTablePrefs mocks base method.
+func (m *MockQuerier) UpsertUserTablePrefs(ctx context.Context, arg postgres.UpsertUserTablePrefsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertUserTablePrefs", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertUserTablePrefs indicates an expected call of UpsertUserTablePrefs.
+func (mr *MockQuerierMockRecorder) UpsertUserTablePrefs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserTablePrefs", reflect.TypeOf((*MockQuerier)(nil).UpsertUserTablePrefs), ctx, arg)
+}
+
 // UpsertUserUIPreference mocks base method.
 func (m *MockQuerier) UpsertUserUIPreference(ctx context.Context, arg postgres.UpsertUserUIPreferenceParams) error {
 	m.ctrl.T.Helper()
@@ -15306,6 +15471,21 @@ func (m *MockQuerier) UpsertUserVPNConfig(ctx context.Context, arg postgres.Upse
 func (mr *MockQuerierMockRecorder) UpsertUserVPNConfig(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserVPNConfig", reflect.TypeOf((*MockQuerier)(nil).UpsertUserVPNConfig), ctx, arg)
+}
+
+// UseUserPasskey mocks base method.
+func (m *MockQuerier) UseUserPasskey(ctx context.Context, arg postgres.UseUserPasskeyParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UseUserPasskey", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UseUserPasskey indicates an expected call of UseUserPasskey.
+func (mr *MockQuerierMockRecorder) UseUserPasskey(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UseUserPasskey", reflect.TypeOf((*MockQuerier)(nil).UseUserPasskey), ctx, arg)
 }
 
 // VacateEventChallengeGroupOrders mocks base method.

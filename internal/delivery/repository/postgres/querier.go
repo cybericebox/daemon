@@ -153,6 +153,7 @@ type Querier interface {
 	CountTargetsByChannelStatusSince(ctx context.Context, createdAt time.Time) ([]CountTargetsByChannelStatusSinceRow, error)
 	CountUnreadInbox(ctx context.Context, arg CountUnreadInboxParams) (int64, error)
 	CountUserLoginMethods(ctx context.Context, id uuid.UUID) (int64, error)
+	CountUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CountUsersActiveSince(ctx context.Context, lastSeen time.Time) (int64, error)
 	CountUsersByRole(ctx context.Context, role string) (int64, error)
@@ -266,6 +267,8 @@ type Querier interface {
 	// Timestamps come from the domain factory, not DB defaults — one source of
 	// truth for entity defaults.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Refuses (no row) when the user already holds max_per_user passkeys: the cap and the insert are one statement.
+	CreateUserPasskey(ctx context.Context, arg CreateUserPasskeyParams) (UserPasskey, error)
 	CreateUserProvider(ctx context.Context, arg CreateUserProviderParams) (UserProvider, error)
 	// Events that run now or start before the horizon, with their counters.
 	DashboardCurrentEvents(ctx context.Context, arg DashboardCurrentEventsParams) ([]DashboardCurrentEventsRow, error)
@@ -286,6 +289,9 @@ type Querier interface {
 	DecideExerciseResourceElevation(ctx context.Context, arg DecideExerciseResourceElevationParams) (int64, error)
 	// Writes the decision of a pending request; 0 rows: it was decided meanwhile.
 	DecideResourceChangeRequest(ctx context.Context, arg DecideResourceChangeRequestParams) (int64, error)
+	// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
+	// removed from the unopened barrier at once.
+	DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error
 	DeleteAllUserTablePrefs(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Guarded delete: refuses when the blob got re-referenced between the S3
 	// removal decision and this call.
@@ -322,9 +328,6 @@ type Querier interface {
 	// atomically detaches every remaining member at the database level.
 	DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams) (int64, error)
 	DeleteEventVPNSessions(ctx context.Context, arg DeleteEventVPNSessionsParams) error
-	// Keeps a team out of a task's cohort for lack of room: recorded for the task's current revision and reveal mode, and
-	// removed from the unopened barrier at once.
-	DeclineEventLabRevealTeam(ctx context.Context, arg DeclineEventLabRevealTeamParams) error
 	DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error
 	DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error)
@@ -374,6 +377,8 @@ type Querier interface {
 	DeleteUnbornEventTeamLab(ctx context.Context, id uuid.UUID) (int64, error)
 	// GC step 1: drop grace-expired unreferenced files, decrement their blobs.
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]DeleteUnreferencedFilesRow, error)
+	DeleteUserPasskey(ctx context.Context, arg DeleteUserPasskeyParams) (int64, error)
+	DeleteUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteUserProvider(ctx context.Context, arg DeleteUserProviderParams) (int64, error)
 	DeleteUserProviders(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteUserTablePrefs(ctx context.Context, arg DeleteUserTablePrefsParams) (int64, error)
@@ -446,7 +451,8 @@ type Querier interface {
 	FormEventTeam(ctx context.Context, arg FormEventTeamParams) (int64, error)
 	// An empty eligible roster is deferred, not an immutable prepared cohort. Until the tasks are shown (the barrier is
 	// opened) the cohort is recomputed on every call: a team that becomes eligible, before or after the start, joins it, and a
-	// team declined for lack of room (event_lab_reveal_declined) stays out; once opened it is frozen.
+	// team declined for lack of room (event_lab_reveal_declined, in the same revision and mode) stays out; once opened
+	// it is frozen.
 	FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error)
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
 	// The screen's one working link (unrevoked and not expired).
@@ -751,6 +757,7 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)
+	GetUserPasskeyByCredentialID(ctx context.Context, credentialID []byte) (UserPasskey, error)
 	GetUserProviders(ctx context.Context, userID uuid.UUID) ([]UserProvider, error)
 	GetUserTablePrefs(ctx context.Context, arg GetUserTablePrefsParams) (GetUserTablePrefsRow, error)
 	GetUserUIPreference(ctx context.Context, arg GetUserUIPreferenceParams) ([]byte, error)
@@ -770,7 +777,7 @@ type Querier interface {
 	InsertExerciseEventAccess(ctx context.Context, arg InsertExerciseEventAccessParams) error
 	InsertImportedExerciseVersion(ctx context.Context, arg InsertImportedExerciseVersionParams) (ExerciseVersion, error)
 	InsertPlatformSMTPProvider(ctx context.Context, arg InsertPlatformSMTPProviderParams) (MailSmtpConfig, error)
-	// Authorized edits invalidate a different preparation tuple atomically. They
+	// Authorized edits invalidate a different preparation tuple atomically (and the declines made in the old one). They
 	// never insert/freeze a cohort before the assignment preparation boundary.
 	InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
@@ -1633,6 +1640,7 @@ type Querier interface {
 	// Where the person takes part (a participant, with the team and the role in it) or works (an event manager), newest
 	// event first. One query for the admin user card.
 	ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]ListUserParticipationsRow, error)
+	ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]UserPasskey, error)
 	ListUserProvidersForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListUserProvidersForUsersRow, error)
 	ListUserSettings(ctx context.Context, userID uuid.UUID) ([]NotificationUserSetting, error)
 	ListUserVPNConfigs(ctx context.Context, userID uuid.UUID) ([]UserVpnConfig, error)
@@ -1952,7 +1960,7 @@ type Querier interface {
 	ResolveInboxBySubjectRef(ctx context.Context, arg ResolveInboxBySubjectRefParams) (int64, error)
 	// Closes a single request without a subject (one recipient's copy).
 	ResolveInboxItem(ctx context.Context, arg ResolveInboxItemParams) (int64, error)
-	// Only the observed failed/stale attempt may be replaced. Old queued arguments
+	// Only the observed failed/stale attempt may be replaced (a queued one is stale much later than a started one). Old queued arguments
 	// normalize generation zero to the migrated generation one in the worker.
 	RestartExerciseImportJob(ctx context.Context, arg RestartExerciseImportJobParams) (ExerciseImportJob, error)
 	// Puts archived raw rows (JSON objects as the archive holds them) back into
@@ -2258,6 +2266,9 @@ type Querier interface {
 	// upsert: re-issuing within the same scope overwrites the ciphertext. Timestamps
 	// come from the domain factory, not DB defaults.
 	UpsertUserVPNConfig(ctx context.Context, arg UpsertUserVPNConfigParams) (UserVpnConfig, error)
+	// Records a sign-in. The counter must move forward (or stay at zero for authenticators that have none): a
+	// replayed or cloned assertion matches no row, so two parallel uses of one counter value cannot both win.
+	UseUserPasskey(ctx context.Context, arg UseUserPasskeyParams) (int64, error)
 	VacateEventChallengeGroupOrders(ctx context.Context, eventID uuid.UUID) error
 	VacateEventChallengeOrders(ctx context.Context, eventExerciseID uuid.UUID) error
 }
