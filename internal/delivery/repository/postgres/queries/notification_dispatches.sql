@@ -63,7 +63,18 @@ WHERE (sqlc.arg(type_filter)::text = '' OR d.notification_type = sqlc.arg(type_f
   AND (sqlc.arg(cursor_filter)::text = '' OR (d.created_at, d.id) < (
     SELECT created_at, id FROM notification_dispatches WHERE id = NULLIF(sqlc.arg(cursor_filter)::text, '')::uuid
   ))
-ORDER BY d.created_at DESC, d.id DESC LIMIT sqlc.arg(limit_val);
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'type' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.notification_type END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'type' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.notification_type END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'recipient' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(COALESCE(u.email, '')) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'recipient' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(COALESCE(u.email, '')) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'event' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(COALESCE(e.name, '')) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'event' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(COALESCE(e.name, '')) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.status END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.status END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.created_at END ASC,
+  d.created_at DESC, d.id DESC
+LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
 -- name: CountDispatches :one
 SELECT count(*)
@@ -132,3 +143,43 @@ WHERE t.channel = 'email'
   AND (sqlc.narg(event_id)::uuid IS NULL
        OR EXISTS (SELECT 1 FROM notification_dispatches d
                   WHERE d.id = t.dispatch_id AND d.scope_event_id = sqlc.narg(event_id)::uuid));
+
+-- name: FacetDispatches :many
+-- Counts of the dispatch log per value of one field (type, status, event, channel, result or transport) under
+-- the other filters: the filter of the field itself is ignored. The target filters (channel, result, transport)
+-- are met by one target of the dispatch, like in the list.
+SELECT x.key::text AS key, count(DISTINCT x.id)::bigint AS count
+FROM (SELECT d.id,
+             CASE sqlc.arg(field)::text
+                 WHEN 'type' THEN d.notification_type
+                 WHEN 'status' THEN d.status
+                 WHEN 'event' THEN d.scope_event_id::text
+                 WHEN 'channel' THEN t.channel
+                 WHEN 'result' THEN t.status
+                 WHEN 'transport' THEN t.transport
+             END AS key
+      FROM notification_dispatches d
+               LEFT JOIN users u ON u.id = d.recipient_user_id
+               LEFT JOIN notification_dispatch_targets t
+                         ON t.dispatch_id = d.id
+                             AND (sqlc.arg(field)::text = 'channel' OR sqlc.arg(channel_filter)::text = '' OR t.channel = sqlc.arg(channel_filter)::text)
+                             AND (sqlc.arg(field)::text = 'result' OR sqlc.arg(result_filter)::text = '' OR t.status = sqlc.arg(result_filter)::text)
+                             AND (sqlc.arg(field)::text = 'transport' OR sqlc.arg(transport_filter)::text = '' OR t.transport = ANY(string_to_array(sqlc.arg(transport_filter)::text, ',')))
+      WHERE (sqlc.arg(field)::text = 'type' OR sqlc.arg(type_filter)::text = '' OR d.notification_type = sqlc.arg(type_filter)::text)
+        AND (sqlc.arg(field)::text = 'status' OR sqlc.arg(status_filter)::text = '' OR d.status = sqlc.arg(status_filter)::text)
+  AND (sqlc.arg(user_filter)::text = '' OR d.recipient_user_id = sqlc.arg(user_filter)::uuid)
+  AND (sqlc.arg(field)::text = 'event' OR sqlc.arg(event_filter)::text = '' OR d.scope_event_id = NULLIF(sqlc.arg(event_filter)::text, '')::uuid)
+        AND (sqlc.arg(from_filter)::text = '' OR d.created_at >= NULLIF(sqlc.arg(from_filter)::text, '')::timestamptz)
+        AND (sqlc.arg(to_filter)::text = '' OR d.created_at < NULLIF(sqlc.arg(to_filter)::text, '')::timestamptz)
+        AND (sqlc.arg(recipient_filter)::text = '' OR EXISTS (
+          SELECT 1 FROM users ru
+          WHERE ru.id = d.recipient_user_id
+            AND (strpos(lower(ru.email), lower(sqlc.arg(recipient_filter)::text)) > 0
+                 OR strpos(lower(btrim(ru.first_name || ' ' || ru.last_name)), lower(sqlc.arg(recipient_filter)::text)) > 0)))
+        -- A target filter that is on needs a target that meets it (the join already narrowed the targets).
+        AND ((sqlc.arg(field)::text = 'channel' OR sqlc.arg(channel_filter)::text = '')
+             AND (sqlc.arg(field)::text = 'result' OR sqlc.arg(result_filter)::text = '')
+             AND (sqlc.arg(field)::text = 'transport' OR sqlc.arg(transport_filter)::text = '')
+             OR t.dispatch_id IS NOT NULL)) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key;

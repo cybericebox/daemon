@@ -6221,6 +6221,42 @@ const docTemplate = `{
                         "description": "last broadcast ID from the previous page",
                         "name": "cursor",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page number: switches to the page-number mode (OffsetPage answer)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size of the page-number mode (default 50)",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject, in-app title or event name (page-number mode)",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sending | done | failed | canceled (page-number mode)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject | status | recipients | created (page-number mode)",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc (page-number mode)",
+                        "name": "sortDir",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -24366,6 +24402,42 @@ const docTemplate = `{
                         "description": "last broadcast ID from the previous page",
                         "name": "cursor",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page number: switches to the page-number mode (OffsetPage answer)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size of the page-number mode (default 50)",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject, in-app title or event name (page-number mode)",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sending | done | failed | canceled (page-number mode)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject | status | recipients | created (page-number mode)",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc (page-number mode)",
+                        "name": "sortDir",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -24749,6 +24821,30 @@ const docTemplate = `{
                         "description": "last dispatch ID from the previous cursor page",
                         "name": "cursor",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page number: switches to the page-number mode (OffsetPage answer)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size of the page-number mode (default 50)",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "type | recipient | event | status | created (page-number mode)",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc | desc (page-number mode)",
+                        "name": "sortDir",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -24764,6 +24860,47 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/pagination.CursorPage-stats_dispatchDetailResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/dispatches/facets": {
+            "get": {
+                "description": "How many dispatches have each value of field under the same filters as the list (type, status, event, channel, result, transport, user, recipient, from, to) except the field's own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-stats"
+                ],
+                "summary": "Facet counts of the notification log",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "type | status | event | channel | result | transport",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/stats.dispatchFacetResponse"
                                         }
                                     }
                                 }
@@ -47006,6 +47143,19 @@ const docTemplate = `{
                 },
                 "UpdatedAt": {
                     "type": "string"
+                }
+            }
+        },
+        "stats.dispatchFacetResponse": {
+            "type": "object",
+            "properties": {
+                "Counts": {
+                    "description": "Counts maps a value of the field to the number of dispatches with it; values with none are absent.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
                 }
             }
         },

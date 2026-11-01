@@ -27,10 +27,11 @@ func (passThroughProtection) RequirePermission(rbac.Permission) gin.HandlerFunc 
 }
 
 type listUseCase struct {
-	filter  dispatchModel.ListDispatchesFilter
-	rows    []dispatchModel.DispatchDetail
-	resent  []uuid.UUID
-	audited []adminAuditUseCase.Entry
+	filter     dispatchModel.ListDispatchesFilter
+	rows       []dispatchModel.DispatchDetail
+	resent     []uuid.UUID
+	audited    []adminAuditUseCase.Entry
+	facetField string
 }
 
 func (u *listUseCase) ListDispatches(_ context.Context, f dispatchModel.ListDispatchesFilter) ([]dispatchModel.DispatchDetail, int64, error) {
@@ -39,6 +40,14 @@ func (u *listUseCase) ListDispatches(_ context.Context, f dispatchModel.ListDisp
 }
 func (*listUseCase) GetDispatch(context.Context, uuid.UUID) (*dispatchModel.DispatchDetail, error) {
 	panic("not used")
+}
+func (u *listUseCase) DispatchFacets(_ context.Context, field string, f dispatchModel.ListDispatchesFilter) (map[string]int64, error) {
+	u.filter = f
+	u.facetField = field
+	if field == "bogus" {
+		return nil, statsUseCase.ErrUnknownFacetField
+	}
+	return map[string]int64{"done": 4}, nil
 }
 func (*listUseCase) GetStats(context.Context, time.Time) (*dispatchModel.Stats, error) {
 	panic("not used")
@@ -221,6 +230,70 @@ func TestResendDispatchesAnswersPerItemAndAuditsEach(t *testing.T) {
 		)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s must be refused: %d", bad, w.Code)
+		}
+	}
+}
+
+func TestListDispatchesPageNumberMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	uc := &listUseCase{rows: []dispatchModel.DispatchDetail{{DispatchInfo: dispatchModel.DispatchInfo{ID: uuid.Must(uuid.NewV7())}}}}
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	NewStatsAPIHandler(uc, passThroughProtection{}).Init(router.Group("/api/notifications"))
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+
+	w := get("/api/notifications/dispatches?page=3&pageSize=20&sortBy=recipient&sortDir=asc&status=done&cursor=" + uuid.Must(uuid.NewV7()).String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	if uc.filter.Limit != 20 || uc.filter.Offset != 40 || uc.filter.SortBy != "recipient" || uc.filter.SortDir != "asc" ||
+		uc.filter.Status != "done" || uc.filter.Cursor != "" {
+		t.Fatalf("filter = %+v", uc.filter)
+	}
+	var body struct {
+		Data struct {
+			Items    []struct{ ID uuid.UUID } `json:"Items"`
+			Total    int64                    `json:"Total"`
+			Page     int                      `json:"Page"`
+			PageSize int                      `json:"PageSize"`
+		} `json:"Data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data.Items) != 1 || body.Data.Total != 42 || body.Data.Page != 3 || body.Data.PageSize != 20 {
+		t.Fatalf("page = %+v", body.Data)
+	}
+	for _, bad := range []string{"?page=1&sortBy=password", "?page=1&sortBy=type&sortDir=sideways", "?page=0x", "?page=1&pageSize=99999"} {
+		if w = get("/api/notifications/dispatches" + bad); w.Code != http.StatusBadRequest {
+			t.Errorf("%s must be refused: %d", bad, w.Code)
+		}
+	}
+}
+
+func TestDispatchFacetsReadTheLogFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	uc := &listUseCase{}
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	NewStatsAPIHandler(uc, passThroughProtection{}).Init(router.Group("/api/notifications"))
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+	w := get("/api/notifications/dispatches/facets?field=status&type=invite&channel=email&recipient=ann&from=2026-10-01T00:00:00Z")
+	if w.Code != http.StatusOK || uc.facetField != "status" || uc.filter.Type != "invite" || uc.filter.Channel != "email" ||
+		uc.filter.Recipient != "ann" || !strings.Contains(w.Body.String(), `"Counts":{"done":4}`) {
+		t.Fatalf("facets: %d %s %+v", w.Code, w.Body.String(), uc.filter)
+	}
+	for _, bad := range []string{"?field=bogus", "?field=status&from=yesterday"} {
+		if w = get("/api/notifications/dispatches/facets" + bad); w.Code != http.StatusBadRequest {
+			t.Errorf("%s must be refused: %d", bad, w.Code)
 		}
 	}
 }

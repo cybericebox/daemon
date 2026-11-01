@@ -29,6 +29,7 @@ type Queries interface {
 		ctx context.Context,
 		arg postgres.CountBroadcastDeliveriesParams,
 	) (int64, error)
+	CountNotificationBroadcasts(ctx context.Context, arg postgres.CountNotificationBroadcastsParams) (int64, error)
 	CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error)
 	ListPlatformBroadcastAudience(ctx context.Context, arg postgres.ListPlatformBroadcastAudienceParams) ([]postgres.ListPlatformBroadcastAudienceRow, error)
 	ListEventBroadcastAudience(ctx context.Context, arg postgres.ListEventBroadcastAudienceParams) ([]postgres.ListEventBroadcastAudienceRow, error)
@@ -94,7 +95,8 @@ func (r *Repository) Content(ctx context.Context, id uuid.UUID) (dispatchModel.B
 // List returns one history page, newest first.
 func (r *Repository) List(ctx context.Context, f broadcastModel.ListFilter) ([]broadcastModel.Broadcast, error) {
 	rows, err := r.q.ListNotificationBroadcasts(ctx, postgres.ListNotificationBroadcastsParams{
-		ScopeFilter: f.Scope, CursorFilter: f.Cursor, LimitVal: f.Limit,
+		ScopeFilter: f.Scope, CursorFilter: f.Cursor, LimitVal: f.Limit, OffsetVal: f.Offset,
+		Search: f.Search, StatusFilter: f.Status, SortBy: f.SortBy, SortDir: f.SortDir,
 	})
 	if err != nil {
 		return nil, err
@@ -263,4 +265,11 @@ func nonNilIDs(v []uuid.UUID) []uuid.UUID {
 		return []uuid.UUID{}
 	}
 	return v
+}
+
+// Count is how many broadcasts the filter (scope, search, status) matches.
+func (r *Repository) Count(ctx context.Context, f broadcastModel.ListFilter) (int64, error) {
+	return r.q.CountNotificationBroadcasts(ctx, postgres.CountNotificationBroadcastsParams{
+		ScopeFilter: f.Scope, Search: f.Search, StatusFilter: f.Status,
+	})
 }

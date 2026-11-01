@@ -12505,6 +12505,16 @@ definitions:
       UpdatedAt:
         type: string
     type: object
+  stats.dispatchFacetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: Counts maps a value of the field to the number of dispatches
+          with it; values with none are absent.
+        type: object
+    type: object
   stats.keyCountResponse:
     properties:
       Count:
@@ -16876,6 +16886,30 @@ paths:
       - description: last broadcast ID from the previous page
         in: query
         name: cursor
+        type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: subject, in-app title or event name (page-number mode)
+        in: query
+        name: search
+        type: string
+      - description: sending | done | failed | canceled (page-number mode)
+        in: query
+        name: status
+        type: string
+      - description: subject | status | recipients | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
         type: string
       produces:
       - application/json
@@ -28749,6 +28783,30 @@ paths:
         in: query
         name: cursor
         type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: subject, in-app title or event name (page-number mode)
+        in: query
+        name: search
+        type: string
+      - description: sending | done | failed | canceled (page-number mode)
+        in: query
+        name: status
+        type: string
+      - description: subject | status | recipients | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
+        type: string
       produces:
       - application/json
       responses:
@@ -28981,6 +29039,22 @@ paths:
         in: query
         name: cursor
         type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: type | recipient | event | status | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
+        type: string
       produces:
       - application/json
       responses:
@@ -29021,6 +29095,32 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get a dispatch with its targets
+      tags:
+      - notification-stats
+  /notifications/dispatches/facets:
+    get:
+      description: How many dispatches have each value of field under the same filters
+        as the list (type, status, event, channel, result, transport, user, recipient,
+        from, to) except the field's own.
+      parameters:
+      - description: type | status | event | channel | result | transport
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/stats.dispatchFacetResponse'
+              type: object
+      summary: Facet counts of the notification log
       tags:
       - notification-stats
   /notifications/dispatches/resend:

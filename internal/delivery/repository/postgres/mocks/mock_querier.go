@@ -1040,6 +1040,21 @@ func (mr *MockQuerierMockRecorder) CountLiveEventsWithTag(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountLiveEventsWithTag", reflect.TypeOf((*MockQuerier)(nil).CountLiveEventsWithTag), ctx, arg)
 }
 
+// CountNotificationBroadcasts mocks base method.
+func (m *MockQuerier) CountNotificationBroadcasts(ctx context.Context, arg postgres.CountNotificationBroadcastsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountNotificationBroadcasts", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountNotificationBroadcasts indicates an expected call of CountNotificationBroadcasts.
+func (mr *MockQuerierMockRecorder) CountNotificationBroadcasts(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountNotificationBroadcasts", reflect.TypeOf((*MockQuerier)(nil).CountNotificationBroadcasts), ctx, arg)
+}
+
 // CountPendingExerciseResourceElevations mocks base method.
 func (m *MockQuerier) CountPendingExerciseResourceElevations(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3729,6 +3744,21 @@ func (m *MockQuerier) ExtendOwnedExerciseTestDeploy(ctx context.Context, arg pos
 func (mr *MockQuerierMockRecorder) ExtendOwnedExerciseTestDeploy(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtendOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).ExtendOwnedExerciseTestDeploy), ctx, arg)
+}
+
+// FacetDispatches mocks base method.
+func (m *MockQuerier) FacetDispatches(ctx context.Context, arg postgres.FacetDispatchesParams) ([]postgres.FacetDispatchesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FacetDispatches", ctx, arg)
+	ret0, _ := ret[0].([]postgres.FacetDispatchesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FacetDispatches indicates an expected call of FacetDispatches.
+func (mr *MockQuerierMockRecorder) FacetDispatches(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FacetDispatches", reflect.TypeOf((*MockQuerier)(nil).FacetDispatches), ctx, arg)
 }
 
 // FacetPlatformStands mocks base method.

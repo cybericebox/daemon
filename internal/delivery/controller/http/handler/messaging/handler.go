@@ -44,6 +44,7 @@ type (
 			ctx context.Context,
 			in broadcastUseCase.SendInput,
 		) (broadcastModel.Broadcast, error)
+		ListBroadcastsPage(ctx context.Context, f broadcastModel.ListFilter) ([]broadcastModel.Broadcast, int64, error)
 		ListBroadcasts(
 			ctx context.Context,
 			f broadcastModel.ListFilter,

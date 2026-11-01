@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -120,6 +121,12 @@ func (h *Handler) send(scope scopeFn) gin.HandlerFunc {
 // @Produce  json
 // @Param    limit   query  int     false  "page size (default 50)"
 // @Param    cursor  query  string  false  "last broadcast ID from the previous page"
+// @Param    page      query  int     false  "page number: switches to the page-number mode (OffsetPage answer)"
+// @Param    pageSize  query  int     false  "page size of the page-number mode (default 50)"
+// @Param    search    query  string  false  "subject, in-app title or event name (page-number mode)"
+// @Param    status    query  string  false  "sending | done | failed | canceled (page-number mode)"
+// @Param    sortBy    query  string  false  "subject | status | recipients | created (page-number mode)"
+// @Param    sortDir   query  string  false  "asc | desc (page-number mode)"
 // @Success  200  {object}  response.Response{data=pagination.CursorPage[broadcastResponse]}
 // @Router   /notifications/broadcasts [get]
 // @Router   /events/{id}/manage/broadcasts [get]
@@ -127,6 +134,10 @@ func (h *Handler) listBroadcasts(scope scopeFn) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		eventID, ok := scope(ctx)
 		if !ok {
+			return
+		}
+		if ctx.Query("page") != "" || ctx.Query("pageSize") != "" || ctx.Query("sortBy") != "" {
+			h.listBroadcastsPage(ctx, eventID)
 			return
 		}
 		limit, err := parseLimit(ctx.Query("limit"), 50)
@@ -379,4 +390,48 @@ func (h *Handler) broadcastRef(ctx *gin.Context, scope scopeFn) (uuid.UUID, *uui
 		return uuid.Nil, nil, false
 	}
 	return id, eventID, true
+}
+
+// broadcastSortColumns are the columns of the page-number mode a history can be sorted by.
+var broadcastSortColumns = map[string]bool{"subject": true, "status": true, "recipients": true, "created": true}
+
+// listBroadcastsPage answers the history in the page-number mode: page, pageSize, search, status and a sort, with
+// the total.
+func (h *Handler) listBroadcastsPage(ctx *gin.Context, eventID *uuid.UUID) {
+	var page pagination.OffsetParams
+	if err := ctx.ShouldBindQuery(&page); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err := page.Validate(); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	filter := broadcastModel.ListFilter{
+		Scope: "platform", Search: strings.TrimSpace(ctx.Query("search")), Status: ctx.Query("status"),
+		SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
+		Limit:  int32(page.PageSize), //nolint:gosec // bounded by Validate
+		Offset: int32(page.Offset()), //nolint:gosec // page and page size are bounded by Validate
+	}
+	if eventID != nil {
+		filter.Scope = eventID.String()
+	}
+	validStatus := filter.Status == "" || filter.Status == string(broadcastModel.StatusSending) ||
+		filter.Status == string(broadcastModel.StatusDone) || filter.Status == string(broadcastModel.StatusFailed) ||
+		filter.Status == string(broadcastModel.StatusCanceled)
+	if !validStatus || filter.SortBy != "" && !broadcastSortColumns[filter.SortBy] ||
+		filter.SortDir != "" && filter.SortDir != "asc" && filter.SortDir != "desc" {
+		response.AbortWithBadRequest(ctx, errors.New("status, sortBy or sortDir is not valid"))
+		return
+	}
+	items, total, err := h.useCase.ListBroadcastsPage(ctx.Request.Context(), filter)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	out := make([]broadcastResponse, 0, len(items))
+	for _, b := range items {
+		out = append(out, toBroadcastResponse(b))
+	}
+	response.AbortWithData(ctx, pagination.NewOffsetPage(out, total, page.Page, page.PageSize))
 }

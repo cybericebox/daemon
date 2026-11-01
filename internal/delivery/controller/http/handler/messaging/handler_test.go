@@ -41,6 +41,7 @@ func (permProtection) RequirePermission(required rbac.Permission) gin.HandlerFun
 // fakeUseCase records calls; the Event access checks follow the caller's
 // header: "owner" manages, "viewer" only reads.
 type fakeUseCase struct {
+	pageFilter broadcastModel.ListFilter
 	IUseCase
 	sent          []broadcastUseCase.SendInput
 	created       []*uuid.UUID
@@ -100,6 +101,10 @@ func (f *fakeUseCase) CountBroadcastAudience(_ context.Context, scope *uuid.UUID
 func (f *fakeUseCase) SendBroadcast(_ context.Context, in broadcastUseCase.SendInput) (broadcastModel.Broadcast, error) {
 	f.sent = append(f.sent, in)
 	return broadcastModel.Broadcast{ID: uuid.Must(uuid.NewV7()), Content: in.Content, Audience: in.Audience, RecipientCount: 7}, nil
+}
+func (f *fakeUseCase) ListBroadcastsPage(_ context.Context, filter broadcastModel.ListFilter) ([]broadcastModel.Broadcast, int64, error) {
+	f.pageFilter = filter
+	return []broadcastModel.Broadcast{{ID: uuid.Must(uuid.NewV7())}}, 7, nil
 }
 func (f *fakeUseCase) ListBroadcasts(context.Context, broadcastModel.ListFilter) ([]broadcastModel.Broadcast, error) {
 	return nil, nil
@@ -334,5 +339,22 @@ func TestCancelBroadcastRoute(t *testing.T) {
 		"",
 	); w.Code == http.StatusOK {
 		t.Fatalf("cancel needs the broadcast permission: %d", w.Code)
+	}
+}
+
+func TestBroadcastHistoryPageNumberMode(t *testing.T) {
+	uc := &fakeUseCase{role: "owner"}
+	w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts?page=2&pageSize=10&search=%20news%20&status=done&sortBy=recipients&sortDir=desc", string(rbac.PermNotificationsBroadcast), "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":7`) || !strings.Contains(w.Body.String(), `"Page":2`) {
+		t.Fatalf("page: %d %s", w.Code, w.Body.String())
+	}
+	f := uc.pageFilter
+	if f.Scope != "platform" || f.Limit != 10 || f.Offset != 10 || f.Search != "news" || f.Status != "done" || f.SortBy != "recipients" || f.SortDir != "desc" {
+		t.Fatalf("filter = %+v", f)
+	}
+	for _, bad := range []string{"?page=1&status=bogus", "?page=1&sortBy=password", "?page=1&sortBy=subject&sortDir=up", "?page=1&pageSize=99999"} {
+		if w = do(t, uc, http.MethodGet, "/api/notifications/broadcasts"+bad, string(rbac.PermNotificationsBroadcast), ""); w.Code != http.StatusBadRequest {
+			t.Errorf("%s must be refused: %d", bad, w.Code)
+		}
 	}
 }

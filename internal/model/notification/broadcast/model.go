@@ -198,6 +198,11 @@ type ListFilter struct {
 	Scope  string
 	Cursor string
 	Limit  int32
+	// The page-number mode: Search looks in the subject, the in-app title and the event name, Status keeps one
+	// status, SortBy is subject, status, recipients or created ("": newest first), SortDir asc or desc.
+	Search, Status  string
+	SortBy, SortDir string
+	Offset          int32
 }
 
 // Delivery status filters of a broadcast's recipient list.

@@ -23,6 +23,7 @@ type Queries interface {
 	GetDispatch(ctx context.Context, id uuid.UUID) (postgres.GetDispatchRow, error)
 	ListDispatches(ctx context.Context, arg postgres.ListDispatchesParams) ([]postgres.ListDispatchesRow, error)
 	CountDispatches(ctx context.Context, arg postgres.CountDispatchesParams) (int64, error)
+	FacetDispatches(ctx context.Context, arg postgres.FacetDispatchesParams) ([]postgres.FacetDispatchesRow, error)
 	ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID) ([]postgres.NotificationDispatchTarget, error)
 	ListDispatchTargetsByDispatches(ctx context.Context, dispatchIds []uuid.UUID) ([]postgres.NotificationDispatchTarget, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]postgres.CountDispatchesByStatusSinceRow, error)
@@ -147,6 +148,9 @@ func (r *Repository) List(ctx context.Context, f dispatchModel.ListDispatchesFil
 		TransportFilter: f.Transport,
 		CursorFilter:    f.Cursor,
 		LimitVal:        f.Limit,
+		OffsetVal:       f.Offset,
+		SortBy:          f.SortBy,
+		SortDir:         f.SortDir,
 	})
 	if err != nil {
 		return nil, 0, err
@@ -291,4 +295,27 @@ func MailFunnelsFromRow(row postgres.GetMailFunnelsRow) dispatchModel.MailFunnel
 		ApplicationDecisionSamples:       row.ApplicationDecisionSamples,
 		ApplicationDecisionMedianSeconds: row.ApplicationDecisionMedianSeconds,
 	}
+}
+
+// FacetFields are the fields of the dispatch log that have a facet.
+func FacetFields() []string {
+	return []string{"type", "status", "event", "channel", "result", "transport"}
+}
+
+// Facet counts the dispatches per value of one field under the other filters of the log; the field's own filter is
+// ignored. The cursor, limit and sort of the filter do not matter.
+func (r *Repository) Facet(ctx context.Context, field string, f dispatchModel.ListDispatchesFilter) (map[string]int64, error) {
+	rows, err := r.q.FacetDispatches(ctx, postgres.FacetDispatchesParams{
+		Field: field, TypeFilter: f.Type, StatusFilter: f.Status, UserFilter: f.User, EventFilter: f.Event,
+		RecipientFilter: f.Recipient, FromFilter: f.From, ToFilter: f.To,
+		ChannelFilter: f.Channel, ResultFilter: f.Result, TransportFilter: f.Transport,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Key] += row.Count
+	}
+	return out, nil
 }

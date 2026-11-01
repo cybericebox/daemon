@@ -140,6 +140,7 @@ type Querier interface {
 	// Conflict means overlapping HALF-OPEN platform windows, not merely a reused
 	// tag. The exclusion constraint closes the race between concurrent writers.
 	CountLiveEventsWithTag(ctx context.Context, arg CountLiveEventsWithTagParams) (int64, error)
+	CountNotificationBroadcasts(ctx context.Context, arg CountNotificationBroadcastsParams) (int64, error)
 	CountPendingExerciseResourceElevations(ctx context.Context) (int64, error)
 	CountPendingResourceChangeRequests(ctx context.Context) (int64, error)
 	CountPendingTeamInvitations(ctx context.Context, arg CountPendingTeamInvitationsParams) (int64, error)
@@ -428,6 +429,7 @@ type Querier interface {
 	ExtendOwnedExerciseTestDeploy(ctx context.Context, arg ExtendOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// Final disposal follows a persisted exact tombstone and retired children,
 	// never a names-only command result or an absent monitoring frame.
+	FacetDispatches(ctx context.Context, arg FacetDispatchesParams) ([]FacetDispatchesRow, error)
 	FacetPlatformStands(ctx context.Context, arg FacetPlatformStandsParams) ([]FacetPlatformStandsRow, error)
 	FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error)
 	FinalizeRetiredLabGroupPlacement(ctx context.Context, arg FinalizeRetiredLabGroupPlacementParams) (int64, error)

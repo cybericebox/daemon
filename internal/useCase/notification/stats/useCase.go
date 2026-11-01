@@ -2,6 +2,8 @@ package stats
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -118,4 +120,19 @@ func (u *NotificationStatsUseCase) GetStats(ctx context.Context, since time.Time
 		s.Total += r.Count
 	}
 	return s, nil
+}
+
+// ErrUnknownFacetField: the dispatch log has no facet for the asked field.
+var ErrUnknownFacetField = errors.New("unknown facet field")
+
+// DispatchFacets counts the dispatches per value of one field under the other filters of the log.
+func (u *NotificationStatsUseCase) DispatchFacets(ctx context.Context, field string, f dispatchModel.ListDispatchesFilter) (map[string]int64, error) {
+	if !slices.Contains(dispatchRepo.FacetFields(), field) {
+		return nil, ErrUnknownFacetField
+	}
+	counts, err := u.dispatches.Facet(ctx, field, f)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the dispatches").Err()
+	}
+	return counts, nil
 }

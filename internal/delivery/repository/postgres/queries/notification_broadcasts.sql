@@ -46,8 +46,34 @@ WHERE (sqlc.arg(scope_filter)::text = ''
   AND (sqlc.arg(cursor_filter)::text = '' OR (b.created_at, b.id) < (
     SELECT created_at, id FROM notification_broadcasts WHERE id = NULLIF(sqlc.arg(cursor_filter)::text, '')::uuid
   ))
-ORDER BY b.created_at DESC, b.id DESC
-LIMIT sqlc.arg(limit_val);
+  AND (sqlc.arg(search)::text = ''
+    OR strpos(lower(b.subject), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(b.inapp_title), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower(sqlc.arg(search)::text)) > 0)
+  AND (sqlc.arg(status_filter)::text = '' OR b.status = sqlc.arg(status_filter)::text)
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'subject' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(b.subject) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'subject' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(b.subject) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN b.status END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN b.status END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'recipients' AND sqlc.arg(sort_dir)::text = 'asc' THEN b.recipient_count END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'recipients' AND sqlc.arg(sort_dir)::text = 'desc' THEN b.recipient_count END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'created' AND sqlc.arg(sort_dir)::text = 'asc' THEN b.created_at END ASC,
+  b.created_at DESC, b.id DESC
+LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
+
+-- name: CountNotificationBroadcasts :one
+SELECT count(*)
+FROM notification_broadcasts b
+LEFT JOIN events e ON e.id = b.scope_event_id
+WHERE (sqlc.arg(scope_filter)::text = ''
+    OR (sqlc.arg(scope_filter)::text = 'platform' AND b.scope_event_id IS NULL)
+    OR b.scope_event_id::text = sqlc.arg(scope_filter)::text)
+  AND (sqlc.arg(search)::text = ''
+    OR strpos(lower(b.subject), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(b.inapp_title), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower(sqlc.arg(search)::text)) > 0)
+  AND (sqlc.arg(status_filter)::text = '' OR b.status = sqlc.arg(status_filter)::text);
 
 -- name: FinishNotificationBroadcast :exec
 UPDATE notification_broadcasts

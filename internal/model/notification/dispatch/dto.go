@@ -165,4 +165,8 @@ type ListDispatchesFilter struct {
 	Transport string
 	Cursor    string // last dispatch ID from the previous page; "" = first page
 	Limit     int32
+	// SortBy is type, recipient, event, status or created ("": newest first); SortDir asc or desc. Offset skips
+	// rows for the page-number mode; the cursor and a sort do not go together.
+	SortBy, SortDir string
+	Offset          int32
 }

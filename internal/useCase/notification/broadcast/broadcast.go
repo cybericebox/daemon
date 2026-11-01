@@ -308,6 +308,20 @@ func (u *NotificationBroadcastUseCase) ListBroadcasts(ctx context.Context, f bro
 	return items, nil
 }
 
+// ListBroadcastsPage is the history in the page-number mode: one page behind the filter and the total.
+func (u *NotificationBroadcastUseCase) ListBroadcastsPage(ctx context.Context, f broadcastModel.ListFilter) ([]broadcastModel.Broadcast, int64, error) {
+	f.Limit, f.Cursor = clampLimit(f.Limit), ""
+	items, err := u.broadcasts.List(ctx, f)
+	if err != nil {
+		return nil, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list broadcasts").Err()
+	}
+	total, err := u.broadcasts.Count(ctx, f)
+	if err != nil {
+		return nil, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to count broadcasts").Err()
+	}
+	return items, total, nil
+}
+
 // GetBroadcast loads one broadcast; expectedEventID (when not nil) hides a
 // broadcast of another scope behind a plain not-found.
 func (u *NotificationBroadcastUseCase) GetBroadcast(ctx context.Context, id uuid.UUID, scopeEventID *uuid.UUID) (broadcastModel.Broadcast, error) {

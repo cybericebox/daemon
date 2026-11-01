@@ -51,6 +51,33 @@ func (q *Queries) CountBroadcastDeliveries(ctx context.Context, arg CountBroadca
 	return count, err
 }
 
+const countNotificationBroadcasts = `-- name: CountNotificationBroadcasts :one
+SELECT count(*)
+FROM notification_broadcasts b
+LEFT JOIN events e ON e.id = b.scope_event_id
+WHERE ($1::text = ''
+    OR ($1::text = 'platform' AND b.scope_event_id IS NULL)
+    OR b.scope_event_id::text = $1::text)
+  AND ($2::text = ''
+    OR strpos(lower(b.subject), lower($2::text)) > 0
+    OR strpos(lower(b.inapp_title), lower($2::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower($2::text)) > 0)
+  AND ($3::text = '' OR b.status = $3::text)
+`
+
+type CountNotificationBroadcastsParams struct {
+	ScopeFilter  string `json:"scope_filter"`
+	Search       string `json:"search"`
+	StatusFilter string `json:"status_filter"`
+}
+
+func (q *Queries) CountNotificationBroadcasts(ctx context.Context, arg CountNotificationBroadcastsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countNotificationBroadcasts, arg.ScopeFilter, arg.Search, arg.StatusFilter)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNotificationBroadcast = `-- name: CreateNotificationBroadcast :one
 INSERT INTO notification_broadcasts (id, scope_event_id, created_by, channels, subject, preheader, email_body, email_styling,
                                      inapp_title, inapp_body, inapp_link, audience, recipient_count, status)
@@ -393,13 +420,31 @@ WHERE ($1::text = ''
   AND ($2::text = '' OR (b.created_at, b.id) < (
     SELECT created_at, id FROM notification_broadcasts WHERE id = NULLIF($2::text, '')::uuid
   ))
-ORDER BY b.created_at DESC, b.id DESC
-LIMIT $3
+  AND ($3::text = ''
+    OR strpos(lower(b.subject), lower($3::text)) > 0
+    OR strpos(lower(b.inapp_title), lower($3::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower($3::text)) > 0)
+  AND ($4::text = '' OR b.status = $4::text)
+ORDER BY
+  CASE WHEN $5::text = 'subject' AND $6::text = 'asc' THEN lower(b.subject) END ASC,
+  CASE WHEN $5::text = 'subject' AND $6::text = 'desc' THEN lower(b.subject) END DESC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'asc' THEN b.status END ASC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'desc' THEN b.status END DESC,
+  CASE WHEN $5::text = 'recipients' AND $6::text = 'asc' THEN b.recipient_count END ASC,
+  CASE WHEN $5::text = 'recipients' AND $6::text = 'desc' THEN b.recipient_count END DESC,
+  CASE WHEN $5::text = 'created' AND $6::text = 'asc' THEN b.created_at END ASC,
+  b.created_at DESC, b.id DESC
+LIMIT $8 OFFSET $7
 `
 
 type ListNotificationBroadcastsParams struct {
 	ScopeFilter  string `json:"scope_filter"`
 	CursorFilter string `json:"cursor_filter"`
+	Search       string `json:"search"`
+	StatusFilter string `json:"status_filter"`
+	SortBy       string `json:"sort_by"`
+	SortDir      string `json:"sort_dir"`
+	OffsetVal    int32  `json:"offset_val"`
 	LimitVal     int32  `json:"limit_val"`
 }
 
@@ -429,7 +474,16 @@ type ListNotificationBroadcastsRow struct {
 // scope_filter: ” = every scope, 'platform' = platform broadcasts only,
 // otherwise the Event id.
 func (q *Queries) ListNotificationBroadcasts(ctx context.Context, arg ListNotificationBroadcastsParams) ([]ListNotificationBroadcastsRow, error) {
-	rows, err := q.db.Query(ctx, listNotificationBroadcasts, arg.ScopeFilter, arg.CursorFilter, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listNotificationBroadcasts,
+		arg.ScopeFilter,
+		arg.CursorFilter,
+		arg.Search,
+		arg.StatusFilter,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}
