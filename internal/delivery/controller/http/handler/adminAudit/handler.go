@@ -82,6 +82,7 @@ var (
 // @Tags     admin
 // @Produce  json
 // @Param    actorID     query  string  false  "actor user ID (exact)"
+// @Param    mine        query  bool    false  "true: only the caller's own actions (overrides actorID)"
 // @Param    permission  query  string  false  "gating permission (exact), e.g. users.delete"
 // @Param    route       query  string  false  "route template contains this text"
 // @Param    method      query  string  false  "HTTP method (exact): POST PUT PATCH DELETE, GET for exports"
@@ -149,6 +150,7 @@ func toItem(x postgres.AdminAuditLog) auditItem {
 // @Tags     admin
 // @Produce  text/csv
 // @Param    actorID     query  string  false  "actor user ID (exact)"
+// @Param    mine        query  bool    false  "true: only the caller's own actions (overrides actorID)"
 // @Param    permission  query  string  false  "gating permission (exact)"
 // @Param    route       query  string  false  "route template contains this text"
 // @Param    method      query  string  false  "HTTP method (exact)"
@@ -246,6 +248,21 @@ func show(v any) any {
 }
 
 func parseFilter(c *gin.Context) (adminAuditUseCase.Filter, error) {
+	f, err := parseFilterFields(c)
+	if err != nil {
+		return f, err
+	}
+	if c.Query("mine") == "true" {
+		claims, ok := rbac.CurrentUserSessionFromContext(c.Request.Context())
+		if !ok {
+			return f, fmt.Errorf("mine needs a signed-in caller")
+		}
+		f.ActorID = uuid.NullUUID{UUID: claims.UserID, Valid: true}
+	}
+	return f, nil
+}
+
+func parseFilterFields(c *gin.Context) (adminAuditUseCase.Filter, error) {
 	f := adminAuditUseCase.Filter{
 		Permission: c.Query("permission"), Route: c.Query("route"),
 		TargetKind: c.Query("targetKind"), TargetID: c.Query("targetID"), Cursor: c.Query("cursor"),

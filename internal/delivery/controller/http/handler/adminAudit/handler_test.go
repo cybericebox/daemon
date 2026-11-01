@@ -232,3 +232,25 @@ func TestAuditLogExportIsCSVWithChangesAndNeutralizedFormulas(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditLogMineFilterUsesTheCaller(t *testing.T) {
+	me := uuid.Must(uuid.NewV7())
+	other := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler, func(c *gin.Context) {
+		c.Request = c.Request.WithContext(rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: me}))
+	})
+	adminAuditHandler.New(uc, openProt{}).Init(r.Group("api"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/admin/audit-log?mine=true&actorID="+other.String(), nil))
+	if w.Code != http.StatusOK || !uc.got.ActorID.Valid || uc.got.ActorID.UUID != me {
+		t.Fatalf("mine must win over actorID: %d %+v", w.Code, uc.got.ActorID)
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/admin/audit-log?mine=false&actorID="+other.String(), nil))
+	if uc.got.ActorID.UUID != other {
+		t.Fatalf("without mine the actorID filter stays: %+v", uc.got.ActorID)
+	}
+}

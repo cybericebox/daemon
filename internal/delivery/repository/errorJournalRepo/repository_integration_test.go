@@ -318,3 +318,24 @@ func TestListGroupsFindsTheGroupOfARequestByIDOrPrefix(t *testing.T) {
 	assert.Empty(t, titles("deadbeef"))
 	assert.Len(t, titles(""), 3)
 }
+
+// NewSince keeps the groups first seen at or after the moment: the "new items" counter is its total.
+func TestListGroupsNewSinceCountsGroupsFirstSeenLater(t *testing.T) {
+	r, _ := newRepo(t)
+	ctx := context.Background()
+	record(t, r, "old", t0, 3)
+	record(t, r, "old", t0.Add(2*time.Hour), 3) // seen again later: still not new
+	record(t, r, "new", t0.Add(time.Hour), 3)
+
+	since := t0.Add(30 * time.Minute)
+	groups, total, err := r.ListGroups(ctx, errorJournalUseCase.GroupFilter{NewSince: &since, Limit: 1})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total, "only the group first seen after the moment counts")
+	require.Len(t, groups, 1)
+	assert.Equal(t, "boom new", groups[0].Title)
+
+	late := t0.Add(3 * time.Hour)
+	_, total, err = r.ListGroups(ctx, errorJournalUseCase.GroupFilter{NewSince: &late, Limit: 10})
+	require.NoError(t, err)
+	assert.Zero(t, total)
+}

@@ -32,6 +32,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "true: only the caller's own actions (overrides actorID)",
+                        "name": "mine",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "gating permission (exact), e.g. users.delete",
                         "name": "permission",
@@ -135,6 +141,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "actor user ID (exact)",
                         "name": "actorID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "true: only the caller's own actions (overrides actorID)",
+                        "name": "mine",
                         "in": "query"
                     },
                     {
@@ -270,6 +282,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "last seen at or before (RFC 3339)",
                         "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "only groups first seen at or after this time (RFC 3339); with limit=1 the Total is the new-items counter",
+                        "name": "newSince",
                         "in": "query"
                     },
                     {

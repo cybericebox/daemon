@@ -144,7 +144,9 @@ type (
 		Status errorJournal.Status
 		From   *time.Time
 		To     *time.Time
-		Query  string
+		// NewSince keeps the groups first seen at or after it (the "new items" counter of the page).
+		NewSince *time.Time
+		Query    string
 		// Request is a request id or its first characters (at least 8 hex): only the groups that have a sample
 		// of that request.
 		Request string

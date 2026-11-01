@@ -266,6 +266,7 @@ func settingsOf(v errorJournalUseCase.SettingsView) settingsResponse {
 // @Param    status  query  string    false  "open, resolved or ignored"
 // @Param    from    query  string    false  "last seen at or after (RFC 3339)"
 // @Param    to      query  string    false  "last seen at or before (RFC 3339)"
+// @Param    newSince query string    false  "only groups first seen at or after this time (RFC 3339); with limit=1 the Total is the new-items counter"
 // @Param    q       query  string    false  "text in the title or source"
 // @Param    request query  string    false  "request id or its first 8+ hex characters (case-insensitive): only the groups that have a sample of that request; 400 when shorter or not hex"
 // @Param    limit   query  int       false  "page size, 1-200 (default 50)"
@@ -287,6 +288,9 @@ func (h *Handler) list(c *gin.Context) {
 		return
 	}
 	if f.To, ok = timeParam(c, "to"); !ok {
+		return
+	}
+	if f.NewSince, ok = timeParam(c, "newSince"); !ok {
 		return
 	}
 	if f.Limit, ok = intParam(c, "limit"); !ok {

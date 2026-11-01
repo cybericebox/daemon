@@ -13324,6 +13324,10 @@ paths:
         in: query
         name: actorID
         type: string
+      - description: 'true: only the caller''s own actions (overrides actorID)'
+        in: query
+        name: mine
+        type: boolean
       - description: gating permission (exact), e.g. users.delete
         in: query
         name: permission
@@ -13393,6 +13397,10 @@ paths:
         in: query
         name: actorID
         type: string
+      - description: 'true: only the caller''s own actions (overrides actorID)'
+        in: query
+        name: mine
+        type: boolean
       - description: gating permission (exact)
         in: query
         name: permission
@@ -13484,6 +13492,11 @@ paths:
       - description: last seen at or before (RFC 3339)
         in: query
         name: to
+        type: string
+      - description: only groups first seen at or after this time (RFC 3339); with
+          limit=1 the Total is the new-items counter
+        in: query
+        name: newSince
         type: string
       - description: text in the title or source
         in: query
