@@ -255,7 +255,7 @@ func parseFilter(c *gin.Context) (adminAuditUseCase.Filter, error) {
 	if c.Query("mine") == "true" {
 		claims, ok := rbac.CurrentUserSessionFromContext(c.Request.Context())
 		if !ok {
-			return f, fmt.Errorf("mine needs a signed-in caller")
+			return f, errors.New("mine needs a signed-in caller")
 		}
 		f.ActorID = uuid.NullUUID{UUID: claims.UserID, Valid: true}
 	}
