@@ -506,7 +506,7 @@ func (h *Handler) listCapacityMonitoring(ctx *gin.Context) {
 //	@Param		status		query	string	false	"creating | ready | failed | removed | active"
 //	@Param		kind		query	string	false	"event | moderators"
 //	@Param		search		query	string	false	"event name or tag, team name"
-//	@Param		sortBy		query	string	false	"event | team | status | updatedAt | statusChangedAt | generation"
+//	@Param		sortBy		query	string	false	"event | team | status | reason | updatedAt | statusChangedAt | generation"
 //	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"
@@ -528,6 +528,7 @@ func (h *Handler) listStands(ctx *gin.Context) {
 		"event",
 		"team",
 		"status",
+		"reason",
 		"updatedAt",
 		"statusChangedAt",
 		"generation",
@@ -669,7 +670,7 @@ func (h *Handler) recreateStand(ctx *gin.Context) {
 //	@Param		status		query	string	false	"active | expired"
 //	@Param		author		query	string	false	"author user ID"
 //	@Param		exercise	query	string	false	"exercise ID"
-//	@Param		sortBy		query	string	false	"exercise | author | createdAt | expiresAt"
+//	@Param		sortBy		query	string	false	"exercise | author | variant | status | createdAt | expiresAt"
 //	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"

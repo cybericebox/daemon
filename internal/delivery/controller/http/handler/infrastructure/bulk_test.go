@@ -164,4 +164,16 @@ func TestListFiltersAndSortingAreValidated(t *testing.T) {
 		uc.standsFilter.SortDir != "desc" {
 		t.Fatalf("status = %d filter = %+v", w.Code, uc.standsFilter)
 	}
+
+	for _, path := range []string{
+		"/api/infrastructure/stands?page=1&pageSize=10&sortBy=reason",
+		"/api/infrastructure/test-labs?page=1&pageSize=10&sortBy=variant",
+		"/api/infrastructure/test-labs?page=1&pageSize=10&sortBy=status&sortDir=asc",
+	} {
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", path, w.Code)
+		}
+	}
 }

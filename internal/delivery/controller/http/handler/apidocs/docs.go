@@ -22530,7 +22530,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "event | team | status | updatedAt | statusChangedAt | generation",
+                        "description": "event | team | status | reason | updatedAt | statusChangedAt | generation",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -22965,7 +22965,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "exercise | author | createdAt | expiresAt",
+                        "description": "exercise | author | variant | status | createdAt | expiresAt",
                         "name": "sortBy",
                         "in": "query"
                     },

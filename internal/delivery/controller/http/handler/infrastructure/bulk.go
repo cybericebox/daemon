@@ -83,7 +83,7 @@ func testLabsFilter(q testLabsQuery) (infrastructureUseCase.TestLabsFilter, erro
 	if q.Status != "" && q.Status != "active" && q.Status != "expired" {
 		return filter, errors.New("status must be active or expired")
 	}
-	if !validSort(q.SortBy, q.SortDir, "exercise", "author", "createdAt", "expiresAt") {
+	if !validSort(q.SortBy, q.SortDir, "exercise", "author", "variant", "status", "createdAt", "expiresAt") {
 		return filter, errInvalidSort
 	}
 	for raw, target := range map[string]*uuid.NullUUID{q.Author: &filter.AuthorID, q.Exercise: &filter.ExerciseID} {

@@ -27282,7 +27282,8 @@ paths:
         in: query
         name: search
         type: string
-      - description: event | team | status | updatedAt | statusChangedAt | generation
+      - description: event | team | status | reason | updatedAt | statusChangedAt
+          | generation
         in: query
         name: sortBy
         type: string
@@ -27568,7 +27569,7 @@ paths:
         in: query
         name: exercise
         type: string
-      - description: exercise | author | createdAt | expiresAt
+      - description: exercise | author | variant | status | createdAt | expiresAt
         in: query
         name: sortBy
         type: string

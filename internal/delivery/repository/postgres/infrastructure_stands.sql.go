@@ -132,6 +132,8 @@ ORDER BY
   CASE WHEN $5::text = 'team' AND $6::text = 'desc' THEN lower(event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)) END DESC,
   CASE WHEN $5::text = 'status' AND $6::text = 'asc' THEN s.status END ASC,
   CASE WHEN $5::text = 'status' AND $6::text = 'desc' THEN s.status END DESC,
+  CASE WHEN $5::text = 'reason' AND $6::text = 'asc' THEN lower(COALESCE(s.reason, '')) END ASC,
+  CASE WHEN $5::text = 'reason' AND $6::text = 'desc' THEN lower(COALESCE(s.reason, '')) END DESC,
   CASE WHEN $5::text = 'updatedAt' AND $6::text = 'asc' THEN s.updated_at END ASC,
   CASE WHEN $5::text = 'updatedAt' AND $6::text = 'desc' THEN s.updated_at END DESC,
   CASE WHEN $5::text = 'generation' AND $6::text = 'asc' THEN s.generation END ASC,
