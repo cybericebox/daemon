@@ -211,7 +211,8 @@ func (e *passkeyEnv) stubPasskeys(repo *postgresMocks.MockQuerier) {
 	repo.EXPECT().UseUserPasskey(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 		func(_ context.Context, a postgres.UseUserPasskeyParams) (int64, error) {
 			k, ok := e.keys[a.ID]
-			if !ok || k.CompromisedAt.Valid || (k.SignCount >= a.SignCount && (k.SignCount != 0 || a.SignCount != 0)) {
+			if !ok || k.CompromisedAt.Valid ||
+				(k.SignCount >= a.SignCount && (k.SignCount != 0 || a.SignCount != 0)) {
 				return 0, nil
 			}
 			k.SignCount, k.BackupState, k.LastUsedAt = a.SignCount, a.BackupState, a.UsedAt
@@ -622,7 +623,8 @@ func TestPasskey_CounterRegressionRefused(t *testing.T) {
 	if got := e.keys[created.ID].SignCount; got != 5 {
 		t.Fatalf("the stored counter must not move back, got %d", got)
 	}
-	if len(spy.events) != 1 || spy.events[0].Key != "passkey-clone:"+created.ID.String() || spy.events[0].UserID == nil {
+	if len(spy.events) != 1 || spy.events[0].Key != "passkey-clone:"+created.ID.String() ||
+		spy.events[0].UserID == nil {
 		t.Fatalf("the clone must reach the error journal once, got %+v", spy.events)
 	}
 	// It stays listed, flagged, until the person removes it.
@@ -694,14 +696,26 @@ func TestPasskey_Remove(t *testing.T) {
 	first := e.register(e.authenticator(), "One")
 
 	// The owner is confirmed first: a wrong password removes nothing.
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, "wrong"), authModel.ErrAuthInvalidOldPassword)
+	wantErr(
+		t,
+		e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, "wrong"),
+		authModel.ErrAuthInvalidOldPassword,
+	)
 	if len(e.keys) != 1 {
 		t.Fatal("a wrong password must not remove the key")
 	}
 	// Another person's id looks the same as an unknown one.
 	foreign := uuid.Must(uuid.NewV7())
-	e.keys[foreign] = postgres.UserPasskey{ID: foreign, UserID: uuid.Must(uuid.NewV7()), CredentialID: []byte("foreign")}
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, foreign, passkeyPass), passkeyModel.ErrPasskeyNotFound)
+	e.keys[foreign] = postgres.UserPasskey{
+		ID:           foreign,
+		UserID:       uuid.Must(uuid.NewV7()),
+		CredentialID: []byte("foreign"),
+	}
+	wantErr(
+		t,
+		e.uc.RemovePasskey(e.signedIn(0), e.user.ID, foreign, passkeyPass),
+		passkeyModel.ErrPasskeyNotFound,
+	)
 	delete(e.keys, foreign)
 	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, passkeyPass); err != nil {
 		t.Fatalf("RemovePasskey: %v", err)
@@ -709,7 +723,11 @@ func TestPasskey_Remove(t *testing.T) {
 	if len(e.keys) != 0 {
 		t.Fatal("the passkey must be gone")
 	}
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, passkeyPass), passkeyModel.ErrPasskeyNotFound)
+	wantErr(
+		t,
+		e.uc.RemovePasskey(e.signedIn(0), e.user.ID, first.ID, passkeyPass),
+		passkeyModel.ErrPasskeyNotFound,
+	)
 }
 
 func TestPasskey_RemoveWithoutPasswordNeedsAFreshSignIn(t *testing.T) {
@@ -717,7 +735,11 @@ func TestPasskey_RemoveWithoutPasswordNeedsAFreshSignIn(t *testing.T) {
 	e.register(e.authenticator(), "One")
 	second := e.register(e.authenticator(), "Two")
 
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(time.Hour), e.user.ID, second.ID, ""), authModel.ErrAuthReauthRequired)
+	wantErr(
+		t,
+		e.uc.RemovePasskey(e.signedIn(time.Hour), e.user.ID, second.ID, ""),
+		authModel.ErrAuthReauthRequired,
+	)
 	if len(e.keys) != 2 {
 		t.Fatal("a stale sign-in must not remove the key")
 	}
@@ -730,7 +752,11 @@ func TestPasskey_RemoveLastLoginMethodRefused(t *testing.T) {
 	e := newPasskeyEnv(t, false) // no password
 	e.user.EmailConfirmed = true
 	only := e.register(e.authenticator(), "Only")
-	wantErr(t, e.uc.RemovePasskey(e.signedIn(0), e.user.ID, only.ID, ""), authModel.ErrNoLoginMethod)
+	wantErr(
+		t,
+		e.uc.RemovePasskey(e.signedIn(0), e.user.ID, only.ID, ""),
+		authModel.ErrNoLoginMethod,
+	)
 
 	second := e.register(e.authenticator(), "Second")
 	if err := e.uc.RemovePasskey(e.signedIn(0), e.user.ID, second.ID, ""); err != nil {

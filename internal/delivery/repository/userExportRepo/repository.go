@@ -33,7 +33,10 @@ type Queries interface {
 		userID uuid.UUID,
 	) ([]postgres.ExportUserFormAnswersRow, error)
 	ExportUserInbox(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserInboxRow, error)
-	ExportUserTablePrefs(ctx context.Context, userID uuid.UUID) ([]postgres.ExportUserTablePrefsRow, error)
+	ExportUserTablePrefs(
+		ctx context.Context,
+		userID uuid.UUID,
+	) ([]postgres.ExportUserTablePrefsRow, error)
 	ExportUserNotificationSettings(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -88,7 +91,11 @@ func (r *Repository) Fill(ctx context.Context, userID uuid.UUID, out *userModel.
 }
 
 // fillActivity adds the staff roles, submissions, form answers, inbox and notification settings of userID.
-func (r *Repository) fillActivity(ctx context.Context, userID uuid.UUID, out *userModel.DataExport) error {
+func (r *Repository) fillActivity(
+	ctx context.Context,
+	userID uuid.UUID,
+	out *userModel.DataExport,
+) error {
 	roles, err := r.q.ExportUserEventStaffRoles(ctx, userID)
 	if err != nil {
 		return err
@@ -174,7 +181,14 @@ func (r *Repository) fillActivity(ctx context.Context, userID uuid.UUID, out *us
 	}
 	out.TableViews = make([]userModel.ExportTableView, 0, len(views))
 	for _, v := range views {
-		out.TableViews = append(out.TableViews, userModel.ExportTableView{Table: v.TableKey, Prefs: json.RawMessage(v.Prefs), UpdatedAt: v.UpdatedAt})
+		out.TableViews = append(
+			out.TableViews,
+			userModel.ExportTableView{
+				Table:     v.TableKey,
+				Prefs:     json.RawMessage(v.Prefs),
+				UpdatedAt: v.UpdatedAt,
+			},
+		)
 	}
 	return nil
 }

@@ -510,7 +510,10 @@ func (u *AuthUseCase) recordPasskeyUse(
 // condemnPasskey marks the key compromised for good (it never signs in again, the person removes it) and reports it.
 func (u *AuthUseCase) condemnPasskey(ctx context.Context, p passkeyModel.Passkey, why string) {
 	if err := u.passkeys.MarkCompromised(ctx, p.ID, time.Now()); err != nil {
-		log.Error().Err(err).Str("passkey_id", p.ID.String()).Msg("Failed to mark a passkey compromised")
+		log.Error().
+			Err(err).
+			Str("passkey_id", p.ID.String()).
+			Msg("Failed to mark a passkey compromised")
 	}
 	u.reportPasskeyClone(p, why)
 }
@@ -550,7 +553,11 @@ func (u *AuthUseCase) ListPasskeys(
 
 // RemovePasskey deletes the account's passkey, refusing when it is the last way to sign in (lockout guard). The
 // owner is re-confirmed first (the password, or a sign-in from the last minutes for an account without one).
-func (u *AuthUseCase) RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID, currentPassword string) error {
+func (u *AuthUseCase) RemovePasskey(
+	ctx context.Context,
+	userID, passkeyID uuid.UUID,
+	currentPassword string,
+) error {
 	if err := u.reauthenticate(ctx, userID, currentPassword); err != nil {
 		return err
 	}

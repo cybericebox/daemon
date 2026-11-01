@@ -27,7 +27,11 @@ func (h *Handler) exportMyData(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	body, err := json.MarshalIndent(data, "", "  ") //nolint:musttag // the file format is the PascalCase field names of DataExport
+	body, err := json.MarshalIndent(
+		data,
+		"",
+		"  ",
+	) //nolint:musttag // the file format is the PascalCase field names of DataExport
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

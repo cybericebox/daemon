@@ -28,7 +28,10 @@ type Queries interface {
 	ListUserPasskeys(ctx context.Context, userID uuid.UUID) ([]postgres.UserPasskey, error)
 	CountUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 	UseUserPasskey(ctx context.Context, arg postgres.UseUserPasskeyParams) (int64, error)
-	MarkUserPasskeyCompromised(ctx context.Context, arg postgres.MarkUserPasskeyCompromisedParams) (int64, error)
+	MarkUserPasskeyCompromised(
+		ctx context.Context,
+		arg postgres.MarkUserPasskeyCompromisedParams,
+	) (int64, error)
 	DeleteUserPasskey(ctx context.Context, arg postgres.DeleteUserPasskeyParams) (int64, error)
 	DeleteUserPasskeys(ctx context.Context, userID uuid.UUID) (int64, error)
 }
@@ -171,7 +174,13 @@ func (r *Repository) RecordUse(
 
 // MarkCompromised records that the key's counter went backwards; the key can sign in no more.
 func (r *Repository) MarkCompromised(ctx context.Context, id uuid.UUID, at time.Time) error {
-	_, err := r.q.MarkUserPasskeyCompromised(ctx, postgres.MarkUserPasskeyCompromisedParams{ID: id, At: pgtype.Timestamptz{Time: at, Valid: true}})
+	_, err := r.q.MarkUserPasskeyCompromised(
+		ctx,
+		postgres.MarkUserPasskeyCompromisedParams{
+			ID: id,
+			At: pgtype.Timestamptz{Time: at, Valid: true},
+		},
+	)
 	return err
 }
 

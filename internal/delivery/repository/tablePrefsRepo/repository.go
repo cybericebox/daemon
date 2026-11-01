@@ -15,9 +15,18 @@ import (
 
 // Queries is the narrow slice of the sqlc Querier this repository needs.
 type Queries interface {
-	GetUserTablePrefs(ctx context.Context, arg postgres.GetUserTablePrefsParams) (postgres.GetUserTablePrefsRow, error)
-	UpsertUserTablePrefs(ctx context.Context, arg postgres.UpsertUserTablePrefsParams) (int64, error)
-	DeleteUserTablePrefs(ctx context.Context, arg postgres.DeleteUserTablePrefsParams) (int64, error)
+	GetUserTablePrefs(
+		ctx context.Context,
+		arg postgres.GetUserTablePrefsParams,
+	) (postgres.GetUserTablePrefsRow, error)
+	UpsertUserTablePrefs(
+		ctx context.Context,
+		arg postgres.UpsertUserTablePrefsParams,
+	) (int64, error)
+	DeleteUserTablePrefs(
+		ctx context.Context,
+		arg postgres.DeleteUserTablePrefsParams,
+	) (int64, error)
 	DeleteAllUserTablePrefs(ctx context.Context, userID uuid.UUID) (int64, error)
 }
 
@@ -26,8 +35,15 @@ type Repository struct{ q Queries }
 func New(q Queries) *Repository { return &Repository{q: q} }
 
 // Get returns the saved view, or nil when the person has none.
-func (r *Repository) Get(ctx context.Context, userID uuid.UUID, key string) (*tablePrefsModel.Prefs, error) {
-	row, err := r.q.GetUserTablePrefs(ctx, postgres.GetUserTablePrefsParams{UserID: userID, TableKey: key})
+func (r *Repository) Get(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+) (*tablePrefsModel.Prefs, error) {
+	row, err := r.q.GetUserTablePrefs(
+		ctx,
+		postgres.GetUserTablePrefsParams{UserID: userID, TableKey: key},
+	)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil, nil
@@ -42,7 +58,14 @@ func (r *Repository) Get(ctx context.Context, userID uuid.UUID, key string) (*ta
 }
 
 // Save stores the view; false when it would be a new table over the per-person cap.
-func (r *Repository) Save(ctx context.Context, userID uuid.UUID, key string, raw []byte, at time.Time, maxTables int) (bool, error) {
+func (r *Repository) Save(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+	raw []byte,
+	at time.Time,
+	maxTables int,
+) (bool, error) {
 	n, err := r.q.UpsertUserTablePrefs(ctx, postgres.UpsertUserTablePrefsParams{
 		UserID: userID, TableKey: key, Prefs: raw, UpdatedAt: at, MaxTables: int64(maxTables),
 	})
@@ -51,7 +74,10 @@ func (r *Repository) Save(ctx context.Context, userID uuid.UUID, key string, raw
 
 // Delete forgets the view of one table.
 func (r *Repository) Delete(ctx context.Context, userID uuid.UUID, key string) error {
-	_, err := r.q.DeleteUserTablePrefs(ctx, postgres.DeleteUserTablePrefsParams{UserID: userID, TableKey: key})
+	_, err := r.q.DeleteUserTablePrefs(
+		ctx,
+		postgres.DeleteUserTablePrefsParams{UserID: userID, TableKey: key},
+	)
 	return err
 }
 

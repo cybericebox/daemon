@@ -32,38 +32,69 @@ func TestDeletedAccountAddressIsFreeAndTheNewAccountIsClean(t *testing.T) {
 	ctx := context.Background()
 	notifier := &fakeNotifier{}
 	uc := auth.NewAuthUseCase(auth.Dependencies{
-		Repo:     db.Queries,
-		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
+		Repo: db.Queries,
+		Token: token.MustNew(
+			token.Config{TokenSignature: "test-signing-key-that-is-long-enough"},
+		),
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: notifier,
 		Sessions: testSessions(t),
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, SignupSetupTokenTTL: time.Hour, Hosts: testHosts("example.test")},
+		Config: config.AuthConfig{
+			SessionIdleTTL:      time.Hour,
+			TemporalCodeTTL:     time.Hour,
+			SignupSetupTokenTTL: time.Hour,
+			Hosts:               testHosts("example.test"),
+		},
 	})
 
 	const address = "same@example.test"
 	oldID := uuid.Must(uuid.NewV7())
-	_, err := userRepo.New(db.Queries).Create(ctx, userModel.NewGoogleUser(oldID, address, "Old", "Owner", time.Now()))
+	_, err := userRepo.New(db.Queries).
+		Create(ctx, userModel.NewGoogleUser(oldID, address, "Old", "Owner", time.Now()))
 	require.NoError(t, err)
 	_, err = db.Queries.CreateUserProvider(ctx, postgres.CreateUserProviderParams{
 		ID: uuid.Must(uuid.NewV7()), UserID: oldID, Provider: "google", ProviderUserID: "g-old",
 	})
 	require.NoError(t, err)
 	_, ok, err := passkeyRepo.New(db.Queries).Create(ctx, passkeyModel.Passkey{
-		ID: uuid.Must(uuid.NewV7()), UserID: oldID, CredentialID: []byte("old-credential"), PublicKey: []byte("pk"),
-		Name: "Old key", UserVerified: true, CreatedAt: time.Now(),
+		ID: uuid.Must(
+			uuid.NewV7(),
+		),
+		UserID:       oldID,
+		CredentialID: []byte("old-credential"),
+		PublicKey:    []byte("pk"),
+		Name:         "Old key",
+		UserVerified: true,
+		CreatedAt:    time.Now(),
 	}, passkeyModel.MaxPerUser)
 	require.NoError(t, err)
 	require.True(t, ok)
-	_, err = tablePrefsRepo.New(db.Queries).Save(ctx, oldID, "admin.users", []byte(`{}`), time.Now(), 10)
+	_, err = tablePrefsRepo.New(db.Queries).
+		Save(ctx, oldID, "admin.users", []byte(`{}`), time.Now(), 10)
 	require.NoError(t, err)
 	codes := temporalCodeRepo.New(db.Queries)
 	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType, temporalCodeModel.SetupLinkCodeType} {
-		data, _ := json.Marshal(temporalCodeModel.TemporalPasswordResettingCodeData{UserID: oldID})
-		require.NoError(t, codes.Create(ctx, temporalCodeModel.NewCode(uuid.Must(uuid.NewV7()), "old-code-"+string(rune('a'+codeType)), codeType, data, time.Now().Add(time.Hour))))
+		data, _ := json.Marshal(map[string]uuid.UUID{"UserID": oldID})
+		require.NoError(
+			t,
+			codes.Create(
+				ctx,
+				temporalCodeModel.NewCode(
+					uuid.Must(uuid.NewV7()),
+					"old-code-"+string(rune('a'+codeType)),
+					codeType,
+					data,
+					time.Now().Add(time.Hour),
+				),
+			),
+		)
 	}
 
 	owner := rbac.ContextWithCurrentUserSession(ctx, rbac.Claims{
-		UserID: oldID, SessionID: uuid.Must(uuid.NewV7()), Role: rbac.RoleUser, SignedInAt: time.Now(),
+		UserID:     oldID,
+		SessionID:  uuid.Must(uuid.NewV7()),
+		Role:       rbac.RoleUser,
+		SignedInAt: time.Now(),
 	})
 	require.NoError(t, uc.DeleteAccount(owner, oldID, ""))
 
@@ -79,7 +110,10 @@ func TestDeletedAccountAddressIsFreeAndTheNewAccountIsClean(t *testing.T) {
 	require.Zero(t, count(`SELECT count(*) FROM temporal_codes WHERE data ->> 'UserID' = $1::text`))
 	require.Zero(t, count(`SELECT count(*) FROM sessions WHERE user_id = $1`))
 	var oldEmail string
-	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, oldID).Scan(&oldEmail))
+	require.NoError(
+		t,
+		db.Pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, oldID).Scan(&oldEmail),
+	)
 	require.NotEqual(t, address, oldEmail, "the old row no longer holds the address")
 
 	// The same address signs up again at once.

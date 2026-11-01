@@ -22,14 +22,20 @@ func TestValidKey(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	good := tablePrefsModel.Prefs{
-		ColumnOrder: []string{"a", "b"}, ColumnWidths: map[string]int{"a": 120}, Hidden: []string{"c"},
-		Sort: &tablePrefsModel.Sort{Key: "a", Dir: "asc"}, PageSize: 50,
+		ColumnOrder: []string{
+			"a",
+			"b",
+		},
+		ColumnWidths: map[string]int{"a": 120},
+		Hidden:       []string{"c"},
+		Sort:         &tablePrefsModel.Sort{Key: "a", Dir: "asc"},
+		PageSize:     50,
 	}
 	if _, raw, ok := tablePrefsModel.Normalize(good); !ok || len(raw) == 0 {
 		t.Fatal("a normal view must pass")
 	}
-	empty, _, ok := tablePrefsModel.Normalize(tablePrefsModel.Prefs{})
-	if !ok || empty.ColumnOrder == nil || empty.Hidden == nil || empty.ColumnWidths == nil {
+	empty, _, emptyOK := tablePrefsModel.Normalize(tablePrefsModel.Prefs{})
+	if !emptyOK || empty.ColumnOrder == nil || empty.Hidden == nil || empty.ColumnWidths == nil {
 		t.Fatalf("an empty view passes with empty lists, got %+v", empty)
 	}
 

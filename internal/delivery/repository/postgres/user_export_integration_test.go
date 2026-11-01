@@ -24,20 +24,47 @@ func TestUserExport_OwnRowsOnly(t *testing.T) {
 	f := anSeed(t, db, "export")
 
 	mate := mustSeedUser(t, db, "export-mate-secret@test.test")
-	rtExec(t, db, `INSERT INTO event_participants (event_id, user_id, status, created_at, team_id, team_role) VALUES ($1, $2, 2, $3, $4, 1)`,
-		f.event, mate, anStart, f.team)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO event_participants (event_id, user_id, status, created_at, team_id, team_role) VALUES ($1, $2, 2, $3, $4, 1)`,
+		f.event,
+		mate,
+		anStart,
+		f.team,
+	)
 	mine := anAttempt(t, db, f, f.team, f.teamChallenge, true, anStart.Add(time.Minute))
 	f2 := f
 	f2.user = mate
 	theirs := anAttempt(t, db, f2, f.team, f.teamChallenge, false, anStart.Add(2*time.Minute))
 	rtExec(t, db, `UPDATE challenge_attempts SET answer = 'MATE-ANSWER' WHERE id = $1`, theirs)
-	rtExec(t, db, `INSERT INTO in_app_notifications (id, user_id, title, body, surface) VALUES ($1, $2, 'mine', 'b', 'inbox'), ($3, $4, 'mates', 'b', 'inbox')`,
-		uuid.Must(uuid.NewV7()), f.user, uuid.Must(uuid.NewV7()), mate)
-	rtExec(t, db, `INSERT INTO notification_user_settings (user_id, notification_type, channel, enabled) VALUES ($1, 'x', 'email', false), ($2, 'y', 'email', true)`, f.user, mate)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO in_app_notifications (id, user_id, title, body, surface) VALUES ($1, $2, 'mine', 'b', 'inbox'), ($3, $4, 'mates', 'b', 'inbox')`,
+		uuid.Must(uuid.NewV7()),
+		f.user,
+		uuid.Must(uuid.NewV7()),
+		mate,
+	)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO notification_user_settings (user_id, notification_type, channel, enabled) VALUES ($1, 'x', 'email', false), ($2, 'y', 'email', true)`,
+		f.user,
+		mate,
+	)
 
 	prefs := tablePrefsRepo.New(db.Queries)
 	for _, owner := range []uuid.UUID{f.user, mate} {
-		ok, err := prefs.Save(ctx, owner, "admin.users", []byte(`{"PageSize":25}`), time.Now(), tablePrefsModel.MaxTablesPerUser)
+		ok, err := prefs.Save(
+			ctx,
+			owner,
+			"admin.users",
+			[]byte(`{"PageSize":25}`),
+			time.Now(),
+			tablePrefsModel.MaxTablesPerUser,
+		)
 		if err != nil || !ok {
 			t.Fatalf("save table view: %v %v", ok, err)
 		}
@@ -48,10 +75,14 @@ func TestUserExport_OwnRowsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(out.Participations) != 1 || out.Participations[0].EventID != f.event || out.Participations[0].TeamName != "Blue" || !out.Participations[0].IsCaptain {
+	if len(out.Participations) != 1 || out.Participations[0].EventID != f.event ||
+		out.Participations[0].TeamName != "Blue" ||
+		!out.Participations[0].IsCaptain {
 		t.Fatalf("participations: %+v", out.Participations)
 	}
-	if len(out.FlagSubmissions) != 1 || out.FlagSubmissions[0].Answer != "ICE{?}" || out.FlagSubmissions[0].TeamName != "Blue" || !out.FlagSubmissions[0].Correct {
+	if len(out.FlagSubmissions) != 1 || out.FlagSubmissions[0].Answer != "ICE{?}" ||
+		out.FlagSubmissions[0].TeamName != "Blue" ||
+		!out.FlagSubmissions[0].Correct {
 		t.Fatalf("submissions: %+v (mine %s)", out.FlagSubmissions, mine)
 	}
 	if len(out.Inbox) != 1 || out.Inbox[0].Title != "mine" {
@@ -78,14 +109,30 @@ func TestTablePrefs_CapAndReset(t *testing.T) {
 	repo := tablePrefsRepo.New(db.Queries)
 
 	for i := range 3 {
-		if ok, err := repo.Save(ctx, user, "t"+string(rune('a'+i)), []byte(`{}`), time.Now(), 3); err != nil || !ok {
+		if ok, err := repo.Save(
+			ctx,
+			user,
+			"t"+string(rune('a'+i)),
+			[]byte(`{}`),
+			time.Now(),
+			3,
+		); err != nil ||
+			!ok {
 			t.Fatalf("save %d: %v %v", i, ok, err)
 		}
 	}
 	if ok, err := repo.Save(ctx, user, "tz", []byte(`{}`), time.Now(), 3); err != nil || ok {
 		t.Fatalf("a new table over the cap must be refused, got %v %v", ok, err)
 	}
-	if ok, err := repo.Save(ctx, user, "ta", []byte(`{"PageSize":50}`), time.Now(), 3); err != nil || !ok {
+	if ok, err := repo.Save(
+		ctx,
+		user,
+		"ta",
+		[]byte(`{"PageSize":50}`),
+		time.Now(),
+		3,
+	); err != nil ||
+		!ok {
 		t.Fatalf("a known table is always saved: %v %v", ok, err)
 	}
 	got, err := repo.Get(ctx, user, "ta")

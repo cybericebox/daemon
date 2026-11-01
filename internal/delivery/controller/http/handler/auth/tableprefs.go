@@ -18,7 +18,11 @@ import (
 // @Router   /auth/account/table-prefs/{tableKey} [get]
 func (h *Handler) getTablePrefs(ctx *gin.Context) {
 	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	prefs, err := h.useCase.GetTablePrefs(ctx.Request.Context(), claims.UserID, ctx.Param("tableKey"))
+	prefs, err := h.useCase.GetTablePrefs(
+		ctx.Request.Context(),
+		claims.UserID,
+		ctx.Param("tableKey"),
+	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -43,7 +47,12 @@ func (h *Handler) saveTablePrefs(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	saved, err := h.useCase.SaveTablePrefs(ctx.Request.Context(), claims.UserID, ctx.Param("tableKey"), req)
+	saved, err := h.useCase.SaveTablePrefs(
+		ctx.Request.Context(),
+		claims.UserID,
+		ctx.Param("tableKey"),
+		req,
+	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -61,7 +70,11 @@ func (h *Handler) saveTablePrefs(ctx *gin.Context) {
 // @Router   /auth/account/table-prefs/{tableKey} [delete]
 func (h *Handler) resetTablePrefs(ctx *gin.Context) {
 	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	if err := h.useCase.ResetTablePrefs(ctx.Request.Context(), claims.UserID, ctx.Param("tableKey")); err != nil {
+	if err := h.useCase.ResetTablePrefs(
+		ctx.Request.Context(),
+		claims.UserID,
+		ctx.Param("tableKey"),
+	); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

@@ -220,7 +220,12 @@ func (h *Handler) removePasskey(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	if err = h.useCase.RemovePasskey(ctx.Request.Context(), claims.UserID, id, req.CurrentPassword); err != nil {
+	if err = h.useCase.RemovePasskey(
+		ctx.Request.Context(),
+		claims.UserID,
+		id,
+		req.CurrentPassword,
+	); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

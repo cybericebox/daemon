@@ -193,9 +193,20 @@ func TestPasskeyRemove_PassesThePassword(t *testing.T) {
 	r := passkeyRouter(uc, &fakeProt{}, true)
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/auth/passkeys/"+id, strings.NewReader(`{"CurrentPassword":"Secret!1"}`)))
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodDelete,
+			"/api/auth/passkeys/"+id,
+			strings.NewReader(`{"CurrentPassword":"Secret!1"}`),
+		),
+	)
 	if w.Code != http.StatusOK || uc.reauthPassword != "Secret!1" {
-		t.Fatalf("remove: want 200 with the password passed on, got %d / %q", w.Code, uc.reauthPassword)
+		t.Fatalf(
+			"remove: want 200 with the password passed on, got %d / %q",
+			w.Code,
+			uc.reauthPassword,
+		)
 	}
 	// No body is an empty password (an account without one confirms with a fresh sign-in).
 	w = httptest.NewRecorder()
@@ -214,7 +225,14 @@ func TestPasskeyRemove_PassesThePassword(t *testing.T) {
 func TestPasskeyRename_RouteIsGone(t *testing.T) {
 	r := passkeyRouter(&fakeUC{}, &fakeProt{}, true)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, "/api/auth/passkeys/"+uuid.Must(uuid.NewV7()).String(), strings.NewReader(`{"Name":"x"}`)))
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodPatch,
+			"/api/auth/passkeys/"+uuid.Must(uuid.NewV7()).String(),
+			strings.NewReader(`{"Name":"x"}`),
+		),
+	)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("PATCH must not exist, got %d", w.Code)
 	}

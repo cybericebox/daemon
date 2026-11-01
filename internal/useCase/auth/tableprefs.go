@@ -11,7 +11,11 @@ import (
 )
 
 // GetTablePrefs returns the person's saved view of a table, nil when there is none.
-func (u *AuthUseCase) GetTablePrefs(ctx context.Context, userID uuid.UUID, key string) (*tablePrefsModel.Prefs, error) {
+func (u *AuthUseCase) GetTablePrefs(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+) (*tablePrefsModel.Prefs, error) {
 	if !tablePrefsModel.ValidKey(key) {
 		return nil, tablePrefsModel.ErrTablePrefsInvalid.Err()
 	}
@@ -23,7 +27,12 @@ func (u *AuthUseCase) GetTablePrefs(ctx context.Context, userID uuid.UUID, key s
 }
 
 // SaveTablePrefs stores the person's view of a table and returns it as stored.
-func (u *AuthUseCase) SaveTablePrefs(ctx context.Context, userID uuid.UUID, key string, prefs tablePrefsModel.Prefs) (tablePrefsModel.Prefs, error) {
+func (u *AuthUseCase) SaveTablePrefs(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+	prefs tablePrefsModel.Prefs,
+) (tablePrefsModel.Prefs, error) {
 	if !tablePrefsModel.ValidKey(key) {
 		return tablePrefsModel.Prefs{}, tablePrefsModel.ErrTablePrefsInvalid.Err()
 	}
@@ -31,9 +40,18 @@ func (u *AuthUseCase) SaveTablePrefs(ctx context.Context, userID uuid.UUID, key 
 	if !ok {
 		return tablePrefsModel.Prefs{}, tablePrefsModel.ErrTablePrefsInvalid.Err()
 	}
-	stored, err := u.tablePrefs.Save(ctx, userID, key, raw, time.Now(), tablePrefsModel.MaxTablesPerUser)
+	stored, err := u.tablePrefs.Save(
+		ctx,
+		userID,
+		key,
+		raw,
+		time.Now(),
+		tablePrefsModel.MaxTablesPerUser,
+	)
 	if err != nil {
-		return tablePrefsModel.Prefs{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save table view").Err()
+		return tablePrefsModel.Prefs{}, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to save table view").
+			Err()
 	}
 	if !stored {
 		return tablePrefsModel.Prefs{}, tablePrefsModel.ErrTablePrefsLimit.Err()

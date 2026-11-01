@@ -15,8 +15,15 @@ import (
 
 func newPasskey(user uuid.UUID, n int) passkeyModel.Passkey {
 	return passkeyModel.Passkey{
-		ID: uuid.Must(uuid.NewV7()), UserID: user, CredentialID: []byte(fmt.Sprintf("cred-%d-%s", n, user)),
-		PublicKey: []byte("pk"), Name: "Key", UserVerified: true, CreatedAt: time.Now(),
+		ID: uuid.Must(
+			uuid.NewV7(),
+		),
+		UserID:       user,
+		CredentialID: []byte(fmt.Sprintf("cred-%d-%s", n, user)),
+		PublicKey:    []byte("pk"),
+		Name:         "Key",
+		UserVerified: true,
+		CreatedAt:    time.Now(),
 	}
 }
 
@@ -55,7 +62,14 @@ func TestUserPasskeys_SQLRules(t *testing.T) {
 		count uint32
 		want  bool
 	}{{0, true}, {5, true}, {5, false}, {3, false}, {6, true}} {
-		if got, err := repo.RecordUse(ctx, first.ID, c.count, false, now); err != nil || got != c.want {
+		if got, err := repo.RecordUse(
+			ctx,
+			first.ID,
+			c.count,
+			false,
+			now,
+		); err != nil ||
+			got != c.want {
 			t.Fatalf("counter %d: want %v, got %v (%v)", c.count, c.want, got, err)
 		}
 	}

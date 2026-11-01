@@ -53,7 +53,8 @@ func Normalize(p Prefs) (Prefs, []byte, bool) {
 	if p.ColumnWidths == nil {
 		p.ColumnWidths = map[string]int{}
 	}
-	if len(p.ColumnOrder) > maxColumns || len(p.Hidden) > maxColumns || len(p.ColumnWidths) > maxColumns {
+	if len(p.ColumnOrder) > maxColumns || len(p.Hidden) > maxColumns ||
+		len(p.ColumnWidths) > maxColumns {
 		return Prefs{}, nil, false
 	}
 	for _, list := range [][]string{p.ColumnOrder, p.Hidden} {
@@ -68,7 +69,8 @@ func Normalize(p Prefs) (Prefs, []byte, bool) {
 			return Prefs{}, nil, false
 		}
 	}
-	if p.Sort != nil && (!validColumn(p.Sort.Key) || (p.Sort.Dir != "asc" && p.Sort.Dir != "desc")) {
+	if p.Sort != nil &&
+		(!validColumn(p.Sort.Key) || (p.Sort.Dir != "asc" && p.Sort.Dir != "desc")) {
 		return Prefs{}, nil, false
 	}
 	if p.PageSize < 0 || p.PageSize > maxPageSize {
