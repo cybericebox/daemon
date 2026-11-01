@@ -108,6 +108,8 @@ WITH declined AS (
                                                                 mode = EXCLUDED.mode
     RETURNING event_exercise_id
 )
-UPDATE event_lab_reveal_barriers
-SET eligible_team_ids = array_remove(eligible_team_ids, sqlc.arg(team_id))
-WHERE event_id = sqlc.arg(event_id) AND event_exercise_id = sqlc.arg(event_exercise_id) AND opened_at IS NULL;
+UPDATE event_lab_reveal_barriers barrier
+SET eligible_team_ids = array_remove(barrier.eligible_team_ids, sqlc.arg(team_id))
+WHERE barrier.event_id = sqlc.arg(event_id)
+  AND barrier.event_exercise_id = sqlc.arg(event_exercise_id)
+  AND barrier.opened_at IS NULL;

@@ -286,9 +286,11 @@ WITH declined AS (
                                                                 mode = EXCLUDED.mode
     RETURNING event_exercise_id
 )
-UPDATE event_lab_reveal_barriers
-SET eligible_team_ids = array_remove(eligible_team_ids, $1)
-WHERE event_id = $4 AND event_exercise_id = $5 AND opened_at IS NULL
+UPDATE event_lab_reveal_barriers barrier
+SET eligible_team_ids = array_remove(barrier.eligible_team_ids, $1)
+WHERE barrier.event_id = $4
+  AND barrier.event_exercise_id = $5
+  AND barrier.opened_at IS NULL
 `
 
 type DeclineEventLabRevealTeamParams struct {
