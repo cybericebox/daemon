@@ -152,3 +152,64 @@ func TestLosingTheSessionStopsTheLoopsAndHandsOver(t *testing.T) {
 		time.Millisecond,
 	)
 }
+
+// slowLock hands out a session whose check reports the time it was given to answer.
+type slowLock struct {
+	given chan time.Duration
+}
+
+type slowHeld struct{ given chan time.Duration }
+
+func (l slowLock) TryLock(context.Context) (leader.Held, bool, error) {
+	return slowHeld(l), true, nil
+}
+
+func (h slowHeld) Alive(ctx context.Context) error {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return errors.New("the check has no deadline")
+	}
+	select {
+	case h.given <- time.Until(deadline):
+	default:
+	}
+	return nil
+}
+
+func (slowHeld) Release() {}
+
+// The time a check may take is its own setting: a short Check interval must not shorten it, or a slow answer on a
+// busy host would look like a lost session and hand the leadership away while the lock is still held.
+func TestTheCheckTimeoutDoesNotFollowTheCheckInterval(t *testing.T) {
+	lock := slowLock{given: make(chan time.Duration, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := leader.Config{Name: "test", Retry: time.Hour, Check: time.Millisecond, AliveTimeout: time.Hour}
+	l := &loops{}
+	go leader.New(lock, cfg).Run(ctx, l.run)
+
+	select {
+	case given := <-lock.given:
+		require.Greater(t, given, time.Minute, "a 1ms interval left the check only %s to answer", given)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the leader never checked its session")
+	}
+	require.Eventually(t, func() bool { return l.running.Load() == 1 }, time.Second, time.Millisecond,
+		"the leader keeps leading while the check answers")
+}
+
+func TestTheCheckTimeoutDefaultsToFiveSeconds(t *testing.T) {
+	lock := slowLock{given: make(chan time.Duration, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := &loops{}
+	go leader.New(lock, leader.Config{Name: "test", Retry: time.Hour, Check: time.Millisecond}).Run(ctx, l.run)
+
+	select {
+	case given := <-lock.given:
+		require.Greater(t, given, 4*time.Second)
+		require.LessOrEqual(t, given, 5*time.Second)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the leader never checked its session")
+	}
+}
