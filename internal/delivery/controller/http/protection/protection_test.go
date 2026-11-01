@@ -937,6 +937,7 @@ func TestAuthenticate_SetsSignedInHint(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: "analytics:denied,functional:granted"})
 
 	p.Authenticate(ctx, "session-value")
 
@@ -999,9 +1000,46 @@ func TestSignedInHint_RefreshedWithTheReissuedSession(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
 	req.Host = "api.example.test"
 	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "old"})
+	req.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: "functional:granted"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge < 0 {
 		t.Fatalf("a re-issue extends the hint too, got %+v", hint)
+	}
+}
+
+// The hint is a functional cookie: without functional consent (absent cookie, the old analytics-only format, denied) it
+// is not set, and one left from before the consent was withdrawn is removed at the next sign-in.
+func TestSignedInHint_NeedsFunctionalConsent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, consent := range []string{"", "analytics:granted", "analytics:granted,functional:denied", "xfunctional:granted", "functional:granted2"} {
+		t.Run("consent="+consent, func(t *testing.T) {
+			p := newProt(&fakeUseCase{})
+			w := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(w)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			if consent != "" {
+				ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: consent})
+			}
+			p.Authenticate(ctx, "session-value")
+			if hint := findCookie(w, protection.SignedInHintCookie); hint != nil {
+				t.Fatalf("no hint without functional consent, got %+v", hint)
+			}
+			if findCookie(w, authModel.SessionCookie) == nil {
+				t.Fatal("the session itself does not depend on the consent")
+			}
+
+			w = httptest.NewRecorder()
+			ctx, _ = gin.CreateTestContext(w)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			if consent != "" {
+				ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: consent})
+			}
+			ctx.Request.AddCookie(&http.Cookie{Name: protection.SignedInHintCookie, Value: "1"})
+			p.Authenticate(ctx, "session-value")
+			if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge >= 0 {
+				t.Fatalf("a hint left after the consent was withdrawn is removed, got %+v", hint)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -35,7 +36,7 @@ func (h *Handler) loginHint(ctx *gin.Context) string {
 	if hint := ctx.Query("login_hint"); hint != "" {
 		return hint
 	}
-	if !hasFunctionalConsent(ctx) {
+	if !protection.HasFunctionalConsent(ctx) {
 		return ""
 	}
 	return lastEmail(ctx)

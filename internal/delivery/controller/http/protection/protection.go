@@ -3,6 +3,7 @@ package protection
 import (
 	"context"
 	"errors"
+	"regexp"
 
 	"net/http"
 	"strings"
@@ -342,7 +343,28 @@ func (p *Protection) clearSessionCookie(ctx *gin.Context) {
 // removes it with the session cookie.
 const SignedInHintCookie = "cib_signed_in"
 
+// ConsentCookie is the cookie of the consent banner: `analytics:granted|denied,functional:granted|denied`, set by the
+// frontends on the parent domain. The sign-in hint and the remembered sign-in address are functional cookies: they are
+// set only while it grants the functional category.
+const ConsentCookie = "cib_consent"
+
+var functionalConsent = regexp.MustCompile(`\bfunctional:granted\b`)
+
+// HasFunctionalConsent: the request carries a consent cookie that grants the functional category. An absent cookie, an
+// old-format value without the functional token and `functional:denied` are no consent.
+func HasFunctionalConsent(ctx *gin.Context) bool {
+	return functionalConsent.MatchString(getCookie(ctx, ConsentCookie))
+}
+
+// setSignedInHint sets the hint when functional consent is granted; without it the hint is not set, and one left from
+// before the consent was withdrawn is removed.
 func (p *Protection) setSignedInHint(ctx *gin.Context) {
+	if !HasFunctionalConsent(ctx) {
+		if getCookie(ctx, SignedInHintCookie) != "" {
+			p.clearSignedInHint(ctx)
+		}
+		return
+	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
 	ctx.SetCookie(SignedInHintCookie, "1", int(p.ttl.Seconds()), "/", p.hosts.Main, true, false)
 }
