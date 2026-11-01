@@ -177,3 +177,35 @@ func TestListFiltersAndSortingAreValidated(t *testing.T) {
 		}
 	}
 }
+
+// The facets read the same filters as the lists, never the sorting, and refuse a field the table has no facet for.
+func TestFacetsReadTheListFilters(t *testing.T) {
+	uc := &fakeUseCase{}
+	router := newRouter(uc, newProtection())
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+	w := get("/api/infrastructure/stands/facets?field=kind&status=failed&search=ctf&sortBy=team&page=3")
+	if w.Code != http.StatusOK || uc.facetField != "kind" || len(uc.standsFilter.Statuses) != 1 ||
+		uc.standsFilter.Search != "ctf" || uc.standsFilter.SortBy != "" || !strings.Contains(w.Body.String(), `"Counts":{"failed":2}`) {
+		t.Fatalf("stand facets: %d %s %+v", w.Code, w.Body.String(), uc.standsFilter)
+	}
+	author := uuid.Must(uuid.NewV7())
+	w = get("/api/infrastructure/test-labs/facets?field=status&author=" + author.String() + "&status=active&sortBy=author")
+	if w.Code != http.StatusOK || uc.facetField != "status" || uc.testLabsFilter.AuthorID.UUID != author ||
+		uc.testLabsFilter.SortBy != "" || !strings.Contains(w.Body.String(), `"Counts":{"active":3}`) {
+		t.Fatalf("test lab facets: %d %s %+v", w.Code, w.Body.String(), uc.testLabsFilter)
+	}
+	for _, path := range []string{
+		"/api/infrastructure/stands/facets?field=bogus",
+		"/api/infrastructure/stands/facets?field=kind&status=nope",
+		"/api/infrastructure/test-labs/facets?field=bogus",
+		"/api/infrastructure/test-labs/facets?field=status&author=x",
+	} {
+		if w = get(path); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s must be refused: %d", path, w.Code)
+		}
+	}
+}

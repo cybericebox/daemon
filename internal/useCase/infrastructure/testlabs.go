@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -137,6 +138,30 @@ type filteredTestLabSource interface {
 	) ([]platformStandRepo.TestLab, int64, error)
 }
 
+// testLabFacetSource is the source that can count test labs per value of a field (the repository).
+type testLabFacetSource interface {
+	TestLabFacet(ctx context.Context, field string, f platformStandRepo.TestLabFilter) (map[string]int64, error)
+}
+
+// TestLabFacets counts the test labs per value of one field (status, author or exercise) under the other filters of
+// the table.
+func (u *TestLabsUseCase) TestLabFacets(ctx context.Context, field string, f TestLabsFilter) (map[string]int64, error) {
+	if !slices.Contains(platformStandRepo.TestLabFacetFields(), field) {
+		return nil, ErrUnknownFacetField
+	}
+	source, ok := u.source.(testLabFacetSource)
+	if !ok {
+		return nil, model.ErrPlatform.WithMessage("Test laboratory facets are not available").Err()
+	}
+	counts, err := source.TestLabFacet(ctx, field, platformStandRepo.TestLabFilter{
+		Search: f.Search, Status: f.Status, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID, Now: u.now(),
+	})
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the test laboratories").Err()
+	}
+	return counts, nil
+}
+
 // ListTestLabs returns one page of the catalog test labs, newest first. The live
 // state comes from the agent; a lab the agent cannot answer for is "unknown".
 func (u *TestLabsUseCase) ListTestLabs(ctx context.Context, search string, page, pageSize int) (TestLabsPage, error) {
@@ -163,7 +188,7 @@ func (u *TestLabsUseCase) ListTestLabsFiltered(
 			Limit:      int32(pageSize),
 			Offset:     int32((page - 1) * pageSize),
 		}
-		if f.Status != "" {
+		if f.Status != "" || f.SortBy == "status" {
 			filter.Now = u.now() // the lease state is read against the clock
 		}
 		items, total, err = source.ListTestLabsFiltered(ctx, filter)

@@ -77,6 +77,68 @@ func (q *Queries) CountPlatformStandsByStatus(ctx context.Context) ([]CountPlatf
 	return items, nil
 }
 
+const facetPlatformStands = `-- name: FacetPlatformStands :many
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE $1::text
+                 WHEN 'status' THEN s.status::text
+                 WHEN 'kind' THEN CASE WHEN t.moderators THEN 'moderators' ELSE 'event' END
+                 WHEN 'event' THEN s.event_id::text
+             END AS key
+      FROM event_team_stands s
+               JOIN events e ON e.id = s.event_id
+               JOIN event_teams t ON t.id = s.event_team_id
+      WHERE ($1::text = 'event' OR $2::uuid IS NULL OR s.event_id = $2::uuid)
+        AND ($1::text = 'status' OR $3::smallint[] IS NULL OR s.status = ANY($3::smallint[]))
+        AND ($1::text = 'kind' OR $4::text = '' OR ($4::text = 'moderators') = t.moderators)
+        AND ($5::text = ''
+          OR e.name ILIKE '%' || $5::text || '%'
+          OR e.tag ILIKE '%' || $5::text || '%'
+          OR event_team_public_name(t.individual, t.event_id, t.captain_id, t.name) ILIKE '%' || $5::text || '%')) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key
+`
+
+type FacetPlatformStandsParams struct {
+	Field    string        `json:"field"`
+	EventID  uuid.NullUUID `json:"event_id"`
+	Statuses []int16       `json:"statuses"`
+	Kind     string        `json:"kind"`
+	Search   string        `json:"search"`
+}
+
+type FacetPlatformStandsRow struct {
+	Key   string `json:"key"`
+	Count int64  `json:"count"`
+}
+
+// Counts of the stand table per value of one field (status, kind or event) under the other filters: the filter
+// of the field itself is ignored. The status key is the persisted smallint.
+func (q *Queries) FacetPlatformStands(ctx context.Context, arg FacetPlatformStandsParams) ([]FacetPlatformStandsRow, error) {
+	rows, err := q.db.Query(ctx, facetPlatformStands,
+		arg.Field,
+		arg.EventID,
+		arg.Statuses,
+		arg.Kind,
+		arg.Search,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FacetPlatformStandsRow{}
+	for rows.Next() {
+		var i FacetPlatformStandsRow
+		if err := rows.Scan(&i.Key, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlatformStandEvents = `-- name: ListPlatformStandEvents :many
 SELECT e.id, e.name, e.tag
 FROM events e

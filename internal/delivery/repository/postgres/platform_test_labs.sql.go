@@ -32,6 +32,73 @@ func (q *Queries) CountPlatformTestLabs(ctx context.Context, now time.Time) (Cou
 	return i, err
 }
 
+const facetPlatformTestLabs = `-- name: FacetPlatformTestLabs :many
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE $1::text
+                 WHEN 'status' THEN CASE WHEN d.expires_at > $2::timestamptz THEN 'active' ELSE 'expired' END
+                 WHEN 'author' THEN d.created_by::text
+                 WHEN 'exercise' THEN v.exercise_id::text
+             END AS key
+      FROM exercise_test_deployments d
+               JOIN exercise_versions v ON v.id = d.version_id
+               JOIN users u ON u.id = d.created_by
+      WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
+        AND ($3::text = ''
+          OR v.name ILIKE '%' || $3::text || '%'
+          OR u.email ILIKE '%' || $3::text || '%'
+          OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $3::text || '%')
+        AND ($1::text = 'status' OR $4::text = ''
+          OR ($4::text = 'active' AND d.expires_at > $2::timestamptz)
+          OR ($4::text = 'expired' AND d.expires_at <= $2::timestamptz))
+        AND ($1::text = 'author' OR $5::uuid IS NULL OR d.created_by = $5::uuid)
+        AND ($1::text = 'exercise' OR $6::uuid IS NULL OR v.exercise_id = $6::uuid)) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key
+`
+
+type FacetPlatformTestLabsParams struct {
+	Field      string        `json:"field"`
+	Now        time.Time     `json:"now"`
+	Search     string        `json:"search"`
+	Status     string        `json:"status"`
+	AuthorID   uuid.NullUUID `json:"author_id"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+}
+
+type FacetPlatformTestLabsRow struct {
+	Key   string `json:"key"`
+	Count int64  `json:"count"`
+}
+
+// Counts of the test lab table per value of one field (status, author or exercise) under the other filters: the
+// filter of the field itself is ignored.
+func (q *Queries) FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error) {
+	rows, err := q.db.Query(ctx, facetPlatformTestLabs,
+		arg.Field,
+		arg.Now,
+		arg.Search,
+		arg.Status,
+		arg.AuthorID,
+		arg.ExerciseID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FacetPlatformTestLabsRow{}
+	for rows.Next() {
+		var i FacetPlatformTestLabsRow
+		if err := rows.Scan(&i.Key, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPlatformTestLab = `-- name: GetPlatformTestLab :one
 SELECT d.id, d.group_name, d.lab_name, d.created_by,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', device.value -> 'id', 'name', device.value -> 'name', 'type', device.value -> 'type') ORDER BY device.ord)

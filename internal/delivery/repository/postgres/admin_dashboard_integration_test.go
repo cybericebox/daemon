@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/dashboardRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/platformStandRepo"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
@@ -78,4 +81,39 @@ func TestAdminDashboardQueries(t *testing.T) {
 	mail, err := repo.MailErrors(ctx, now.Add(-7*24*time.Hour))
 	require.NoError(t, err)
 	require.Zero(t, mail)
+}
+
+// The stand facets count per value under the other filters of the table and ignore the field's own filter.
+func TestPlatformStandFacets(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "standfacet")
+	rtExec(
+		t,
+		db,
+		`INSERT INTO event_team_stands (event_team_id, event_id, status, generation, reason, created_at, updated_at, status_changed_at) VALUES ($1, $2, 3, 1, 'boom', $3, $3, $3)`,
+		f.team,
+		f.event,
+		anStart,
+	)
+	repo := platformStandRepo.New(db.Queries)
+
+	status, err := repo.StandFacet(ctx, "status", platformStandRepo.Filter{Statuses: []eventStandModel.Status{eventStandModel.StatusReady}})
+	require.NoError(t, err)
+	require.Equal(t, map[string]int64{"failed": 1}, status, "the status filter does not narrow the status facet")
+
+	kind, err := repo.StandFacet(ctx, "kind", platformStandRepo.Filter{Statuses: []eventStandModel.Status{eventStandModel.StatusFailed}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, kind["event"]+kind["moderators"])
+
+	none, err := repo.StandFacet(ctx, "kind", platformStandRepo.Filter{Statuses: []eventStandModel.Status{eventStandModel.StatusReady}})
+	require.NoError(t, err)
+	require.Empty(t, none, "the other filters narrow the facet")
+
+	byEvent, err := repo.StandFacet(ctx, "event", platformStandRepo.Filter{Search: "no-such-event-name"})
+	require.NoError(t, err)
+	require.Empty(t, byEvent, "search narrows every facet")
+	byEvent, err = repo.StandFacet(ctx, "event", platformStandRepo.Filter{EventID: uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, byEvent[f.event.String()], "the event facet ignores the event filter")
 }

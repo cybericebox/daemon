@@ -22656,6 +22656,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/infrastructure/stands/facets": {
+            "get": {
+                "description": "How many stands have each value of field (status, kind or event) under the same filters as GET /infrastructure/stands (search, eventId, status, kind) except the field's own. Status keys are creating, ready, failed, removed and active (creating + ready). Requires infrastructure.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Facet counts of the stand table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "status | kind | event",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/infrastructure.facetResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/infrastructure/stands/{eventID}/{teamID}/challenges/{challengeID}/devices/{device}/rescue": {
             "post": {
                 "description": "Enable=true starts the device from its latest snapshot with a shell instead of the image entrypoint; Enable=false returns it to the normal start. Errors as for reset. Requires infrastructure.write (super_admin only).",
@@ -23047,6 +23088,47 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/infrastructure.bulkResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/test-labs/facets": {
+            "get": {
+                "description": "How many test labs have each value of field (status, author or exercise) under the same filters as GET /infrastructure/test-labs (search, status, author, exercise) except the field's own. Requires infrastructure.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Facet counts of the test laboratory table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "status | author | exercise",
+                        "name": "field",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/infrastructure.facetResponse"
                                         }
                                     }
                                 }
@@ -41822,6 +41904,18 @@ const docTemplate = `{
                 },
                 "Priority": {
                     "type": "integer"
+                }
+            }
+        },
+        "infrastructure.facetResponse": {
+            "type": "object",
+            "properties": {
+                "Counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
                 }
             }
         },

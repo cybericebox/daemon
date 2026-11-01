@@ -521,6 +521,7 @@ GET    /api/infrastructure/stands/:eventID/:teamID/detail | gate: infrastructure
 POST   /api/infrastructure/stands/:eventID/:teamID/recreate | gate: infrastructure.write | layers: -
 POST   /api/infrastructure/stands/bulk/recreate | gate: infrastructure.write | layers: -
 GET    /api/infrastructure/stands/events | gate: infrastructure.read | layers: -
+GET    /api/infrastructure/stands/facets | gate: infrastructure.read | layers: -
 GET    /api/infrastructure/status | gate: infrastructure.read | layers: -
 GET    /api/infrastructure/summary | gate: infrastructure.read | layers: -
 GET    /api/infrastructure/test-labs | gate: infrastructure.read | layers: -
@@ -529,6 +530,7 @@ POST   /api/infrastructure/test-labs/:labID/devices/:device/rescue | gate: infra
 POST   /api/infrastructure/test-labs/:labID/devices/:device/reset | gate: infrastructure.write | layers: -
 POST   /api/infrastructure/test-labs/:labID/terminate | gate: infrastructure.write | layers: -
 POST   /api/infrastructure/test-labs/bulk/terminate | gate: infrastructure.write | layers: -
+GET    /api/infrastructure/test-labs/facets | gate: infrastructure.read | layers: -
 GET    /api/mail/settings | gate: platform.settings.read | layers: -
 PUT    /api/mail/settings/footer | gate: platform.settings.write | layers: -
 POST   /api/mail/settings/footer/preview | gate: platform.settings.write | layers: -

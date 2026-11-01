@@ -9357,6 +9357,14 @@ definitions:
       Priority:
         type: integer
     type: object
+  infrastructure.facetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+    type: object
   infrastructure.groupPodSizingResponse:
     properties:
       BaseCPUMillicores:
@@ -27508,6 +27516,33 @@ paths:
       summary: List events that have stands
       tags:
       - infrastructure
+  /infrastructure/stands/facets:
+    get:
+      description: How many stands have each value of field (status, kind or event)
+        under the same filters as GET /infrastructure/stands (search, eventId, status,
+        kind) except the field's own. Status keys are creating, ready, failed, removed
+        and active (creating + ready). Requires infrastructure.read (super_admin only).
+      parameters:
+      - description: status | kind | event
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.facetResponse'
+              type: object
+      summary: Facet counts of the stand table
+      tags:
+      - infrastructure
   /infrastructure/status:
     get:
       description: Whether the cyber-range infrastructure agent is connected and healthy.
@@ -27731,6 +27766,33 @@ paths:
                   $ref: '#/definitions/infrastructure.bulkResponse'
               type: object
       summary: End many catalog test labs
+      tags:
+      - infrastructure
+  /infrastructure/test-labs/facets:
+    get:
+      description: How many test labs have each value of field (status, author or
+        exercise) under the same filters as GET /infrastructure/test-labs (search,
+        status, author, exercise) except the field's own. Requires infrastructure.read
+        (super_admin only).
+      parameters:
+      - description: status | author | exercise
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.facetResponse'
+              type: object
+      summary: Facet counts of the test laboratory table
       tags:
       - infrastructure
   /mail/settings:

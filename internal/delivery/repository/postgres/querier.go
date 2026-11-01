@@ -412,6 +412,8 @@ type Querier interface {
 	ExtendOwnedExerciseTestDeploy(ctx context.Context, arg ExtendOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// Final disposal follows a persisted exact tombstone and retired children,
 	// never a names-only command result or an absent monitoring frame.
+	FacetPlatformStands(ctx context.Context, arg FacetPlatformStandsParams) ([]FacetPlatformStandsRow, error)
+	FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error)
 	FinalizeRetiredLabGroupPlacement(ctx context.Context, arg FinalizeRetiredLabGroupPlacementParams) (int64, error)
 	FindActiveEventTeamsByLabGroup(ctx context.Context, arg FindActiveEventTeamsByLabGroupParams) ([]FindActiveEventTeamsByLabGroupRow, error)
 	// The event's own, active fork of a source exercise (reused by "fork").

@@ -61,3 +61,28 @@ SELECT count(*) FILTER (WHERE expires_at > sqlc.arg(now))::bigint  AS active,
        count(*) FILTER (WHERE expires_at <= sqlc.arg(now))::bigint AS expired
 FROM exercise_test_deployments
 WHERE NOT (group_name = '' AND lab_name = '' AND event_id IS NULL);
+
+-- name: FacetPlatformTestLabs :many
+-- Counts of the test lab table per value of one field (status, author or exercise) under the other filters: the
+-- filter of the field itself is ignored.
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE sqlc.arg(field)::text
+                 WHEN 'status' THEN CASE WHEN d.expires_at > sqlc.arg(now)::timestamptz THEN 'active' ELSE 'expired' END
+                 WHEN 'author' THEN d.created_by::text
+                 WHEN 'exercise' THEN v.exercise_id::text
+             END AS key
+      FROM exercise_test_deployments d
+               JOIN exercise_versions v ON v.id = d.version_id
+               JOIN users u ON u.id = d.created_by
+      WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
+        AND (sqlc.arg(search)::text = ''
+          OR v.name ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR u.email ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
+        AND (sqlc.arg(field)::text = 'status' OR sqlc.arg(status)::text = ''
+          OR (sqlc.arg(status)::text = 'active' AND d.expires_at > sqlc.arg(now)::timestamptz)
+          OR (sqlc.arg(status)::text = 'expired' AND d.expires_at <= sqlc.arg(now)::timestamptz))
+        AND (sqlc.arg(field)::text = 'author' OR sqlc.narg(author_id)::uuid IS NULL OR d.created_by = sqlc.narg(author_id)::uuid)
+        AND (sqlc.arg(field)::text = 'exercise' OR sqlc.narg(exercise_id)::uuid IS NULL OR v.exercise_id = sqlc.narg(exercise_id)::uuid)) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key;

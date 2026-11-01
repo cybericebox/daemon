@@ -6,6 +6,7 @@ package platformStandRepo
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,8 @@ type Queries interface {
 	ListPlatformTestLabs(context.Context, postgres.ListPlatformTestLabsParams) ([]postgres.ListPlatformTestLabsRow, error)
 	GetPlatformTestLab(context.Context, uuid.UUID) (postgres.GetPlatformTestLabRow, error)
 	CountPlatformTestLabs(context.Context, time.Time) (postgres.CountPlatformTestLabsRow, error)
+	FacetPlatformStands(context.Context, postgres.FacetPlatformStandsParams) ([]postgres.FacetPlatformStandsRow, error)
+	FacetPlatformTestLabs(context.Context, postgres.FacetPlatformTestLabsParams) ([]postgres.FacetPlatformTestLabsRow, error)
 }
 
 // Stand kinds of the list filter.
@@ -243,4 +246,59 @@ func (r *Repository) CountTestLabs(ctx context.Context, now time.Time) (TestLabC
 		return TestLabCounts{}, err
 	}
 	return TestLabCounts{Active: row.Active, Expired: row.Expired}, nil
+}
+
+// StandFacetFields are the fields of the stand table that have a facet.
+func StandFacetFields() []string { return []string{"status", "kind", "event"} }
+
+// StandFacet counts the stands per value of one field (status, kind or event) under the other filters of the table;
+// the field's own filter is ignored. Status keys are the status names; values with no stand are absent.
+func (r *Repository) StandFacet(ctx context.Context, field string, filter Filter) (map[string]int64, error) {
+	var statuses []int16
+	for _, status := range filter.Statuses {
+		statuses = append(statuses, int16(status))
+	}
+	rows, err := r.q.FacetPlatformStands(ctx, postgres.FacetPlatformStandsParams{
+		Field: field, EventID: filter.EventID, Statuses: statuses, Kind: filter.Kind, Search: filter.Search,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows)+1)
+	for _, row := range rows {
+		key := row.Key
+		if field == "status" {
+			n, convErr := strconv.Atoi(row.Key)
+			if convErr != nil {
+				continue
+			}
+			key = eventStandModel.Status(n).String()
+		}
+		out[key] += row.Count
+	}
+	if field == "status" {
+		if active := out[eventStandModel.StatusCreating.String()] + out[eventStandModel.StatusReady.String()]; active > 0 {
+			out["active"] = active
+		}
+	}
+	return out, nil
+}
+
+// TestLabFacetFields are the fields of the test lab table that have a facet.
+func TestLabFacetFields() []string { return []string{"status", "author", "exercise"} }
+
+// TestLabFacet counts the test labs per value of one field (status, author or exercise) under the other filters of
+// the table; the field's own filter is ignored.
+func (r *Repository) TestLabFacet(ctx context.Context, field string, f TestLabFilter) (map[string]int64, error) {
+	rows, err := r.q.FacetPlatformTestLabs(ctx, postgres.FacetPlatformTestLabsParams{
+		Field: field, Now: f.Now, Search: f.Search, Status: f.Status, AuthorID: f.AuthorID, ExerciseID: f.ExerciseID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Key] += row.Count
+	}
+	return out, nil
 }

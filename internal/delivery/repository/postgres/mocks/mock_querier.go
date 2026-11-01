@@ -3536,6 +3536,36 @@ func (mr *MockQuerierMockRecorder) ExtendOwnedExerciseTestDeploy(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtendOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).ExtendOwnedExerciseTestDeploy), ctx, arg)
 }
 
+// FacetPlatformStands mocks base method.
+func (m *MockQuerier) FacetPlatformStands(ctx context.Context, arg postgres.FacetPlatformStandsParams) ([]postgres.FacetPlatformStandsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FacetPlatformStands", ctx, arg)
+	ret0, _ := ret[0].([]postgres.FacetPlatformStandsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FacetPlatformStands indicates an expected call of FacetPlatformStands.
+func (mr *MockQuerierMockRecorder) FacetPlatformStands(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FacetPlatformStands", reflect.TypeOf((*MockQuerier)(nil).FacetPlatformStands), ctx, arg)
+}
+
+// FacetPlatformTestLabs mocks base method.
+func (m *MockQuerier) FacetPlatformTestLabs(ctx context.Context, arg postgres.FacetPlatformTestLabsParams) ([]postgres.FacetPlatformTestLabsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FacetPlatformTestLabs", ctx, arg)
+	ret0, _ := ret[0].([]postgres.FacetPlatformTestLabsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FacetPlatformTestLabs indicates an expected call of FacetPlatformTestLabs.
+func (mr *MockQuerierMockRecorder) FacetPlatformTestLabs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FacetPlatformTestLabs", reflect.TypeOf((*MockQuerier)(nil).FacetPlatformTestLabs), ctx, arg)
+}
+
 // FinalizeRetiredLabGroupPlacement mocks base method.
 func (m *MockQuerier) FinalizeRetiredLabGroupPlacement(ctx context.Context, arg postgres.FinalizeRetiredLabGroupPlacementParams) (int64, error) {
 	m.ctrl.T.Helper()

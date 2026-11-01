@@ -119,6 +119,32 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 		rows[0].AuthorEmail != "ptl-second@test.test" {
 		t.Fatalf("author desc: %+v", rows)
 	}
+	if rows, _ := filtered(platformStandRepo.TestLabFilter{SortBy: "status", SortDir: "asc"}); len(rows) != 2 || rows[0].ID != active.ID {
+		t.Fatalf("status asc puts the lease that still runs first: %+v", rows)
+	}
+	// The facets count per value under the other filters and ignore the field's own filter.
+	facet := func(field string, f platformStandRepo.TestLabFilter) map[string]int64 {
+		t.Helper()
+		f.Now = now
+		counts, facetErr := repo.TestLabFacet(ctx, field, f)
+		if facetErr != nil {
+			t.Fatal(facetErr)
+		}
+		return counts
+	}
+	if got := facet("status", platformStandRepo.TestLabFilter{Status: "active"}); got["active"] != 1 || got["expired"] != 1 {
+		t.Fatalf("status facet ignores the status filter: %v", got)
+	}
+	if got := facet("status", platformStandRepo.TestLabFilter{AuthorID: uuid.NullUUID{UUID: first, Valid: true}}); got["active"] != 1 || got["expired"] != 0 {
+		t.Fatalf("status facet follows the author filter: %v", got)
+	}
+	if got := facet("author", platformStandRepo.TestLabFilter{Status: "expired"}); got[second.String()] != 1 || got[first.String()] != 0 {
+		t.Fatalf("author facet follows the status filter: %v", got)
+	}
+	if got := facet("exercise", platformStandRepo.TestLabFilter{}); got[ex.ID.String()] != 2 || len(got) != 1 {
+		t.Fatalf("exercise facet: %v", got)
+	}
+
 	ref, err := repo.GetTestLab(ctx, active.ID)
 	if err != nil || ref.OwnerID != first || ref.GroupName != active.GroupName {
 		t.Fatalf("ref = %+v, %v", ref, err)

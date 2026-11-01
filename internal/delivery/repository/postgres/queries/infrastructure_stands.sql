@@ -50,3 +50,25 @@ SELECT t.moderators, s.status, count(*)::bigint AS total
 FROM event_team_stands s
 JOIN event_teams t ON t.id = s.event_team_id
 GROUP BY t.moderators, s.status;
+
+-- name: FacetPlatformStands :many
+-- Counts of the stand table per value of one field (status, kind or event) under the other filters: the filter
+-- of the field itself is ignored. The status key is the persisted smallint.
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE sqlc.arg(field)::text
+                 WHEN 'status' THEN s.status::text
+                 WHEN 'kind' THEN CASE WHEN t.moderators THEN 'moderators' ELSE 'event' END
+                 WHEN 'event' THEN s.event_id::text
+             END AS key
+      FROM event_team_stands s
+               JOIN events e ON e.id = s.event_id
+               JOIN event_teams t ON t.id = s.event_team_id
+      WHERE (sqlc.arg(field)::text = 'event' OR sqlc.narg(event_id)::uuid IS NULL OR s.event_id = sqlc.narg(event_id)::uuid)
+        AND (sqlc.arg(field)::text = 'status' OR sqlc.narg(statuses)::smallint[] IS NULL OR s.status = ANY(sqlc.narg(statuses)::smallint[]))
+        AND (sqlc.arg(field)::text = 'kind' OR sqlc.arg(kind)::text = '' OR (sqlc.arg(kind)::text = 'moderators') = t.moderators)
+        AND (sqlc.arg(search)::text = ''
+          OR e.name ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR e.tag ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR event_team_public_name(t.individual, t.event_id, t.captain_id, t.name) ILIKE '%' || sqlc.arg(search)::text || '%')) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key;

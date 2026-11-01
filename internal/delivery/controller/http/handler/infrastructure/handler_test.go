@@ -27,6 +27,7 @@ import (
 )
 
 type fakeUseCase struct {
+	facetField       string
 	includeRecent    *bool
 	pageSize         int32
 	standsFilter     infrastructureUseCase.StandsFilter
@@ -115,6 +116,22 @@ func (f *fakeUseCase) ListStands(_ context.Context, filter infrastructureUseCase
 		Items: []infrastructureUseCase.PlatformStandView{{EventName: "CTF", EventTag: "ctf", TeamName: "Red", Status: eventStandModel.StatusFailed, Reason: "boom", Generation: 3, Resources: infrastructureUseCase.ResourcesView{Known: true, Available: true, CPUMillicores: 250, MemoryBytes: 1024}}},
 		Total: 1, Page: filter.Page, PageSize: filter.PageSize,
 	}, nil
+}
+func (f *fakeUseCase) StandFacets(_ context.Context, field string, filter infrastructureUseCase.StandsFilter) (map[string]int64, error) {
+	f.standsFilter = filter
+	f.facetField = field
+	if field == "bogus" {
+		return nil, infrastructureUseCase.ErrUnknownFacetField
+	}
+	return map[string]int64{"failed": 2}, nil
+}
+func (f *fakeUseCase) TestLabFacets(_ context.Context, field string, filter infrastructureUseCase.TestLabsFilter) (map[string]int64, error) {
+	f.testLabsFilter = filter
+	f.facetField = field
+	if field == "bogus" {
+		return nil, infrastructureUseCase.ErrUnknownFacetField
+	}
+	return map[string]int64{"active": 3}, nil
 }
 func (f *fakeUseCase) ListStandEvents(context.Context) ([]infrastructureUseCase.StandEventView, error) {
 	return nil, nil
