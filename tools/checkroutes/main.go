@@ -53,6 +53,10 @@ var publicRoutes = map[string]bool{
 	"GET google/register":                true, // google oauth registration redirect
 	"GET google/setup":                   true, // google oauth setup-link redirect (email must match)
 	"GET google/callback":                true, // google oauth callback (state cookie double-submit)
+	"GET pending/":                       true, // pending Google link: the ticket cookie (single-use, 10 minutes) is the credential
+	"POST pending/code":                  true, // pending Google link: ticket cookie; per-recipient mail quota
+	"POST pending/confirm":               true, // pending Google link: ticket cookie plus the password or the mailed code
+	"DELETE pending/":                    true, // pending Google link: ticket cookie; gives the link up
 	"POST pub/account/email/confirm":     true, // authorized by the single-use emailed code itself
 	"GET pub/avatar/:id":                 true, // public avatar proxy (bucket stays private)
 	"GET server/key":                     true, // render secret (event-frontend server only)

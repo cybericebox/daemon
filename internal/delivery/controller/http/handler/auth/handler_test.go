@@ -133,6 +133,17 @@ func (f *fakeUC) BeginGoogleRegistration(
 	}
 	return authUseCase.GoogleRegistrationResult{SetupToken: "setuptok"}, nil
 }
+func (f *fakeUC) GoogleLinkPendingOf(context.Context, string) (authUseCase.GoogleLinkPending, error) {
+	return authUseCase.GoogleLinkPending{}, nil
+}
+func (f *fakeUC) SendGoogleLinkCode(context.Context, string) (authUseCase.GoogleLinkCodeSent, error) {
+	return authUseCase.GoogleLinkCodeSent{}, nil
+}
+func (f *fakeUC) ConfirmGoogleLink(context.Context, string, string, string, authModel.SessionMetadata) (string, string, error) {
+	return "", "", nil
+}
+func (f *fakeUC) CancelGoogleLink(context.Context, string) error { return nil }
+
 func (f *fakeUC) LinkGoogleToSetupFromOAuth(_ context.Context, _, _, _ string) (string, error) {
 	return f.linkSetupReturnTo, f.linkSetupErr
 }

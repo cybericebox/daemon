@@ -474,6 +474,21 @@ func (mr *MockQuerierMockRecorder) ConsumeEventStageRuntimeSelection(ctx, arg an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeEventStageRuntimeSelection", reflect.TypeOf((*MockQuerier)(nil).ConsumeEventStageRuntimeSelection), ctx, arg)
 }
 
+// ConsumeGoogleLinkTicket mocks base method.
+func (m *MockQuerier) ConsumeGoogleLinkTicket(ctx context.Context, arg postgres.ConsumeGoogleLinkTicketParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeGoogleLinkTicket", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumeGoogleLinkTicket indicates an expected call of ConsumeGoogleLinkTicket.
+func (mr *MockQuerierMockRecorder) ConsumeGoogleLinkTicket(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeGoogleLinkTicket", reflect.TypeOf((*MockQuerier)(nil).ConsumeGoogleLinkTicket), ctx, arg)
+}
+
 // CopyEventChallenge mocks base method.
 func (m *MockQuerier) CopyEventChallenge(ctx context.Context, arg postgres.CopyEventChallengeParams) error {
 	m.ctrl.T.Helper()
@@ -963,6 +978,21 @@ func (m *MockQuerier) CountExercisesPage(ctx context.Context, arg postgres.Count
 func (mr *MockQuerierMockRecorder) CountExercisesPage(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountExercisesPage", reflect.TypeOf((*MockQuerier)(nil).CountExercisesPage), ctx, arg)
+}
+
+// CountGoogleLinkTicketCodeAttempt mocks base method.
+func (m *MockQuerier) CountGoogleLinkTicketCodeAttempt(ctx context.Context, arg postgres.CountGoogleLinkTicketCodeAttemptParams) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountGoogleLinkTicketCodeAttempt", ctx, arg)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountGoogleLinkTicketCodeAttempt indicates an expected call of CountGoogleLinkTicketCodeAttempt.
+func (mr *MockQuerierMockRecorder) CountGoogleLinkTicketCodeAttempt(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGoogleLinkTicketCodeAttempt", reflect.TypeOf((*MockQuerier)(nil).CountGoogleLinkTicketCodeAttempt), ctx, arg)
 }
 
 // CountInboxByCategory mocks base method.
@@ -2828,6 +2858,20 @@ func (mr *MockQuerierMockRecorder) DeleteExerciseEventAccess(ctx, exerciseID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExerciseEventAccess", reflect.TypeOf((*MockQuerier)(nil).DeleteExerciseEventAccess), ctx, exerciseID)
 }
 
+// DeleteExpiredGoogleLinkTickets mocks base method.
+func (m *MockQuerier) DeleteExpiredGoogleLinkTickets(ctx context.Context, now time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredGoogleLinkTickets", ctx, now)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExpiredGoogleLinkTickets indicates an expected call of DeleteExpiredGoogleLinkTickets.
+func (mr *MockQuerierMockRecorder) DeleteExpiredGoogleLinkTickets(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredGoogleLinkTickets", reflect.TypeOf((*MockQuerier)(nil).DeleteExpiredGoogleLinkTickets), ctx, now)
+}
+
 // DeleteExpiredRequestIdempotency mocks base method.
 func (m *MockQuerier) DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2901,6 +2945,21 @@ func (m *MockQuerier) DeleteFileReferencesBatch(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) DeleteFileReferencesBatch(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFileReferencesBatch", reflect.TypeOf((*MockQuerier)(nil).DeleteFileReferencesBatch), ctx, arg)
+}
+
+// DeleteGoogleLinkTicket mocks base method.
+func (m *MockQuerier) DeleteGoogleLinkTicket(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGoogleLinkTicket", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteGoogleLinkTicket indicates an expected call of DeleteGoogleLinkTicket.
+func (mr *MockQuerierMockRecorder) DeleteGoogleLinkTicket(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGoogleLinkTicket", reflect.TypeOf((*MockQuerier)(nil).DeleteGoogleLinkTicket), ctx, id)
 }
 
 // DeleteImageBlobPush mocks base method.
@@ -5392,6 +5451,21 @@ func (m *MockQuerier) GetFirstEventLiveScreen(ctx context.Context, eventID uuid.
 func (mr *MockQuerierMockRecorder) GetFirstEventLiveScreen(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirstEventLiveScreen", reflect.TypeOf((*MockQuerier)(nil).GetFirstEventLiveScreen), ctx, eventID)
+}
+
+// GetGoogleLinkTicket mocks base method.
+func (m *MockQuerier) GetGoogleLinkTicket(ctx context.Context, arg postgres.GetGoogleLinkTicketParams) (postgres.GoogleLinkTicket, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGoogleLinkTicket", ctx, arg)
+	ret0, _ := ret[0].(postgres.GoogleLinkTicket)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGoogleLinkTicket indicates an expected call of GetGoogleLinkTicket.
+func (mr *MockQuerierMockRecorder) GetGoogleLinkTicket(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoogleLinkTicket", reflect.TypeOf((*MockQuerier)(nil).GetGoogleLinkTicket), ctx, arg)
 }
 
 // GetImageBlobPush mocks base method.
@@ -13101,6 +13175,20 @@ func (mr *MockQuerierMockRecorder) ReplaceFileReferences(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFileReferences", reflect.TypeOf((*MockQuerier)(nil).ReplaceFileReferences), ctx, arg)
 }
 
+// ReplaceGoogleLinkTicket mocks base method.
+func (m *MockQuerier) ReplaceGoogleLinkTicket(ctx context.Context, arg postgres.ReplaceGoogleLinkTicketParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceGoogleLinkTicket", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplaceGoogleLinkTicket indicates an expected call of ReplaceGoogleLinkTicket.
+func (mr *MockQuerierMockRecorder) ReplaceGoogleLinkTicket(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceGoogleLinkTicket", reflect.TypeOf((*MockQuerier)(nil).ReplaceGoogleLinkTicket), ctx, arg)
+}
+
 // ReplaceInfrastructureAgentCredentials mocks base method.
 func (m *MockQuerier) ReplaceInfrastructureAgentCredentials(ctx context.Context, arg postgres.ReplaceInfrastructureAgentCredentialsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -13995,6 +14083,21 @@ func (m *MockQuerier) SetExerciseTestDeployEndingAt(ctx context.Context, arg pos
 func (mr *MockQuerierMockRecorder) SetExerciseTestDeployEndingAt(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExerciseTestDeployEndingAt", reflect.TypeOf((*MockQuerier)(nil).SetExerciseTestDeployEndingAt), ctx, arg)
+}
+
+// SetGoogleLinkTicketCode mocks base method.
+func (m *MockQuerier) SetGoogleLinkTicketCode(ctx context.Context, arg postgres.SetGoogleLinkTicketCodeParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetGoogleLinkTicketCode", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetGoogleLinkTicketCode indicates an expected call of SetGoogleLinkTicketCode.
+func (mr *MockQuerierMockRecorder) SetGoogleLinkTicketCode(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGoogleLinkTicketCode", reflect.TypeOf((*MockQuerier)(nil).SetGoogleLinkTicketCode), ctx, arg)
 }
 
 // SetImportedExercisePointers mocks base method.

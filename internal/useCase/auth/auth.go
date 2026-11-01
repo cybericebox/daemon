@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/repository/googleLinkTicketRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/passkeyRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/tablePrefsRepo"
@@ -41,6 +42,7 @@ type IRepository interface {
 	passkeyRepo.Queries
 	userExportRepo.Queries
 	tablePrefsRepo.Queries
+	googleLinkTicketRepo.Queries
 }
 
 // ITokenClient is the crypto port (satisfied by *token.Client).
@@ -98,6 +100,7 @@ type AuthUseCase struct {
 	tablePrefs *tablePrefsRepo.Repository
 	// webauthn is the relying party of passkey sign-in; nil when the hosts do not allow one.
 	webauthn           *webauthn.WebAuthn
+	googleTickets      *googleLinkTicketRepo.Repository
 	token              ITokenClient
 	password           IPasswordClient
 	notifier           INotifier
@@ -176,6 +179,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		passkeys:          passkeyRepo.New(deps.Repo),
 		exports:           userExportRepo.New(deps.Repo),
 		tablePrefs:        tablePrefsRepo.New(deps.Repo),
+		googleTickets:     googleLinkTicketRepo.New(deps.Repo),
 		token:             deps.Token,
 		password:          deps.Password,
 		notifier:          deps.Notifier,

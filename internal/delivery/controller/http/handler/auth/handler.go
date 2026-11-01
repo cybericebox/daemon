@@ -79,6 +79,10 @@ type (
 			ctx context.Context,
 			setupToken, code, state string,
 		) (string, error)
+		GoogleLinkPendingOf(ctx context.Context, ticket string) (authUseCase.GoogleLinkPending, error)
+		SendGoogleLinkCode(ctx context.Context, ticket string) (authUseCase.GoogleLinkCodeSent, error)
+		ConfirmGoogleLink(ctx context.Context, ticket, password, code string, meta authModel.SessionMetadata) (string, string, error)
+		CancelGoogleLink(ctx context.Context, ticket string) error
 
 		// slice 4a — account self-management
 		GetAccount(ctx context.Context, userID uuid.UUID) (*authUseCase.AccountInfo, error)
@@ -188,6 +192,12 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	google.GET("register", h.googleRegisterRedirect)
 	google.GET("setup", h.googleSetupRedirect)
 	google.GET("callback", h.googleCallback)
+	// The pending link of a Google sign-in whose owner is not confirmed yet (the ticket is in a cookie).
+	pending := google.Group("pending")
+	pending.GET("", h.googleLinkPending)
+	pending.POST("code", h.googleLinkSendCode)
+	pending.POST("confirm", h.googleLinkConfirm)
+	pending.DELETE("", h.googleLinkCancel)
 
 	sec := secured.Group("auth")
 	self := h.prot.RequirePermission(rbac.PermSelf)

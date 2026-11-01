@@ -98,7 +98,7 @@ func (u *AuthUseCase) GoogleAuth(
 			return "", safeRedirect, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by provider").Err()
 		}
 		// The identity is not linked yet: it may still belong to an existing account by its verified address.
-		user, err = u.linkGoogleByVerifiedEmail(ctx, googleUser)
+		user, err = u.linkGoogleByVerifiedEmail(ctx, googleUser, safeRedirect)
 		if err != nil {
 			return "", safeRedirect, err
 		}
@@ -114,12 +114,14 @@ func (u *AuthUseCase) GoogleAuth(
 	return cookie, safeRedirect, nil
 }
 
-// linkGoogleByVerifiedEmail links an unlinked Google identity to the existing account of the same address and returns
-// that account, so the sign-in goes on (owner, 2026-10-31). It links only when Google vouches for the address
-// (email_verified) and the account is active with a confirmed address that equals Google's, compared normalized; a
-// deleted account is not found by its address, a blocked, incomplete or unconfirmed one, an account that already
-// has another Google, and any other case get the plain «not registered» answer, as before. No mail is sent.
-func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser *oauth.GoogleUser) (userModel.User, error) {
+// linkGoogleByVerifiedEmail decides what an unlinked Google identity may do with the existing account of its verified
+// address (owner, 2026-10-31). A Gmail address (gmail.com, googlemail.com) is linked at once and the account is returned,
+// so the sign-in goes on. Any other address is not: the identity waits for the owner's confirmation (the password or a
+// mailed code) and a *GoogleLinkConfirmError carries the ticket. Either way Google must vouch for the address
+// (email_verified) and the account must be active with an address equal to Google's, compared normalized; a deleted
+// account is not found by its address, and a blocked, incomplete or unconfirmed (Gmail only) one, no account, and an
+// account that already has a Google identity keep the plain «not registered» answer, as before. No mail announces a link.
+func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser *oauth.GoogleUser, returnTo string) (userModel.User, error) {
 	email := normalizeEmail(googleUser.Email)
 	if !googleUser.EmailVerified || email == "" {
 		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
@@ -131,7 +133,11 @@ func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser 
 		}
 		return userModel.User{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
 	}
-	if account.Status != userModel.UserStatusActive || !account.EmailConfirmed || normalizeEmail(account.Email) != email {
+	if account.Status != userModel.UserStatusActive || normalizeEmail(account.Email) != email {
+		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+	}
+	gmail := isGmailAddress(email)
+	if gmail && !account.EmailConfirmed {
 		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
 	}
 	// An account that already has a Google identity is not given a second one by the address alone: the address
@@ -142,6 +148,13 @@ func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser 
 	}
 	if slices.Contains(providers, userModel.GoogleProvider) {
 		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
+	}
+	if !gmail {
+		ticket, ticketErr := u.issueGoogleLinkTicket(ctx, account, googleUser, returnTo)
+		if ticketErr != nil {
+			return userModel.User{}, ticketErr
+		}
+		return userModel.User{}, &GoogleLinkConfirmError{Ticket: ticket, ReturnTo: returnTo}
 	}
 	if err = u.linkGoogleProvider(ctx, account.ID, googleUser.GoogleID); err != nil {
 		if errors.Is(err, userModel.ErrUserExists.Err()) {

@@ -60,6 +60,15 @@ func ukTemplates() []Template {
 				rich(para("Якщо це були не ви, негайно скиньте пароль за кнопкою вище."))),
 		},
 		{
+			Type: "google_link_code", Subject: "Код для підключення Google", Preheader: "Підтвердьте підключення облікового запису Google",
+			Body: blocks(logo(),
+				rich(heading("Підтвердьте підключення Google"),
+					para("Вітаємо, ", variable("Name"), "! Хтось увійшов через обліковий запис Google з адресою вашого облікового запису Cyber ICE Box. Щоб підключити його, введіть код:"),
+					para(variable("Code")),
+					para("Код дійсний ", variable("Minutes"), " хв.")),
+				rich(para("Якщо це були не ви, нічого не робіть і нікому не повідомляйте код: Google не буде підключено."))),
+		},
+		{
 			Type: "account_inactivity_warning", Subject: "Ваш обліковий запис Cyber ICE Box буде видалено", Preheader: "Увійдіть, щоб зберегти обліковий запис",
 			Body: blocks(logo(),
 				rich(heading("Обліковий запис буде видалено"),

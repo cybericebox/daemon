@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
 // The OAuth cookies carry the __Host- prefix: the browser then accepts them only from this exact host
@@ -22,6 +23,8 @@ const (
 	oauthSetupTokenCookie  = "__Host-cib_oauth_setup_token"
 	oauthStateCookie       = "__Host-cib_oauth_state"
 	oauthLinkSessionCookie = "__Host-cib_oauth_link_sid"
+	// googleLinkTicketCookie holds the opaque ticket of a Google link waiting for the owner's confirmation.
+	googleLinkTicketCookie = "__Host-cib_google_link"
 	// oauthCookiePath is "/" because __Host- requires it.
 	oauthCookiePath = "/"
 )
@@ -244,6 +247,18 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	default: // sign-in
 		cookie, redirect, err := h.useCase.GoogleAuth(ctx.Request.Context(), code, state, meta)
 		if err != nil {
+			var confirm *authUseCase.GoogleLinkConfirmError
+			if errors.As(err, &confirm) {
+				// The owner confirms first: the ticket goes to the browser in a cookie, never in the URL.
+				ctx.SetSameSite(http.SameSiteLaxMode)
+				ctx.SetCookie(googleLinkTicketCookie, confirm.Ticket, googleLinkTicketMaxAge, oauthCookiePath, "", true, true)
+				target := "/google-link/"
+				if confirm.ReturnTo != "" {
+					target += "?return_to=" + url.QueryEscape(confirm.ReturnTo)
+				}
+				response.TemporaryRedirect(ctx, h.hosts.IDURL(target))
+				return
+			}
 			switch {
 			case errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()):
 				h.googleErrorRedirect(ctx, "/sign-up/", "not_registered", redirect)

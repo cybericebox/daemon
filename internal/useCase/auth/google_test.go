@@ -631,14 +631,14 @@ func TestLinkGoogleToSetupFromOAuth_KeepsExistingNames(t *testing.T) {
 	}
 }
 
-// An unlinked Google identity whose verified address is the address of an active, confirmed account links to it and
-// signs in; no mail is sent.
+// An unlinked Google identity whose verified Gmail address is the address of an active, confirmed account links to it
+// and signs in at once; no mail is sent.
 func TestGoogleAuth_VerifiedEmailLinksTheExistingAccountAndSignsIn(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
-	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-9", Email: " Owner@B.Test ", EmailVerified: true})
+	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-9", Email: " Owner@GMail.com ", EmailVerified: true})
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows).Times(2)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "owner@b.test").
-		Return(postgres.User{ID: uid, Email: "owner@b.test", Role: "user", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "owner@gmail.com").
+		Return(postgres.User{ID: uid, Email: "owner@gmail.com", Role: "user", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return(nil, nil)
 	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.CreateUserProviderParams) (postgres.UserProvider, error) {
@@ -663,13 +663,13 @@ func TestGoogleAuth_EmailLinkIsRefusedUnlessSafe(t *testing.T) {
 		google  oauth.GoogleUser
 		account *postgres.User // nil: no account of that address (a deleted one is not found either)
 	}{
-		"unverified at Google":  {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test"}, nil},
-		"no account":            {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, nil},
-		"blocked account":       {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, &postgres.User{Email: "a@b.test", Status: string(userModel.UserStatusBlocked), EmailConfirmed: true}},
-		"incomplete account":    {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, &postgres.User{Email: "a@b.test", Status: string(userModel.UserStatusIncomplete), EmailConfirmed: true}},
-		"unconfirmed address":   {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, &postgres.User{Email: "a@b.test", Status: active}},
-		"deleted account":       {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, &postgres.User{Email: "deleted+x@deleted.local", Status: string(userModel.UserStatusDeleted), EmailConfirmed: true}},
-		"account email differs": {oauth.GoogleUser{GoogleID: "g", Email: "a@b.test", EmailVerified: true}, &postgres.User{Email: "other@b.test", Status: active, EmailConfirmed: true}},
+		"unverified at Google":  {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com"}, nil},
+		"no account":            {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, nil},
+		"blocked account":       {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, &postgres.User{Email: "a@gmail.com", Status: string(userModel.UserStatusBlocked), EmailConfirmed: true}},
+		"incomplete account":    {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, &postgres.User{Email: "a@gmail.com", Status: string(userModel.UserStatusIncomplete), EmailConfirmed: true}},
+		"unconfirmed address":   {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, &postgres.User{Email: "a@gmail.com", Status: active}}, // Gmail needs a confirmed address
+		"deleted account":       {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, &postgres.User{Email: "deleted+x@deleted.local", Status: string(userModel.UserStatusDeleted), EmailConfirmed: true}},
+		"account email differs": {oauth.GoogleUser{GoogleID: "g", Email: "a@gmail.com", EmailVerified: true}, &postgres.User{Email: "other@b.test", Status: active, EmailConfirmed: true}},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -677,9 +677,9 @@ func TestGoogleAuth_EmailLinkIsRefusedUnlessSafe(t *testing.T) {
 			repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
 			if c.google.EmailVerified {
 				if c.account == nil {
-					repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{}, pgx.ErrNoRows)
+					repo.EXPECT().GetUserByEmail(gomock.Any(), "a@gmail.com").Return(postgres.User{}, pgx.ErrNoRows)
 				} else {
-					repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(*c.account, nil)
+					repo.EXPECT().GetUserByEmail(gomock.Any(), "a@gmail.com").Return(*c.account, nil)
 				}
 			}
 			// no CreateUserProvider, no CreateSession expected
@@ -694,10 +694,10 @@ func TestGoogleAuth_EmailLinkIsRefusedUnlessSafe(t *testing.T) {
 // An account that already has another Google identity is not linked a second one: the old answer.
 func TestGoogleAuth_EmailLinkRefusedWhenTheAccountHasAnotherGoogle(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
-	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-new", Email: "a@b.test", EmailVerified: true})
+	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-new", Email: "a@gmail.com", EmailVerified: true})
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").
-		Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@gmail.com").
+		Return(postgres.User{ID: uid, Email: "a@gmail.com", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return([]postgres.UserProvider{{UserID: uid, Provider: "google", ProviderUserID: "g-old"}}, nil)
 	// no CreateUserProvider: the account keeps its own Google identity
 
@@ -711,10 +711,10 @@ func TestGoogleAuth_EmailLinkRefusedWhenTheAccountHasAnotherGoogle(t *testing.T)
 // answer is the old «not registered», nothing is signed in.
 func TestGoogleAuth_EmailLinkLosingTheRaceIsRefused(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
-	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-new", Email: "a@b.test", EmailVerified: true})
+	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-new", Email: "a@gmail.com", EmailVerified: true})
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows).Times(2)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").
-		Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@gmail.com").
+		Return(postgres.User{ID: uid, Email: "a@gmail.com", Status: string(userModel.UserStatusActive), EmailConfirmed: true}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return(nil, nil)
 	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).
 		Return(postgres.UserProvider{}, &pgconn.PgError{Code: "23505", Detail: "Key (user_id, provider)=(x, google) already exists."})

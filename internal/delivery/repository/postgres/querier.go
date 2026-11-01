@@ -2273,6 +2273,13 @@ type Querier interface {
 	UseUserPasskey(ctx context.Context, arg UseUserPasskeyParams) (int64, error)
 	VacateEventChallengeGroupOrders(ctx context.Context, eventID uuid.UUID) error
 	VacateEventChallengeOrders(ctx context.Context, eventExerciseID uuid.UUID) error
+	ConsumeGoogleLinkTicket(ctx context.Context, arg ConsumeGoogleLinkTicketParams) (int64, error)
+	CountGoogleLinkTicketCodeAttempt(ctx context.Context, arg CountGoogleLinkTicketCodeAttemptParams) (int32, error)
+	DeleteExpiredGoogleLinkTickets(ctx context.Context, now time.Time) error
+	DeleteGoogleLinkTicket(ctx context.Context, id uuid.UUID) (int64, error)
+	GetGoogleLinkTicket(ctx context.Context, arg GetGoogleLinkTicketParams) (GoogleLinkTicket, error)
+	ReplaceGoogleLinkTicket(ctx context.Context, arg ReplaceGoogleLinkTicketParams) error
+	SetGoogleLinkTicketCode(ctx context.Context, arg SetGoogleLinkTicketCodeParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)
