@@ -118,8 +118,8 @@ func (u *AuthUseCase) GoogleAuth(
 // address (owner, 2026-10-31). A Gmail address (gmail.com, googlemail.com) is linked at once and the account is returned,
 // so the sign-in goes on. Any other address is not: the identity waits for the owner's confirmation (the password or a
 // mailed code) and a *GoogleLinkConfirmError carries the ticket. Either way Google must vouch for the address
-// (email_verified) and the account must be active with an address equal to Google's, compared normalized; a deleted
-// account is not found by its address, and a blocked, incomplete or unconfirmed (Gmail only) one, no account, and an
+// (email_verified) and the account must be active with a confirmed address equal to Google's, compared normalized; a deleted
+// account is not found by its address, and a blocked, incomplete or unconfirmed one, no account, and an
 // account that already has a Google identity keep the plain «not registered» answer, as before. No mail announces a link.
 func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser *oauth.GoogleUser, returnTo string) (userModel.User, error) {
 	email := normalizeEmail(googleUser.Email)
@@ -136,10 +136,13 @@ func (u *AuthUseCase) linkGoogleByVerifiedEmail(ctx context.Context, googleUser 
 	if account.Status != userModel.UserStatusActive || normalizeEmail(account.Email) != email {
 		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
 	}
-	gmail := isGmailAddress(email)
-	if gmail && !account.EmailConfirmed {
+	// An address nobody confirmed proves nothing about its owner: an attacker may have set the victim's address on
+	// his own account (sign-up, email change) and keeps its password. Such an account is never matched, whatever the
+	// domain, and never gets a confirmation ticket either.
+	if !account.EmailConfirmed {
 		return userModel.User{}, authModel.ErrAuthGoogleNotRegistered.Err()
 	}
+	gmail := isGmailAddress(email)
 	// An account that already has a Google identity is not given a second one by the address alone: the address
 	// of a Google account can change hands, the identity cannot.
 	providers, err := u.users.ListProviders(ctx, account.ID)

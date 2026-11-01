@@ -394,3 +394,36 @@ func TestSessionEmail(t *testing.T) {
 		t.Fatal("a cookie that does not open gives no address")
 	}
 }
+
+// Pre-hijack guard: an account whose address was never confirmed is not matched by a Google sign-in on any domain
+// and gets no confirmation ticket (the attacker would keep its password).
+func TestGoogleAuth_UnconfirmedAddressIsNeverMatched(t *testing.T) {
+	for _, address := range []string{"victim@firma.ua", "victim@gmail.com"} {
+		t.Run(address, func(t *testing.T) {
+			f := newLinkFixture(t, &oauth.GoogleUser{GoogleID: "g-77", Email: address, EmailVerified: true})
+			f.repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
+			acct := f.user("Secret!1")
+			acct.Email = address
+			acct.EmailConfirmed = false
+			f.repo.EXPECT().GetUserByEmail(gomock.Any(), address).Return(acct, nil)
+			// no ReplaceGoogleLinkTicket, CreateUserProvider or CreateSession expected
+			cookie, _, err := f.uc.GoogleAuth(context.Background(), "code", "state", authModel.SessionMetadata{})
+			if !errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()) || cookie != "" {
+				t.Fatalf("want the plain not-registered answer, got %q %v", cookie, err)
+			}
+		})
+	}
+}
+
+// A ticket whose account lost its confirmed address while it waited is dropped, not honoured.
+func TestGoogleLinkConfirm_AccountAddressNoLongerConfirmed(t *testing.T) {
+	f := newLinkFixture(t, &oauth.GoogleUser{})
+	acct := f.user("Secret!1")
+	acct.EmailConfirmed = false
+	f.repo.EXPECT().GetGoogleLinkTicket(gomock.Any(), gomock.Any()).Return(postgres.GoogleLinkTicket{ID: f.ticketID, UserID: f.uid, GoogleID: "g-77", ExpiresAt: time.Now().Add(time.Minute)}, nil)
+	f.repo.EXPECT().GetUserByID(gomock.Any(), f.uid).Return(acct, nil)
+	f.repo.EXPECT().DeleteGoogleLinkTicket(gomock.Any(), f.ticketID).Return(int64(1), nil)
+	if _, _, err := f.uc.ConfirmGoogleLink(context.Background(), rawTicket, "Secret!1", "", authModel.SessionMetadata{}); !errors.Is(err, authModel.ErrAuthGoogleLinkTicketInvalid.Err()) {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -138,7 +138,7 @@ func (u *AuthUseCase) loadGoogleLinkTicket(ctx context.Context, raw string) (goo
 	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
 		return googleLinkTicketRepo.Ticket{}, userModel.User{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read the account of the Google link").Err()
 	}
-	if err == nil && account.Status == userModel.UserStatusActive {
+	if err == nil && account.Status == userModel.UserStatusActive && account.EmailConfirmed {
 		providers, listErr := u.users.ListProviders(ctx, account.ID)
 		if listErr != nil {
 			return googleLinkTicketRepo.Ticket{}, userModel.User{}, model.ErrPlatform.WithError(listErr).WithMessage("Failed to list user providers").Err()
