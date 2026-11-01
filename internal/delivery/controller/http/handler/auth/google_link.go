@@ -30,11 +30,6 @@ type googleLinkCodeResponse struct {
 	ResendAfterSeconds int64 `json:"ResendAfterSeconds"`
 }
 
-// recaptchaBody documents the token every mail-sending route reads from the JSON body (RequireCaptcha).
-type recaptchaBody struct {
-	RecaptchaToken string `json:"RecaptchaToken"`
-}
-
 type googleLinkConfirmRequest struct {
 	// Exactly one of Password and Code.
 	Password string `json:"Password"`
@@ -73,7 +68,6 @@ func (h *Handler) googleLinkPending(ctx *gin.Context) {
 // @Tags     auth
 // @Accept   json
 // @Produce  json
-// @Param    body  body  recaptchaBody  false  "RecaptchaToken"
 // @Success  200  {object}  response.Response{data=googleLinkCodeResponse}
 // @Failure  404  {object}  response.Response
 // @Failure  429  {object}  response.Response
@@ -111,7 +105,7 @@ func (h *Handler) googleLinkConfirm(ctx *gin.Context) {
 	}
 	clearGoogleLinkTicket(ctx)
 	h.startSession(ctx, cookie)
-	response.AbortWithData(ctx, gin.H{"RedirectURL": redirect})
+	response.AbortWithData(ctx, gin.H{redirectURLKey: redirect})
 }
 
 // googleLinkCancel godoc

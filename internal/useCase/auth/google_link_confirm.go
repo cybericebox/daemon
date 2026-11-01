@@ -220,7 +220,7 @@ func (u *AuthUseCase) ConfirmGoogleLink(
 	ctx context.Context,
 	rawTicket, plainPassword, code string,
 	meta authModel.SessionMetadata,
-) (sessionCookie, redirect string, err error) {
+) (string, string, error) {
 	if (plainPassword == "") == (code == "") {
 		return "", "", authModel.ErrAuthGoogleLinkCodeInvalid.WithError(errors.New("google-link: exactly one of password and code is required")).Err()
 	}
@@ -250,7 +250,7 @@ func (u *AuthUseCase) ConfirmGoogleLink(
 		}
 		return "", "", err
 	}
-	sessionCookie, err = u.createSession(ctx, account.ID, meta)
+	sessionCookie, err := u.createSession(ctx, account.ID, meta)
 	if err != nil {
 		return "", "", err
 	}

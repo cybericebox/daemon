@@ -102,8 +102,9 @@ func (f *linkFixture) expectLinkAndSession() {
 }
 
 // codeOf sends a code and returns it from the mail.
-func (f *linkFixture) sendCode(t *testing.T) (code, codeHash string) {
+func (f *linkFixture) sendCode(t *testing.T) (string, string) {
 	t.Helper()
+	var codeHash string
 	f.repo.EXPECT().SetGoogleLinkTicketCode(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.SetGoogleLinkTicketCodeParams) (int64, error) {
 			codeHash = arg.CodeHash

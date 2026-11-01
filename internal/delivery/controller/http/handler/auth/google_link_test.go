@@ -19,6 +19,7 @@ import (
 // googleLinkFake records what the pending-link routes pass to the use case.
 type googleLinkFake struct {
 	*fakeUC
+
 	ticket          string
 	password, code  string
 	pending         authUseCase.GoogleLinkPending
@@ -177,6 +178,7 @@ func TestGoogleLinkCancel(t *testing.T) {
 // capturingProt records the captcha actions the routes ask for and refuses the request when the token is absent.
 type capturingProt struct {
 	fakeProt
+
 	actions []string
 }
 

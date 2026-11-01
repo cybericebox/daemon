@@ -230,11 +230,6 @@ definitions:
       CurrentPassword:
         type: string
     type: object
-  auth.recaptchaBody:
-    properties:
-      RecaptchaToken:
-        type: string
-    type: object
   auth.requestEmailChangeRequest:
     properties:
       CurrentPassword:
@@ -14816,12 +14811,6 @@ paths:
     post:
       consumes:
       - application/json
-      parameters:
-      - description: RecaptchaToken
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/auth.recaptchaBody'
       produces:
       - application/json
       responses:

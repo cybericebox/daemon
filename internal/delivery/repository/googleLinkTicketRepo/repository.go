@@ -74,8 +74,8 @@ func (r *Repository) SetCode(ctx context.Context, id uuid.UUID, codeHash string,
 }
 
 // CountCodeAttempt counts one check of the mailed code; false when no attempts are left (or the ticket is gone).
-func (r *Repository) CountCodeAttempt(ctx context.Context, id uuid.UUID, now time.Time, max int32) (bool, error) {
-	_, err := r.q.CountGoogleLinkTicketCodeAttempt(ctx, postgres.CountGoogleLinkTicketCodeAttemptParams{ID: id, Now: now, MaxAttempts: max})
+func (r *Repository) CountCodeAttempt(ctx context.Context, id uuid.UUID, now time.Time, maxAttempts int32) (bool, error) {
+	_, err := r.q.CountGoogleLinkTicketCodeAttempt(ctx, postgres.CountGoogleLinkTicketCodeAttemptParams{ID: id, Now: now, MaxAttempts: maxAttempts})
 	if err != nil {
 		if isNoRows(err) {
 			return false, nil

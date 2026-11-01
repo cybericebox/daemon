@@ -2243,16 +2243,6 @@ const docTemplate = `{
                     "auth"
                 ],
                 "summary": "Mail the one-time code that confirms the pending Google link (60 s apart, 5 per hour; recaptcha action googleLinkCode)",
-                "parameters": [
-                    {
-                        "description": "RecaptchaToken",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/auth.recaptchaBody"
-                        }
-                    }
-                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -29517,14 +29507,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "CurrentPassword": {
-                    "type": "string"
-                }
-            }
-        },
-        "auth.recaptchaBody": {
-            "type": "object",
-            "properties": {
-                "RecaptchaToken": {
                     "type": "string"
                 }
             }

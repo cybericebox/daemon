@@ -22,7 +22,8 @@ func lastEmailEngine(uc *fakeUC) *gin.Engine {
 	return r
 }
 
-func cookieOf(w *httptest.ResponseRecorder, name string) *http.Cookie {
+func lastEmailCookie(w *httptest.ResponseRecorder) *http.Cookie {
+	const name = "cib_last_email"
 	for _, c := range w.Result().Cookies() {
 		if c.Name == name {
 			return c
@@ -36,7 +37,7 @@ func TestSignIn_RemembersTheLastEmail(t *testing.T) {
 	uc := &fakeUC{cookie: "session"}
 	w := httptest.NewRecorder()
 	lastEmailEngine(uc).ServeHTTP(w, withConsent(httptest.NewRequest(http.MethodPost, "/api/auth/sign-in", strings.NewReader(`{"Email":"me@example.org","Password":"x"}`)), "analytics:denied,functional:granted"))
-	c := cookieOf(w, "cib_last_email")
+	c := lastEmailCookie(w)
 	if c == nil || mustUnescape(c.Value) != "me@example.org" || c.MaxAge != 365*24*3600 || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Domain != "" || c.Path != "/" {
 		t.Fatalf("cookie %+v", c)
 	}
@@ -47,8 +48,8 @@ func TestSignIn_WithoutTheAddressStillSignsIn(t *testing.T) {
 	uc := &fakeUC{cookie: "session", sessionEmailErr: errors.New("down")}
 	w := httptest.NewRecorder()
 	lastEmailEngine(uc).ServeHTTP(w, withConsent(httptest.NewRequest(http.MethodPost, "/api/auth/sign-in", strings.NewReader(`{"Email":"me@example.org","Password":"x"}`)), "functional:granted"))
-	if w.Code != http.StatusOK || cookieOf(w, "cib_last_email") != nil {
-		t.Fatalf("%d cookie %+v", w.Code, cookieOf(w, "cib_last_email"))
+	if w.Code != http.StatusOK || lastEmailCookie(w) != nil {
+		t.Fatalf("%d cookie %+v", w.Code, lastEmailCookie(w))
 	}
 }
 
@@ -68,7 +69,7 @@ func TestLastEmail_ReadAndForget(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/auth/last-email", nil))
-	if c := cookieOf(w, "cib_last_email"); w.Code != http.StatusOK || c == nil || c.MaxAge >= 0 {
+	if c := lastEmailCookie(w); w.Code != http.StatusOK || c == nil || c.MaxAge >= 0 {
 		t.Fatalf("«not you» clears the cookie: %d %+v", w.Code, c)
 	}
 }
@@ -119,7 +120,7 @@ func TestLastEmail_NeedsFunctionalConsent(t *testing.T) {
 			signIn.AddCookie(&http.Cookie{Name: "cib_last_email", Value: "old%40example.org"})
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, signIn)
-			c := cookieOf(w, "cib_last_email")
+			c := lastEmailCookie(w)
 			if w.Code != http.StatusOK || c == nil || c.MaxAge >= 0 {
 				t.Fatalf("sign-in: %d, the old address is cleared, nothing new is set: %+v", w.Code, c)
 			}
