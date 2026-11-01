@@ -158,7 +158,15 @@ func (h *Handler) mail(ctx *gin.Context) {
 		return
 	}
 	answer(ctx, from, to, func(from, to *time.Time) (mailResponse, error) {
-		view, err := h.useCase.GetMail(ctx.Request.Context(), from, to, channel, transport, kind, includeTests)
+		view, err := h.useCase.GetMail(
+			ctx.Request.Context(),
+			from,
+			to,
+			channel,
+			transport,
+			kind,
+			includeTests,
+		)
 		return toMailResponse(view), err
 	})
 }

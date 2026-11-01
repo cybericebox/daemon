@@ -79,7 +79,11 @@ type (
 		UpdateEventScoringProfile(ctx context.Context, id uuid.UUID, in eventUseCase.UpdateEventScoringProfileInput, updatedBy uuid.UUID) (eventUseCase.EventScoringProfileView, error)
 		ArchiveEvent(ctx context.Context, id uuid.UUID, updatedBy uuid.UUID) (eventUseCase.EventView, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
-		EventFacets(ctx context.Context, field string, f eventUseCase.ListEventsFilter) (map[string]int64, error)
+		EventFacets(
+			ctx context.Context,
+			field string,
+			f eventUseCase.ListEventsFilter,
+		) (map[string]int64, error)
 		ListEventOrganizers(ctx context.Context) ([]eventRepo.Organizer, error)
 		DeleteEvent(ctx context.Context, id uuid.UUID) error
 
@@ -1771,7 +1775,14 @@ func (h *Handler) update(ctx *gin.Context) {
 	}
 	audit.SetChanges(
 		ctx,
-		adminAuditUseCase.Diff(eventEditableFields(before), eventEditableFields(v), "Tag", "Name", "AvailableFrom", "ArchiveAt"),
+		adminAuditUseCase.Diff(
+			eventEditableFields(before),
+			eventEditableFields(v),
+			"Tag",
+			"Name",
+			"AvailableFrom",
+			"ArchiveAt",
+		),
 	)
 	response.AbortWithData(ctx, toResponse(v))
 }

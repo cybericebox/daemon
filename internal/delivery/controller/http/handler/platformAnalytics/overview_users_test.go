@@ -48,7 +48,10 @@ func (f *ouUseCase) GetUsersPeople(context.Context) ([]platformAnalyticsUseCase.
 	return f.people, nil
 }
 
-func (f *ouUseCase) GetUsersPeoplePage(_ context.Context, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.PeopleTable, error) {
+func (f *ouUseCase) GetUsersPeoplePage(
+	_ context.Context,
+	q platformAnalyticsUseCase.TableQuery,
+) (platformAnalyticsUseCase.PeopleTable, error) {
 	f.peopleCall++
 	f.peopleQuery = q
 	return platformAnalyticsUseCase.PeopleTable{Rows: f.people, Total: int64(len(f.people))}, nil
@@ -279,19 +282,43 @@ func TestUsersCSV(t *testing.T) {
 
 // The people table is paged on the server; its CSV is the whole filtered list in the same sorting.
 func TestPeopleTableIsPagedSearchedAndExportedWhole(t *testing.T) {
-	uc := &ouUseCase{people: []platformAnalyticsUseCase.UsersPersonView{{ID: uuid.Must(uuid.NewV7()), Name: "Ada", Email: "ada@example.test", Role: "user", EventsJoined: 3}}}
+	uc := &ouUseCase{
+		people: []platformAnalyticsUseCase.UsersPersonView{
+			{
+				ID:           uuid.Must(uuid.NewV7()),
+				Name:         "Ada",
+				Email:        "ada@example.test",
+				Role:         "user",
+				EventsJoined: 3,
+			},
+		},
+	}
 	grant := ouGrant(rbac.PermAnalyticsRead, rbac.PermAnalyticsUsersRead)
 
-	w := ouServe(t, uc, grant, "/api/analytics/users/people?page=2&pageSize=25&search=ada&sortBy=solves&sortDir=asc")
-	if w.Code != http.StatusOK || uc.peopleQuery.Page != 2 || uc.peopleQuery.PageSize != 25 || uc.peopleQuery.Search != "ada" ||
-		uc.peopleQuery.SortBy != "solves" || uc.peopleQuery.SortDir != "asc" || !strings.Contains(w.Body.String(), `"Total":1`) {
+	w := ouServe(
+		t,
+		uc,
+		grant,
+		"/api/analytics/users/people?page=2&pageSize=25&search=ada&sortBy=solves&sortDir=asc",
+	)
+	if w.Code != http.StatusOK || uc.peopleQuery.Page != 2 || uc.peopleQuery.PageSize != 25 ||
+		uc.peopleQuery.Search != "ada" ||
+		uc.peopleQuery.SortBy != "solves" ||
+		uc.peopleQuery.SortDir != "asc" ||
+		!strings.Contains(w.Body.String(), `"Total":1`) {
 		t.Fatalf("status = %d query = %+v body = %s", w.Code, uc.peopleQuery, w.Body.String())
 	}
-	if w = ouServe(t, uc, grant, "/api/analytics/users/people?page=1&sortBy=password"); w.Code != http.StatusBadRequest {
+	if w = ouServe(
+		t,
+		uc,
+		grant,
+		"/api/analytics/users/people?page=1&sortBy=password",
+	); w.Code != http.StatusBadRequest {
 		t.Fatalf("an unknown column: status = %d", w.Code)
 	}
 	w = ouServe(t, uc, grant, "/api/analytics/users/export.csv?table=people&search=ada&sortBy=name")
-	if w.Code != http.StatusOK || uc.peopleQuery.Page != 0 || uc.peopleQuery.Search != "ada" || uc.peopleQuery.SortBy != "name" {
+	if w.Code != http.StatusOK || uc.peopleQuery.Page != 0 || uc.peopleQuery.Search != "ada" ||
+		uc.peopleQuery.SortBy != "name" {
 		t.Fatalf("csv: status = %d query = %+v", w.Code, uc.peopleQuery)
 	}
 }

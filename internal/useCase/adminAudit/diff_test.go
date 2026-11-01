@@ -24,7 +24,9 @@ func TestDiffListsOnlyChangedFieldsAndOnlyAllowedValues(t *testing.T) {
 	after := sampleSettings{Days: 60, Host: "a"}
 	after.Nested.Limit = 5
 	got := Diff(before, after, "Days")
-	if len(got) != 2 || got[0].Field != "Days" || got[0].Before != float64(30) || got[0].After != float64(60) || got[0].Redacted {
+	if len(got) != 2 || got[0].Field != "Days" || got[0].Before != float64(30) ||
+		got[0].After != float64(60) ||
+		got[0].Redacted {
 		t.Fatalf("an allowed field carries its values: %+v", got)
 	}
 	if got[1].Field != "Nested.Limit" || !got[1].Redacted || got[1].After != nil {
@@ -69,8 +71,12 @@ func TestDiffWalksArraysAndScalarValues(t *testing.T) {
 	}
 	got := Diff(
 		map[string]any{"Items": []entry{{"a", "old-pw"}}, "Tags": []string{"x"}},
-		map[string]any{"Items": []entry{{"a", "new-pw"}, {"b", "second-pw"}}, "Tags": []string{"y"}},
-		"Items.Name", "Tags",
+		map[string]any{
+			"Items": []entry{{"a", "new-pw"}, {"b", "second-pw"}},
+			"Tags":  []string{"y"},
+		},
+		"Items.Name",
+		"Tags",
 	)
 	raw, _ := json.Marshal(got)
 	for _, leaked := range []string{"old-pw", "new-pw", "second-pw"} {
@@ -93,7 +99,9 @@ func TestDiffWalksArraysAndScalarValues(t *testing.T) {
 	}
 
 	scalar := Diff(json.RawMessage(`"old-secret-text"`), json.RawMessage(`"new-secret-text"`))
-	if len(scalar) != 1 || scalar[0].Field != "Value" || !scalar[0].Redacted || scalar[0].Before != nil || scalar[0].After != nil {
+	if len(scalar) != 1 || scalar[0].Field != "Value" || !scalar[0].Redacted ||
+		scalar[0].Before != nil ||
+		scalar[0].After != nil {
 		t.Fatalf("a scalar value that is not allowed is not recorded: %+v", scalar)
 	}
 }
@@ -106,9 +114,17 @@ func TestSanitizeStripsSecretsFromHandBuiltChanges(t *testing.T) {
 		{Field: "Settings.recoveryCode", After: "123456"},
 		{Field: "Role", Before: "user", After: "admin"},
 		{Field: "Bio", After: strings.Repeat("я", 500)},
-		{Field: "Form", After: map[string]any{"name": "n", "apiToken": "tok", "rows": []any{map[string]any{"password": "pw"}}}},
+		{
+			Field: "Form",
+			After: map[string]any{
+				"name":     "n",
+				"apiToken": "tok",
+				"rows":     []any{map[string]any{"password": "pw"}},
+			},
+		},
 	})
-	if !got[0].Redacted || got[0].Before != nil || got[0].After != nil || !got[1].Redacted || got[1].After != nil {
+	if !got[0].Redacted || got[0].Before != nil || got[0].After != nil || !got[1].Redacted ||
+		got[1].After != nil {
 		t.Fatalf("secrets kept: %+v", got)
 	}
 	if got[2].Before != "user" || got[2].After != "admin" || got[2].Redacted {
@@ -118,7 +134,8 @@ func TestSanitizeStripsSecretsFromHandBuiltChanges(t *testing.T) {
 		t.Fatalf("long text is cut: %d", len([]rune(text)))
 	}
 	raw, _ := json.Marshal(got[4])
-	if strings.Contains(string(raw), "tok") || strings.Contains(string(raw), `"pw"`) || !strings.Contains(string(raw), `"n"`) {
+	if strings.Contains(string(raw), "tok") || strings.Contains(string(raw), `"pw"`) ||
+		!strings.Contains(string(raw), `"n"`) {
 		t.Fatalf("secret keys inside a structured value are scrubbed at any depth: %s", raw)
 	}
 }

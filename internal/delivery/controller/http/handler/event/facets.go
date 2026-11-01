@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"errors"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -36,10 +37,16 @@ type (
 func (h *Handler) facets(ctx *gin.Context) {
 	field := ctx.Query("field")
 	if !slices.Contains(eventUseCase.EventFacetFields(), field) {
-		response.AbortWithBadRequest(ctx, errors.New("field must be status, infrastructure or organizer"))
+		response.AbortWithBadRequest(
+			ctx,
+			errors.New("field must be status, infrastructure or organizer"),
+		)
 		return
 	}
-	filter := eventUseCase.ListEventsFilter{Search: ctx.Query("search"), Status: ctx.Query("status")}
+	filter := eventUseCase.ListEventsFilter{
+		Search: ctx.Query("search"),
+		Status: ctx.Query("status"),
+	}
 	if err := parseEventListFilters(ctx, &filter); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return

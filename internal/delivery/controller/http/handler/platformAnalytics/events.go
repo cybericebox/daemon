@@ -16,7 +16,11 @@ import (
 // EventsUseCase is the port of the events section.
 type EventsUseCase interface {
 	GetEvents(ctx context.Context, from, to *time.Time) (platformAnalyticsUseCase.EventsView, error)
-	GetEventsTable(ctx context.Context, from, to *time.Time, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.EventsTable, error)
+	GetEventsTable(
+		ctx context.Context,
+		from, to *time.Time,
+		q platformAnalyticsUseCase.TableQuery,
+	) (platformAnalyticsUseCase.EventsTable, error)
 }
 
 func (h *Handler) initEvents(router *gin.RouterGroup) {
@@ -114,8 +118,17 @@ func toEventsResponse(v platformAnalyticsUseCase.EventsView) eventsResponse {
 
 func toEventRowResponse(e platformAnalyticsUseCase.EventRowView) eventRowResponse {
 	row := eventRowResponse{
-		ID: e.ID, Tag: e.Tag, Name: e.Name, Status: e.Status, FinishAt: e.FinishAt, DurationSeconds: e.DurationSeconds,
-		Participants: e.Participants, Teams: e.Teams, Solves: e.Solves, TeamsSolved: e.TeamsSolved, CompletionRate: e.CompletionRate,
+		ID:              e.ID,
+		Tag:             e.Tag,
+		Name:            e.Name,
+		Status:          e.Status,
+		FinishAt:        e.FinishAt,
+		DurationSeconds: e.DurationSeconds,
+		Participants:    e.Participants,
+		Teams:           e.Teams,
+		Solves:          e.Solves,
+		TeamsSolved:     e.TeamsSolved,
+		CompletionRate:  e.CompletionRate,
 	}
 	if !e.StartAt.IsZero() {
 		start := e.StartAt

@@ -18,7 +18,10 @@ type UsersUseCase interface {
 	GetUsers(ctx context.Context, from, to *time.Time) (platformAnalyticsUseCase.UsersView, error)
 	// GetUsersPeople holds personal data: only behind analytics.users.read.
 	GetUsersPeople(ctx context.Context) ([]platformAnalyticsUseCase.UsersPersonView, error)
-	GetUsersPeoplePage(ctx context.Context, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.PeopleTable, error)
+	GetUsersPeoplePage(
+		ctx context.Context,
+		q platformAnalyticsUseCase.TableQuery,
+	) (platformAnalyticsUseCase.PeopleTable, error)
 }
 
 type (

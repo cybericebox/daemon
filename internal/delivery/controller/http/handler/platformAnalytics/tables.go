@@ -17,9 +17,18 @@ var errInvalidSort = errors.New("sortBy or sortDir is not valid")
 
 // parseTableQuery reads the search, the sorting and, for a screen table (paged), the page of an analytics table. The
 // exports pass paged=false and get everything that matches. It answers 400 itself and reports false then.
-func parseTableQuery(ctx *gin.Context, columns []string, paged bool) (platformAnalyticsUseCase.TableQuery, bool) {
-	q := platformAnalyticsUseCase.TableQuery{Search: ctx.Query("search"), SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir")}
-	if q.SortBy != "" && !slices.Contains(columns, q.SortBy) || q.SortDir != "" && q.SortDir != "asc" && q.SortDir != "desc" {
+func parseTableQuery(
+	ctx *gin.Context,
+	columns []string,
+	paged bool,
+) (platformAnalyticsUseCase.TableQuery, bool) {
+	q := platformAnalyticsUseCase.TableQuery{
+		Search:  ctx.Query("search"),
+		SortBy:  ctx.Query("sortBy"),
+		SortDir: ctx.Query("sortDir"),
+	}
+	if q.SortBy != "" && !slices.Contains(columns, q.SortBy) ||
+		q.SortDir != "" && q.SortDir != "asc" && q.SortDir != "desc" {
 		response.AbortWithBadRequest(ctx, errInvalidSort)
 		return q, false
 	}
@@ -61,14 +70,19 @@ func (h *Handler) eventsTable(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	answer(ctx, from, to, func(from, to *time.Time) (pagination.OffsetPage[eventRowResponse], error) {
-		table, err := h.useCase.GetEventsTable(ctx, from, to, q)
-		items := make([]eventRowResponse, 0, len(table.Rows))
-		for _, row := range table.Rows {
-			items = append(items, toEventRowResponse(row))
-		}
-		return pagination.NewOffsetPage(items, table.Total, q.Page, q.PageSize), err
-	})
+	answer(
+		ctx,
+		from,
+		to,
+		func(from, to *time.Time) (pagination.OffsetPage[eventRowResponse], error) {
+			table, err := h.useCase.GetEventsTable(ctx, from, to, q)
+			items := make([]eventRowResponse, 0, len(table.Rows))
+			for _, row := range table.Rows {
+				items = append(items, toEventRowResponse(row))
+			}
+			return pagination.NewOffsetPage(items, table.Total, q.Page, q.PageSize), err
+		},
+	)
 }
 
 // tasksTable godoc
@@ -96,10 +110,27 @@ func (h *Handler) tasksTable(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	answer(ctx, from, to, func(from, to *time.Time) (pagination.OffsetPage[taskRowResponse], error) {
-		table, err := h.useCase.GetTasksTable(ctx, from, to, ctx.Query("category"), ctx.Query("level"), q)
-		return pagination.NewOffsetPage(toTaskRows(table.Rows), table.Total, q.Page, q.PageSize), err
-	})
+	answer(
+		ctx,
+		from,
+		to,
+		func(from, to *time.Time) (pagination.OffsetPage[taskRowResponse], error) {
+			table, err := h.useCase.GetTasksTable(
+				ctx,
+				from,
+				to,
+				ctx.Query("category"),
+				ctx.Query("level"),
+				q,
+			)
+			return pagination.NewOffsetPage(
+				toTaskRows(table.Rows),
+				table.Total,
+				q.Page,
+				q.PageSize,
+			), err
+		},
+	)
 }
 
 // usersPeopleTable serves GET /analytics/users/people with page: the whole people table, searched, sorted and paged.
@@ -113,5 +144,13 @@ func (h *Handler) usersPeopleTable(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, pagination.NewOffsetPage(toUsersPeopleResponse(table.Rows), table.Total, q.Page, q.PageSize))
+	response.AbortWithData(
+		ctx,
+		pagination.NewOffsetPage(
+			toUsersPeopleResponse(table.Rows),
+			table.Total,
+			q.Page,
+			q.PageSize,
+		),
+	)
 }

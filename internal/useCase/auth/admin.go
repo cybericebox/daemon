@@ -16,6 +16,9 @@ import (
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
+// fieldRole is the column or filter field name of that table.
+const fieldRole = "role"
+
 // maxUUID sorts after any real UUID; used with cursorSentinelTime as the
 // first-page keyset sentinel so one predicate (created_at,id) < (ts,id) works.
 var maxUUID = uuid.Must(uuid.FromString("ffffffff-ffff-ffff-ffff-ffffffffffff"))
@@ -46,7 +49,7 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "name", "email", "role", "status", "signIn", "created", "lastSeen":
+		case "name", "email", fieldRole, "status", "signIn", "created", "lastSeen":
 		default:
 			sortBy = "created"
 		}
@@ -84,9 +87,19 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 				methods = append(methods, "email")
 			}
 			methods = append(methods, providers[r.ID]...)
-			users = append(users, UserInfo{ID: r.ID, FirstName: r.FirstName, LastName: r.LastName,
-				Picture: r.Picture, Email: r.Email, EmailConfirmed: r.EmailConfirmed, Role: r.Role, Status: r.Status,
-				LastSeen: r.LastSeen, CreatedAt: r.CreatedAt, SignInMethods: methods})
+			users = append(users, UserInfo{
+				ID:             r.ID,
+				FirstName:      r.FirstName,
+				LastName:       r.LastName,
+				Picture:        r.Picture,
+				Email:          r.Email,
+				EmailConfirmed: r.EmailConfirmed,
+				Role:           r.Role,
+				Status:         r.Status,
+				LastSeen:       r.LastSeen,
+				CreatedAt:      r.CreatedAt,
+				SignInMethods:  methods,
+			})
 		}
 		total, err := u.users.CountFiltered(ctx, params)
 		if err != nil {
@@ -485,23 +498,31 @@ func (u *AuthUseCase) blockUnlessSelf(
 }
 
 // UserFacetFields are the fields of the user table that have a facet.
-func UserFacetFields() []string { return []string{"role", "status", "emailConfirmed", "signIn"} }
+func UserFacetFields() []string { return []string{fieldRole, "status", "emailConfirmed", "signIn"} }
 
 // UserFacets counts the users per value of one field under the other filters of the table (the field's own filter is
 // ignored, so the chip shows what choosing each value would give). Requires PermUsersRead.
-func (u *AuthUseCase) UserFacets(ctx context.Context, field string, f UsersFilter) (map[string]int64, error) {
+func (u *AuthUseCase) UserFacets(
+	ctx context.Context,
+	field string,
+	f UsersFilter,
+) (map[string]int64, error) {
 	if !slices.Contains(UserFacetFields(), field) {
 		return nil, authModel.ErrInvalidUserStatus.WithMessage("Unknown facet field").Err()
 	}
 	params := userRepo.PageParams{
-		Search: f.Search, Status: string(f.Status), EmailConfirmed: f.EmailConfirmed, SignIn: f.SignIn, InactiveDays: int32(f.InactiveDays),
-		Roles: []string{},
+		Search:         f.Search,
+		Status:         string(f.Status),
+		EmailConfirmed: f.EmailConfirmed,
+		SignIn:         f.SignIn,
+		InactiveDays:   int32(f.InactiveDays),
+		Roles:          []string{},
 	}
 	for _, r := range f.Roles {
 		params.Roles = append(params.Roles, string(r))
 	}
 	switch field {
-	case "role":
+	case fieldRole:
 		params.Roles = []string{}
 	case "status":
 		params.Status = ""
@@ -512,7 +533,9 @@ func (u *AuthUseCase) UserFacets(ctx context.Context, field string, f UsersFilte
 	}
 	counts, err := u.users.Facet(ctx, field, params)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the users per value").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to count the users per value").
+			Err()
 	}
 	return counts, nil
 }

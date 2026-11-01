@@ -211,8 +211,17 @@ func TestEventsFacetsAndOrganizers(t *testing.T) {
 	small := mustSeedEventForParticipants(t, db, "facetsmall")
 	rtExec(t, db, `UPDATE events SET infrastructure_allowed = true WHERE id = $1`, big.event)
 	var owner uuid.UUID
-	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT created_by FROM events WHERE id = $1`, small.ID).Scan(&owner))
-	rtExec(t, db, `INSERT INTO event_managers (event_id, user_id, role, created_at) VALUES ($1, $2, 0, now())`, small.ID, owner)
+	require.NoError(
+		t,
+		db.Pool.QueryRow(ctx, `SELECT created_by FROM events WHERE id = $1`, small.ID).Scan(&owner),
+	)
+	rtExec(
+		t,
+		db,
+		`INSERT INTO event_managers (event_id, user_id, role, created_at) VALUES ($1, $2, 0, now())`,
+		small.ID,
+		owner,
+	)
 	base := eventRepo.PageParams{Search: "facet", Now: anStart.Add(time.Hour)}
 
 	infra, err := repo.Facet(ctx, "infrastructure", base)

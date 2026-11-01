@@ -37,7 +37,10 @@ type Queries interface {
 	ListEventsCursor(ctx context.Context, arg postgres.ListEventsCursorParams) ([]postgres.Event, error)
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
-	CountEventsFacet(ctx context.Context, arg postgres.CountEventsFacetParams) ([]postgres.CountEventsFacetRow, error)
+	CountEventsFacet(
+		ctx context.Context,
+		arg postgres.CountEventsFacetParams,
+	) ([]postgres.CountEventsFacetRow, error)
 	ListEventOrganizers(ctx context.Context) ([]postgres.ListEventOrganizersRow, error)
 	ListEventCounts(
 		ctx context.Context,
@@ -117,10 +120,18 @@ func (r *Repository) ListCursor(ctx context.Context, p ListParams) ([]eventModel
 
 func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.Event, error) {
 	rows, err := r.q.ListEventsPage(ctx, postgres.ListEventsPageParams{
-		Search: p.Search, Status: p.Status, SortBy: p.SortBy, SortDir: p.SortDir,
-		Now: p.Now, LimitVal: p.Limit, OffsetVal: p.Offset,
-		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
-		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
+		Search:           p.Search,
+		Status:           p.Status,
+		SortBy:           p.SortBy,
+		SortDir:          p.SortDir,
+		Now:              p.Now,
+		LimitVal:         p.Limit,
+		OffsetVal:        p.Offset,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
 	})
 	if err != nil {
 		return nil, err
@@ -474,11 +485,21 @@ func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
 
 // Facet counts the events per value of a field (status, infrastructure, organizer) under the filters of the table;
 // the caller has already left the field's own filter empty.
-func (r *Repository) Facet(ctx context.Context, field string, p PageParams) (map[string]int64, error) {
+func (r *Repository) Facet(
+	ctx context.Context,
+	field string,
+	p PageParams,
+) (map[string]int64, error) {
 	rows, err := r.q.CountEventsFacet(ctx, postgres.CountEventsFacetParams{
-		Field: field, Now: p.Now, Search: p.Search, Status: p.Status,
-		StartFrom: optionalTimestamptz(p.StartFrom), StartTo: optionalTimestamptz(p.StartTo),
-		OrganizerID: p.OrganizerID, Infrastructure: p.Infrastructure, NeedsReservation: p.NeedsReservation,
+		Field:            field,
+		Now:              p.Now,
+		Search:           p.Search,
+		Status:           p.Status,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
 	})
 	if err != nil {
 		return nil, err

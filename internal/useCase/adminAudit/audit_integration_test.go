@@ -165,7 +165,14 @@ func TestRecordedChangesNeverStoreASecret(t *testing.T) {
 		Method:         "PUT",
 		Route:          "/settings/:key",
 		ResponseStatus: 200,
-		Changes:        adminAudit.Diff(before, after, "Role", "Backup.Window", "SMTPPassword", "Backup.RecoveryCode"),
+		Changes: adminAudit.Diff(
+			before,
+			after,
+			"Role",
+			"Backup.Window",
+			"SMTPPassword",
+			"Backup.RecoveryCode",
+		),
 	}); err != nil {
 		t.Fatal(err)
 	}

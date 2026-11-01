@@ -525,7 +525,11 @@ func TestListUsersRejectsUnknownFilters(t *testing.T) {
 	}
 }
 
-func (f *fakeUC) UserFacets(_ context.Context, field string, filter authUseCase.UsersFilter) (map[string]int64, error) {
+func (f *fakeUC) UserFacets(
+	_ context.Context,
+	field string,
+	filter authUseCase.UsersFilter,
+) (map[string]int64, error) {
 	f.facetField, f.facetFilter = field, filter
 	return map[string]int64{"password": 3}, nil
 }
@@ -535,11 +539,27 @@ func TestUserFacetsReadTheFieldAndTheOtherFilters(t *testing.T) {
 	r := newEngine(uc, uuid.Must(uuid.NewV7()))
 
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/users/facets?field=signIn&role=user&status=active&emailConfirmed=true&inactiveDays=30", nil))
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/users/facets?field=signIn&role=user&status=active&emailConfirmed=true&inactiveDays=30",
+			nil,
+		),
+	)
 
-	if w.Code != http.StatusOK || uc.facetField != "signIn" || uc.facetFilter.Status != "active" || uc.facetFilter.EmailConfirmed != "true" ||
-		uc.facetFilter.InactiveDays != 30 || len(uc.facetFilter.Roles) != 1 || !strings.Contains(w.Body.String(), `"password":3`) {
-		t.Fatalf("status = %d field = %q filter = %+v body = %s", w.Code, uc.facetField, uc.facetFilter, w.Body.String())
+	if w.Code != http.StatusOK || uc.facetField != "signIn" || uc.facetFilter.Status != "active" ||
+		uc.facetFilter.EmailConfirmed != "true" ||
+		uc.facetFilter.InactiveDays != 30 ||
+		len(uc.facetFilter.Roles) != 1 ||
+		!strings.Contains(w.Body.String(), `"password":3`) {
+		t.Fatalf(
+			"status = %d field = %q filter = %+v body = %s",
+			w.Code,
+			uc.facetField,
+			uc.facetFilter,
+			w.Body.String(),
+		)
 	}
 	for _, target := range []string{"/api/users/facets", "/api/users/facets?field=picture", "/api/users/facets?field=role&signIn=sms"} {
 		w = httptest.NewRecorder()

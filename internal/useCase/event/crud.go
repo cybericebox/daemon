@@ -22,6 +22,9 @@ import (
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
+// fieldStatus is the column or filter field name of that table.
+const fieldStatus = "status"
+
 var maxUUID = uuid.Must(uuid.FromString("ffffffff-ffff-ffff-ffff-ffffffffffff"))
 var cursorSentinelTime = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 
@@ -146,7 +149,12 @@ func (u *EventUseCase) GetEvent(ctx context.Context, id uuid.UUID) (EventView, e
 	view := toEventView(e, time.Now())
 	if counts, countErr := u.events.CountsOf(ctx, []uuid.UUID{id}); countErr == nil {
 		c := counts[id]
-		view.Counts = &EventCountsView{Participants: c.Participants, Teams: c.Teams, StandsReady: c.StandsReady, StandsTotal: c.StandsTotal}
+		view.Counts = &EventCountsView{
+			Participants: c.Participants,
+			Teams:        c.Teams,
+			StandsReady:  c.StandsReady,
+			StandsTotal:  c.StandsTotal,
+		}
 	}
 	return view, nil
 }
@@ -206,7 +214,7 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 		switch sortBy {
 		case "tag",
 			"name",
-			"status",
+			fieldStatus,
 			"availableFrom",
 			"archiveAt",
 			"updated",
@@ -226,10 +234,18 @@ func (u *EventUseCase) ListEvents(ctx context.Context, f ListEventsFilter) (Even
 			return EventsListResult{}, model.ErrPlatform.WithMessage("Event page is out of range").Err()
 		}
 		params := eventRepo.PageParams{
-			Search: f.Search, Status: f.Status, SortBy: sortBy, SortDir: sortDir, Now: now,
-			Limit: int32(limit), Offset: int32(offset),
-			StartFrom: f.StartFrom, StartTo: f.StartTo, Infrastructure: f.Infrastructure, NeedsReservation: f.NeedsReservation,
-			OrganizerID: uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil},
+			Search:           f.Search,
+			Status:           f.Status,
+			SortBy:           sortBy,
+			SortDir:          sortDir,
+			Now:              now,
+			Limit:            int32(limit),
+			Offset:           int32(offset),
+			StartFrom:        f.StartFrom,
+			StartTo:          f.StartTo,
+			Infrastructure:   f.Infrastructure,
+			NeedsReservation: f.NeedsReservation,
+			OrganizerID:      uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil},
 		}
 		rows, err := u.events.ListPage(ctx, params)
 		if err != nil {
@@ -428,16 +444,20 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, id uuid.UUID) error {
 }
 
 // EventFacetFields are the fields of the events table that have a facet.
-func EventFacetFields() []string { return []string{"status", "infrastructure", "organizer"} }
+func EventFacetFields() []string { return []string{fieldStatus, "infrastructure", "organizer"} }
 
 // EventFacets counts the events per value of one field under the other filters of the table (the field's own filter
 // is ignored). Route gate: events.read.
-func (u *EventUseCase) EventFacets(ctx context.Context, field string, f ListEventsFilter) (map[string]int64, error) {
+func (u *EventUseCase) EventFacets(
+	ctx context.Context,
+	field string,
+	f ListEventsFilter,
+) (map[string]int64, error) {
 	if !slices.Contains(EventFacetFields(), field) {
 		return nil, eventModel.ErrEventLifecycleInvalid.WithMessage("Unknown facet field").Err()
 	}
 	switch field {
-	case "status":
+	case fieldStatus:
 		f.Status = ""
 	case "infrastructure":
 		f.Infrastructure = ""
@@ -445,12 +465,22 @@ func (u *EventUseCase) EventFacets(ctx context.Context, field string, f ListEven
 		f.OrganizerID = uuid.Nil
 	}
 	counts, err := u.events.Facet(ctx, field, eventRepo.PageParams{
-		Search: f.Search, Status: f.Status, Now: time.Now(), StartFrom: f.StartFrom, StartTo: f.StartTo,
-		OrganizerID: uuid.NullUUID{UUID: f.OrganizerID, Valid: f.OrganizerID != uuid.Nil}, Infrastructure: f.Infrastructure,
+		Search:    f.Search,
+		Status:    f.Status,
+		Now:       time.Now(),
+		StartFrom: f.StartFrom,
+		StartTo:   f.StartTo,
+		OrganizerID: uuid.NullUUID{
+			UUID:  f.OrganizerID,
+			Valid: f.OrganizerID != uuid.Nil,
+		},
+		Infrastructure:   f.Infrastructure,
 		NeedsReservation: f.NeedsReservation,
 	})
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the events per value").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to count the events per value").
+			Err()
 	}
 	return counts, nil
 }
@@ -459,7 +489,9 @@ func (u *EventUseCase) EventFacets(ctx context.Context, field string, f ListEven
 func (u *EventUseCase) ListEventOrganizers(ctx context.Context) ([]eventRepo.Organizer, error) {
 	out, err := u.events.Organizers(ctx)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the organizers").Err()
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to list the organizers").
+			Err()
 	}
 	return out, nil
 }

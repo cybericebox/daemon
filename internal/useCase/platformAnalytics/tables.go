@@ -11,6 +11,9 @@ import (
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
+// columnSolves is the column or filter field name of that table.
+const columnSolves = "solves"
+
 // MaxTableRows is the page size meaning "everything that matches" for the exports (a table the admin reads is
 // paged; the CSV of the same filters is not cut).
 const MaxTableRows = 1<<31 - 1
@@ -39,23 +42,56 @@ func (q TableQuery) repo() platformAnalyticsRepo.TableQuery {
 	if dir != "asc" {
 		dir = "desc"
 	}
-	return platformAnalyticsRepo.TableQuery{Search: strings.TrimSpace(q.Search), SortBy: q.SortBy, SortDir: dir, Limit: limit, Offset: offset}
+	return platformAnalyticsRepo.TableQuery{
+		Search:  strings.TrimSpace(q.Search),
+		SortBy:  q.SortBy,
+		SortDir: dir,
+		Limit:   limit,
+		Offset:  offset,
+	}
 }
 
 // Sortable columns of the tables.
 var (
-	PeopleSortColumns = []string{"name", "email", "role", "eventsJoined", "solves", "lastSeen"}
-	EventSortColumns  = []string{"start", "name", "tag", "status", "participants", "teams", "solves", "teamsSolved"}
-	TaskSortColumns   = []string{"exercise", "task", "level", "eventsUsed", "attempts", "teamsTried", "solves", "solveRate", "medianSolveSeconds", "hintRate"}
+	PeopleSortColumns = []string{"name", "email", "role", "eventsJoined", columnSolves, "lastSeen"}
+	EventSortColumns  = []string{
+		"start",
+		"name",
+		"tag",
+		"status",
+		"participants",
+		"teams",
+		columnSolves,
+		"teamsSolved",
+	}
+	TaskSortColumns = []string{
+		"exercise",
+		"task",
+		"level",
+		"eventsUsed",
+		"attempts",
+		"teamsTried",
+		columnSolves,
+		"solveRate",
+		"medianSolveSeconds",
+		"hintRate",
+	}
 )
 
 // pagedEventsStore / pagedPeopleStore are the stores that can filter, sort and page (the repository).
 type pagedEventsStore interface {
-	EventsPage(ctx context.Context, from, to, asOf time.Time, q platformAnalyticsRepo.TableQuery) ([]platformAnalyticsRepo.EventRow, int64, error)
+	EventsPage(
+		ctx context.Context,
+		from, to, asOf time.Time,
+		q platformAnalyticsRepo.TableQuery,
+	) ([]platformAnalyticsRepo.EventRow, int64, error)
 }
 
 type pagedPeopleStore interface {
-	UsersPeoplePage(ctx context.Context, q platformAnalyticsRepo.TableQuery) ([]platformAnalyticsRepo.UsersPerson, int64, error)
+	UsersPeoplePage(
+		ctx context.Context,
+		q platformAnalyticsRepo.TableQuery,
+	) ([]platformAnalyticsRepo.UsersPerson, int64, error)
 }
 
 // EventsTable is one page of the events of the period.
@@ -67,7 +103,11 @@ type EventsTable struct {
 
 // GetEventsTable is the per-event table of the «Заходи» report: searched, sorted and paged on the server, without a
 // cut at the newest N.
-func (u *PlatformAnalyticsUseCase) GetEventsTable(ctx context.Context, from, to *time.Time, q TableQuery) (EventsTable, error) {
+func (u *PlatformAnalyticsUseCase) GetEventsTable(
+	ctx context.Context,
+	from, to *time.Time,
+	q TableQuery,
+) (EventsTable, error) {
 	period, err := u.period(from, to)
 	if err != nil {
 		return EventsTable{}, err
@@ -95,7 +135,10 @@ type PeopleTable struct {
 
 // GetUsersPeoplePage is the «Люди» table: every account that joined an event, searched, sorted and paged on the
 // server. It holds personal data: the caller must hold analytics.users.read.
-func (u *PlatformAnalyticsUseCase) GetUsersPeoplePage(ctx context.Context, q TableQuery) (PeopleTable, error) {
+func (u *PlatformAnalyticsUseCase) GetUsersPeoplePage(
+	ctx context.Context,
+	q TableQuery,
+) (PeopleTable, error) {
 	store, ok := u.store.(pagedPeopleStore)
 	if !ok {
 		return PeopleTable{}, fail(nil, "The people table is not available")
@@ -107,8 +150,13 @@ func (u *PlatformAnalyticsUseCase) GetUsersPeoplePage(ctx context.Context, q Tab
 	out := PeopleTable{Rows: make([]UsersPersonView, 0, len(rows)), Total: total}
 	for _, r := range rows {
 		out.Rows = append(out.Rows, UsersPersonView{
-			ID: r.ID, Name: strings.TrimSpace(r.FirstName + " " + r.LastName), Email: r.Email, Role: r.Role,
-			EventsJoined: r.EventsJoined, Solves: r.Solves, LastSeenAt: r.LastSeenAt,
+			ID:           r.ID,
+			Name:         strings.TrimSpace(r.FirstName + " " + r.LastName),
+			Email:        r.Email,
+			Role:         r.Role,
+			EventsJoined: r.EventsJoined,
+			Solves:       r.Solves,
+			LastSeenAt:   r.LastSeenAt,
 		})
 	}
 	return out, nil
@@ -123,7 +171,12 @@ type TasksTable struct {
 
 // GetTasksTable is the task usage table: every used task (not the first 200), filtered by category and level, searched
 // over the exercise and task names, sorted and paged.
-func (u *PlatformAnalyticsUseCase) GetTasksTable(ctx context.Context, from, to *time.Time, category, level string, q TableQuery) (TasksTable, error) {
+func (u *PlatformAnalyticsUseCase) GetTasksTable(
+	ctx context.Context,
+	from, to *time.Time,
+	category, level string,
+	q TableQuery,
+) (TasksTable, error) {
 	period, err := u.period(from, to)
 	if err != nil {
 		return TasksTable{}, err
@@ -132,7 +185,14 @@ func (u *PlatformAnalyticsUseCase) GetTasksTable(ctx context.Context, from, to *
 	if len(category) > filterMaxLen {
 		return TasksTable{Period: period, Rows: []TaskRowView{}}, nil
 	}
-	rows, _, err := u.store.TaskCatalog(ctx, period.From, period.To, category, level, taskCatalogScan)
+	rows, _, err := u.store.TaskCatalog(
+		ctx,
+		period.From,
+		period.To,
+		category,
+		level,
+		taskCatalogScan,
+	)
 	if err != nil {
 		return TasksTable{}, fail(err, "Failed to read the task catalog usage")
 	}
@@ -140,7 +200,8 @@ func (u *PlatformAnalyticsUseCase) GetTasksTable(ctx context.Context, from, to *
 	views := make([]TaskRowView, 0, len(rows))
 	for _, row := range rows {
 		view := taskRowView(row)
-		if needle == "" || strings.Contains(strings.ToLower(view.Exercise), needle) || strings.Contains(strings.ToLower(view.Task), needle) {
+		if needle == "" || strings.Contains(strings.ToLower(view.Exercise), needle) ||
+			strings.Contains(strings.ToLower(view.Task), needle) {
 			views = append(views, view)
 		}
 	}
@@ -169,7 +230,7 @@ func sortTasks(rows []TaskRowView, by, dir string) {
 		less = func(a, b TaskRowView) bool { return a.Attempts < b.Attempts }
 	case "teamsTried":
 		less = func(a, b TaskRowView) bool { return a.TeamsTried < b.TeamsTried }
-	case "solves":
+	case columnSolves:
 		less = func(a, b TaskRowView) bool { return a.Solves < b.Solves }
 	case "solveRate":
 		less = func(a, b TaskRowView) bool { return a.SolveRate < b.SolveRate }

@@ -29,7 +29,10 @@ type userFacetResponse struct {
 func (h *Handler) facets(ctx *gin.Context) {
 	field := ctx.Query("field")
 	if !slices.Contains(authUseCase.UserFacetFields(), field) {
-		response.AbortWithBadRequest(ctx, errors.New("field must be role, status, emailConfirmed or signIn"))
+		response.AbortWithBadRequest(
+			ctx,
+			errors.New("field must be role, status, emailConfirmed or signIn"),
+		)
 		return
 	}
 	emailConfirmed, signIn, inactiveDays, err := parseUserFilters(ctx)
@@ -38,8 +41,14 @@ func (h *Handler) facets(ctx *gin.Context) {
 		return
 	}
 	counts, err := h.useCase.UserFacets(ctx.Request.Context(), field, authUseCase.UsersFilter{
-		Search: ctx.Query("search"), Roles: rbac.RolesFromStrings(ctx.QueryArray("role")), Status: userModel.UserStatus(ctx.Query("status")),
-		EmailConfirmed: emailConfirmed, SignIn: signIn, InactiveDays: inactiveDays,
+		Search: ctx.Query(
+			"search",
+		),
+		Roles:          rbac.RolesFromStrings(ctx.QueryArray("role")),
+		Status:         userModel.UserStatus(ctx.Query("status")),
+		EmailConfirmed: emailConfirmed,
+		SignIn:         signIn,
+		InactiveDays:   inactiveDays,
 	})
 	if err != nil {
 		response.AbortWithError(ctx, err)

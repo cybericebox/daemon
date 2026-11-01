@@ -119,7 +119,11 @@ func TestEventListFiltersAreValidated(t *testing.T) {
 	}
 }
 
-func (u *eventCRUDContractUC) EventFacets(_ context.Context, field string, f eventUseCase.ListEventsFilter) (map[string]int64, error) {
+func (u *eventCRUDContractUC) EventFacets(
+	_ context.Context,
+	field string,
+	f eventUseCase.ListEventsFilter,
+) (map[string]int64, error) {
 	u.facetField, u.listFilter = field, f
 	return map[string]int64{"true": 2}, nil
 }
@@ -132,8 +136,16 @@ func TestEventFacetsAndOrganizers(t *testing.T) {
 	u := &eventCRUDContractUC{}
 	router := testEventCRUDRouter(u, uuid.Must(uuid.NewV7()))
 
-	got := eventRequest(t, router, http.MethodGet, "/api/events/facets?field=infrastructure&status=published&startFrom=2026-10-01T00:00:00Z", "")
-	if u.facetField != "infrastructure" || u.listFilter.Status != "published" || u.listFilter.StartFrom == nil || !strings.Contains(string(got["Data"]), `"true":2`) {
+	got := eventRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/events/facets?field=infrastructure&status=published&startFrom=2026-10-01T00:00:00Z",
+		"",
+	)
+	if u.facetField != "infrastructure" || u.listFilter.Status != "published" ||
+		u.listFilter.StartFrom == nil ||
+		!strings.Contains(string(got["Data"]), `"true":2`) {
 		t.Fatalf("field = %q filter = %+v data = %s", u.facetField, u.listFilter, got["Data"])
 	}
 	for _, target := range []string{"/api/events/facets", "/api/events/facets?field=name", "/api/events/facets?field=status&infrastructure=maybe"} {

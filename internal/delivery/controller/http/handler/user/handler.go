@@ -31,8 +31,14 @@ type (
 			role rbac.Role,
 			emails []string,
 		) ([]authUseCase.InviteResult, error)
-		InviteEntries(ctx context.Context, entries []authUseCase.InviteEntry) ([]authUseCase.InviteEntryResult, error)
-		ListUserParticipations(ctx context.Context, userID uuid.UUID) ([]authUseCase.UserParticipationView, error)
+		InviteEntries(
+			ctx context.Context,
+			entries []authUseCase.InviteEntry,
+		) ([]authUseCase.InviteEntryResult, error)
+		ListUserParticipations(
+			ctx context.Context,
+			userID uuid.UUID,
+		) ([]authUseCase.UserParticipationView, error)
 		EndUserSessions(ctx context.Context, userID uuid.UUID) error
 		ResendUserInvitation(ctx context.Context, userID uuid.UUID) error
 		BulkUserAction(
@@ -41,7 +47,11 @@ type (
 			ids []uuid.UUID,
 		) ([]authUseCase.BulkUserResult, error)
 		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
-		UserFacets(ctx context.Context, field string, f authUseCase.UsersFilter) (map[string]int64, error)
+		UserFacets(
+			ctx context.Context,
+			field string,
+			f authUseCase.UsersFilter,
+		) (map[string]int64, error)
 	}
 
 	IProtection interface {
@@ -221,9 +231,22 @@ func (h *Handler) listUsers(ctx *gin.Context) {
 		}
 		items := make([]userResponse, 0, len(res.Users))
 		for _, x := range res.Users {
-			items = append(items, userResponse{ID: x.ID, FirstName: x.FirstName, LastName: x.LastName,
-				Email: x.Email, Picture: x.Picture, EmailConfirmed: x.EmailConfirmed, Role: x.Role, Status: x.Status, LastSeen: x.LastSeen,
-				CreatedAt: x.CreatedAt, SignInMethods: x.SignInMethods})
+			items = append(
+				items,
+				userResponse{
+					ID:             x.ID,
+					FirstName:      x.FirstName,
+					LastName:       x.LastName,
+					Email:          x.Email,
+					Picture:        x.Picture,
+					EmailConfirmed: x.EmailConfirmed,
+					Role:           x.Role,
+					Status:         x.Status,
+					LastSeen:       x.LastSeen,
+					CreatedAt:      x.CreatedAt,
+					SignInMethods:  x.SignInMethods,
+				},
+			)
 		}
 		response.AbortWithData(ctx, pagination.NewOffsetPage(items, res.Total, page.Page, page.PageSize))
 		return

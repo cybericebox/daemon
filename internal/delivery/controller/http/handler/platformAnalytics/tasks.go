@@ -16,8 +16,17 @@ import (
 
 // TasksUseCase is the port of the tasks section.
 type TasksUseCase interface {
-	GetTasks(ctx context.Context, from, to *time.Time, category, level string) (platformAnalyticsUseCase.TasksView, error)
-	GetTasksTable(ctx context.Context, from, to *time.Time, category, level string, q platformAnalyticsUseCase.TableQuery) (platformAnalyticsUseCase.TasksTable, error)
+	GetTasks(
+		ctx context.Context,
+		from, to *time.Time,
+		category, level string,
+	) (platformAnalyticsUseCase.TasksView, error)
+	GetTasksTable(
+		ctx context.Context,
+		from, to *time.Time,
+		category, level string,
+		q platformAnalyticsUseCase.TableQuery,
+	) (platformAnalyticsUseCase.TasksTable, error)
 }
 
 func (h *Handler) initTasks(router *gin.RouterGroup) {
@@ -177,7 +186,14 @@ func (h *Handler) exportTasks(ctx *gin.Context) {
 		if !valid {
 			return
 		}
-		all, err := h.useCase.GetTasksTable(ctx, from, to, ctx.Query("category"), ctx.Query("level"), q)
+		all, err := h.useCase.GetTasksTable(
+			ctx,
+			from,
+			to,
+			ctx.Query("category"),
+			ctx.Query("level"),
+			q,
+		)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return

@@ -40,7 +40,11 @@ func previousWindow(from, to *time.Time, now time.Time) (time.Time, time.Time, b
 
 // answer writes a report. With compare=previous it also loads the report of the previous period and wraps both;
 // without it the answer is the report itself, as before.
-func answer[T any](ctx *gin.Context, from, to *time.Time, load func(from, to *time.Time) (T, error)) {
+func answer[T any](
+	ctx *gin.Context,
+	from, to *time.Time,
+	load func(from, to *time.Time) (T, error),
+) {
 	current, err := load(from, to)
 	if err != nil {
 		response.AbortWithError(ctx, err)

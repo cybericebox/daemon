@@ -289,7 +289,12 @@ func serveCapturing(
 
 func TestSavingASettingRecordsWhichFieldChangedButNotTheValues(t *testing.T) {
 	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 30, after: 90}
-	w, changes := serveCapturing(uc, http.MethodPut, "/api/settings/retention", `{"Values":{"LabTelemetry":90}}`)
+	w, changes := serveCapturing(
+		uc,
+		http.MethodPut,
+		"/api/settings/retention",
+		`{"Values":{"LabTelemetry":90}}`,
+	)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "LabTelemetry", changes[0].Field)
@@ -297,14 +302,24 @@ func TestSavingASettingRecordsWhichFieldChangedButNotTheValues(t *testing.T) {
 	assert.Nil(t, changes[0].Before)
 	assert.Nil(t, changes[0].After)
 
-	_, changes = serveCapturing(&auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 90, after: 90}, http.MethodPut, "/api/settings/retention", `{"Values":{"LabTelemetry":90}}`)
+	_, changes = serveCapturing(
+		&auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 90, after: 90},
+		http.MethodPut,
+		"/api/settings/retention",
+		`{"Values":{"LabTelemetry":90}}`,
+	)
 	assert.Empty(t, changes, "saving the same values changes nothing")
 }
 
 // A setting whose read permission the audit reader may lack never has its value in the audit, whatever it holds.
 func TestUpsertingAGenericSettingRecordsNoValues(t *testing.T) {
 	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}}
-	w, changes := serveCapturing(uc, http.MethodPut, "/api/settings/theme", `{"Value":{"color":"blue","apiToken":"new-token","list":["a","b"]}}`)
+	w, changes := serveCapturing(
+		uc,
+		http.MethodPut,
+		"/api/settings/theme",
+		`{"Value":{"color":"blue","apiToken":"new-token","list":["a","b"]}}`,
+	)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NotEmpty(t, changes)
 	raw, err := json.Marshal(changes)

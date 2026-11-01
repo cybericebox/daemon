@@ -132,16 +132,30 @@ func TestUsersFacets(t *testing.T) {
 	repo := userRepo.New(db.Queries)
 	seed := func(name, role string, confirmed, password, google bool) {
 		id := uuid.Must(uuid.NewV7())
-		params := postgres.CreateUserParams{ID: id, Email: name + "@facets.test", FirstName: name, Role: role,
-			Status: string(userModel.UserStatusActive), EmailConfirmed: confirmed, CreatedAt: time.Now()}
+		params := postgres.CreateUserParams{
+			ID:        id,
+			Email:     name + "@facets.test",
+			FirstName: name,
+			Role:      role,
+			Status: string(
+				userModel.UserStatusActive,
+			),
+			EmailConfirmed: confirmed,
+			CreatedAt:      time.Now(),
+		}
 		if password {
 			params.HashedPassword = pgtype.Text{String: "hash", Valid: true}
 		}
 		_, err := db.Queries.CreateUser(ctx, params)
 		require.NoError(t, err)
 		if google {
-			_, err = db.Pool.Exec(ctx, `INSERT INTO user_providers (id, user_id, provider, provider_user_id, created_at) VALUES ($1, $2, 'google', $3, now())`,
-				uuid.Must(uuid.NewV7()), id, "g-"+name)
+			_, err = db.Pool.Exec(
+				ctx,
+				`INSERT INTO user_providers (id, user_id, provider, provider_user_id, created_at) VALUES ($1, $2, 'google', $3, now())`,
+				uuid.Must(uuid.NewV7()),
+				id,
+				"g-"+name,
+			)
 			require.NoError(t, err)
 		}
 	}
@@ -156,7 +170,12 @@ func TestUsersFacets(t *testing.T) {
 
 	signIn, err := repo.Facet(ctx, "signIn", base)
 	require.NoError(t, err)
-	require.Equal(t, map[string]int64{"password": 2, "google": 2}, signIn, "a user counts once per method")
+	require.Equal(
+		t,
+		map[string]int64{"password": 2, "google": 2},
+		signIn,
+		"a user counts once per method",
+	)
 
 	confirmedOnly := base
 	confirmedOnly.EmailConfirmed = "true"
