@@ -53,6 +53,9 @@ type fakeAgent struct {
 	listSelector                                 string
 	renewCSR, rotateKeyID, rotatePub, removedKey string
 	keyErr                                       error
+	// runChecks is the last RunChecks request; runChecksErr fails it.
+	runChecks    *labpb.RunChecksRequest
+	runChecksErr error
 	// clientGone makes Create answer EXISTS (without a config) until the client is deleted.
 	clientExists bool
 }

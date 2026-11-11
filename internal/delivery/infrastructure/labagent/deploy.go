@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gofrs/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"time"
 
@@ -102,6 +104,23 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		return err
 	}
 	return nil
+}
+
+// RunLabChecks asks the laboratory to run the given checks of a lab now (all that allow a manual run when ids is empty).
+// The answer says only that the request was recorded for the checker; the results come back in the Monitoring stream. A
+// laboratory with the checks option off refuses the call as a whole.
+func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []string) error {
+	res, err := c.RunChecks(ctx, &labpb.RunChecksRequest{Items: []*labpb.RunChecksItem{{LabGroup: group, Lab: lab, CheckIds: ids}}})
+	if err != nil {
+		if status.Code(err) == codes.FailedPrecondition {
+			return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", "checks").WithError(err).Err()
+		}
+		return agentErr("run checks", err)
+	}
+	if len(res.GetResults()) == 1 && res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
+		return fmt.Errorf("run checks: %w", errNotFound)
+	}
+	return oneResult("run checks", res.GetResults())
 }
 
 // EnsureVPNGroup creates the stable team group without requiring a Lab.
@@ -616,6 +635,7 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 			}
 		}
 		device.Scheduling = mapPodScheduling(d.GetScheduling())
+		device.Bootstrap = mapBootstrap(d.GetBootstrap())
 		out.Devices = append(out.Devices, device)
 	}
 	for _, a := range st.GetAccess() {
@@ -625,6 +645,22 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 	}
 	out.FillQueueDetails()
 	return out
+}
+
+// mapBootstrap maps the bootstrap state of a device; nil when the device has none (or the laboratory has not seen it yet).
+func mapBootstrap(b *labpb.BootstrapStatus) *exerciseModel.DeviceBootstrapStatus {
+	var phase string
+	switch b.GetPhase() {
+	case labpb.BootstrapPhase_BOOTSTRAP_PHASE_PENDING:
+		phase = exerciseModel.BootstrapPhasePending
+	case labpb.BootstrapPhase_BOOTSTRAP_PHASE_DONE:
+		phase = exerciseModel.BootstrapPhaseDone
+	case labpb.BootstrapPhase_BOOTSTRAP_PHASE_FAILED:
+		phase = exerciseModel.BootstrapPhaseFailed
+	default:
+		return nil
+	}
+	return &exerciseModel.DeviceBootstrapStatus{Phase: phase, Attempts: b.GetAttempts(), Reason: b.GetReason()}
 }
 
 // mapPodScheduling maps the scheduler state of one device pod; nil when the scheduler does not track it.

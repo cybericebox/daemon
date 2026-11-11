@@ -88,6 +88,16 @@ type (
 		// Scheduling is null when the scheduler does not track the device.
 		Scheduling *SchedulingResponse `json:"Scheduling"`
 		Snapshot   *SnapshotResponse   `json:"Snapshot"`
+		// Bootstrap is the device's bootstrap: null for a device without one. Organizers and the task author only.
+		Bootstrap *BootstrapResponse `json:"Bootstrap"`
+	}
+
+	// BootstrapResponse is where the bootstrap of a device is. Phase is pending, done or failed (its attempts are used up);
+	// Reason is the short text of the last failure for the author and holds no secret.
+	BootstrapResponse struct {
+		Phase    string `json:"Phase"`
+		Attempts int32  `json:"Attempts"`
+		Reason   string `json:"Reason"`
 	}
 
 	// StatusResponse is the live state of one lab for organizers and administrators.
@@ -146,9 +156,17 @@ func Scheduling(p *exerciseModel.PodScheduling) *SchedulingResponse {
 	return out
 }
 
+// Bootstrap maps the bootstrap state of a device; nil stays nil.
+func Bootstrap(b *exerciseModel.DeviceBootstrapStatus) *BootstrapResponse {
+	if b == nil {
+		return nil
+	}
+	return &BootstrapResponse{Phase: b.Phase, Attempts: b.Attempts, Reason: b.Reason}
+}
+
 // Device maps one device.
 func Device(d exerciseModel.LabDeployedDevice) DeviceResponse {
-	return DeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Scheduling: Scheduling(d.Scheduling), Snapshot: Snapshot(d.Snapshot)}
+	return DeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Scheduling: Scheduling(d.Scheduling), Snapshot: Snapshot(d.Snapshot), Bootstrap: Bootstrap(d.Bootstrap)}
 }
 
 // Status maps the live state of a lab.

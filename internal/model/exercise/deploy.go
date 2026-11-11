@@ -148,6 +148,23 @@ type LabDeployedDevice struct {
 	Snapshot *DeviceSnapshot
 	// Scheduling is the pod's way through the scheduler; nil when the scheduler does not track it.
 	Scheduling *PodScheduling
+	// Bootstrap is where the device's bootstrap is; nil for a device without one. For staff and the task author only.
+	Bootstrap *DeviceBootstrapStatus
+}
+
+// Bootstrap phases of a device (the laboratory's contract 1.5): pending until it is done, failed when its attempts are used up.
+const (
+	BootstrapPhasePending = "pending"
+	BootstrapPhaseDone    = "done"
+	BootstrapPhaseFailed  = "failed"
+)
+
+// DeviceBootstrapStatus is the bootstrap of one device as the laboratory reports it. Reason is a short text for the author
+// (at most 256 bytes) and holds no secret.
+type DeviceBootstrapStatus struct {
+	Phase    string
+	Attempts int32
+	Reason   string
 }
 
 // DeviceLimitCPU is the notice code of a device that hits its CPU limit (more than half of its CPU periods are

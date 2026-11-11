@@ -126,6 +126,13 @@ type (
 		VPN            groupPodSizingResponse `json:"VPN"`
 		Gateway        groupPodSizingResponse `json:"Gateway"`
 		DeviceProfiles []string               `json:"DeviceProfiles"`
+		// ChecksEnabled: the laboratory runs lab checks (a task with a state check can start there). TerminalEnabled: the
+		// browser terminal is on. BootstrapAvailable: the agent carries the device bootstrap (contract 1.5); false for an
+		// older agent. ChecksMaxPerLab is the most checks of one lab (0 when not reported).
+		ChecksEnabled      bool  `json:"ChecksEnabled"`
+		ChecksMaxPerLab    int32 `json:"ChecksMaxPerLab"`
+		TerminalEnabled    bool  `json:"TerminalEnabled"`
+		BootstrapAvailable bool  `json:"BootstrapAvailable"`
 	}
 
 	groupPodSizingResponse struct {
@@ -203,7 +210,7 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 	if f == nil {
 		return nil
 	}
-	return &agentFeaturesResponse{
+	out := agentFeaturesResponse{
 		Lifecycle: lifecycleResponse{
 			PerLabStop: f.Lifecycle.PerLabStop, RequiredSnapshot: f.Lifecycle.RequiredSnapshot, ConfirmedRuntime: f.Lifecycle.ConfirmedRuntime,
 			RetainedRestart: f.Lifecycle.RetainedRestart, FullGroupStop: f.Lifecycle.FullGroupStop,
@@ -221,6 +228,12 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 		LabMaxDevices: f.Limits.LabMaxDevices, VPN: toSizing(f.Limits.VPN), Gateway: toSizing(f.Limits.Gateway),
 		DeviceProfiles: append([]string{}, f.Limits.DeviceProfiles...),
 	}
+	if f.Checks != nil {
+		out.ChecksEnabled, out.ChecksMaxPerLab = f.Checks.Enabled, f.Checks.MaxChecksPerLab
+	}
+	out.TerminalEnabled = f.Terminal != nil && f.Terminal.Enabled
+	out.BootstrapAvailable = f.Bootstrap != nil
+	return &out
 }
 
 func parseAgentID(ctx *gin.Context) (uuid.UUID, bool) {

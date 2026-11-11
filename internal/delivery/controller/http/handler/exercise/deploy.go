@@ -123,6 +123,9 @@ type (
 		Scheduling *labview.SchedulingResponse `json:"Scheduling"`
 		// Snapshot is null for a device without state persistence.
 		Snapshot *labview.SnapshotResponse `json:"Snapshot"`
+		// Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); null for a
+		// device without one.
+		Bootstrap *labview.BootstrapResponse `json:"Bootstrap"`
 	}
 
 	rescueDeviceRequest struct {
@@ -164,7 +167,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		out.VPNLastHandshake = &t
 	}
 	for _, d := range s.Devices {
-		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Limit: d.LimitNotice(), Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot)})
+		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Limit: d.LimitNotice(), Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot), Bootstrap: labview.Bootstrap(d.Bootstrap)})
 	}
 	for _, a := range s.Access {
 		out.Access = append(out.Access, deployAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})

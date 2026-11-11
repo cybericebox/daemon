@@ -443,6 +443,15 @@ func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel
 	return c.LabStatus(ctx, group, lab)
 }
 
+// RunLabChecks asks the agent that holds the group to run checks of a lab now.
+func (f *Fleet) RunLabChecks(ctx context.Context, group, lab string, ids []string) error {
+	c, err := f.route(ctx, group)
+	if err != nil {
+		return err
+	}
+	return c.RunLabChecks(ctx, group, lab, ids)
+}
+
 func (f *Fleet) ListGroupLabs(ctx context.Context, group string) ([]string, error) {
 	c, err := f.route(ctx, group)
 	if errors.Is(err, errNoPlacement) {
