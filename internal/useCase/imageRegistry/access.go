@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -156,7 +157,46 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		return DeployImages{Unavailable: unavailable}, imageRegistryModel.ErrImagesUnavailable.
 			WithPublicContext(imageRegistryModel.ContextImages, unavailable).Err()
 	}
+	u.fillImageServices(ctx, topo, &out)
 	return DeployImages{Topology: out, Credentials: creds}, nil
+}
+
+// fillImageServices gives every device whose image is a platform image the start configuration stored for it (what the
+// image runs and as whom), so the laboratory can be told what to start after a bootstrap. An image by reference to an
+// external registry has none: nothing reads its configuration, so such a device needs a command of its own when it has a
+// bootstrap list (the deploy then refuses with the device named). A failed read leaves the devices without one.
+func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, original exerciseModel.Topology, out *exerciseModel.Topology) {
+	if u.configs == nil {
+		return
+	}
+	digests := map[string]struct{}{}
+	for _, d := range original.Devices {
+		if ref, ok := imageRegistryModel.ParsePlatformRef(d.Image); ok {
+			digests[ref.Digest] = struct{}{}
+		}
+	}
+	if len(digests) == 0 {
+		return
+	}
+	list := make([]string, 0, len(digests))
+	for digest := range digests {
+		list = append(list, digest)
+	}
+	configs, err := u.configs.Get(ctx, list)
+	if err != nil {
+		log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
+		return
+	}
+	for i, d := range original.Devices {
+		ref, ok := imageRegistryModel.ParsePlatformRef(d.Image)
+		if !ok {
+			continue
+		}
+		if service, found := configs[ref.Digest]; found && !service.IsZero() {
+			service := service
+			out.Devices[i].ImageService = &service
+		}
+	}
 }
 
 // EventImagesAvailability checks the images of every active attachment of the

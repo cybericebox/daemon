@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/pkg/labaccess"
@@ -1471,8 +1473,9 @@ func TestCheckTestFlag_TextAnswerOptions(t *testing.T) {
 	}
 }
 
-// What the laboratory cannot apply yet is refused at start, before anything is reserved or created.
-func TestDeployVariantTest_RefusesWhatTheLabCannotApplyYet(t *testing.T) {
+// What needs a guest agent (the vm profile) is refused at start, before anything is reserved or created: the container and the
+// micro-VM apply bootstrap, command, terminal and state checks.
+func TestDeployVariantTest_RefusesWhatNeedsAGuestAgent(t *testing.T) {
 	for name, mutate := range map[string]func(*exerciseModel.Variant){
 		"bootstrap script": func(v *exerciseModel.Variant) { v.Topology.Devices[0].Bootstrap.Script = "true" },
 		"bootstrap files": func(v *exerciseModel.Variant) {
@@ -1507,10 +1510,11 @@ func TestDeployVariantTest_RefusesWhatTheLabCannotApplyYet(t *testing.T) {
 				Topology: exerciseModel.Topology{
 					Devices: []exerciseModel.Device{
 						{
-							ID:    deviceID,
-							Name:  "web",
-							Type:  exerciseModel.DeviceTypeContainer,
-							Image: "nginx",
+							ID:      deviceID,
+							Name:    "web",
+							Type:    exerciseModel.DeviceTypeNode,
+							Profile: exerciseModel.NodeProfileVM,
+							Image:   "nginx",
 						},
 					},
 				},
@@ -1532,5 +1536,95 @@ func TestDeployVariantTest_RefusesWhatTheLabCannotApplyYet(t *testing.T) {
 				t.Fatalf("got %v, want ErrRuntimeNotSupported", err)
 			}
 		})
+	}
+}
+
+type fileStore map[uuid.UUID]string
+
+func (f fileStore) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error) {
+	body, ok := f[id]
+	if !ok {
+		return nil, mediaModel.File{}, errors.New("no such file")
+	}
+	return io.NopCloser(strings.NewReader(body)), mediaModel.File{ID: id}, nil
+}
+
+// The runtime of the document reaches the laboratory: the bootstrap with the values of the deploy and the files read from
+// the store, the command, the terminal, and the conditions of a state task as checks that map back to the task.
+func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	r1, r2, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{
+		ID: variantID,
+		Tasks: []exerciseModel.Task{
+			{ID: uuid.Must(uuid.NewV7()), Key: "secret", Name: "Secret", Check: exerciseModel.FlagCheck("ICE{fixed}")},
+			{ID: uuid.Must(uuid.NewV7()), Key: "ospf", Name: "OSPF", Requires: []string{"secret"}, Check: exerciseModel.Check{State: &exerciseModel.StateCheck{
+				Interval: "30s", Manual: true, Mode: exerciseModel.StateModeContinuous,
+				Conditions: []exerciseModel.Condition{
+					{DeviceID: r1, File: &exerciseModel.FileObservation{Path: "/etc/users", Contains: "admin:{{var.pw}}"}},
+					{DeviceID: r2, Custom: &exerciseModel.CustomObservation{Run: "true", OutputContains: "{{task.secret}}"}},
+				},
+			}}},
+		},
+		Topology: exerciseModel.Topology{
+			Variables: []exerciseModel.Variable{{Name: "pw", Template: "[a-z]{12}"}},
+			Devices: []exerciseModel.Device{
+				{
+					ID: r1, Name: "r1", Type: exerciseModel.DeviceTypeNode, Image: "frr",
+					Command:  []string{"/usr/lib/frr/start"},
+					Terminal: exerciseModel.Terminal{Enabled: true, User: "root"},
+					Bootstrap: exerciseModel.Bootstrap{
+						Script: "echo admin:{{var.pw}} > /etc/users",
+						Files: []exerciseModel.BootstrapFile{
+							{Path: "/root/flag.txt", Content: "{{task.secret}}", Mode: "0400"},
+							{Path: "/etc/frr.conf", Source: &exerciseModel.AttachmentRef{FileID: fileID, Name: "frr.conf"}},
+						},
+					},
+				},
+				{ID: r2, Name: "r2", Type: exerciseModel.DeviceTypeNode, Image: "frr"},
+			},
+		},
+	}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, CreatedBy: p.CreatedBy}, nil
+	})
+	infra := &fakeInfra{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	uc.SetFileReader(fileStore{fileID: "router ospf\n"})
+
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	web := infra.deployedTopo.Devices[0]
+	if web.Bootstrap.Files[0].Content != "ICE{fixed}" || web.Bootstrap.Files[1].Content != "router ospf\n" || web.Bootstrap.Files[1].Source != nil {
+		t.Fatalf("files not resolved: %+v", web.Bootstrap.Files)
+	}
+	pw := strings.TrimSuffix(strings.TrimPrefix(web.Bootstrap.Script, "echo admin:"), " > /etc/users")
+	if len(pw) != 12 || strings.Contains(pw, "{") || !web.Terminal.Enabled || web.Command[0] != "/usr/lib/frr/start" {
+		t.Fatalf("script or runtime keys wrong: %+v", web)
+	}
+	checks := infra.meta.Checks
+	if len(checks) != 2 || checks[0].ID != "ospf:1" || checks[1].ID != "ospf:2" || checks[0].Device != "r1" || checks[1].Device != "r2" {
+		t.Fatalf("checks = %+v", checks)
+	}
+	if checks[0].Parts[0].File.Contains != "admin:"+pw || checks[1].Parts[0].Custom.OutputContains != "ICE{fixed}" {
+		t.Fatalf("the expectations must hold this deploy's values: %+v", checks)
+	}
+	for _, c := range checks {
+		if key, ok := exerciseModel.TaskKeyOfCheck(c.ID); !ok || key != "ospf" || !c.Manual || c.Mode != exerciseModel.StateModeContinuous {
+			t.Fatalf("check %+v does not map back to its task", c)
+		}
+	}
+
+	// A file that cannot be read refuses the deploy, naming the device.
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	broken := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	broken.SetFileReader(fileStore{})
+	if _, err := broken.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); !errors.Is(err, exerciseModel.ErrDeviceRuntimeInvalid.Err()) || !strings.Contains(err.Error(), "r1") {
+		t.Fatalf("an unreadable bootstrap file: %v", err)
 	}
 }

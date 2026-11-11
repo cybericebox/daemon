@@ -71,6 +71,8 @@ type ExerciseUseCase struct {
 	clock func() time.Time
 	// images checks a lab's images and gives its pull credentials; nil: no checks (narrow constructions).
 	images IImageAccess
+	// files reads the stored files a bootstrap names (SetFileReader); nil: such a file cannot be read.
+	files IFileReader
 	// The background import of archives with image files (SetArchiveImport); nil: such archives are refused.
 	archiveImages  IArchiveImages
 	archiveSources IArchiveSources

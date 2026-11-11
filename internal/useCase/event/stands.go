@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -850,7 +851,7 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 		return false, "", nil
 	}
 	u.imageWaits.done(waitKey)
-	topology, err = u.withTeamBootstraps(ctx, lab, pulled.Topology)
+	topology, checks, err := u.withTeamBootstraps(ctx, lab, pulled.Topology)
 	if err != nil {
 		if _, markErr := u.failStandLab(
 			ctx,
@@ -893,6 +894,7 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 	}
 	meta := standLabMeta(e, lab, fair)
 	meta.PullCredentials = pulled.Credentials
+	meta.Checks = checks
 	var canonical eventLabModel.Lab
 	if u.allocationAccounting || u.lifecycleControls {
 		canonical, err = u.labs.Get(ctx, lab.Binding.LabID.UUID)
@@ -1108,31 +1110,32 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab, fair bool) 
 
 // withTeamBootstraps resolves, for the team's lab, the bootstrap of every device of the variant: each task's value
 // is the team's stored expected answer, read from the team challenge that was pinned at materialization (never
-// re-rolled, so a recreated Lab holds the same value as before), and each variable of the infrastructure is drawn
-// for this Lab. The resolved bootstrap.env reaches the laboratory through the environment mechanism. A variant that
-// asks for what the laboratory cannot apply yet (files, script, command, terminal, a state check) is refused, so the
+// re-rolled, so a recreated Lab holds the same value as before), and each variable of the infrastructure is the value
+// pinned once for this team's stand (drawn the first time, stored, and the same for every rebuilt or reset lab). The
+// resolved bootstrap travels to the laboratory with the files of the archive read in and the checks of the state tasks.
+// A variant that asks for what the laboratory cannot apply (a vm profile device with a bootstrap list) is refused, so the
 // stand fails with a reason instead of starting half-working.
 func (u *EventUseCase) withTeamBootstraps(
 	ctx context.Context,
 	lab labBindingRepo.PendingLab,
 	topology exerciseModel.Topology,
-) (exerciseModel.Topology, error) {
+) (exerciseModel.Topology, []exerciseModel.LabCheck, error) {
 	resolver, ok := u.topologies.(DeployedVariantResolver)
 	if !ok {
-		return topology, nil
+		return topology, nil, nil
 	}
 	variant, err := resolver.ResolveDeployedVariant(ctx, lab.ExerciseVersionID, lab.VariantIndex)
 	if err != nil {
-		return topology, err
+		return topology, nil, err
 	}
 	if err = variant.RequireLabSupported(); err != nil {
-		return topology, err
+		return topology, nil, err
 	}
 	pinned := exerciseModel.PinnedValues{Tasks: map[string]string{}}
 	if len(variant.AnswerTasks()) > 0 {
 		teamChallenges, listErr := u.teamChallenges.List(ctx, lab.Binding.EventTeamID)
 		if listErr != nil {
-			return topology, listErr
+			return topology, nil, listErr
 		}
 		keyByTask := variant.TaskKeyByID()
 		for _, tc := range teamChallenges {
@@ -1142,7 +1145,7 @@ func (u *EventUseCase) withTeamBootstraps(
 				tc.EventChallengeID,
 			)
 			if getErr != nil {
-				return topology, getErr
+				return topology, nil, getErr
 			}
 			if key, known := keyByTask[challenge.TaskID]; known && tc.ExpectedFlag != "" {
 				pinned.Tasks[key] = tc.ExpectedFlag
@@ -1159,14 +1162,82 @@ func (u *EventUseCase) withTeamBootstraps(
 		}
 	}
 	variant = variant.WithoutEnvOfTasks(unpinned)
-	if pinned.Vars, err = variant.PinVariables(nil); err != nil {
-		return topology, err
+	if pinned.Vars, err = u.pinStandVariables(ctx, lab, variant); err != nil {
+		return topology, nil, err
 	}
 	resolved, err := variant.ResolveInstance(pinned)
 	if err != nil {
-		return topology, err
+		return topology, nil, err
 	}
-	return variant.Topology.WithBootstraps(resolved.Bootstraps)
+	resolvedTopology, err := variant.Topology.WithBootstraps(resolved.Bootstraps)
+	if err != nil {
+		return topology, nil, err
+	}
+	if resolvedTopology, err = resolvedTopology.WithBootstrapFiles(u.readBootstrapFile(ctx)); err != nil {
+		return topology, nil, err
+	}
+	checks, err := variant.BuildLabChecks(resolvedTopology, resolved.Conditions)
+	if err != nil {
+		return topology, nil, err
+	}
+	return resolvedTopology, checks, nil
+}
+
+// pinStandVariables gives the variables of the infrastructure their values for this team's stand: the stored ones, and for a
+// variable without one a value drawn now and stored. Without a store every build draws its own.
+func (u *EventUseCase) pinStandVariables(ctx context.Context, lab labBindingRepo.PendingLab, variant exerciseModel.Variant) (map[string]string, error) {
+	if u.standVariables == nil {
+		values, _, err := variant.PinnedVariables(nil, nil)
+		return values, err
+	}
+	stored, err := u.standVariables.Stand(ctx, lab.Binding.EventTeamID, lab.EventExerciseID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to read the pinned variables of the stand").Err()
+	}
+	values, fresh, err := variant.PinnedVariables(stored, nil)
+	if err != nil || len(fresh) == 0 {
+		return values, err
+	}
+	drawn := make(map[string]string, len(fresh))
+	for _, name := range fresh {
+		drawn[name] = values[name]
+	}
+	final, err := u.standVariables.PinStand(ctx, lab.Binding.EventTeamID, lab.EventExerciseID, drawn, time.Now())
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to pin the variables of the stand").Err()
+	}
+	// A concurrent build may have stored a value first: the stored one wins.
+	for _, name := range fresh {
+		if value, ok := final[name]; ok {
+			values[name] = value
+		}
+	}
+	return values, nil
+}
+
+// maxBootstrapFileBytes bounds a bootstrap file read from the archive (the laboratory takes 256 KiB a file).
+const maxBootstrapFileBytes = 256 << 10
+
+// readBootstrapFile reads the bytes of a bootstrap file that names a file of the archive.
+func (u *EventUseCase) readBootstrapFile(ctx context.Context) func(exerciseModel.AttachmentRef) ([]byte, error) {
+	return func(ref exerciseModel.AttachmentRef) ([]byte, error) {
+		if u.brandMedia == nil {
+			return nil, errors.New("file storage is not configured")
+		}
+		rc, _, err := u.brandMedia.StreamFile(ctx, ref.FileID)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rc.Close() }()
+		body, err := io.ReadAll(io.LimitReader(rc, maxBootstrapFileBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(body) > maxBootstrapFileBytes {
+			return nil, errors.New("the file is over 256 KiB")
+		}
+		return body, nil
+	}
 }
 
 // assessStands persists every candidate's stand status and reports whether

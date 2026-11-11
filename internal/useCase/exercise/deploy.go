@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
@@ -150,6 +152,40 @@ func (u *ExerciseUseCase) deployLab(ctx context.Context, group, lab string, meta
 		return exerciseModel.ErrTestDeployGroupBusy.Err()
 	}
 	return err
+}
+
+// IFileReader reads the bytes of a stored file (satisfied by *media.MediaUseCase): the files of a bootstrap that name a file of
+// the archive are read in when a lab is built. Nil (narrow constructions): such a file cannot be read and the deploy is refused.
+type IFileReader interface {
+	StreamFile(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error)
+}
+
+// SetFileReader wires the file store a bootstrap reads its archive files from.
+func (u *ExerciseUseCase) SetFileReader(r IFileReader) { u.files = r }
+
+// maxBootstrapFileBytes is the most a bootstrap file may hold (the laboratory takes 256 KiB a file).
+const maxBootstrapFileBytes = 256 << 10
+
+// readBootstrapFile reads the bytes of a bootstrap file that names a file of the archive.
+func (u *ExerciseUseCase) readBootstrapFile(ctx context.Context) func(exerciseModel.AttachmentRef) ([]byte, error) {
+	return func(ref exerciseModel.AttachmentRef) ([]byte, error) {
+		if u.files == nil {
+			return nil, errors.New("file storage is not configured")
+		}
+		rc, _, err := u.files.StreamFile(ctx, ref.FileID)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rc.Close() }()
+		body, err := io.ReadAll(io.LimitReader(rc, maxBootstrapFileBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(body) > maxBootstrapFileBytes {
+			return nil, errors.New("the file is over 256 KiB")
+		}
+		return body, nil
+	}
 }
 
 // labPresence is the optional port that tells whether a group or a Lab still exists on its agent. The agent
@@ -304,8 +340,17 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if topo, err = topo.WithBootstraps(resolved.Bootstraps); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
+	// A bootstrap file that names a file of the archive is read in: the laboratory gets its bytes.
+	if topo, err = topo.WithBootstrapFiles(u.readBootstrapFile(ctx)); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
 	// Every image must be pullable before anything is created; the agent gets exactly the credentials they need.
 	topo, pullCredentials, err := u.prepareLabImages(ctx, eventID, exerciseID, topo)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	// The conditions of the state tasks become the checks of the lab, with this deploy's values in their expectations.
+	checks, err := variant.BuildLabChecks(topo, resolved.Conditions)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
@@ -343,7 +388,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
 		first := len(existing) == 0
-		if err = u.provisionTestLab(ctx, deploy, topo, pullCredentials, active, first); err != nil {
+		if err = u.provisionTestLab(ctx, deploy, topo, pullCredentials, checks, active, first); err != nil {
 			// The group or the lab may be half created. A canceled request must not prevent the cleanup;
 			// if it fails, the lease is kept so the periodic expiry pass can retry it.
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
@@ -572,7 +617,7 @@ func withoutDeploy(items []exerciseModel.TestDeploy, id uuid.UUID) []exerciseMod
 // the VPN and, in per-user mode, for the proxy, and it is replaced as a whole, so it lists every
 // Lab of the author. The group's client and its config are made once, with the first Lab; later
 // Labs reuse them.
-func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseModel.TestDeploy, topo exerciseModel.Topology, pullCredentials []infraModel.RegistryCredential, existing []exerciseModel.TestDeploy, first bool) error {
+func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseModel.TestDeploy, topo exerciseModel.Topology, pullCredentials []infraModel.RegistryCredential, checks []exerciseModel.LabCheck, existing []exerciseModel.TestDeploy, first bool) error {
 	client := testClientName(deploy.CreatedBy)
 	// The author's group has one user (the author's client); its gateway is for the labs that use the internet.
 	plan := infraModel.GroupPlan{MaxUsers: 1}
@@ -589,6 +634,7 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 	}
 	meta := testLabMeta(deploy)
 	meta.PullCredentials = pullCredentials
+	meta.Checks = checks
 	if err := u.deployLab(ctx, deploy.GroupName, deploy.LabName, meta, topo); err != nil {
 		return err
 	}

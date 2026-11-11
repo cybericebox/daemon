@@ -260,6 +260,8 @@ type EventUseCase struct {
 	// autoRecreate counts the automatic recreations of failed Labs (nil: off).
 	autoRecreate AutoRecreateStore
 	waitDetails  WaitDetailStore
+	// standVariables pins the variables of a team's stand (nil: drawn on every build).
+	standVariables StandVariableStore
 	// revealDecline keeps the teams declined from a cohort (nil: off).
 	revealDecline RevealDeclineStore
 	elevations    ApprovalStore
@@ -280,6 +282,13 @@ type WaitDetailStore interface {
 	Clear(ctx context.Context, bindingID uuid.UUID) error
 }
 
+// StandVariableStore keeps the variables of the infrastructure drawn once for a team's stand of an event exercise, so a lab
+// that is rebuilt or reset gets the same values. Nil: they are drawn on every build.
+type StandVariableStore interface {
+	Stand(ctx context.Context, teamID, eventExerciseID uuid.UUID) (map[string]string, error)
+	PinStand(ctx context.Context, teamID, eventExerciseID uuid.UUID, drawn map[string]string, now time.Time) (map[string]string, error)
+}
+
 // RevealDeclineStore keeps the teams declined from a task's cohort for lack of room. Nil: nobody is declined.
 type RevealDeclineStore interface {
 	Decline(ctx context.Context, eventID, setID, teamID uuid.UUID, reason string, now time.Time) error
@@ -288,6 +297,8 @@ type RevealDeclineStore interface {
 type Dependencies struct {
 	// WaitDetails keeps the need and the room of a waiting Lab; nil keeps nothing.
 	WaitDetails WaitDetailStore
+	// StandVariables pins the variables of the infrastructure per team and event exercise; nil draws them on every build.
+	StandVariables StandVariableStore
 	// RevealDecline keeps the teams declined from a cohort; nil switches the decline off (the cohort is all or nothing).
 	RevealDecline RevealDeclineStore
 	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
@@ -418,6 +429,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		labBindings:              labBindingRepo.New(deps.Repo),
 		autoRecreate:             deps.AutoRecreate,
 		waitDetails:              deps.WaitDetails,
+		standVariables:           deps.StandVariables,
 		revealDecline:            deps.RevealDecline,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),

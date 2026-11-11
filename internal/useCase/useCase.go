@@ -22,7 +22,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/instanceValueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/jobQueueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
@@ -310,6 +312,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		eventUseCase.Dependencies{
 			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
 			WaitDetails:              waitDetailRepo.New(deps.Repo.Pool()),
+			StandVariables:           instanceValueRepo.New(deps.Repo.Pool()),
 			RevealDecline:            revealDeclineRepo.New(deps.Repo),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
@@ -397,9 +400,12 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
 		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
+		Configs: imageRegistryRepo.NewImageConfigs(deps.Repo.Pool()),
 	})
 	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
 	exerciseUC.SetImageAccess(imageRegistryUC)
+	// A bootstrap file of the archive is read from the file store when a lab is built.
+	exerciseUC.SetFileReader(mediaUC)
 	// Task archives naming device image files import in the background: images pushed through the registry use
 	// case, the archive read where it lies, the password sealed with the platform cipher.
 	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{

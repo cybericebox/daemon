@@ -1,6 +1,7 @@
 package exerciseModel
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,6 +31,25 @@ type ImageService struct {
 	Cmd        []string `json:"cmd,omitempty"`
 	User       string   `json:"user,omitempty"`
 	WorkingDir string   `json:"working_dir,omitempty"`
+}
+
+// ParseImageService reads the start configuration out of an OCI/Docker image config blob (the "config" object: Entrypoint,
+// Cmd, User, WorkingDir). A config without them gives the zero value; a body that is not JSON is an error.
+func ParseImageService(body []byte) (ImageService, error) {
+	var cfg struct {
+		Config struct {
+			Entrypoint []string `json:"Entrypoint"`
+			Cmd        []string `json:"Cmd"`
+			User       string   `json:"User"`
+			WorkingDir string   `json:"WorkingDir"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		return ImageService{}, err
+	}
+	return ImageService{
+		Entrypoint: cfg.Config.Entrypoint, Cmd: cfg.Config.Cmd, User: cfg.Config.User, WorkingDir: cfg.Config.WorkingDir,
+	}, nil
 }
 
 // IsZero reports an image configuration that says nothing.
