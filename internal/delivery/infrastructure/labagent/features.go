@@ -106,6 +106,7 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Checks:                 checksFeatureOf(r.GetChecks()),
 		Terminal:               terminalFeatureOf(r.GetTerminal()),
 		Bootstrap:              bootstrapFeatureOf(r.GetBootstrap()),
+		VPN:                    vpnFeatureOf(r.GetVpn()),
 	}
 }
 
@@ -118,6 +119,13 @@ func checksFeatureOf(c *labpb.ChecksFeature) *infraModel.ChecksFeature {
 		Enabled: c.GetEnabled(), MaxChecksPerLab: c.GetMaxChecksPerLab(), MaxPartsPerCheck: c.GetMaxPartsPerCheck(),
 		MaxTimeLimitSeconds: c.GetMaxTimeLimitSeconds(), MaxScheduleSeconds: c.GetMaxScheduleSeconds(), MaxDetailBytes: c.GetMaxDetailBytes(),
 	}
+}
+
+func vpnFeatureOf(v *labpb.VPNFeature) *infraModel.VPNFeature {
+	if v == nil {
+		return nil
+	}
+	return &infraModel.VPNFeature{ReverseConnections: v.GetReverseConnections()}
 }
 
 func terminalFeatureOf(t *labpb.TerminalFeature) *infraModel.TerminalFeature {

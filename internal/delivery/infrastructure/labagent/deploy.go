@@ -55,7 +55,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	if err := c.awaitGroupNamespace(ctx, group); err != nil {
 		return err
 	}
-	build, err := BuildLab(topo, meta.Checks)
+	build, err := BuildLabFor(topo, meta.Checks, meta.AgentEnforcesVPNReverse)
 	if err != nil {
 		return fmt.Errorf("build lab spec: %w", err)
 	}
@@ -94,7 +94,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		Items: []*labpb.LabItem{{
 			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: build.Env,
 			Bootstrap: build.Bootstrap, Checks: build.Checks,
-			Labels: meta.Labels, DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
+			Labels: withVPNReverseLabel(meta.Labels, topo), DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
 		}},
 	})
 	if err != nil {
@@ -104,6 +104,34 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		return err
 	}
 	return nil
+}
+
+// vpnReverseOf reads from the lab's labels what its exercise asked: "allowed" or "blocked" (empty for a lab without a VPN).
+// Whether the block is really enforced is the fleet's to add (see Fleet.LabStatus).
+func vpnReverseOf(labels map[string]string) string {
+	switch labels[infraModel.LabelVPNReverse] {
+	case "1":
+		return exerciseModel.VPNReverseAllowed
+	case "0":
+		return exerciseModel.VPNReverseBlocked
+	}
+	return ""
+}
+
+// withVPNReverseLabel adds to the lab's labels what its exercise asks of connections to the VPN clients (only for a lab with a VPN).
+func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology) map[string]string {
+	if !topo.VPN.Enabled {
+		return labels
+	}
+	out := make(map[string]string, len(labels)+1)
+	for k, v := range labels {
+		out[k] = v
+	}
+	out[infraModel.LabelVPNReverse] = "0"
+	if topo.VPN.ReverseConnections {
+		out[infraModel.LabelVPNReverse] = "1"
+	}
+	return out
 }
 
 // RunLabChecks asks the laboratory to run the given checks of a lab now (all that allow a manual run when ids is empty).
@@ -357,6 +385,7 @@ func (c *Client) LabStatus(ctx context.Context, group, lab string) (exerciseMode
 		return exerciseModel.LabDeployStatus{}, fmt.Errorf("get lab %q of group %q: %w", lab, group, errNotFound)
 	}
 	status := mapLabStatus(list.GetItems()[0])
+	status.VPNReverse = vpnReverseOf(list.GetItems()[0].GetLabels())
 	status.GroupImageWarning = g.GetStatus().GetImageWarning()
 	return status, nil
 }

@@ -100,6 +100,9 @@ type (
 		VPNConfig    string                 `json:"VPNConfig,omitempty"`
 		Devices      []deployDeviceResponse `json:"Devices,omitempty"`
 		Access       []deployAccessResponse `json:"Access,omitempty"`
+		// VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the
+		// exercise forbids them but the agent of the node cannot enforce the block: show a warning, never "blocked").
+		VPNReverse string `json:"VPNReverse,omitempty"`
 		// ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).
 		ReverseConnections bool `json:"ReverseConnections"`
 		// VPNConnected: the author's VPN client shook hands within the last three minutes.
@@ -204,6 +207,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		out.StateTasks = append(out.StateTasks, item)
 	}
 	out.ReverseConnections = s.ReverseConnections
+	out.VPNReverse = s.VPNReverse
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
 	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt

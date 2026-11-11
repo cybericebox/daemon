@@ -127,6 +127,10 @@ type LabDeployStatus struct {
 	// ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
 	// effective only with the VPN on); filled by the use case for a test deploy.
 	ReverseConnections bool
+	// VPNReverse is what is in force for connections the lab starts to the VPN clients: "blocked", "allowed", or
+	// "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).
+	// Empty for a lab without a VPN or whose state is not known.
+	VPNReverse string
 	// SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
 	// StateTasks); filled by the use case.
 	SolvedTasks []uuid.UUID
@@ -186,6 +190,13 @@ type CheckDetail struct {
 	Value         string
 	Detail        string
 }
+
+// States of LabDeployStatus.VPNReverse.
+const (
+	VPNReverseBlocked     = "blocked"
+	VPNReverseAllowed     = "allowed"
+	VPNReverseNotEnforced = "not_enforced"
+)
 
 // Bootstrap phases of a device (the laboratory's contract 1.5): pending until it is done, failed when its attempts are used up.
 const (

@@ -34475,6 +34475,10 @@ const docTemplate = `{
                 },
                 "VPNCIDR": {
                     "type": "string"
+                },
+                "VPNReverse": {
+                    "description": "VPNReverse: blocked, allowed or not_enforced (see the infrastructure test lab status); absent when unknown.",
+                    "type": "string"
                 }
             }
         },
@@ -40366,6 +40370,10 @@ const docTemplate = `{
                 "VPNProbeURL": {
                     "description": "VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.",
                     "type": "string"
+                },
+                "VPNReverse": {
+                    "description": "VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the\nexercise forbids them but the agent of the node cannot enforce the block: show a warning, never \"blocked\").",
+                    "type": "string"
                 }
             }
         },
@@ -42808,6 +42816,10 @@ const docTemplate = `{
                 "vpnprobeURL": {
                     "description": "VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.",
                     "type": "string"
+                },
+                "vpnreverse": {
+                    "description": "VPNReverse is what is in force for connections the lab starts to the VPN clients: \"blocked\", \"allowed\", or\n\"not_enforced\" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).\nEmpty for a lab without a VPN or whose state is not known.",
+                    "type": "string"
                 }
             }
         },
@@ -44669,6 +44681,10 @@ const docTemplate = `{
                 },
                 "Ready": {
                     "type": "boolean"
+                },
+                "VPNReverse": {
+                    "description": "VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids\nthem but the agent of the node cannot enforce the block: show a warning, never \"blocked\"). Absent when unknown.",
+                    "type": "string"
                 }
             }
         },

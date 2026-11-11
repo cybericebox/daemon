@@ -111,6 +111,9 @@ type (
 		ImageWarning      string           `json:"ImageWarning"`
 		GroupImageWarning string           `json:"GroupImageWarning"`
 		Devices           []DeviceResponse `json:"Devices"`
+		// VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids
+		// them but the agent of the node cannot enforce the block: show a warning, never "blocked"). Absent when unknown.
+		VPNReverse string `json:"VPNReverse,omitempty"`
 	}
 )
 
@@ -173,7 +176,7 @@ func Device(d exerciseModel.LabDeployedDevice) DeviceResponse {
 func Status(s exerciseModel.LabDeployStatus) StatusResponse {
 	out := StatusResponse{
 		Phase: s.Phase, Ready: s.Ready, Queue: Queue(s.Queue), ImageWarning: s.ImageWarning,
-		GroupImageWarning: s.GroupImageWarning, Devices: make([]DeviceResponse, 0, len(s.Devices)),
+		GroupImageWarning: s.GroupImageWarning, Devices: make([]DeviceResponse, 0, len(s.Devices)), VPNReverse: s.VPNReverse,
 	}
 	for _, d := range s.Devices {
 		out.Devices = append(out.Devices, Device(d))

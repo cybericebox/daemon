@@ -33,6 +33,9 @@ type (
 	labNetwork struct {
 		Enabled    bool     `json:"enabled,omitempty"`
 		DHCPServer *labDHCP `json:"dhcpServer,omitempty"`
+		// ReverseConnections (the VPN only; sent only to an agent that enforces the block) lets the lab start connections
+		// to the VPN clients. Absent = blocked.
+		ReverseConnections bool `json:"reverseConnections,omitempty"`
 	}
 
 	labDHCP struct {
@@ -179,10 +182,19 @@ func BuildLabSpec(t exerciseModel.Topology) (specJSON []byte, env []*labpb.Devic
 // Devices are keyed by their domain UUID for connection-endpoint resolution; the operator addresses them by name. An
 // error names the device whose service command cannot be told to the laboratory.
 func BuildLab(t exerciseModel.Topology, checks []exerciseModel.LabCheck) (LabBuild, error) {
+	return BuildLabFor(t, checks, false)
+}
+
+// BuildLabFor is BuildLab for an agent that does (enforcesVPNReverse) or does not report that it enforces the block of
+// connections the lab starts to VPN clients. The key that allows them is sent only to an agent that does, and only when the
+// exercise asks for it and the VPN is on: an older agent rejects the key and allows everything anyway, and a capable agent
+// blocks by default.
+func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enforcesVPNReverse bool) (LabBuild, error) {
 	spec := labSpec{
 		VPN:      buildNetwork(t.VPN),
 		Internet: buildNetwork(t.Internet),
 	}
+	spec.VPN.ReverseConnections = enforcesVPNReverse && t.VPN.Enabled && t.VPN.ReverseConnections
 	var build LabBuild
 
 	nameByID := make(map[string]string, len(t.Devices))

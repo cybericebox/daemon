@@ -76,6 +76,16 @@ refused (error 23518, `field` `topology.vpn.reverse_connections`, on import also
 means false. The test deploy status carries the effective value as `ReverseConnections` (true only with the VPN on and the key set), so the
 test screen can say reverse connections are forbidden or allowed. Archive key: `topology.vpn.reverse_connections`.
 
+**What is sent to the laboratory.** The laboratory blocks connections its devices start to VPN clients by default. The key
+`spec.vpn.reverseConnections: true` goes into the lab spec only when the exercise sets `reverse_connections`, the VPN is on and the
+agent reported `FeaturesResponse.vpn.reverse_connections` (an older agent rejects the key and allows everything anyway, so it never
+gets it). Every lab with a VPN also carries the label `cybericebox.com/vpn-reverse` (`1` allowed, `0` forbidden by its exercise).
+
+**What is in force: `VPNReverse`** in the test deploy status, the stand status of organizers (`GET /events/{id}/manage/labs...`) and the
+infrastructure test lab view: `blocked`, `allowed`, or `not_enforced` (the exercise forbids the connections but the agent of that node
+cannot enforce the block, so they are possible: show a warning, never "blocked"). The lab still starts, nothing is refused. Absent
+for a lab without a VPN. `ReverseConnections` stays what the exercise asks for.
+
 `Variables`: `[{Name, Value | Template}]`, up to 64, `Name` as a task key; exactly one of `Value` (up to 1024 bytes)
 and `Template`. Substitutions `{{task.<Key>}}` and `{{var.<Name>}}` work in `Bootstrap.Env[].Value`,
 `Bootstrap.Files[].Content`, `Bootstrap.Script` and in the expectations of conditions; `\{{` is a literal `{{`. An

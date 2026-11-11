@@ -392,6 +392,9 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if meta.PartID, err = f.partOn(ctx, m, meta.Reservation); err != nil {
 		return err
 	}
+	if feat := m.Features.Get(); feat != nil {
+		meta.AgentEnforcesVPNReverse = feat.EnforcesVPNReverse()
+	}
 	err = m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
 	if errors.Is(err, infraModel.ErrDevicePersistenceUnavailable.Err()) {
 		// The agent itself refused: what it offers changed since the cached report; the next try sees the truth.
@@ -436,11 +439,16 @@ func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 }
 
 func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
-	c, err := f.route(ctx, group)
+	m, err := f.memberOf(ctx, group)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, err
 	}
-	return c.LabStatus(ctx, group, lab)
+	status, err := m.Client.LabStatus(ctx, group, lab)
+	// The exercise forbids the connections but the agent cannot enforce the block: they are possible, so say so.
+	if feat := m.Features.Get(); err == nil && status.VPNReverse == exerciseModel.VPNReverseBlocked && (feat == nil || !feat.EnforcesVPNReverse()) {
+		status.VPNReverse = exerciseModel.VPNReverseNotEnforced
+	}
+	return status, err
 }
 
 // RunLabChecks asks the agent that holds the group to run checks of a lab now.

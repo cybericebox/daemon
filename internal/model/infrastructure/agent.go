@@ -110,6 +110,9 @@ type AgentFeatures struct {
 	Checks    *ChecksFeature    `json:"checks,omitempty"`
 	Terminal  *TerminalFeature  `json:"terminal,omitempty"`
 	Bootstrap *BootstrapFeature `json:"bootstrap,omitempty"`
+	// VPN is the VPN gateway option of the agent (nil: an older agent, which neither enforces the block of lab-initiated
+	// connections nor accepts the key that allows them).
+	VPN *VPNFeature `json:"vpn,omitempty"`
 	// PersistenceUnavailable and LifecycleUnavailable say why a feature the cluster is configured for is held back
 	// (nil: nothing is). Only a fixed code and a count of nodes: never node names, paths or text of the agent.
 	PersistenceUnavailable *UnavailableReason `json:"persistence_unavailable,omitempty"`
@@ -139,6 +142,14 @@ type (
 		MaxAttempts         int32 `json:"max_attempts"`
 	}
 )
+
+// VPNFeature says the agent enforces the block of connections the lab starts to VPN clients and accepts spec.vpn.reverseConnections.
+type VPNFeature struct {
+	ReverseConnections bool `json:"reverse_connections"`
+}
+
+// EnforcesVPNReverse says the agent has reported that it enforces the block (and so accepts the key).
+func (f AgentFeatures) EnforcesVPNReverse() bool { return f.VPN != nil && f.VPN.ReverseConnections }
 
 // RequireLabOptions refuses a lab that needs an option or a size this laboratory does not offer, instead of starting a lab
 // that would not work: a task with checks needs the checks option, a device with a terminal the terminal option, a bootstrap
@@ -372,7 +383,14 @@ type LabMeta struct {
 	// PartID and GroupPartID are the resolved part ids the fleet sends; callers leave them empty.
 	PartID      string
 	GroupPartID string
+	// AgentEnforcesVPNReverse is set by the fleet from the agent's features: only then may the key of the VPN gateway option
+	// be sent (an older agent rejects it). Callers leave it empty.
+	AgentEnforcesVPNReverse bool
 }
+
+// LabelVPNReverse is put on a lab that has a VPN: "1" when its exercise allows lab-initiated connections to the VPN clients,
+// "0" when it does not. It lets the status say what is really in force whatever the agent can enforce.
+const LabelVPNReverse = "cybericebox.com/vpn-reverse"
 
 // ImagePrewarm is the state of one image in the platform image cache.
 type ImagePrewarm struct {
