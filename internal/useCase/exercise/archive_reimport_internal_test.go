@@ -11,7 +11,7 @@ import (
 
 func TestReimportSourceIDIsSeparateFromTheNewIdentity(t *testing.T) {
 	source := uuid.Must(uuid.NewV7())
-	data, err := BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"id":"` + source.String() + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)})
+	data, err := BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"id":"` + source.String() + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)})
 	require.NoError(t, err)
 	parsed, err := ParseExerciseArchive(data, "", DefaultLimits())
 	require.NoError(t, err)
@@ -22,7 +22,7 @@ func TestReimportSourceIDIsSeparateFromTheNewIdentity(t *testing.T) {
 
 func TestReimportItemsKeepStableFolderKeysEvenWithRepeatedSourceIDs(t *testing.T) {
 	source := uuid.Must(uuid.NewV7())
-	doc := []byte(`{"schema":"cib-exercise/1","exercise":{"id":"` + source.String() + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)
+	doc := []byte(`{"schema":"cib-exercise/1.0","exercise":{"id":"` + source.String() + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)
 	data, err := BuildArchiveV1(map[string][]byte{"z/exercise.json": doc, "a/nested/exercise.json": doc})
 	require.NoError(t, err)
 	entries, protected, err := openZipAt(bytes.NewReader(data), int64(len(data)), "", DefaultLimits())
@@ -41,7 +41,7 @@ func TestReimportItemsKeepStableFolderKeysEvenWithRepeatedSourceIDs(t *testing.T
 func TestReimportSourceIDMissingOrMalformedKeepsLegacyNewImportCompatibility(t *testing.T) {
 	for _, source := range []string{"", "foreign-non-uuid-id"} {
 		t.Run(source, func(t *testing.T) {
-			data, err := BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"id":"` + source + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)})
+			data, err := BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"id":"` + source + `","name":"Portable"},"versions":[{"status":"draft","variants":[]}]}`)})
 			require.NoError(t, err)
 			parsed, err := ParseExerciseArchive(data, "", DefaultLimits())
 			require.NoError(t, err)
@@ -73,8 +73,8 @@ func TestReimportWorkingVersionChoosesDraftThenPublishedThenFirstHistory(t *test
 
 func TestReimportParsesEveryItemBeforeReturningAny(t *testing.T) {
 	data, err := BuildArchiveV1(map[string][]byte{
-		"a/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Valid"},"versions":[{"status":"draft","variants":[]}]}`),
-		"z/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Invalid"},"versions":[{"variants":[]}]}`),
+		"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Valid"},"versions":[{"status":"draft","variants":[]}]}`),
+		"z/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Invalid"},"versions":[{"variants":[]}]}`),
 	})
 	require.NoError(t, err)
 	entries, protected, err := openZipAt(bytes.NewReader(data), int64(len(data)), "", DefaultLimits())

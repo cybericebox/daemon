@@ -135,7 +135,7 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 		}).AnyTimes()
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			written = append(written, arg.Variants)
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		}).AnyTimes()
@@ -145,6 +145,22 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 		Archive: archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})
 	return media, written, err
+}
+
+// importExamplePublishable is importExample plus the publish validation of the imported version. An import always
+// lands as a draft and a draft may be incomplete, so the keys the example calls required are the ones whose absence
+// the import or the later publication refuses.
+func importExamplePublishable(t *testing.T, files map[string][]byte) error {
+	t.Helper()
+	if _, _, err := importExample(t, files); err != nil {
+		return err
+	}
+	archive, err := exercise.BuildArchiveNoManifest(files)
+	require.NoError(t, err)
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectUserNames(q)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	return uc.ImportedVersionPublishable(context.Background(), archive)
 }
 
 func replaced(files map[string][]byte, name string, body []byte) map[string][]byte {
@@ -172,7 +188,7 @@ func TestExampleArchive_ContainsOnlyYAMLAndFiles(t *testing.T) {
 func TestExampleArchive_StartsWithSchema(t *testing.T) {
 	root := exampleRoot(t, exampleEntries(t)["exercise.yaml"]).Content[0]
 	require.Equal(t, "schema", root.Content[0].Value)
-	require.Equal(t, "cib-exercise/1", root.Content[1].Value)
+	require.Equal(t, "cib-exercise/1.0", root.Content[1].Value)
 }
 
 func TestExampleArchive_ImportsCleanly(t *testing.T) {
@@ -195,7 +211,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	var variants []exerciseModel.Variant
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			require.NoError(t, json.Unmarshal(arg.Variants, &variants))
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
@@ -400,7 +416,7 @@ func TestExampleArchive_CommentTagsMatchRealOptionality(t *testing.T) {
 	doc := files["exercise.yaml"]
 	for _, key := range exampleKeys(exampleRoot(t, doc)) {
 		t.Run(key.Path, func(t *testing.T) {
-			_, _, err := importExample(t, replaced(files, "exercise.yaml", withoutKey(t, doc, key)))
+			err := importExamplePublishable(t, replaced(files, "exercise.yaml", withoutKey(t, doc, key)))
 			switch {
 			case strings.HasPrefix(key.Comment, tagRequired):
 				require.Error(t, err, "%s is marked required but the example imports without it", key.Path)

@@ -400,7 +400,7 @@ func imageTask(name string, devices ...[2]string) []byte {
 		out = append(out, device)
 	}
 	b, _ := json.Marshal(map[string]any{
-		"schema": "cib-exercise/1", "exercise": map[string]any{"name": name},
+		"schema": "cib-exercise/1.0", "exercise": map[string]any{"name": name},
 		"versions": []any{map[string]any{"status": "draft", "variants": []any{map[string]any{"topology": map[string]any{"devices": out}}}}},
 	})
 	return b

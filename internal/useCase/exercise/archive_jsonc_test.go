@@ -54,7 +54,7 @@ func TestStripJSONComments_Unterminated(t *testing.T) {
 }
 
 func TestStripJSONComments_TrailingCommaStillFails(t *testing.T) {
-	in := []byte("{\"schema\":\"cib-exercise/1\", // c\n}")
+	in := []byte("{\"schema\":\"cib-exercise/1.0\", // c\n}")
 	out, err := stripJSONComments(in)
 	if err != nil {
 		t.Fatalf("strip: %v", err)
@@ -95,7 +95,7 @@ func TestParseExerciseArchive_JSONDocumentTooLarge(t *testing.T) {
 		seed = sha256.Sum256(seed[:])
 		filler.WriteString(hex.EncodeToString(seed[:]))
 	}
-	doc := `{"schema":"cib-exercise/1","exercise":{"name":"Завелике","description":"` + filler.String() + `"},"versions":[]}`
+	doc := `{"schema":"cib-exercise/1.0","exercise":{"name":"Завелике","description":"` + filler.String() + `"},"versions":[]}`
 	archive, err := BuildArchiveNoManifest(map[string][]byte{"exercise.json": []byte(doc)})
 	if err != nil {
 		t.Fatalf("build: %v", err)

@@ -1,6 +1,7 @@
 package exercise
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -51,4 +52,18 @@ func SetImportHeartbeat(t testing.TB, d time.Duration) {
 // SecretValueGroups lets the external tests group the secrets of stored variants like a read does.
 func SecretValueGroups(u *ExerciseUseCase, variants []exerciseModel.Variant) [][][]int {
 	return u.secretValueGroups(variants)
+}
+
+// ImportedVersionPublishable prepares an archive the way an import does and then runs the publish validation of the
+// one version it brings. An import itself never publishes, so this is how a test learns whether the document would
+// later pass the publish gate.
+func (u *ExerciseUseCase) ImportedVersionPublishable(ctx context.Context, archive []byte) error {
+	parsed, protected, err := parseExerciseArchive(archive, "", DefaultLimits())
+	if err != nil {
+		return err
+	}
+	if err = u.validateImportContent(ctx, &parsed, protected); err != nil {
+		return err
+	}
+	return parsed.Versions[0].ValidateForPublish()
 }

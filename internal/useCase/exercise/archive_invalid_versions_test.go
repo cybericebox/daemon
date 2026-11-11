@@ -42,17 +42,6 @@ func TestImportExerciseArchive_NoVersionsInvalid(t *testing.T) {
 	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions")
 }
 
-func TestImportExerciseArchive_TwoDraftsInvalid(t *testing.T) {
-	archive := mustExerciseArchive(t, `{"name":"two drafts"}`,
-		`[{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]},{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]}]`)
-	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions[2].status")
-}
-
-func TestImportExerciseArchive_TwoPublishedInvalid(t *testing.T) {
-	archive := mustExerciseArchive(t, `{"name":"two published"}`, `[{"status":"published"},{"status":"published"}]`)
-	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions[2].status")
-}
-
 const secretVersions = `[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","env_vars":[{"name":"K","value":"plain","secret":true}]}]}}]}]`
 
 func TestImportExerciseArchive_PlaintextSecretNeedsProtectedArchive(t *testing.T) {
@@ -69,8 +58,8 @@ func TestImportExerciseArchive_PasswordForUnprotectedArchiveKeepsSecretGuard(t *
 
 func TestExpandExerciseArchiveBundle_PasswordOnlyForProtectedSource(t *testing.T) {
 	files := map[string][]byte{
-		"a/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
-		"b/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
+		"b/exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 	}
 	plain, err := exercise.BuildArchiveV1(files)
 	require.NoError(t, err)

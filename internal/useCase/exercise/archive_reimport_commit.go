@@ -118,9 +118,6 @@ func (u *ExerciseUseCase) confirmImportTargets(ctx context.Context, actor Actor,
 			if err := u.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
 				return importItemError(err, task.ItemKey, "target")
 			}
-			if err := u.requireImportedPublishable(ctx, task.Versions, in.OwnerEventID); err != nil {
-				return importItemError(err, task.ItemKey, "")
-			}
 			continue
 		}
 		e, v, err := u.previewTarget(ctx, actor, choice.ExerciseID)
@@ -360,13 +357,8 @@ func (u *ExerciseUseCase) storeStagedUpdate(ctx context.Context, id uuid.UUID, s
 
 func (u *ExerciseUseCase) storeStagedNewImport(ctx context.Context, q CatalogRepository, parsed *ParsedExerciseArchive, by uuid.UUID, eventID *uuid.UUID, refresh bool) (ExerciseView, error) {
 	source := parsed.Exercise
+	// The parser leaves exactly one version, the draft.
 	selected := workingImportVersion(parsed.Versions)
-	for i := range parsed.Versions {
-		if parsed.Versions[i].Status.IsPublished() {
-			selected = i
-			break
-		}
-	}
 	if selected >= 0 {
 		source = source.WithVersionMetadata(parsed.Versions[selected])
 	}

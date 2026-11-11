@@ -101,16 +101,6 @@ func (u *ExerciseUseCase) PreviewArchiveImport(ctx context.Context, actor Actor,
 		if err = u.validateImportContent(ctx, &tasks[i], protected); err != nil {
 			return ArchiveImportPreview{}, importItemError(err, tasks[i].ItemKey, "")
 		}
-		// The archive's published snapshots must remain valid portable snapshots.
-		// Target resource/elevation checks belong to its eventual Publish, not SaveDraft.
-		for vi := range tasks[i].Versions {
-			v := &tasks[i].Versions[vi]
-			if v.Status.IsPublished() {
-				if err = v.ValidateForPublish(); err != nil {
-					return ArchiveImportPreview{}, importItemError(withImportedPath(err, vi, v.Variants), tasks[i].ItemKey, "")
-				}
-			}
-		}
 	}
 	choices, err := previewChoices(tasks, in)
 	if err != nil {
@@ -178,9 +168,6 @@ func (u *ExerciseUseCase) PreviewArchiveImport(ctx context.Context, actor Actor,
 			if in.Targets != nil {
 				if err = u.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
 					return ArchiveImportPreview{}, importItemError(err, parsed.ItemKey, "target")
-				}
-				if err = u.requireImportedPublishable(ctx, parsed.Versions, in.OwnerEventID); err != nil {
-					return ArchiveImportPreview{}, importItemError(err, parsed.ItemKey, "")
 				}
 			}
 		}

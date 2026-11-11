@@ -104,7 +104,7 @@ var (
 func imageArchive(t *testing.T) []byte {
 	t.Helper()
 	b, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json":  []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Images"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`),
+		"exercise.json":  []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Images"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`),
 		"images/web.tar": []byte("tar bytes"),
 	})
 	if err != nil {

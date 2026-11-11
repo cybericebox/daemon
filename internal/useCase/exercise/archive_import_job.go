@@ -199,7 +199,7 @@ func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []by
 	// Trusted legacy Go entry point: retain its caller-owned authorization contract,
 	// but validate every NEW item before staging and commit the whole bundle once.
 	for i := range tasks {
-		if err = u.prepareImport(ctx, &tasks[i], protected, ownerEventID); err != nil {
+		if err = u.prepareImport(ctx, &tasks[i], protected); err != nil {
 			return nil, err
 		}
 	}

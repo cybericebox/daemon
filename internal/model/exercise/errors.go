@@ -241,10 +241,10 @@ var (
 	// does not push images (archives naming image files import in the background); the context names the device.
 	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device images inside the archive cannot be imported this way").WithDetailCode(88)
-	// ErrArchiveSchemaUnsupported: the document does not declare schema cib-exercise/1; the context
+	// ErrArchiveSchemaUnsupported: the document does not declare schema cib-exercise/1.0; the context
 	// `expected` names the schema.
 	ErrArchiveSchemaUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-					WithMessage("Unsupported archive schema: expected schema: cib-exercise/1").WithDetailCode(90)
+					WithMessage("Unsupported archive schema: expected schema: cib-exercise/1.0").WithDetailCode(90)
 	// ErrArchiveTooLarge: an archive (imported or being exported) is over the archive limits: the zip, one file
 	// or all files unpacked, the number of entries, or how far a file expands; the context `reason` says which.
 	ErrArchiveTooLarge = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).

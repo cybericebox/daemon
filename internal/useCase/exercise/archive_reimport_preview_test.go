@@ -30,7 +30,7 @@ func TestReimportPreviewReturnsDuplicateSuggestionsAndBindsExactSourceAndTarget(
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	media, sources := newFakeMedia(), newFakeSources()
 	id, draftID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	doc := []byte(`{"schema":"cib-exercise/1","exercise":{"id":"` + id.String() + `","name":"Portable task"},"versions":[{"status":"draft","variants":[]}]}`)
+	doc := []byte(`{"schema":"cib-exercise/1.0","exercise":{"id":"` + id.String() + `","name":"Portable task"},"versions":[{"status":"draft","variants":[]}]}`)
 	archive, err := exercise.BuildArchiveV1(map[string][]byte{"a/exercise.json": doc, "b/exercise.json": doc})
 	require.NoError(t, err)
 	sources.stage(archiveUpID, importer, archive, mediaModel.UploadPurposeExerciseArchive)
@@ -253,7 +253,7 @@ func TestReimportPreviewUpdateUsesSaveDraftInfrastructureGateAndDefersPublishRes
 	target := postgres.Exercise{ID: targetID, Name: "Existing target"}
 	q.EXPECT().GetExerciseByID(gomock.Any(), targetID).DoAndReturn(func(context.Context, uuid.UUID) (postgres.Exercise, error) { return target, nil }).AnyTimes()
 	_, err = uc.PreviewArchiveImport(ctx, actor, exercise.PreviewArchiveInput{UploadID: archiveUpID, Targets: []exercise.ImportTarget{{ItemKey: ".", Mode: "new"}}})
-	require.ErrorIs(t, err, exerciseModel.ErrDevicesNeedElevation.Err(), "NEW retains the full-import published resource gates")
+	require.NoError(t, err, "NEW lands as a draft too; resource elevation is required only when it is published")
 	_, err = uc.PreviewArchiveImport(ctx, actor, exercise.PreviewArchiveInput{UploadID: archiveUpID, Targets: []exercise.ImportTarget{{ItemKey: ".", Mode: "update", ExerciseID: targetID}}})
 	require.NoError(t, err, "UPDATE becomes a draft; resource elevation is required only when it is published")
 	target.Scope = 1
@@ -324,7 +324,7 @@ func TestReimportPreviewIndexesEveryImageBeforeReadOnlyInspectionAndCountsManife
 				second = []byte("broken later image")
 			}
 			archive, err := exercise.BuildArchiveV1(map[string][]byte{
-				"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Images task"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/a.tar"}},{"name":"tool","type":"container","image":{"file":"images/b.tar"}},{"name":"external","type":"container","image":"external:image"}]}}]}]}`),
+				"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Images task"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/a.tar"}},{"name":"tool","type":"container","image":{"file":"images/b.tar"}},{"name":"external","type":"container","image":"external:image"}]}}]}]}`),
 				"images/a.tar":  webImageTar, "images/b.tar": second,
 			})
 			require.NoError(t, err)
@@ -352,8 +352,8 @@ func TestReimportPreviewRejectsWholeInvalidArchiveAndWrongPassword(t *testing.T)
 	uc := newUC(q, newFakeMedia())
 	uc.SetArchiveImport(exercise.ArchiveImportDependencies{Sources: sources})
 	actor := exercise.Actor{UserID: importer, Role: rbac.RoleSuperAdmin}
-	doc := []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Portable task"},"versions":[{"status":"draft","variants":[]}]}`)
-	badDoc := []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Invalid item"},"versions":[{"status":"checkpoint","exercise":{"name":"x"},"variants":[]}]}`)
+	doc := []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Portable task"},"versions":[{"status":"draft","variants":[]}]}`)
+	badDoc := []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Invalid item"},"versions":[{"status":"checkpoint","exercise":{"name":"x"},"variants":[]}]}`)
 	bundle, err := exercise.BuildArchiveV1(map[string][]byte{"a/exercise.json": doc, "b/exercise.json": badDoc})
 	require.NoError(t, err)
 	sources.stage(archiveUpID, importer, bundle, mediaModel.UploadPurposeExerciseArchive)

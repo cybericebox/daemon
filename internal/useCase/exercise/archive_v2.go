@@ -19,7 +19,7 @@ import (
 )
 
 // archiveSchema is the only accepted value of the document's `schema` key.
-const archiveSchema = "cib-exercise/1"
+const archiveSchema = "cib-exercise/1.0"
 
 // The DTOs below are the portable document (snake_case keys). Domain types are reused where
 // their JSON shape already is the document shape (placeholders, interfaces, env vars, ...);
@@ -197,7 +197,7 @@ func archiveUnsupportedSchema() error {
 }
 
 // probeArchiveSchema reads only the schema key of a (comment-free) document and accepts nothing
-// but the JSON string "cib-exercise/1".
+// but the JSON string "cib-exercise/1.0".
 func probeArchiveSchema(payload []byte) error {
 	var probe struct {
 		Schema json.RawMessage `json:"schema"`

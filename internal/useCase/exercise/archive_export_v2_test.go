@@ -315,7 +315,7 @@ func TestExportExerciseArchive_WritesSchema(t *testing.T) {
 		Exercise map[string]any `json:"exercise"`
 	}
 	require.NoError(t, json.Unmarshal(doc, &top))
-	require.Equal(t, "cib-exercise/1", top.Schema)
+	require.Equal(t, "cib-exercise/1.0", top.Schema)
 	require.Equal(t, map[string]any{"id": "0192f0a0-0000-7000-8000-00000000e001", "name": "Експорт", "description": "опис", "tags": []any{"web"}}, top.Exercise)
 	var generic any
 	require.NoError(t, json.Unmarshal(doc, &generic))

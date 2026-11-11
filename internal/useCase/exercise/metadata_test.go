@@ -66,12 +66,20 @@ func TestExerciseMetadataCardProjectsWorkingSnapshotOnlyForFullReaders(t *testin
 	}
 }
 
-func TestArchiveRejectsInvalidPerVersionMetadataBeforeAnyTaskWrite(t *testing.T) {
+func TestArchiveRejectsInvalidMetadataOfTheImportedVersionBeforeAnyTaskWrite(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, `{"name":"Valid root identity"}`, `[{"status":"checkpoint","exercise":{"name":"ab","description":"invalid snapshot name"},"variants":[]},{"status":"draft","variants":[]}]`)
+	archive := mustExerciseArchive(t, `{"name":"Valid root identity"}`, `[{"status":"draft","exercise":{"name":"ab","description":"invalid snapshot name"},"variants":[]},{"status":"checkpoint","variants":[]}]`)
 	_, err := newUC(q, newFakeMedia()).ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.ErrorIs(t, err, exerciseModel.ErrExerciseNameInvalid.Err())
+}
+
+// A version the import leaves out is not validated by it: its metadata decides nothing.
+func TestArchiveIgnoresMetadataOfVersionsTheImportLeavesOut(t *testing.T) {
+	archive := mustExerciseArchive(t, `{"name":"Valid root identity"}`, `[{"status":"checkpoint","exercise":{"name":"ab","description":"invalid snapshot name"},"variants":[]},{"status":"draft","variants":[]}]`)
+	rows, err := importAsWritten(t, archive)
+	require.NoError(t, err)
+	requireOneDraft(t, rows, "")
 }
 
 func TestPublishMetadataNameCollisionStaysWithTheNameField(t *testing.T) {

@@ -29,7 +29,7 @@ var (
 // linkedArchive wraps one version (status, variants JSON) and extra files into a zip.
 func linkedArchive(t *testing.T, status, variants string, files map[string]string) []byte {
 	t.Helper()
-	contents := map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Пов'язані"},` +
+	contents := map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Пов'язані"},` +
 		`"versions":[{"status":"` + status + `","variants":` + variants + `}]}`)}
 	for name, body := range files {
 		contents[name] = []byte(body)
@@ -245,15 +245,19 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	require.Equal(t, "base", uploaded[base.Tasks[0].Attachments[0].FileID])
 }
 
-func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
+func TestImportExerciseArchive_LinkedSameFlagIsAPublishRule(t *testing.T) {
 	variants := `[{"tasks":[{"name":"Тест","difficulty":"easy","flag":["ICE{same}"],
 		"description":{"root":{"type":"text","text":"Опис"}}}]},
 		{"linked_to":1,"tasks":[{"flag":["ICE{same}"]}]}]`
+	// The distinct-flags rule is a publish rule: an archive marked published imports as a draft and passes.
 	t.Run("published", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		expectImport(q, func(written []exerciseModel.Variant) {
+			require.Equal(t, uuid.NullUUID{UUID: written[0].ID, Valid: true}, written[1].LinkedTo)
+		})
 		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "published", variants, nil)})
-		require.ErrorIs(t, err, exerciseModel.ErrLinkedFlagsNotDistinct.Err())
+		require.NoError(t, err)
 	})
 	t.Run("draft", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))

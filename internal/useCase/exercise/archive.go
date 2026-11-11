@@ -83,9 +83,14 @@ type mediaArchiveWriter interface {
 	UploadFile(context.Context, string, string, io.Reader, uuid.UUID) (mediaModel.File, error)
 }
 
+// ParseExerciseArchive reads the document with all its versions as written. An import reduces them to one draft
+// (keepOneVersionAsDraft); parse alone does not.
 func ParseExerciseArchive(data []byte, password string, lim exerciseModel.ArchiveLimits) (ParsedExerciseArchive, error) {
-	parsed, _, err := parseExerciseArchive(data, password, lim)
-	return parsed, err
+	all, _, err := readExerciseArchive(data, password, lim)
+	if err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	return parseTaskFiles(all)
 }
 
 // parseExerciseArchive also tells whether the archive was password-protected (a typed password alone does not count).
@@ -95,6 +100,11 @@ func parseExerciseArchive(data []byte, password string, lim exerciseModel.Archiv
 		return ParsedExerciseArchive{}, false, err
 	}
 	parsed, err := parseTaskFiles(all)
+	if err != nil {
+		return ParsedExerciseArchive{}, protected, err
+	}
+	// Every version was checked while parsing; the import brings one of them, as a draft.
+	parsed.keepOneVersionAsDraft()
 	return parsed, protected, err
 }
 
@@ -190,19 +200,17 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.prepareImport(ctx, &parsed, protected, in.OwnerEventID); err != nil {
+	if err = u.prepareImport(ctx, &parsed, protected); err != nil {
 		return ExerciseView{}, err
 	}
 	return u.storeImport(ctx, &parsed, in.CreatedBy, in.OwnerEventID)
 }
 
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
-// statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
-func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
+// secrets only in a protected archive, final ids, secrets sealed. An import is never published, so there is no
+// publish gate here.
+func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
 	if err := u.validateImportContent(ctx, parsed, protected); err != nil {
-		return err
-	}
-	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
 		return err
 	}
 	return u.encryptImportedSecrets(parsed.Versions)
@@ -320,49 +328,12 @@ func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
 	return ""
 }
 
-// validateImportedVersions checks the statuses: at least one version, at most one draft and one published.
-// Drafts and checkpoints may be incomplete and historical rows load as-is; the published one passes the publish
-// gate later (requireImportedPublishable), once its ids are final.
+// validateImportedVersions checks that the archive brought a version. The parser already reduced the versions to the
+// one that is imported (as a draft), so statuses decide nothing here; a draft may be incomplete and is checked when
+// it is published, not on import.
 func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 	if len(versions) == 0 {
 		return archiveInvalid("versions: at least one version is required")
-	}
-	// Status first, so a second draft or published version is named before any publish check runs.
-	drafts, published := 0, 0
-	for index := range versions {
-		status := versions[index].Status
-		path := fmt.Sprintf("versions[%d].status", index+1)
-		switch {
-		case !status.Valid():
-			return unknownEnum(path, string(status))
-		case status.IsDraft():
-			drafts++
-		case status.IsPublished():
-			published++
-		}
-		if drafts > 1 || published > 1 {
-			return archiveInvalid(fmt.Sprintf("%s: only one %s version is allowed", path, status))
-		}
-	}
-	return nil
-}
-
-// requireImportedPublishable runs the publish gate (requirePublishable, the one PublishDraft runs) on every
-// version imported as published. The import creates a new task (no approved elevation yet): a catalog task, or one
-// of ownerEventID, whose infrastructure permission then applies. A refusal keeps its error and gains the archive
-// path it is about.
-func (u *ExerciseUseCase) requireImportedPublishable(ctx context.Context, versions []exerciseModel.ExerciseVersion, ownerEventID *uuid.UUID) error {
-	newTask := exerciseModel.Exercise{Scope: exerciseModel.ScopeCatalog}
-	if ownerEventID != nil {
-		newTask = exerciseModel.Exercise{Scope: exerciseModel.ScopeEvent, OwnerEventID: uuid.NullUUID{UUID: *ownerEventID, Valid: true}}
-	}
-	for index := range versions {
-		if !versions[index].Status.IsPublished() {
-			continue
-		}
-		if err := u.requirePublishable(ctx, newTask, &versions[index]); err != nil {
-			return withImportedPath(err, index, versions[index].Variants)
-		}
 	}
 	return nil
 }
@@ -540,7 +511,7 @@ type mediaArchiveReader interface {
 	StreamFile(context.Context, uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 }
 
-// ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1), every attachment
+// ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1.0), every attachment
 // once per content (SHA-256) at the path assignExportPaths gives it under files/, and manifest.json. With
 // secrets the archive is AES-protected and secret values are written in plain text only inside it. lim are the
 // archive limits of the whole export (several tasks of one request share one set).

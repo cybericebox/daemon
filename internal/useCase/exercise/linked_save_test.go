@@ -266,7 +266,7 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	cipher, err := secret.New(testKey)
 	require.NoError(t, err)
-	doc := `{"schema":"cib-exercise/1","exercise":{"name":"Пов'язані"},"versions":[{"status":"draft","variants":[
+	doc := `{"schema":"cib-exercise/1.0","exercise":{"name":"Пов'язані"},"versions":[{"status":"draft","variants":[
 		{"tasks":[{"name":"Тест","difficulty":"easy"}],
 		 "topology":{"devices":[{"name":"web","type":"container","image":"img",
 		   "env_vars":[{"name":"PASS","value":"base-pass","secret":true}]}]}},

@@ -13,7 +13,7 @@ import (
 	yzip "github.com/yeka/zip"
 )
 
-const layoutDoc = `schema: cib-exercise/1
+const layoutDoc = `schema: cib-exercise/1.0
 exercise:
   name: Layout
 versions:

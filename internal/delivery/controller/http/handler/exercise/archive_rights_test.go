@@ -112,7 +112,7 @@ func TestImportMultipart_TargetAndRefusal(t *testing.T) {
 // refuses the whole selection before anything is exported; a plain user nothing.
 func TestExport_PerRole(t *testing.T) {
 	own, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

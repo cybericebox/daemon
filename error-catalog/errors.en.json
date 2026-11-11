@@ -115,7 +115,7 @@
   "20987": "linked_to must name an unlinked variant of the same version",
   "20988": "Device images inside the archive cannot be imported this way",
   "20989": "A link names a file the archive does not hold",
-  "20990": "Unsupported archive schema: expected schema: cib-exercise/1",
+  "20990": "Unsupported archive schema: expected schema: cib-exercise/1.0",
   "20991": "The archive is over the size limits",
   "21002": "File exceeds the maximum upload size",
   "21004": "The picture has too many pixels",

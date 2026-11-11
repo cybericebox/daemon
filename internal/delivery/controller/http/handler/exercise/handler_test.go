@@ -750,7 +750,7 @@ func TestExportOneExercise_UsesStandardPlatformZipName(t *testing.T) {
 func TestExport_ReturnsStoredFile(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	id := uuid.Must(uuid.NewV7())
-	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`)})
 	if err != nil {
 		t.Fatalf("build archive: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	uid := uuid.Must(uuid.NewV7())
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 		"files/a.txt":   []byte("attachment"),
 	})
 	if err != nil {

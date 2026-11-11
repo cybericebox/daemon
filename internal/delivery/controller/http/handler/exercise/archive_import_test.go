@@ -49,7 +49,7 @@ func postArchiveTo(t *testing.T, uc *fakeUC, archive []byte) (*httptest.Response
 
 func TestImportArchive_StrayFileKeepsCodeAndContext(t *testing.T) {
 	archive, err := exerciseUseCase.BuildArchiveNoManifest(map[string][]byte{
-		"a/exercise.yaml": []byte("schema: cib-exercise/1\n"),
+		"a/exercise.yaml": []byte("schema: cib-exercise/1.0\n"),
 		"readme.md":       []byte("r"),
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestImportArchive_BrokenZipStaysBadRequest(t *testing.T) {
 // A hand-written mistake the import finds (here a version without status) is the author's 400, not a 500.
 func TestImportArchive_MissingStatusIsArchiveInvalid(t *testing.T) {
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"no status"},"versions":[{"variants":[{}]}]}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"no status"},"versions":[{"variants":[{}]}]}`),
 	})
 	if err != nil {
 		t.Fatal(err)

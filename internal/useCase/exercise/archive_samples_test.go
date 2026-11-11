@@ -31,7 +31,7 @@ func TestSampleArchive_StaticImports(t *testing.T) {
 		})
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)

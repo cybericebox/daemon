@@ -156,7 +156,7 @@ func TestRestoreAndRollbackSerializeContentAndReferencesWithReimport(t *testing.
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Imported attachment target"},"versions":[{"status":"draft","admin_note":"imported","variants":[{"tasks":[{"name":"Subtask","attachments":[{"file":"files/new.txt"}]}]}]}]}`), "files/new.txt": []byte("new unique content")})
+			archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported attachment target"},"versions":[{"status":"draft","admin_note":"imported","variants":[{"tasks":[{"name":"Subtask","attachments":[{"file":"files/new.txt"}]}]}]}]}`), "files/new.txt": []byte("new unique content")})
 			require.NoError(t, err)
 			sources := newPostgresSources(t, db)
 			sources.stage(archiveUpID, user.ID, archive, mediaModel.UploadPurposeExerciseArchive)
@@ -281,7 +281,7 @@ func TestReimportRechecksRealSourceAfterTargetLockWait(t *testing.T) {
 			repo := exerciseRepo.New(db.Queries)
 			draft, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "unchanged"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
-			entries := map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Forbidden replacement"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Must not create sibling"},"versions":[{"status":"draft","variants":[]}]}`)}
+			entries := map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Forbidden replacement"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Must not create sibling"},"versions":[{"status":"draft","variants":[]}]}`)}
 			if c.worker {
 				entries["a/exercise.json"] = imageTask("Forbidden replacement", [2]string{"web", "images/web.tar"})
 				entries["a/images/web.tar"] = webImageTar
