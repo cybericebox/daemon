@@ -79,9 +79,13 @@ test screen can say reverse connections are forbidden or allowed. Archive key: `
 **What is sent to the laboratory.** The laboratory blocks connections its devices start to VPN clients by default. The key
 `spec.vpn.reverseConnections: true` goes into the lab spec only when the exercise sets `reverse_connections`, the VPN is on and the
 agent reported `FeaturesResponse.vpn.reverse_connections` (an older agent rejects the key and allows everything anyway, so it never
-gets it). Every lab with a VPN also carries the label `cybericebox.com/vpn-reverse` (`1` allowed, `0` forbidden by its exercise).
+gets it). A lab whose exercise allows the connections is not created while the features of its agent are unknown (an empty report): the
+start waits like for an agent that does not answer (stands: wait `agent_unavailable`; test deploy: a retryable error), so a capable
+agent never blocks what the exercise needs. An exercise that forbids them starts at once. Every lab with a VPN carries the labels
+`cybericebox.com/vpn-reverse` (`1` the exercise allows, `0` forbids) and `cybericebox.com/vpn-reverse-sent` (`1` the key was
+really requested).
 
-**What is in force: `VPNReverse`** in the test deploy status, the stand status of organizers (`GET /events/{id}/manage/labs...`) and the
+**What is in force: `VPNReverse`** (derived from what was really requested and from what the agent can enforce now) in the test deploy status, the stand status of organizers (`GET /events/{id}/manage/labs...`) and the
 infrastructure test lab view: `blocked`, `allowed`, or `not_enforced` (the exercise forbids the connections but the agent of that node
 cannot enforce the block, so they are possible: show a warning, never "blocked"). The lab still starts, nothing is refused. Absent
 for a lab without a VPN. `ReverseConnections` stays what the exercise asks for.

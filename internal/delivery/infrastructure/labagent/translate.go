@@ -164,6 +164,8 @@ type LabBuild struct {
 	Bootstrap []*labpb.DeviceBootstrap
 	// Checks is nil when the lab has none.
 	Checks *labpb.LabChecks
+	// VPNReverseSent: the key that allows connections from the lab to the VPN clients is in the spec.
+	VPNReverseSent bool
 }
 
 // BuildLabSpec translates a variant's domain Topology into the laboratory Lab
@@ -223,6 +225,7 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 		spec.Connections = append(spec.Connections, conn)
 	}
 	build.Checks = buildLabChecks(checks)
+	build.VPNReverseSent = spec.VPN.ReverseConnections
 
 	specJSON, err := json.Marshal(spec)
 	if err != nil {

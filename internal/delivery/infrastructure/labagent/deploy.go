@@ -94,7 +94,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		Items: []*labpb.LabItem{{
 			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: build.Env,
 			Bootstrap: build.Bootstrap, Checks: build.Checks,
-			Labels: withVPNReverseLabel(meta.Labels, topo), DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
+			Labels: withVPNReverseLabel(meta.Labels, topo, build.VPNReverseSent), DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
 		}},
 	})
 	if err != nil {
@@ -106,20 +106,28 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	return nil
 }
 
-// vpnReverseOf reads from the lab's labels what its exercise asked: "allowed" or "blocked" (empty for a lab without a VPN).
-// Whether the block is really enforced is the fleet's to add (see Fleet.LabStatus).
-func vpnReverseOf(labels map[string]string) string {
-	switch labels[infraModel.LabelVPNReverse] {
-	case "1":
-		return exerciseModel.VPNReverseAllowed
-	case "0":
-		return exerciseModel.VPNReverseBlocked
+// vpnReverseOf derives what is in force from what was requested from the laboratory (the labels) and whether the agent
+// enforces the block. The key was sent: allowed. Not sent: a capable agent blocks (even if the exercise wanted them: a defect the
+// deploy avoids); an older agent allows everything, so the exercise's wish decides: wanted is allowed, otherwise the block is
+// not enforced. Empty for a lab without a VPN.
+func vpnReverseOf(labels map[string]string, agentEnforces bool) string {
+	wanted, ok := labels[infraModel.LabelVPNReverse]
+	if !ok {
+		return ""
 	}
-	return ""
+	switch {
+	case labels[infraModel.LabelVPNReverseSent] == "1":
+		return exerciseModel.VPNReverseAllowed
+	case agentEnforces:
+		return exerciseModel.VPNReverseBlocked
+	case wanted == "1":
+		return exerciseModel.VPNReverseAllowed
+	}
+	return exerciseModel.VPNReverseNotEnforced
 }
 
 // withVPNReverseLabel adds to the lab's labels what its exercise asks of connections to the VPN clients (only for a lab with a VPN).
-func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology) map[string]string {
+func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology, sent bool) map[string]string {
 	if !topo.VPN.Enabled {
 		return labels
 	}
@@ -127,9 +135,12 @@ func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology) 
 	for k, v := range labels {
 		out[k] = v
 	}
-	out[infraModel.LabelVPNReverse] = "0"
+	out[infraModel.LabelVPNReverse], out[infraModel.LabelVPNReverseSent] = "0", "0"
 	if topo.VPN.ReverseConnections {
 		out[infraModel.LabelVPNReverse] = "1"
+	}
+	if sent {
+		out[infraModel.LabelVPNReverseSent] = "1"
 	}
 	return out
 }
@@ -370,6 +381,11 @@ func (c *Client) awaitGroupNamespace(ctx context.Context, group string) error {
 // LabStatus reports the deployed lab's runtime status. A group without a namespace yet reads as
 // Provisioning rather than an error.
 func (c *Client) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
+	return c.labStatus(ctx, group, lab, false)
+}
+
+// labStatus is LabStatus for an agent that does (agentEnforces) or does not enforce the block of connections the lab starts.
+func (c *Client) labStatus(ctx context.Context, group, lab string, agentEnforces bool) (exerciseModel.LabDeployStatus, error) {
 	g, err := c.getGroup(ctx, group)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, err
@@ -385,7 +401,7 @@ func (c *Client) LabStatus(ctx context.Context, group, lab string) (exerciseMode
 		return exerciseModel.LabDeployStatus{}, fmt.Errorf("get lab %q of group %q: %w", lab, group, errNotFound)
 	}
 	status := mapLabStatus(list.GetItems()[0])
-	status.VPNReverse = vpnReverseOf(list.GetItems()[0].GetLabels())
+	status.VPNReverse = vpnReverseOf(list.GetItems()[0].GetLabels(), agentEnforces)
 	status.GroupImageWarning = g.GetStatus().GetImageWarning()
 	return status, nil
 }

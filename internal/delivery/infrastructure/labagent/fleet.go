@@ -13,6 +13,8 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -392,7 +394,16 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if meta.PartID, err = f.partOn(ctx, m, meta.Reservation); err != nil {
 		return err
 	}
-	if feat := m.Features.Get(); feat != nil {
+	// The key that allows connections from the lab to the VPN clients can only be sent to an agent known to accept it, and
+	// without it a capable agent blocks them: a lab whose exercise needs them is not created before the features are known.
+	feat := m.Features.Get()
+	if feat == nil && topo.VPN.Enabled && topo.VPN.ReverseConnections {
+		feat = refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m))
+		if feat == nil {
+			return status.Error(codes.Unavailable, "the features of the laboratory agent are not known yet")
+		}
+	}
+	if feat != nil {
 		meta.AgentEnforcesVPNReverse = feat.EnforcesVPNReverse()
 	}
 	err = m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
@@ -443,12 +454,8 @@ func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, err
 	}
-	status, err := m.Client.LabStatus(ctx, group, lab)
-	// The exercise forbids the connections but the agent cannot enforce the block: they are possible, so say so.
-	if feat := m.Features.Get(); err == nil && status.VPNReverse == exerciseModel.VPNReverseBlocked && (feat == nil || !feat.EnforcesVPNReverse()) {
-		status.VPNReverse = exerciseModel.VPNReverseNotEnforced
-	}
-	return status, err
+	feat := m.Features.Get()
+	return m.Client.labStatus(ctx, group, lab, feat != nil && feat.EnforcesVPNReverse())
 }
 
 // RunLabChecks asks the agent that holds the group to run checks of a lab now.

@@ -388,9 +388,13 @@ type LabMeta struct {
 	AgentEnforcesVPNReverse bool
 }
 
-// LabelVPNReverse is put on a lab that has a VPN: "1" when its exercise allows lab-initiated connections to the VPN clients,
-// "0" when it does not. It lets the status say what is really in force whatever the agent can enforce.
-const LabelVPNReverse = "cybericebox.com/vpn-reverse"
+// Labels of a lab that has a VPN. LabelVPNReverse: "1" when its exercise allows lab-initiated connections to the VPN clients,
+// "0" when it does not. LabelVPNReverseSent: "1" when the key that allows them was really requested from the laboratory, "0"
+// when it was not (the default of the laboratory then applies). The status is derived from what was requested.
+const (
+	LabelVPNReverse     = "cybericebox.com/vpn-reverse"
+	LabelVPNReverseSent = "cybericebox.com/vpn-reverse-sent"
+)
 
 // ImagePrewarm is the state of one image in the platform image cache.
 type ImagePrewarm struct {

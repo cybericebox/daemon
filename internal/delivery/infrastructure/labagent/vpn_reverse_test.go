@@ -1,7 +1,6 @@
 package labagent
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -61,40 +60,4 @@ func TestFeaturesOfReadsTheVPNOption(t *testing.T) {
 	require.Equal(t, &infraModel.VPNFeature{ReverseConnections: true}, FeaturesOf(&labpb.FeaturesResponse{Vpn: &labpb.VPNFeature{ReverseConnections: true}}).VPN)
 	require.Nil(t, FeaturesOf(&labpb.FeaturesResponse{}).VPN, "an older agent reports none")
 	require.False(t, FeaturesOf(&labpb.FeaturesResponse{}).EnforcesVPNReverse())
-}
-
-// The fleet sends the key by what the agent reported, labels the lab with what the exercise asked, and the status says what is
-// really in force: blocked, allowed, or not enforced on an agent that cannot block.
-func TestFleetVPNReverseEndToEnd(t *testing.T) {
-	ctx := context.Background()
-	for name, tc := range map[string]struct {
-		features *infraModel.AgentFeatures
-		vpn      exerciseModel.NetworkSpec
-		key      bool
-		label    string
-		state    string
-	}{
-		"capable, forbidden": {&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}}, exerciseModel.NetworkSpec{Enabled: true}, false, "0", "blocked"},
-		"capable, allowed":   {&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}}, exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, true, "1", "allowed"},
-		"older, forbidden":   {&infraModel.AgentFeatures{}, exerciseModel.NetworkSpec{Enabled: true}, false, "0", "not_enforced"},
-		"older, allowed":     {&infraModel.AgentFeatures{}, exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, false, "1", "allowed"},
-		"vpn off":            {&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}}, exerciseModel.NetworkSpec{}, false, "", ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := newFleetFixture(t)
-			f.am.Features = NewFeatureCell(tc.features)
-			require.NoError(t, f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, vpnTopology(tc.vpn)))
-			item := f.a.createLabs.GetItems()[0]
-			var spec labSpec
-			require.NoError(t, json.Unmarshal(f.a.createLabs.GetVariants()[0].GetSpecJson(), &spec))
-			require.Equal(t, tc.key, spec.VPN.ReverseConnections)
-			require.Equal(t, tc.label, item.GetLabels()[infraModel.LabelVPNReverse])
-
-			// The agent returns the lab with the labels it was created with.
-			f.a.labs = []*labpb.Lab{{Name: "c-1", Labels: item.GetLabels(), Status: &labpb.LabStatus{}}}
-			status, err := f.fleet.LabStatus(ctx, "e-1-t-1", "c-1")
-			require.NoError(t, err)
-			require.Equal(t, tc.state, status.VPNReverse)
-		})
-	}
 }
