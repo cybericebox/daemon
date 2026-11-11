@@ -40331,6 +40331,10 @@ const docTemplate = `{
                     "description": "Removing: the lab is being removed (Phase is \"Removing\"); the answer stays 200 until it is gone, then 404.",
                     "type": "boolean"
                 },
+                "ReverseConnections": {
+                    "description": "ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).",
+                    "type": "boolean"
+                },
                 "SolvedTaskIDs": {
                     "description": "SolvedTaskIDs are the tasks the author has already checked correctly, and the state tasks whose checks pass.",
                     "type": "array",
@@ -41537,6 +41541,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Enabled": {
+                    "type": "boolean"
+                },
+                "ReverseConnections": {
+                    "description": "ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the\nparticipants' machines. Default false.",
                     "type": "boolean"
                 }
             }
@@ -42760,6 +42768,10 @@ const docTemplate = `{
                 },
                 "removing": {
                     "description": "Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.",
+                    "type": "boolean"
+                },
+                "reverseConnections": {
+                    "description": "ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,\neffective only with the VPN on); filled by the use case for a test deploy.",
                     "type": "boolean"
                 },
                 "solvedTasks": {

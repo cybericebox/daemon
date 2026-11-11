@@ -124,6 +124,9 @@ type LabDeployStatus struct {
 	VPNLastHandshake           time.Time
 	// VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
 	VPNProbeURL string
+	// ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
+	// effective only with the VPN on); filled by the use case for a test deploy.
+	ReverseConnections bool
 	// SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
 	// StateTasks); filled by the use case.
 	SolvedTasks []uuid.UUID

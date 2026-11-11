@@ -63,11 +63,15 @@ func TaskCheckStates(variant exerciseModel.Variant, results []labCheckModel.Resu
 // withTaskStates adds the state of the variant's state tasks to a test deploy's status, and counts the solved ones among the
 // solved tasks. A failure to read is not the poll's failure: the status then carries none.
 func (u *ExerciseUseCase) withTaskStates(ctx context.Context, status *exerciseModel.LabDeployStatus, deploy exerciseModel.TestDeploy) {
-	if u.labChecks == nil {
-		return
+	if deploy.VersionID == uuid.Nil {
+		return // a row without a version has no variant to read
 	}
 	_, variant, loadErr := u.loadVersionVariant(ctx, deploy.VersionID, deploy.VariantID)
-	if loadErr != nil || len(variant.StateTasks()) == 0 {
+	if loadErr != nil {
+		return
+	}
+	status.ReverseConnections = variant.Topology.VPN.Enabled && variant.Topology.VPN.ReverseConnections
+	if u.labChecks == nil || len(variant.StateTasks()) == 0 {
 		return
 	}
 	results, listErr := u.labChecks.List(ctx, deploy.GroupName, deploy.LabName)

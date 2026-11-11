@@ -377,6 +377,9 @@ type networkDTO struct {
 	DHCP       bool           `json:"DHCP"`
 	DHCPRanges []dhcpRangeDTO `json:"DHCPRanges,omitempty"`
 	DNS        string         `json:"DNS,omitempty"`
+	// ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the
+	// participants' machines. Default false.
+	ReverseConnections bool `json:"ReverseConnections,omitempty"`
 }
 
 type dhcpRangeDTO struct {
@@ -1098,7 +1101,7 @@ func variablesToDTO(vars []exerciseModel.Variable) []variableDTO {
 }
 
 func networkToModel(d networkDTO) exerciseModel.NetworkSpec {
-	out := exerciseModel.NetworkSpec{Enabled: d.Enabled, DHCP: d.DHCP, DNS: d.DNS}
+	out := exerciseModel.NetworkSpec{Enabled: d.Enabled, DHCP: d.DHCP, DNS: d.DNS, ReverseConnections: d.ReverseConnections}
 	for _, r := range d.DHCPRanges {
 		out.DHCPRanges = append(out.DHCPRanges, exerciseModel.DHCPRange{Start: r.Start, End: r.End})
 	}
@@ -1106,7 +1109,7 @@ func networkToModel(d networkDTO) exerciseModel.NetworkSpec {
 }
 
 func networkFromModel(n exerciseModel.NetworkSpec) networkDTO {
-	out := networkDTO{Enabled: n.Enabled, DHCP: n.DHCP, DNS: n.DNS}
+	out := networkDTO{Enabled: n.Enabled, DHCP: n.DHCP, DNS: n.DNS, ReverseConnections: n.ReverseConnections}
 	for _, r := range n.DHCPRanges {
 		out.DHCPRanges = append(out.DHCPRanges, dhcpRangeDTO{Start: r.Start, End: r.End})
 	}

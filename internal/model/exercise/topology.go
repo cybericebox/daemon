@@ -136,6 +136,9 @@ type (
 		DHCP       bool        `json:"dhcp"`
 		DHCPRanges []DHCPRange `json:"dhcp_ranges,omitempty"`
 		DNS        string      `json:"dns,omitempty"`
+		// ReverseConnections (the VPN gateway only) lets devices of the lab start connections to the VPN clients, the
+		// participants' machines. Off by default; needs Enabled.
+		ReverseConnections bool `json:"reverse_connections,omitempty"`
 	}
 
 	DHCPRange struct {
@@ -264,6 +267,14 @@ const MaxDeviceNameLen = 35
 
 var dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
+// validateVPNOptions: reverse_connections belongs to the VPN gateway and needs the VPN network switched on.
+func (t Topology) validateVPNOptions() error {
+	if (t.VPN.ReverseConnections && !t.VPN.Enabled) || t.Internet.ReverseConnections {
+		return ErrVPNOptionInvalid.WithPublicContext("field", "topology.vpn.reverse_connections").Err()
+	}
+	return nil
+}
+
 // validateStructure checks per-item shape only (types, names, endpoint arity).
 // Cross-item graph rules (uniqueness, resolution, port occupancy) run at
 // publish time — validateGraph, Task 4.
@@ -272,6 +283,9 @@ func (t Topology) validateStructure() error {
 		t.Internet.Enabled && t.Internet.DHCP && len(t.Internet.DHCPRanges) == 0 ||
 		!validDHCPRanges(t.VPN.DHCPRanges) || !validDHCPRanges(t.Internet.DHCPRanges) {
 		return ErrNetworkDHCPInvalid.Err()
+	}
+	if err := t.validateVPNOptions(); err != nil {
+		return err
 	}
 	if t.VPN.DNS != "" || t.Internet.DNS != "" && !validIPv4(t.Internet.DNS) {
 		return ErrNetworkDHCPInvalid.Err()

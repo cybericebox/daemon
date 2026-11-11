@@ -70,6 +70,12 @@ Error codes retired: 20924 (flag references a device), 20942 (flag target variab
 
 ### Topology
 
+`VPN.ReverseConnections` (bool, default false; `VPN` is the `{Enabled, DHCP, DHCPRanges, DNS}` object of the VPN gateway): devices of the
+lab may start connections to the VPN clients, the participants' machines. Needs `VPN.Enabled`; set on a disabled VPN or on `Internet` it is
+refused (error 23518, `field` `topology.vpn.reverse_connections`, on import also `path`). Absent in the archive and in stored exercises
+means false. The test deploy status carries the effective value as `ReverseConnections` (true only with the VPN on and the key set), so the
+test screen can say reverse connections are forbidden or allowed. Archive key: `topology.vpn.reverse_connections`.
+
 `Variables`: `[{Name, Value | Template}]`, up to 64, `Name` as a task key; exactly one of `Value` (up to 1024 bytes)
 and `Template`. Substitutions `{{task.<Key>}}` and `{{var.<Name>}}` work in `Bootstrap.Env[].Value`,
 `Bootstrap.Files[].Content`, `Bootstrap.Script` and in the expectations of conditions; `\{{` is a literal `{{`. An
@@ -134,6 +140,7 @@ unresolved reference is an error naming the field (publish and test deploy).
 | 23506 | device runtime key invalid | `device`, `field` (`bootstrap.env[2].name`, `terminal.user`...) |
 | 23507 | variable invalid | `field` (`variables[1].name`) |
 | 23508 | substitution unresolved | `field`, `reference` |
+| 23518 | `reverse_connections` without the VPN network, or on the internet gateway | `field` |
 | 23510 | resolved bootstrap names a missing device | |
 | 23513 | a task with `Check.State` cannot join an event | `task` |
 | 73509 | the lab cannot apply this (a vm-profile device needs a guest agent) | `features` |

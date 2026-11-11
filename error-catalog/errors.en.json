@@ -290,6 +290,7 @@
   "23510": "The device of a resolved bootstrap is not in the topology",
   "23513": "A task checked by the state of the lab cannot be used in an event",
   "23517": "A bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB",
+  "23518": "Reverse connections need the VPN network switched on",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",

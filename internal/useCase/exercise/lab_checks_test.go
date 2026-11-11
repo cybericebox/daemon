@@ -225,3 +225,30 @@ func TestRunTestDeployChecks_OnlyOnALiveOwnLab(t *testing.T) {
 	require.ErrorIs(t, uc.RunTestDeployChecks(context.Background(), f.userID, f.deployID, f.onceID), exerciseModel.ErrTestDeployNotFound.Err())
 	require.Empty(t, infra.asked)
 }
+
+// The test status tells the author whether the lab may start connections to the VPN clients: only with the VPN on and the key set.
+func TestDeployTestStatus_ShowsTheEffectiveReverseConnections(t *testing.T) {
+	for name, tc := range map[string]struct {
+		vpn  exerciseModel.NetworkSpec
+		want bool
+	}{
+		"default":                {exerciseModel.NetworkSpec{Enabled: true}, false},
+		"allowed":                {exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, true},
+		"stored key, vpn is off": {exerciseModel.NetworkSpec{ReverseConnections: true}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			userID, deployID, versionID, variantID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{VPN: tc.vpn}}})
+			q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{
+				ID: deployID, GroupName: "g", LabName: "l", CreatedBy: userID, VersionID: versionID, VariantID: variantID, ExpiresAt: time.Now().Add(time.Hour),
+				Flags: []byte(`[]`), Solved: []byte(`[]`),
+			}, nil)
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: "Ready"}}})
+			st, err := uc.DeployTestStatus(context.Background(), userID, deployID)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, st.ReverseConnections)
+		})
+	}
+}

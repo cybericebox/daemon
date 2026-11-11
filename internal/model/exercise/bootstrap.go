@@ -300,6 +300,9 @@ func validateVariables(vars []Variable) error {
 // ValidateDeviceRuntime checks the runtime keys (command, args, system, hardware, terminal, bootstrap) of every
 // device of the topology on their own.
 func (t Topology) ValidateDeviceRuntime() error {
+	if err := t.validateVPNOptions(); err != nil {
+		return err
+	}
 	for _, device := range t.Devices {
 		if err := validateDeviceRuntime(device); err != nil {
 			return err

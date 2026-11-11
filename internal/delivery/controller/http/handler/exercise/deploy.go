@@ -100,6 +100,8 @@ type (
 		VPNConfig    string                 `json:"VPNConfig,omitempty"`
 		Devices      []deployDeviceResponse `json:"Devices,omitempty"`
 		Access       []deployAccessResponse `json:"Access,omitempty"`
+		// ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).
+		ReverseConnections bool `json:"ReverseConnections"`
 		// VPNConnected: the author's VPN client shook hands within the last three minutes.
 		VPNConnected bool `json:"VPNConnected"`
 		// Queue is set while the lab waits in the launch queue (Phase Queued); otherwise null.
@@ -201,6 +203,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		}
 		out.StateTasks = append(out.StateTasks, item)
 	}
+	out.ReverseConnections = s.ReverseConnections
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
 	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt
