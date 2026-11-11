@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 // Agent sources: an agent an administrator enrolled, or the agent bootstrapped from the deployment
@@ -103,10 +105,81 @@ type AgentFeatures struct {
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
 	// Reservations is how the agent's reservations work.
 	Reservations ReservationsFeature `json:"reservations"`
+	// Checks, Terminal and Bootstrap are the optional parts of contract 1.5 (nil: the agent reports none, it is older than the
+	// fields: nothing of it is offered).
+	Checks    *ChecksFeature    `json:"checks,omitempty"`
+	Terminal  *TerminalFeature  `json:"terminal,omitempty"`
+	Bootstrap *BootstrapFeature `json:"bootstrap,omitempty"`
 	// PersistenceUnavailable and LifecycleUnavailable say why a feature the cluster is configured for is held back
 	// (nil: nothing is). Only a fixed code and a count of nodes: never node names, paths or text of the agent.
 	PersistenceUnavailable *UnavailableReason `json:"persistence_unavailable,omitempty"`
 	LifecycleUnavailable   *UnavailableReason `json:"lifecycle_unavailable,omitempty"`
+}
+
+// ChecksFeature: lab checks are switched on and their limits. Terminal: the browser terminal is switched on.
+// Bootstrap: the limits of a device bootstrap (it is always available on a 1.5 agent).
+type (
+	ChecksFeature struct {
+		Enabled             bool  `json:"enabled"`
+		MaxChecksPerLab     int32 `json:"max_checks_per_lab"`
+		MaxPartsPerCheck    int32 `json:"max_parts_per_check"`
+		MaxTimeLimitSeconds int32 `json:"max_time_limit_seconds"`
+		MaxScheduleSeconds  int32 `json:"max_schedule_seconds"`
+		MaxDetailBytes      int32 `json:"max_detail_bytes"`
+	}
+	TerminalFeature struct {
+		Enabled bool `json:"enabled"`
+	}
+	BootstrapFeature struct {
+		MaxScriptBytes      int32 `json:"max_script_bytes"`
+		MaxFiles            int32 `json:"max_files"`
+		MaxFileBytes        int32 `json:"max_file_bytes"`
+		MaxTotalBytes       int32 `json:"max_total_bytes"`
+		MaxTimeLimitSeconds int32 `json:"max_time_limit_seconds"`
+		MaxAttempts         int32 `json:"max_attempts"`
+	}
+)
+
+// RequireLabOptions refuses a lab that needs an option or a size this laboratory does not offer, instead of starting a lab
+// that would not work: a task with checks needs the checks option, a device with a terminal the terminal option, a bootstrap
+// or a service command an agent that carries them at all (contract 1.5), and every size must be within the agent's limits.
+// The error's public context "options" names every option or limit that fails, for example "checks",
+// "terminal", "bootstrap.max_files (at most 8)". A limit of 0 is "not reported" and refuses nothing.
+func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
+	var refused []string
+	over := func(name string, need int, limit int32) {
+		if limit > 0 && need > int(limit) {
+			refused = append(refused, name+" (at most "+strconv.Itoa(int(limit))+")")
+		}
+	}
+	if n.Checks {
+		if f.Checks == nil || !f.Checks.Enabled {
+			refused = append(refused, "checks")
+		} else {
+			over("checks.max_checks_per_lab", n.ChecksPerLab, f.Checks.MaxChecksPerLab)
+			over("checks.max_parts_per_check", n.MaxParts, f.Checks.MaxPartsPerCheck)
+			over("checks.max_time_limit_seconds", n.MaxCheckTimeLimit, f.Checks.MaxTimeLimitSeconds)
+			over("checks.max_schedule_seconds", n.MaxCheckSchedule, f.Checks.MaxScheduleSeconds)
+		}
+	}
+	if n.Terminal && (f.Terminal == nil || !f.Terminal.Enabled) {
+		refused = append(refused, "terminal")
+	}
+	if n.Bootstrap {
+		if f.Bootstrap == nil {
+			refused = append(refused, "bootstrap")
+		} else {
+			over("bootstrap.max_files", n.MaxFiles, f.Bootstrap.MaxFiles)
+			over("bootstrap.max_script_bytes", n.MaxScriptBytes, f.Bootstrap.MaxScriptBytes)
+			over("bootstrap.max_file_bytes", n.MaxFileBytes, f.Bootstrap.MaxFileBytes)
+			over("bootstrap.max_total_bytes", n.MaxBootstrapBytes, f.Bootstrap.MaxTotalBytes)
+			over("bootstrap.max_time_limit_seconds", n.MaxBootstrapLimit, f.Bootstrap.MaxTimeLimitSeconds)
+		}
+	}
+	if len(refused) == 0 {
+		return nil
+	}
+	return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", strings.Join(refused, "; ")).Err()
 }
 
 // UnavailableReason is why some lab nodes of an agent do not confirm a feature: a code of the fixed list, how many
@@ -289,6 +362,9 @@ type LabMeta struct {
 	DeployGroup string
 	// PullCredentials are the registry credentials the agent pulls this lab's images with (never logged).
 	PullCredentials []RegistryCredential
+	// Checks are the laboratory checks of the lab's state tasks, resolved for this instance (secret material: expected
+	// values; never logged, never returned). Empty: the lab has none.
+	Checks []exerciseModel.LabCheck
 	// Reservation is what the lab runs under, GroupReservation what its group runs under (independent: a test lab
 	// runs under its run while the author's shared group runs under the group part).
 	Reservation      ReservationRef

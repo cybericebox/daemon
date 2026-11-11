@@ -668,3 +668,58 @@ func TestListEventCatalogTags_ScopesToEventAndClampsLimit(t *testing.T) {
 		t.Fatalf("empty items=%#v err=%v", items, err)
 	}
 }
+
+// stateTaskVariants is a variant whose second task is checked by the state of the lab (Academy only).
+func stateTaskVariants(taskID, stateTaskID, device uuid.UUID) []byte {
+	return []byte(`[{"tasks":[` +
+		`{"id":"` + taskID.String() + `","name":"Question","key":"question","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{x}"]}}},` +
+		`{"id":"` + stateTaskID.String() + `","name":"Configure OSPF","key":"ospf","difficulty":"easy","check":{"state":{"conditions":[{"device_id":"` + device.String() + `","file":{"path":"/etc/a"}}]}}}` +
+		`],"topology":{"devices":[{"id":"` + device.String() + `","name":"r1","type":"node"}]}}]`)
+}
+
+func TestAttachExercise_RefusesATaskCheckedByTheStateOfTheLab(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}})
+	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{
+		ID: versionID, ExerciseID: exerciseID, Status: string(exerciseModel.VersionStatusPublished),
+		PublishedAt: pgtype.Timestamptz{Time: now, Valid: true}, CreatedAt: now,
+		Variants: stateTaskVariants(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())),
+	}, nil)
+	q.EXPECT().GetExerciseByID(gomock.Any(), exerciseID).Return(postgres.Exercise{ID: exerciseID, Name: "Routing"}, nil)
+	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil)
+
+	_, err := uc.AttachExercise(context.Background(), eventID, event.AttachExerciseInput{ExerciseVersionID: versionID, VariantMode: eventExerciseModel.VariantModePerTeam}, uuid.Must(uuid.NewV7()))
+	if !errors.Is(err, exerciseModel.ErrStateTaskNotForEvent.Err()) {
+		t.Fatalf("attach of a state task: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Configure OSPF") {
+		t.Fatalf("the error does not name the task: %v", err)
+	}
+}
+
+func TestUpdateEventExercise_RefusesANewerVersionWithAStateTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}})
+	eventID, exerciseID, attachmentID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	previousVersionID, nextVersionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+	link := postgres.EventExercise{ID: attachmentID, EventID: eventID, ExerciseID: exerciseID, ExerciseVersionID: previousVersionID,
+		VariantMode: int16(eventExerciseModel.VariantModePerTeam), Revision: 1, Status: int16(eventExerciseModel.StatusActive), CreatedAt: now}
+
+	q.EXPECT().GetEventExerciseByID(gomock.Any(), postgres.GetEventExerciseByIDParams{ID: attachmentID, EventID: eventID}).Return(link, nil).AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), exerciseID).Return(postgres.Exercise{ID: exerciseID, Name: "Routing", PublishedVersionID: uuid.NullUUID{UUID: nextVersionID, Valid: true}}, nil).AnyTimes()
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), nextVersionID).Return(postgres.ExerciseVersion{ID: nextVersionID, ExerciseID: exerciseID,
+		Status: string(exerciseModel.VersionStatusPublished), PublishedAt: pgtype.Timestamptz{Time: now, Valid: true}, CreatedAt: now,
+		Variants: stateTaskVariants(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))}, nil)
+	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil)
+
+	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, nil, uuid.Must(uuid.NewV7()), false)
+	if !errors.Is(err, exerciseModel.ErrStateTaskNotForEvent.Err()) {
+		t.Fatalf("update to a state task: %v", err)
+	}
+}

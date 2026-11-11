@@ -1,6 +1,8 @@
 package exerciseModel
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/err"
 )
@@ -54,4 +56,31 @@ var (
 	ErrRuntimeDeviceUnresolved = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
 					WithMessage("The device of a resolved bootstrap is not in the topology").
 					WithDetailCode(10)
+	// ErrServiceCommandUnknown: a device needs the laboratory told what to run after its bootstrap (or has a command of
+	// its own) but neither the author's command nor the image configuration gives one; device names it.
+	ErrServiceCommandUnknown = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).
+					WithMessage("The command to start after the bootstrap of a device is unknown: set the command of the device").
+					WithDetailCode(11)
+	// ErrLabOptionUnavailable: the target laboratory lacks an option the task needs (checks, terminal, a bootstrap limit);
+	// options names it and limit the value when it is a limit.
+	ErrLabOptionUnavailable = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("The laboratory does not offer an option this task needs").
+				WithDetailCode(12)
+	// ErrStateTaskNotForEvent: a task with check.state belongs to the Academy and cannot be part of an event.
+	ErrStateTaskNotForEvent = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("A task checked by the state of the lab cannot be used in an event").
+				WithDetailCode(13)
+	// ErrTaskLocked: the task waits for other tasks (requires) that are not done; waits_for names them.
+	ErrTaskLocked = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).
+			WithMessage("This task opens after the tasks it waits for are done").
+			WithDetailCode(14)
+	// ErrChecksRunNotAllowed: the task does not allow a manual run of its checks (or has no checks).
+	ErrChecksRunNotAllowed = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("This task does not allow a manual check").
+				WithDetailCode(15)
+	// ErrChecksRunTooOften: the manual run was asked for too often (HTTP 429, Retry-After).
+	ErrChecksRunTooOften = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("The check was asked for too often, try again later").
+				WithDetailCode(16).
+				WithHTTPCode(http.StatusTooManyRequests)
 )

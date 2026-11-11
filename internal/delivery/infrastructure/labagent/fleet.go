@@ -382,6 +382,10 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 			return infraModel.ErrDevicePersistenceUnavailable.Err()
 		}
 	}
+	// The same for the options of contract 1.5: checks, terminal, bootstrap and their sizes.
+	if err = f.requireLabOptions(ctx, m, exerciseModel.NeedsOf(topo, meta.Checks)); err != nil {
+		return err
+	}
 	if meta.GroupPartID, err = f.partOn(ctx, m, meta.GroupReservation); err != nil {
 		return err
 	}
@@ -392,6 +396,24 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if errors.Is(err, infraModel.ErrDevicePersistenceUnavailable.Err()) {
 		// The agent itself refused: what it offers changed since the cached report; the next try sees the truth.
 		refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m))
+	}
+	return err
+}
+
+// requireLabOptions refuses a lab that needs an option of the laboratory the agent does not offer. An agent that has not
+// reported is not refused here (it refuses on its own). The cached report may be old (an option can be switched on after
+// the agent started): it is read again, once per window, before a refusal stands.
+func (f *Fleet) requireLabOptions(ctx context.Context, m *Member, needs exerciseModel.LabNeeds) error {
+	feat := m.Features.Get()
+	if feat == nil {
+		return nil
+	}
+	err := feat.RequireLabOptions(needs)
+	if err == nil {
+		return nil
+	}
+	if fresh := refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m)); fresh != nil {
+		return fresh.RequireLabOptions(needs)
 	}
 	return err
 }

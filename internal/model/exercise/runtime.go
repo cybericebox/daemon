@@ -2,6 +2,7 @@ package exerciseModel
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
 	"strings"
 
@@ -10,33 +11,36 @@ import (
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 )
 
-// What the laboratory applies today, and where the follow-up plugs in.
+// What the laboratory applies (agent API contract 1.5).
 //
-// The platform sends a device's bootstrap.env to the laboratory through the existing environment mechanism
-// (labagent.buildDeviceEnv reads Device.Bootstrap.Env of the resolved topology). Everything else the document can
-// say about a device or a task is stored and validated, but the laboratory does not apply it yet:
-//
-//   - bootstrap.files, bootstrap.script (+ interpreter, timeout), command, args, terminal: Device.UnappliedKeys;
-//     the follow-up sends the resolved bootstrap (ResolvedInstance.Bootstraps) and the device keys next to the
-//     environment in labagent.translate (buildDeviceEnv's neighbours) once the laboratory SDK carries them.
-//   - check.state: Variant.StateTasks; the follow-up sends the resolved conditions (ResolvedInstance.Conditions)
-//     to the laboratory's checker and marks the task by its result.
-//   - the rule that forbids check.state on events, and the gating of a task by its `requires` at solve time, are
-//     applied where a task is solved (event use case) in the follow-up; the data is Task.Requires and Check.
-//
-// Until then a lab that needs any of it is refused at start (RequireLabSupported) instead of starting half-working.
+// The platform sends a device's bootstrap.env through the existing environment mechanism
+// (labagent.buildDeviceEnv reads Device.Bootstrap.Env of the resolved topology). bootstrap.files and bootstrap.script (with
+// the interpreter and the time limit) travel in the bootstrap message, command/args (else the image's) as the service
+// command, the terminal block as it is, and the conditions of a state task as laboratory checks (see lab.go and
+// labagent.translate). What is not applied is only what needs a guest agent: a device with the vm profile (itself refused
+// where a lab is deployed) and bootstrap, terminal or a check on it.
 
-// UnsupportedByLab lists, in document terms, what the variant asks of the laboratory that is not applied yet:
-// "tasks[<key>].check.state" for a state task, "device <name>: <key>" for a device key. Empty when the variant can
-// run as it is.
+// UnsupportedByLab lists, in document terms, what the variant asks of the laboratory that is not applied: "device <name>:
+// <key>" for a bootstrap list, a terminal or a command of a vm profile device, and "task <key>: check.state" for a state
+// task that observes one. Empty when the variant can run as it is.
 func (v Variant) UnsupportedByLab() []string {
 	var out []string
-	for _, task := range v.StateTasks() {
-		out = append(out, "task "+task.Key+": check.state")
-	}
+	vm := map[string]bool{}
 	for _, device := range v.Topology.Devices {
+		if device.EffectiveProfile() != NodeProfileVM {
+			continue
+		}
+		vm[device.ID.String()] = true
 		for _, key := range device.UnappliedKeys() {
 			out = append(out, "device "+device.Name+": "+key)
+		}
+	}
+	for _, task := range v.StateTasks() {
+		for _, c := range task.Check.State.Conditions {
+			if vm[c.DeviceID.String()] {
+				out = append(out, "task "+task.Key+": check.state")
+				break
+			}
 		}
 	}
 	return out
@@ -63,7 +67,8 @@ func (v Variant) AnswerTasks() []Task {
 }
 
 // PinVariables draws one value for every variable of the topology: a constant is itself, a template is generated.
-// The values are not stored anywhere yet: they are fixed for one built lab (see ResolveInstance).
+// The caller stores what it draws with the instance (instance_variables) and passes the stored values to PinnedVariables on
+// every later build, so a rebuilt or reset lab gets the same values.
 func (v Variant) PinVariables(source io.Reader) (map[string]string, error) {
 	if source == nil {
 		source = rand.Reader
@@ -82,6 +87,65 @@ func (v Variant) PinVariables(source io.Reader) (map[string]string, error) {
 		if out[variable.Name], err = pattern.Generate(source); err != nil {
 			return nil, err
 		}
+	}
+	return out, nil
+}
+
+// PinnedVariables completes the stored values of an instance: a variable that has a stored value keeps it (a constant
+// always takes the document's current text), a variable without one is drawn now. fresh lists the names drawn now, so the
+// caller stores exactly those. A stored value of a variable the topology no longer has is dropped.
+func (v Variant) PinnedVariables(stored map[string]string, source io.Reader) (values map[string]string, fresh []string, err error) {
+	values = make(map[string]string, len(v.Topology.Variables))
+	var missing Variant
+	for _, variable := range v.Topology.Variables {
+		if variable.Template == "" {
+			values[variable.Name] = variable.Value
+			continue
+		}
+		if value, ok := stored[variable.Name]; ok {
+			values[variable.Name] = value
+			continue
+		}
+		missing.Topology.Variables = append(missing.Topology.Variables, variable)
+	}
+	drawn, err := missing.PinVariables(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, variable := range missing.Topology.Variables {
+		values[variable.Name] = drawn[variable.Name]
+		fresh = append(fresh, variable.Name)
+	}
+	return values, fresh, nil
+}
+
+// WithBootstrapFiles returns a copy of the topology whose bootstrap files that name a file of the archive (Source) hold its
+// bytes as Content, read through read. A file that cannot be read is an error naming the device and the path.
+func (t Topology) WithBootstrapFiles(read func(AttachmentRef) ([]byte, error)) (Topology, error) {
+	out := t
+	out.Devices = make([]Device, len(t.Devices))
+	copy(out.Devices, t.Devices)
+	for i := range out.Devices {
+		device := &out.Devices[i]
+		if len(device.Bootstrap.Files) == 0 {
+			continue
+		}
+		files := make([]BootstrapFile, len(device.Bootstrap.Files))
+		copy(files, device.Bootstrap.Files)
+		for j := range files {
+			if files[j].Source == nil {
+				continue
+			}
+			body, err := read(*files[j].Source)
+			if err != nil {
+				return Topology{}, ErrDeviceRuntimeInvalid.WithPublicContext("device", device.Name).
+					WithPublicContext("field", fmt.Sprintf("bootstrap.files[%d].source", j+1)).
+					WithError(err).
+					Err()
+			}
+			files[j].Content, files[j].Source = string(body), nil
+		}
+		device.Bootstrap.Files = files
 	}
 	return out, nil
 }

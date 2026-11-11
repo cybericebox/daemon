@@ -1,0 +1,84 @@
+{
+  "bootstrap": [
+    {
+      "device": "r1",
+      "files": [
+        {
+          "content": "cm91dGVyIG9zcGYK",
+          "group": "frr",
+          "mode": 416,
+          "owner": "frr",
+          "path": "/etc/frr/frr.conf"
+        },
+        {
+          "content": "SUNFe2FiY30=",
+          "mode": 256,
+          "path": "/root/flag.txt"
+        }
+      ],
+      "interpreter": "/bin/bash",
+      "script": "echo admin:s3cret \u003e /etc/app/users",
+      "timeLimitSeconds": 90
+    }
+  ],
+  "checks": {
+    "items": [
+      {
+        "device": "r1",
+        "id": "ospf:1",
+        "manualRun": true,
+        "mode": "CHECK_MODE_CONTINUOUS",
+        "parts": [
+          {
+            "file": {
+              "contentContains": "router ospf",
+              "contentMatches": "area 0",
+              "exists": true,
+              "mode": 416,
+              "owner": "frr",
+              "path": "/etc/frr/frr.conf"
+            }
+          },
+          {
+            "custom": {
+              "interpreter": "/bin/sh",
+              "outputMatches": "^Full$",
+              "script": "vtysh -c 'show ip ospf neighbor' | grep -q Full",
+              "user": "root"
+            }
+          }
+        ],
+        "scheduleSeconds": 30,
+        "timeLimitSeconds": 20
+      },
+      {
+        "device": "srv",
+        "id": "ospf:2",
+        "mode": "CHECK_MODE_ONCE",
+        "parts": [
+          {
+            "file": {
+              "exists": false,
+              "path": "/tmp/gone"
+            }
+          },
+          {
+            "file": {
+              "exists": true,
+              "path": "/tmp/there"
+            }
+          }
+        ],
+        "timeLimitSeconds": 30
+      }
+    ]
+  },
+  "env": [
+    {
+      "device": "r1",
+      "vars": {
+        "MODE": "ctf"
+      }
+    }
+  ]
+}

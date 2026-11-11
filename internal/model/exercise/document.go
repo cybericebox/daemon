@@ -234,3 +234,24 @@ func (v Variant) TaskKeyByID() map[uuid.UUID]string {
 	}
 	return out
 }
+
+// HasStateTasks reports whether any variant of the version has a task checked by the state of the lab.
+func (v *ExerciseVersion) HasStateTasks() bool {
+	for _, variant := range v.Variants {
+		if len(variant.StateTasks()) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// RequireNoStateTasks refuses a version that has a task checked by the state of the lab: that kind belongs to the Academy
+// and cannot be part of an event (a competition). The public context names the first such task.
+func (v *ExerciseVersion) RequireNoStateTasks() error {
+	for _, variant := range v.Variants {
+		if tasks := variant.StateTasks(); len(tasks) > 0 {
+			return ErrStateTaskNotForEvent.WithPublicContext("task", tasks[0].Name).Err()
+		}
+	}
+	return nil
+}

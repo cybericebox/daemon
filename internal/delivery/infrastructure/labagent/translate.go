@@ -2,6 +2,8 @@ package labagent
 
 import (
 	"encoding/json"
+	"strconv"
+	"time"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
@@ -58,6 +60,24 @@ type (
 		Persistence *labPersistence `json:"persistence,omitempty"`
 		// WaitReadyFile: the device is Ready only once /run/ready exists inside the container.
 		WaitReadyFile bool `json:"waitReadyFile,omitempty"`
+		// Service is what the launcher runs after the bootstrap (contract 1.5); only for a device that has a bootstrap
+		// list or a command of its own.
+		Service *labService `json:"service,omitempty"`
+		// Terminal is the browser terminal of the device (contract 1.5).
+		Terminal *labTerminal `json:"terminal,omitempty"`
+	}
+
+	labService struct {
+		Command    []string `json:"command,omitempty"`
+		Args       []string `json:"args,omitempty"`
+		User       string   `json:"user,omitempty"`
+		WorkingDir string   `json:"workingDir,omitempty"`
+	}
+
+	labTerminal struct {
+		Enabled bool     `json:"enabled,omitempty"`
+		Command []string `json:"command,omitempty"`
+		User    string   `json:"user,omitempty"`
 	}
 
 	labPersistence struct {
@@ -132,26 +152,53 @@ const (
 	reservedDeviceInternet = "internet"
 )
 
+// LabBuild is everything one lab is created with: the spec and the secret material that travels beside it. The agent
+// takes the environment, the bootstrap lists and the checks only as Secrets, so none of them appears in the spec.
+type LabBuild struct {
+	SpecJSON  []byte
+	Env       []*labpb.DeviceEnv
+	Bootstrap []*labpb.DeviceBootstrap
+	// Checks is nil when the lab has none.
+	Checks *labpb.LabChecks
+}
+
 // BuildLabSpec translates a variant's domain Topology into the laboratory Lab
-// spec_json plus the per-device environment. Env values are passed through
-// verbatim: the caller is responsible for decrypting secret vars first, so this
-// stays a pure, side-effect-free mapping. The agent takes the variables only as Secrets, so
-// they never appear in the returned spec. Devices are keyed by their domain
-// UUID for connection-endpoint resolution; the operator addresses them by name.
+// spec_json plus the per-device environment (the part of BuildLab the lab always had).
 func BuildLabSpec(t exerciseModel.Topology) (specJSON []byte, env []*labpb.DeviceEnv, err error) {
+	build, err := BuildLab(t, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return build.SpecJSON, build.Env, nil
+}
+
+// BuildLab translates a variant's domain Topology (its bootstraps resolved, secret values opened) and the checks of its
+// state tasks into the laboratory Lab spec_json and the secret material of contract 1.5. Env values are passed through
+// verbatim: the caller is responsible for decrypting secret vars first, so this stays a pure, side-effect-free mapping.
+// Devices are keyed by their domain UUID for connection-endpoint resolution; the operator addresses them by name. An
+// error names the device whose service command cannot be told to the laboratory.
+func BuildLab(t exerciseModel.Topology, checks []exerciseModel.LabCheck) (LabBuild, error) {
 	spec := labSpec{
 		VPN:      buildNetwork(t.VPN),
 		Internet: buildNetwork(t.Internet),
 	}
+	var build LabBuild
 
 	nameByID := make(map[string]string, len(t.Devices))
 	labNames := exerciseModel.LabDeviceNames(t.Devices)
 	for i, d := range t.Devices {
 		labName := labNames[i]
 		nameByID[d.ID.String()] = labName
-		spec.Devices = append(spec.Devices, buildDevice(d, labName))
+		device, err := withRuntime(buildDevice(d, labName), d)
+		if err != nil {
+			return LabBuild{}, err
+		}
+		spec.Devices = append(spec.Devices, device)
 		if de := buildDeviceEnv(d); de != nil {
-			env = append(env, de)
+			build.Env = append(build.Env, de)
+		}
+		if bootstrap := buildDeviceBootstrap(d); bootstrap != nil {
+			build.Bootstrap = append(build.Bootstrap, bootstrap)
 		}
 	}
 
@@ -162,12 +209,14 @@ func BuildLabSpec(t exerciseModel.Topology) (specJSON []byte, env []*labpb.Devic
 		}
 		spec.Connections = append(spec.Connections, conn)
 	}
+	build.Checks = buildLabChecks(checks)
 
-	specJSON, err = json.Marshal(spec)
+	specJSON, err := json.Marshal(spec)
 	if err != nil {
-		return nil, nil, err
+		return LabBuild{}, err
 	}
-	return specJSON, env, nil
+	build.SpecJSON = specJSON
+	return build, nil
 }
 
 func buildNetwork(n exerciseModel.NetworkSpec) labNetwork {
@@ -208,6 +257,28 @@ func buildDevice(d exerciseModel.Device, labName string) labDevice {
 		out.Exposure = &labExposure{Web: &labWeb{Port: d.External.Port, Protocol: d.External.Protocol}}
 	}
 	return out
+}
+
+// withRuntime adds what the document says about running a node (contract 1.5): the service command, from the author or the
+// image, and the terminal. An error names the device whose service command is unknown.
+func withRuntime(out labDevice, d exerciseModel.Device) (labDevice, error) {
+	if !d.IsNode() {
+		return out, nil
+	}
+	service, err := d.LabService()
+	if err != nil {
+		return labDevice{}, err
+	}
+	if service != nil {
+		out.Service = &labService{Command: service.Command, Args: service.Args, User: service.User, WorkingDir: service.WorkingDir}
+	}
+	if d.Terminal.Enabled {
+		out.Terminal = &labTerminal{Enabled: true, User: d.Terminal.User}
+		if d.Terminal.Command != "" {
+			out.Terminal.Command = []string{d.Terminal.Command}
+		}
+	}
+	return out, nil
 }
 
 // buildInterface maps IP config. IPConfigType values line up 1:1 with the
@@ -268,12 +339,8 @@ func buildEndpoint(ep exerciseModel.Endpoint, nameByID map[string]string) labEnd
 }
 
 // buildDeviceEnv collects a device's environment (the bootstrap.env of the resolved topology, substitutions made)
-// into a proto DeviceEnv the agent writes to a write-only Secret. Returns nil when the device declares no env.
-//
-// This is the one part of a device's bootstrap the laboratory applies today. The follow-up that sends
-// bootstrap.files, bootstrap.script (+ interpreter, timeout), command, args and terminal plugs in here, next to this
-// function, once the laboratory SDK carries them; until then exerciseModel.Variant.RequireLabSupported refuses a
-// lab that needs them (see exerciseModel.Device.UnappliedKeys).
+// into a proto DeviceEnv the agent writes to a write-only Secret. Returns nil when the device declares no env. The
+// rest of the bootstrap (files, script) travels in buildDeviceBootstrap; env stays on this path.
 func buildDeviceEnv(d exerciseModel.Device) *labpb.DeviceEnv {
 	if len(d.Bootstrap.Env) == 0 {
 		return nil
@@ -302,4 +369,107 @@ func wireProfile(d exerciseModel.Device) string {
 		return string(profile)
 	}
 	return ""
+}
+
+// buildDeviceBootstrap is the bootstrap list of a device whose resolved bootstrap has files or a script, with every
+// substitution made (Source files already hold their bytes as Content); nil for a device without one. A bootstrap with env
+// only needs none.
+func buildDeviceBootstrap(d exerciseModel.Device) *labpb.DeviceBootstrap {
+	if !d.IsNode() || !d.HasBootstrapList() {
+		return nil
+	}
+	out := &labpb.DeviceBootstrap{
+		Device:      d.Name,
+		Script:      d.Bootstrap.Script,
+		Interpreter: d.Bootstrap.Interpreter,
+	}
+	if d.Bootstrap.Timeout != "" {
+		if timeout, err := time.ParseDuration(d.Bootstrap.Timeout); err == nil && timeout > 0 {
+			out.TimeLimitSeconds = int32((timeout + time.Second - 1) / time.Second)
+		}
+	}
+	for _, f := range d.Bootstrap.Files {
+		file := &labpb.BootstrapFile{Path: f.Path, Content: []byte(f.Content), Owner: f.Owner, Group: f.Group}
+		if mode, err := strconv.ParseUint(f.Mode, 8, 32); err == nil {
+			file.Mode = uint32(mode)
+		}
+		out.Files = append(out.Files, file)
+	}
+	return out
+}
+
+// buildLabChecks maps the checks of a lab; nil when there are none.
+func buildLabChecks(checks []exerciseModel.LabCheck) *labpb.LabChecks {
+	if len(checks) == 0 {
+		return nil
+	}
+	out := &labpb.LabChecks{}
+	for _, c := range checks {
+		check := &labpb.Check{
+			Id:               c.ID,
+			Device:           c.Device,
+			Mode:             wireCheckMode(c.Mode),
+			ScheduleSeconds:  c.ScheduleSeconds,
+			ManualRun:        c.Manual,
+			TimeLimitSeconds: c.TimeLimitSeconds,
+		}
+		for _, part := range c.Parts {
+			switch {
+			case part.File != nil:
+				check.Parts = append(check.Parts, &labpb.CheckPart{Observation: &labpb.CheckPart_File{File: buildFileObservation(*part.File)}})
+			case part.Custom != nil:
+				check.Parts = append(check.Parts, &labpb.CheckPart{Observation: &labpb.CheckPart_Custom{Custom: buildCustomObservation(*part.Custom)}})
+			}
+		}
+		out.Items = append(out.Items, check)
+	}
+	return out
+}
+
+func wireCheckMode(mode exerciseModel.StateMode) labpb.CheckMode {
+	if mode == exerciseModel.StateModeContinuous {
+		return labpb.CheckMode_CHECK_MODE_CONTINUOUS
+	}
+	return labpb.CheckMode_CHECK_MODE_ONCE
+}
+
+// optionalText is a pointer to s, nil for an expectation that is not set.
+func optionalText(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// buildFileObservation: exists is true unless the author said false (a file expectation implies it), every other
+// expectation is optional.
+func buildFileObservation(f exerciseModel.FileObservation) *labpb.FileObservation {
+	exists := true
+	if f.Exists != nil {
+		exists = *f.Exists
+	}
+	out := &labpb.FileObservation{
+		Path:            f.Path,
+		Exists:          &exists,
+		ContentContains: optionalText(f.Contains),
+		ContentMatches:  optionalText(f.Matches),
+		Owner:           optionalText(f.Owner),
+		Group:           optionalText(f.Group),
+	}
+	if mode, err := strconv.ParseUint(f.Mode, 8, 32); err == nil && f.Mode != "" {
+		bits := uint32(mode)
+		out.Mode = &bits
+	}
+	return out
+}
+
+// buildCustomObservation: the author's run is a script (a command line is a one-line script), run with the interpreter.
+func buildCustomObservation(o exerciseModel.CustomObservation) *labpb.CustomObservation {
+	return &labpb.CustomObservation{
+		Script:         o.Run,
+		Interpreter:    o.Interpreter,
+		User:           o.User,
+		OutputContains: optionalText(o.OutputContains),
+		OutputMatches:  optionalText(o.OutputMatches),
+	}
 }

@@ -241,37 +241,40 @@ func TestPinVariables(t *testing.T) {
 	require.Regexp(t, `^[a-z]{8}$`, pinned["pw"])
 }
 
-func TestRequireLabSupportedRefusesWhatIsNotAppliedYet(t *testing.T) {
+func TestRequireLabSupportedRefusesWhatNeedsAGuestAgent(t *testing.T) {
+	// A container applies everything: files, script, command, args, terminal and a state task.
 	variant, _ := variantWithBootstraps()
-	err := variant.RequireLabSupported()
-	require.ErrorIs(t, err, exerciseModel.ErrRuntimeNotSupported.Err())
-	unsupported := variant.UnsupportedByLab()
-	require.Contains(t, unsupported, "task state: check.state")
-	require.Contains(t, unsupported, "device web: bootstrap.files")
-	require.Contains(t, unsupported, "device web: bootstrap.script")
+	require.NoError(t, variant.RequireLabSupported())
+	require.Empty(t, variant.UnsupportedByLab())
 
-	// Env alone is applied.
+	// The vm profile has no guest agent yet: its bootstrap list, command, args and terminal are not applied.
 	plain := exerciseModel.Variant{
 		Tasks: []exerciseModel.Task{validTask()},
 		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{
 			{
-				Name: "web",
-				Type: exerciseModel.DeviceTypeNode,
+				Name:    "web",
+				Type:    exerciseModel.DeviceTypeNode,
+				Profile: exerciseModel.NodeProfileVM,
 				Bootstrap: exerciseModel.Bootstrap{
 					Env: []exerciseModel.EnvVar{{Name: "A", Value: "b"}},
 				},
 			},
 		}},
 	}
-	require.NoError(t, plain.RequireLabSupported())
+	require.NoError(t, plain.RequireLabSupported(), "env alone is applied")
 	for key, mutate := range map[string]func(*exerciseModel.Device){
 		"command":  func(d *exerciseModel.Device) { d.Command = []string{"nginx"} },
 		"args":     func(d *exerciseModel.Device) { d.Args = []string{"-q"} },
 		"terminal": func(d *exerciseModel.Device) { d.Terminal.Enabled = true },
+		"bootstrap.files": func(d *exerciseModel.Device) {
+			d.Bootstrap.Files = []exerciseModel.BootstrapFile{{Path: "/a", Content: "x"}}
+		},
+		"bootstrap.script": func(d *exerciseModel.Device) { d.Bootstrap.Script = "true" },
 	} {
 		v := plain
 		v.Topology.Devices = []exerciseModel.Device{plain.Topology.Devices[0]}
 		mutate(&v.Topology.Devices[0])
 		require.Equal(t, []string{"device web: " + key}, v.UnsupportedByLab())
+		require.ErrorIs(t, v.RequireLabSupported(), exerciseModel.ErrRuntimeNotSupported.Err())
 	}
 }

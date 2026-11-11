@@ -105,9 +105,13 @@ func (b Bootstrap) IsZero() bool {
 // IsZero lets encoding/json omit an empty terminal.
 func (t Terminal) IsZero() bool { return t == Terminal{} }
 
-// UnappliedKeys names, in document terms, the runtime keys of a node that the laboratory does not apply yet:
-// command, args, bootstrap.files, bootstrap.script and terminal. (bootstrap.env is applied.)
+// UnappliedKeys names, in document terms, the runtime keys of a node that the laboratory cannot apply on its profile: the
+// bootstrap list (files, script), command, args and terminal of a vm-profile device need a guest agent that does not exist
+// yet. (A container and a micro-VM apply all of them; bootstrap.env is applied everywhere.)
 func (d Device) UnappliedKeys() []string {
+	if d.EffectiveProfile() != NodeProfileVM {
+		return nil
+	}
 	var keys []string
 	if len(d.Command) > 0 {
 		keys = append(keys, "command")

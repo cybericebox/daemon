@@ -83,8 +83,19 @@ func (u *EventUseCase) AttachExercise(ctx context.Context, eventID uuid.UUID, in
 
 // attachableVersion loads a version an event may pin: published (or, for
 // reverting, once published), of an active exercise available to the event,
-// with infrastructure only when the event allows it.
+// with infrastructure only when the event allows it, and without a task checked by the state of
+// the lab (that kind belongs to the Academy: an attach, an update to a newer version and a revert all refuse it).
 func (u *EventUseCase) attachableVersion(ctx context.Context, eventID, versionID uuid.UUID, currentOnly bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
+	return u.loadAvailableVersion(ctx, eventID, versionID, currentOnly, true)
+}
+
+// versionOfAvailableExercise is attachableVersion without the state-task rule: for what only shows a version (a preview of a
+// catalog exercise) or acts on a version that is attached already (a fork).
+func (u *EventUseCase) versionOfAvailableExercise(ctx context.Context, eventID, versionID uuid.UUID, currentOnly bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
+	return u.loadAvailableVersion(ctx, eventID, versionID, currentOnly, false)
+}
+
+func (u *EventUseCase) loadAvailableVersion(ctx context.Context, eventID, versionID uuid.UUID, currentOnly, forbidStateTasks bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
 	version, err := u.exercises.GetVersion(ctx, versionID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -113,6 +124,11 @@ func (u *EventUseCase) attachableVersion(ctx context.Context, eventID, versionID
 	}
 	if !available {
 		return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, eventExerciseModel.ErrEventExerciseNotAvailable.Err()
+	}
+	if forbidStateTasks {
+		if err = version.RequireNoStateTasks(); err != nil {
+			return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, err
+		}
 	}
 	if err = u.requireInfrastructureForVersion(ctx, eventID, version); err != nil {
 		return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, err
@@ -201,7 +217,7 @@ type PublishedExerciseTaskPreview struct {
 // GetPublishedExercisePreviewForEvent shows the tasks of one variant of a
 // version the event may attach (E5: not only variant 0).
 func (u *EventUseCase) GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (PublishedExercisePreview, error) {
-	version, entry, err := u.attachableVersion(ctx, eventID, versionID, false)
+	version, entry, err := u.versionOfAvailableExercise(ctx, eventID, versionID, false)
 	if err != nil {
 		return PublishedExercisePreview{}, err
 	}
@@ -373,7 +389,7 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		return EventExerciseView{}, eventExerciseModel.ErrEventExerciseNoForkSource.Err()
 	}
 	if existing, findErr := u.exercises.FindEventFork(ctx, eventID, source.ID); findErr == nil {
-		version, entry, versionErr := u.attachableVersion(ctx, eventID, existing.PublishedVersionID.UUID, true)
+		version, entry, versionErr := u.versionOfAvailableExercise(ctx, eventID, existing.PublishedVersionID.UUID, true)
 		if versionErr != nil {
 			return EventExerciseView{}, versionErr
 		}

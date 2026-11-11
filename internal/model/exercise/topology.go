@@ -169,6 +169,10 @@ type (
 		Bootstrap Bootstrap `json:"bootstrap,omitzero"`
 		// Terminal opens a terminal of the device in the participant's browser; off unless enabled.
 		Terminal Terminal `json:"terminal,omitzero"`
+		// ImageService is what the image's own configuration says it runs (entrypoint, cmd, user, working directory). It is
+		// never part of the document or the stored topology (nothing writes or reads it as JSON): the deploy fills it from
+		// the image registry rows right before a lab is built, so the laboratory can be told what to run after a bootstrap.
+		ImageService *ImageService `json:"-"`
 		// Persistence keeps the device's writable layer across an unplanned restart; nil = off.
 		Persistence *DevicePersistence `json:"persistence,omitempty"`
 		// WaitReadyFile makes the device Ready only once the application has created /run/ready inside the

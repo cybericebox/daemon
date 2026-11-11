@@ -103,6 +103,37 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Reservations:           infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
 		PersistenceUnavailable: infraModel.ParseUnavailableReason(p.GetUnavailableReason()),
 		LifecycleUnavailable:   infraModel.ParseUnavailableReason(life.GetUnavailableReason()),
+		Checks:                 checksFeatureOf(r.GetChecks()),
+		Terminal:               terminalFeatureOf(r.GetTerminal()),
+		Bootstrap:              bootstrapFeatureOf(r.GetBootstrap()),
+	}
+}
+
+// The optional parts of contract 1.5 are nil when the report lacks them (an agent older than the fields).
+func checksFeatureOf(c *labpb.ChecksFeature) *infraModel.ChecksFeature {
+	if c == nil {
+		return nil
+	}
+	return &infraModel.ChecksFeature{
+		Enabled: c.GetEnabled(), MaxChecksPerLab: c.GetMaxChecksPerLab(), MaxPartsPerCheck: c.GetMaxPartsPerCheck(),
+		MaxTimeLimitSeconds: c.GetMaxTimeLimitSeconds(), MaxScheduleSeconds: c.GetMaxScheduleSeconds(), MaxDetailBytes: c.GetMaxDetailBytes(),
+	}
+}
+
+func terminalFeatureOf(t *labpb.TerminalFeature) *infraModel.TerminalFeature {
+	if t == nil {
+		return nil
+	}
+	return &infraModel.TerminalFeature{Enabled: t.GetEnabled()}
+}
+
+func bootstrapFeatureOf(b *labpb.BootstrapFeature) *infraModel.BootstrapFeature {
+	if b == nil {
+		return nil
+	}
+	return &infraModel.BootstrapFeature{
+		MaxScriptBytes: b.GetMaxScriptBytes(), MaxFiles: b.GetMaxFiles(), MaxFileBytes: b.GetMaxFileBytes(),
+		MaxTotalBytes: b.GetMaxTotalBytes(), MaxTimeLimitSeconds: b.GetMaxTimeLimitSeconds(), MaxAttempts: b.GetMaxAttempts(),
 	}
 }
 

@@ -288,6 +288,7 @@
   "23507": "A variable of the infrastructure is invalid",
   "23508": "A substitution names a task or a variable that does not exist",
   "23510": "The device of a resolved bootstrap is not in the topology",
+  "23513": "A task checked by the state of the lab cannot be used in an event",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -558,5 +559,10 @@
   "72907": "This archive source already has a different running or completed import",
   "73103": "No connected laboratory agent can run this node profile now",
   "73104": "The VM profile cannot be run yet",
-  "73509": "The laboratory cannot apply everything this task asks for yet"
+  "73509": "The laboratory cannot apply everything this task asks for yet",
+  "73511": "The command to start after the bootstrap of a device is unknown: set the command of the device",
+  "73512": "The laboratory does not offer an option this task needs",
+  "73514": "This task opens after the tasks it waits for are done",
+  "73515": "This task does not allow a manual check",
+  "73516": "The check was asked for too often, try again later"
 }

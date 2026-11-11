@@ -53,10 +53,11 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	if err := c.awaitGroupNamespace(ctx, group); err != nil {
 		return err
 	}
-	specJSON, env, err := BuildLabSpec(topo)
+	build, err := BuildLab(topo, meta.Checks)
 	if err != nil {
 		return fmt.Errorf("build lab spec: %w", err)
 	}
+	specJSON := build.SpecJSON
 	if meta.InitialLifecycle != nil {
 		var spec labSpec
 		if err = json.Unmarshal(specJSON, &spec); err != nil {
@@ -89,7 +90,8 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		Labels:   c.requestLabels(),
 		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON, RegistryCredentials: registryCredentials(meta.PullCredentials)}},
 		Items: []*labpb.LabItem{{
-			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
+			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: build.Env,
+			Bootstrap: build.Bootstrap, Checks: build.Checks,
 			Labels: meta.Labels, DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
 		}},
 	})
