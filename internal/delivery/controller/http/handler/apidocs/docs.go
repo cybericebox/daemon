@@ -21644,6 +21644,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/{id}/images/service": {
+            "post": {
+                "description": "Same access as saving the draft; the same body as images/check. The editor shows these as the default of a device's command, arguments and terminal user. One entry per distinct non-empty image, in the order sent. Known is true only for a platform image (platform:\u003cname\u003e@sha256:...) whose start configuration was read when it was published, so an image the author just uploaded is known as soon as its reference is returned. Known is false (the other fields empty) for an image by reference to an external registry (nothing reads its config), for a platform image published before the configuration was kept, and when the read fails; then the device needs its own command when it has bootstrap files or a script. No registry call is made, the answer is immediate.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "What the images themselves run (entrypoint, cmd, user, working directory)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "images",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.checkImagesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.imageServiceResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/proposals": {
             "post": {
                 "consumes": [
@@ -41157,6 +41225,36 @@ const docTemplate = `{
                 },
                 "Image": {
                     "description": "Image: a registry reference (nginx:1.28) or a platform image (platform:\u003cname\u003e@sha256:…); checked on publish.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.imageServiceResponse": {
+            "type": "object",
+            "properties": {
+                "Cmd": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Entrypoint": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Image": {
+                    "type": "string"
+                },
+                "Known": {
+                    "description": "Known is false when the platform has no start configuration for the image (see imageServices); the rest is then empty.",
+                    "type": "boolean"
+                },
+                "User": {
+                    "type": "string"
+                },
+                "WorkingDir": {
                     "type": "string"
                 }
             }

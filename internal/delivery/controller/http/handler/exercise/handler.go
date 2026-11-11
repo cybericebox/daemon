@@ -160,6 +160,7 @@ type (
 		// image availability (the editor's check); scope is the owner event of an event-owned exercise
 		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
+		ImageServices(ctx context.Context, images []string) []imageRegistryUseCase.ImageServiceInfo
 		// image upload through the site (the platform registry)
 		RequireImageUploads(ctx context.Context) error
 		MissingBlobs(ctx context.Context, digests []string) ([]string, error)
@@ -307,6 +308,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.PUT(":id/draft", self, h.authorize(exerciseUseCase.ActionWrite), h.saveDraft)
 		// image availability: the same access as saving the draft
 		ex.POST(":id/images/check", self, h.authorize(exerciseUseCase.ActionWrite), h.checkImages)
+		// the image's own start configuration (entrypoint, cmd, user, working dir): the same access as saving the draft
+		ex.POST(":id/images/service", self, h.authorize(exerciseUseCase.ActionWrite), h.imageServices)
 		// image upload through the site: the same access as saving the draft
 		ex.POST(":id/images/blobs/missing", self, h.authorize(exerciseUseCase.ActionWrite), h.missingImageBlobs)
 		ex.POST(":id/images/blobs", self, h.authorize(exerciseUseCase.ActionWrite), h.pushImageBlob)

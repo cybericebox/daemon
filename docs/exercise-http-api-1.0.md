@@ -198,3 +198,25 @@ The terminal block is sent to the laboratory (`terminal {enabled, command[], use
 browser terminal is not built: the laboratory's terminal component and the proxy route for it do not exist yet; the
 link will be issued next to `OpenTestDeployLink` / the participant lab link (`ExerciseUseCase.OpenTestDeployLink`,
 `EventUseCase` lab link) once they do.
+
+## What an image itself runs: `POST /exercises/{id}/images/service`
+
+For the device editor: «Команда», arguments and terminal user show the image's own values as the default (placeholder), so the
+catalog needs entrypoint, cmd, user and working dir by image reference. Same access as saving the draft, same body as
+`images/check`; no registry call, the answer is immediate (a stored value is read).
+
+```
+POST /exercises/{id}/images/service   {"Images": ["platform:web@sha256:…", "nginx:1"]}
+-> [{"Image": "platform:web@sha256:…", "Known": true,  "Entrypoint": ["/entry.sh"], "Cmd": ["serve"], "User": "www", "WorkingDir": "/srv"},
+    {"Image": "nginx:1",               "Known": false, "Entrypoint": [], "Cmd": [], "User": "", "WorkingDir": ""}]
+```
+
+- One entry per distinct non-empty image, in the order sent (at most 200, each at most 512 characters). Arrays are never null.
+- Use it for a stored device (send its `Image`) and for an image the author just typed or uploaded (an upload returns the
+  platform reference; its configuration is stored when the image is published, so it is `Known` right away).
+- `Known: false` (the other fields empty) means the daemon has no start configuration: an image by reference to an external
+  registry (nothing reads its config, it is not pulled at editing time), a platform image published before the configuration was
+  kept, or a failed read. The editor then has no default to show. A device with bootstrap files or a script needs its own
+  `Command` in that case, otherwise the start refuses with the device named.
+- The device DTO is unchanged: the values are not stored in the exercise, and a device without `Command` keeps meaning «what
+  the image runs».

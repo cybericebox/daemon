@@ -75,6 +75,7 @@ type fakeUC struct {
 	checked               string
 	imageScope            imageRegistryUseCase.Scope
 	checkedImages         []string
+	services              []imageRegistryUseCase.ImageServiceInfo
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
 	// access overrides what AuthorizeExercise grants (nil: full, flags included).
