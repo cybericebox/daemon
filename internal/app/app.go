@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/agentProfileRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labCheckRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -234,6 +235,8 @@ func Run(cfg *config.Config) {
 			runner = runner.WithWithdrawalSink(func(ctx context.Context, withdrawals []labMonitoringModel.Withdrawal) {
 				ucs.AgentsUseCase.ReportWithdrawals(ctx, member.ID, member.Name, withdrawals)
 			})
+			// The results of the checks of the labs (contract 1.5) are recorded per lab; the task state is read from them.
+			runner = runner.WithChecksSink(labMonitoring.NewChecksRecorder(labCheckRepo.New(repo.Pool()), time.Now))
 			runner = runner.WithLinkSink(agentLink{journal: ucs.Journal, id: member.ID, name: member.Name})
 			// The agent's reservations: their phase, the ending notice and the usage drive the calendar's parts.
 			runner = runner.WithReservationsSink(func(ctx context.Context, snapshot bool, reservations []*labpb.Reservation, deleted []string) error {

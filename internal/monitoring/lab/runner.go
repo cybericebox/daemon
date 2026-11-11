@@ -60,6 +60,8 @@ type Runner struct {
 	reservations ReservationsSink
 	// throttle hears the labs of every message (the CPU throttling alert).
 	throttle *ThrottleWatcher
+	// checks hears the labs of every message: the results of their laboratory checks (contract 1.5).
+	checks ChecksSink
 	// link hears whether the stream to the agent works (the error journal's agent-offline check).
 	link LinkSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
@@ -103,6 +105,12 @@ type ReservationsSink func(ctx context.Context, snapshot bool, reservations []*l
 
 // reservationKind is the deleted-key kind of a reservation.
 const reservationKind = "Reservation"
+
+// WithChecksSink hands the labs of every message to sink, which records the results of their checks.
+func (r *Runner) WithChecksSink(sink ChecksSink) *Runner {
+	r.checks = sink
+	return r
+}
 
 // WithThrottleWatcher hands the labs of every message to the watcher, which raises the CPU throttling alerts.
 func (r *Runner) WithThrottleWatcher(w *ThrottleWatcher) *Runner {
@@ -254,6 +262,12 @@ func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) er
 	}
 	if r.throttle != nil {
 		r.throttle.Observe(ctx, update)
+	}
+	if r.checks != nil && len(update.GetLabs()) > 0 {
+		if err := r.checks(ctx, update.GetLabs(), time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); err != nil {
+			// Only changes are published: a result that is not stored now comes again with the next change or snapshot.
+			log.Error().Err(err).Msg("Failed to record the lab check results")
+		}
 	}
 	if features := update.GetFeatures(); features != nil && r.features != nil {
 		if sinkErr := r.features(ctx, features, time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); sinkErr != nil {
