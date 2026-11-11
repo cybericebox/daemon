@@ -953,7 +953,16 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 			{
 				"Index": 0,
 				"Tasks": []map[string]any{
-					{"Name": "find the flag", "Difficulty": "easy", "Flag": []string{"FLAG{one}", "FLAG{two}"}},
+					{
+						"Name":       "find the flag",
+						"Difficulty": "easy",
+						"Check": map[string]any{
+							"Answer": map[string]any{
+								"Type":   "flag",
+								"Values": []string{"FLAG{one}", "FLAG{two}"},
+							},
+						},
+					},
 				},
 				"Topology": map[string]any{
 					"VPN":      map[string]any{"Enabled": false, "DHCP": false},
@@ -974,9 +983,9 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 	if len(uc.savedVariants) != 1 || len(uc.savedVariants[0].Tasks) != 1 {
 		t.Fatalf("unexpected saved variants: %+v", uc.savedVariants)
 	}
-	gotFlag := uc.savedVariants[0].Tasks[0].Flag
+	gotFlag := uc.savedVariants[0].Tasks[0].Check.AnswerValues()
 	if len(gotFlag) != 2 || gotFlag[0] != "FLAG{one}" || gotFlag[1] != "FLAG{two}" {
-		t.Fatalf("Flag not mapped as plain []string: %+v", gotFlag)
+		t.Fatalf("Check.Answer.Values not mapped as plain []string: %+v", gotFlag)
 	}
 }
 

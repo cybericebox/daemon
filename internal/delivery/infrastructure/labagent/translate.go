@@ -267,14 +267,19 @@ func buildEndpoint(ep exerciseModel.Endpoint, nameByID map[string]string) labEnd
 	}
 }
 
-// buildDeviceEnv collects a device's environment into a proto DeviceEnv the agent
-// writes to a write-only Secret. Returns nil when the device declares no env.
+// buildDeviceEnv collects a device's environment (the bootstrap.env of the resolved topology, substitutions made)
+// into a proto DeviceEnv the agent writes to a write-only Secret. Returns nil when the device declares no env.
+//
+// This is the one part of a device's bootstrap the laboratory applies today. The follow-up that sends
+// bootstrap.files, bootstrap.script (+ interpreter, timeout), command, args and terminal plugs in here, next to this
+// function, once the laboratory SDK carries them; until then exerciseModel.Variant.RequireLabSupported refuses a
+// lab that needs them (see exerciseModel.Device.UnappliedKeys).
 func buildDeviceEnv(d exerciseModel.Device) *labpb.DeviceEnv {
-	if len(d.EnvVars) == 0 {
+	if len(d.Bootstrap.Env) == 0 {
 		return nil
 	}
-	vars := make(map[string]string, len(d.EnvVars))
-	for _, ev := range d.EnvVars {
+	vars := make(map[string]string, len(d.Bootstrap.Env))
+	for _, ev := range d.Bootstrap.Env {
 		vars[ev.Name] = ev.Value
 	}
 	return &labpb.DeviceEnv{Device: d.Name, Vars: vars}

@@ -30,7 +30,7 @@ func publishSetVersion(t *testing.T, f *standFixture, set sharedSet, mutate func
 	_, err = exercises.Publish(ctx, version.ExerciseID, time.Now())
 	require.NoError(t, err)
 	f.sets.topology[next.ID] = version.Variants[0].Topology
-	f.sets.links[next.ID] = f.sets.links[previous]
+	f.sets.variants[next.ID] = f.sets.variants[previous]
 	return next.ID
 }
 

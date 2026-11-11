@@ -90,10 +90,19 @@ func newVariantEvent(t *testing.T, weights []int) *variantEvent {
 	taskID := uuid.Must(uuid.NewV7())
 	variants := make([]exerciseModel.Variant, 3)
 	for i := range variants {
-		variants[i] = exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Index: int32(i), Tasks: []exerciseModel.Task{{
-			ID: taskID, Name: "Find the flag", Description: json.RawMessage(`{"blocks":[]}`),
-			Difficulty: exerciseModel.DifficultyEasy, Flag: []string{fmt.Sprintf("ICE{v%d}", i)},
-		}}}
+		variants[i] = exerciseModel.Variant{
+			ID:    uuid.Must(uuid.NewV7()),
+			Index: int32(i),
+			Tasks: []exerciseModel.Task{
+				{
+					ID:          taskID,
+					Name:        "Find the flag",
+					Description: json.RawMessage(`{"blocks":[]}`),
+					Difficulty:  exerciseModel.DifficultyEasy,
+					Check:       exerciseModel.FlagCheck(fmt.Sprintf("ICE{v%d}", i)),
+				},
+			},
+		}
 		variants[i].Topology.Devices = []exerciseModel.Device{}
 		if i < len(weights) {
 			variants[i].Weight = weights[i]

@@ -277,10 +277,10 @@ func TestBuildLabSpec_DeviceEnv(t *testing.T) {
 	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{
 		{
 			ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer,
-			EnvVars: []exerciseModel.EnvVar{
+			Bootstrap: exerciseModel.Bootstrap{Env: []exerciseModel.EnvVar{
 				{Name: "FLAG", Value: "CTF{x}", Secret: true},
 				{Name: "MODE", Value: "prod"},
-			},
+			}},
 		},
 		{ID: uuid.Must(uuid.NewV7()), Name: "bare", Type: exerciseModel.DeviceTypeContainer},
 	}}
@@ -297,9 +297,15 @@ func TestBuildLabSpec_DeviceEnv(t *testing.T) {
 }
 
 func TestBuildLabSpec_PersistenceAndNoVariablesInTheSpec(t *testing.T) {
-	dev := exerciseModel.Device{Name: "db", Type: exerciseModel.DeviceTypeContainer, Image: "pg",
-		EnvVars:     []exerciseModel.EnvVar{{Name: "FLAG", Value: "secret-flag"}},
-		Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"}}
+	dev := exerciseModel.Device{
+		Name:  "db",
+		Type:  exerciseModel.DeviceTypeContainer,
+		Image: "pg",
+		Bootstrap: exerciseModel.Bootstrap{
+			Env: []exerciseModel.EnvVar{{Name: "FLAG", Value: "secret-flag"}},
+		},
+		Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"},
+	}
 	b, env, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{dev}})
 	if err != nil {
 		t.Fatal(err)

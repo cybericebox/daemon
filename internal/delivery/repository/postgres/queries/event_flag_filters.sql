@@ -36,10 +36,10 @@ JOIN event_challenges ec ON ec.id = tc.event_challenge_id
 WHERE tc.event_id = sqlc.arg(event_id);
 
 -- name: ListVersionTaskFlags :many
--- The flag candidates of every task of pinned versions, by variant position.
+-- The answer (type and values) of every task of pinned versions, by variant position.
 SELECT version.id AS version_id,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
-                           'tasks', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', task -> 'id', 'flag', task -> 'flag'))
+                           'tasks', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', task -> 'id', 'answer', task #> '{check,answer}'))
                                               FROM jsonb_array_elements(CASE WHEN jsonb_typeof(variant -> 'tasks') = 'array' THEN variant -> 'tasks' ELSE '[]'::jsonb END) AS task),
                                              '[]'::jsonb)) ORDER BY position)
                  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(version.variants) = 'array' THEN version.variants ELSE '[]'::jsonb END) WITH ORDINALITY AS v(variant, position)),

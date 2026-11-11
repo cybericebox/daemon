@@ -76,7 +76,17 @@ func (f *standFixture) standWithImage(t *testing.T, image string) {
 		JOIN event_exercises ee ON ee.id = c.event_exercise_id WHERE c.id = $1`, f.infraOne).Scan(&versionID); err != nil {
 		t.Fatal(err)
 	}
-	f.sets.topology[versionID] = exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: f.infraDevice, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: image}}}
+	f.sets.topology[versionID] = exerciseModel.Topology{
+		Devices: []exerciseModel.Device{
+			{
+				ID:        f.infraDevice,
+				Name:      "web",
+				Type:      exerciseModel.DeviceTypeContainer,
+				Image:     image,
+				Bootstrap: standTaskFlagBootstrap(),
+			},
+		},
+	}
 }
 
 // A stand Lab with an unavailable image is failed with the reason before anything is deployed.
@@ -127,7 +137,7 @@ func TestStandEngine_DeploysWithTheRewrittenImageAndItsCredentials(t *testing.T)
 		if topo.Devices[0].Image != rewritten {
 			t.Fatalf("lab %s image %q", lab, topo.Devices[0].Image)
 		}
-		if len(topo.Devices[0].EnvVars) == 0 {
+		if len(topo.Devices[0].Bootstrap.Env) == 0 {
 			t.Fatalf("lab %s lost its team flag: %+v", lab, topo.Devices[0])
 		}
 		if len(meta.PullCredentials) != 1 || meta.PullCredentials[0] != standPull {
@@ -210,8 +220,18 @@ func TestStandEngine_HeldLabsDoNotUseTheDeployBudget(t *testing.T) {
 		JOIN event_exercises ee ON ee.id = c.event_exercise_id WHERE c.id = $1`, healthy).Scan(&versionID); err != nil {
 		t.Fatal(err)
 	}
-	f.sets.topology[versionID] = exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: f.infraDevice, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1"}}}
-	f.sets.links[versionID] = []exerciseModel.FlagLink{{TaskID: f.infraTaskID, DeviceID: f.infraDevice, Var: "TASK_FLAG"}}
+	f.sets.topology[versionID] = exerciseModel.Topology{
+		Devices: []exerciseModel.Device{
+			{
+				ID:        f.infraDevice,
+				Name:      "web",
+				Type:      exerciseModel.DeviceTypeContainer,
+				Image:     "nginx:1",
+				Bootstrap: standTaskFlagBootstrap(),
+			},
+		},
+	}
+	f.sets.variants[versionID] = standVariant(f.infraTaskID)
 	f.uc = f.newUseCase(3)
 	images := &fakeEventImages{unavailable: map[string]imageRegistryModel.Reason{standPlatformImage: imageRegistryModel.ReasonUnreachable}}
 	f.uc.SetImageAccess(images)

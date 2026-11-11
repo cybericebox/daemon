@@ -6966,6 +6966,24 @@ definitions:
       IsAdmin:
         type: boolean
     type: object
+  exercise.answerDTO:
+    properties:
+      IgnoreCase:
+        type: boolean
+      InputHint:
+        type: string
+      Trim:
+        type: boolean
+      Type:
+        enum:
+        - flag
+        - text
+        type: string
+      Values:
+        items:
+          type: string
+        type: array
+    type: object
   exercise.approveProposalRequest:
     properties:
       AccessLevel:
@@ -7027,6 +7045,40 @@ definitions:
       State:
         type: string
     type: object
+  exercise.bootstrapDTO:
+    properties:
+      Env:
+        items:
+          $ref: '#/definitions/exercise.envVarDTO'
+        maxItems: 64
+        type: array
+      Files:
+        items:
+          $ref: '#/definitions/exercise.bootstrapFileDTO'
+        maxItems: 32
+        type: array
+      Interpreter:
+        type: string
+      Script:
+        type: string
+      Timeout:
+        type: string
+    type: object
+  exercise.bootstrapFileDTO:
+    properties:
+      Content:
+        type: string
+      Group:
+        type: string
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
+        type: string
+      Source:
+        $ref: '#/definitions/exercise.attachmentDTO'
+    type: object
   exercise.bulkAccessRequest:
     properties:
       AccessLevel:
@@ -7085,6 +7137,13 @@ definitions:
       Skipped:
         type: integer
     type: object
+  exercise.checkDTO:
+    properties:
+      Answer:
+        $ref: '#/definitions/exercise.answerDTO'
+      State:
+        $ref: '#/definitions/exercise.stateDTO'
+    type: object
   exercise.checkImagesRequest:
     properties:
       Images:
@@ -7110,6 +7169,17 @@ definitions:
         type: string
     required:
     - SHA256
+    type: object
+  exercise.conditionDTO:
+    properties:
+      Custom:
+        $ref: '#/definitions/exercise.customCheckDTO'
+      DeviceID:
+        type: string
+      File:
+        $ref: '#/definitions/exercise.fileCheckDTO'
+      Timeout:
+        type: string
     type: object
   exercise.connectionDTO:
     properties:
@@ -7159,6 +7229,19 @@ definitions:
       Reference:
         description: Reference is platform:<name>@sha256:<manifest digest>, the device
           image to save.
+        type: string
+    type: object
+  exercise.customCheckDTO:
+    properties:
+      Interpreter:
+        type: string
+      OutputContains:
+        type: string
+      OutputMatches:
+        type: string
+      Run:
+        type: string
+      User:
         type: string
     type: object
   exercise.decideElevationRequest:
@@ -7396,13 +7479,29 @@ definitions:
     type: object
   exercise.deviceDTO:
     properties:
-      EnvVars:
+      Args:
         items:
-          $ref: '#/definitions/exercise.envVarDTO'
-        maxItems: 64
+          type: string
+        type: array
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/exercise.bootstrapDTO'
+        description: |-
+          Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
+          service process. Absent when the device has none.
+      Command:
+        description: Command and Args replace the entrypoint and arguments of the
+          image (up to 32 and 64 entries).
+        items:
+          type: string
         type: array
       External:
         $ref: '#/definitions/exercise.externalDTO'
+      Hardware:
+        enum:
+        - fast
+        - compatible
+        type: string
       ID:
         type: string
       Image:
@@ -7441,6 +7540,15 @@ definitions:
           SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
           NET_ADMIN and /dev/net/tun). Any other value is refused.
         type: string
+      System:
+        description: System (linux|windows) and Hardware (fast|compatible) are reserved
+          for the vm profile.
+        enum:
+        - linux
+        - windows
+        type: string
+      Terminal:
+        $ref: '#/definitions/exercise.terminalDTO'
       Type:
         description: |-
           Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
@@ -7864,6 +7972,23 @@ definitions:
       Port:
         type: integer
       Protocol:
+        type: string
+    type: object
+  exercise.fileCheckDTO:
+    properties:
+      Contains:
+        type: string
+      Exists:
+        type: boolean
+      Group:
+        type: string
+      Matches:
+        type: string
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
         type: string
     type: object
   exercise.fileLookupRequest:
@@ -8380,26 +8505,37 @@ definitions:
     - Name
     - Size
     type: object
+  exercise.stateDTO:
+    properties:
+      Conditions:
+        items:
+          $ref: '#/definitions/exercise.conditionDTO'
+        type: array
+      Interval:
+        type: string
+      Manual:
+        type: boolean
+      Mode:
+        enum:
+        - once
+        - continuous
+        type: string
+    type: object
   exercise.taskDTO:
     properties:
       Attachments:
         items:
           $ref: '#/definitions/exercise.attachmentDTO'
         type: array
+      Check:
+        allOf:
+        - $ref: '#/definitions/exercise.checkDTO'
+        description: 'Check is what makes the task done: exactly one of Answer and
+          State.'
       Description:
         type: object
-      DeviceFlagVar:
-        type: string
       Difficulty:
         type: string
-      Flag:
-        description: |-
-          Flag holds the candidate flag values: empty → random at deploy time; one
-          value → fixed; several → one picked at random at deploy time. Mirrors
-          exerciseModel.Task.Flag 1:1 (no FlagSource/FlagMode wrapper).
-        items:
-          type: string
-        type: array
       Hints:
         description: |-
           Hints a team may unlock: IDs and levels match across variants, the
@@ -8409,13 +8545,22 @@ definitions:
         type: array
       ID:
         type: string
-      LinkedDeviceID:
+      Key:
+        description: |-
+          Key names the task inside its variant (the task substitution of a bootstrap and Requires use it): lowercase a-z, 0-9 and _,
+          starting with a letter, up to 32. Empty on save: the backend gives the task a stable one (task_<position>).
         type: string
       Name:
         type: string
       Placeholders:
         items:
           $ref: '#/definitions/exercise.placeholderDTO'
+        type: array
+      Requires:
+        description: Requires are the keys of the tasks of the same variant this one
+          waits for.
+        items:
+          type: string
         type: array
     type: object
   exercise.taskSolvesResponse:
@@ -8425,6 +8570,15 @@ definitions:
       Solved:
         type: integer
       TaskID:
+        type: string
+    type: object
+  exercise.terminalDTO:
+    properties:
+      Command:
+        type: string
+      Enabled:
+        type: boolean
+      User:
         type: string
     type: object
   exercise.testRunLengthsResponse:
@@ -8453,6 +8607,10 @@ definitions:
         $ref: '#/definitions/exercise.networkDTO'
       VPN:
         $ref: '#/definitions/exercise.networkDTO'
+      Variables:
+        items:
+          $ref: '#/definitions/exercise.variableDTO'
+        type: array
       VisualRender:
         type: object
     type: object
@@ -8488,6 +8646,15 @@ definitions:
       Size:
         type: integer
       UploadID:
+        type: string
+    type: object
+  exercise.variableDTO:
+    properties:
+      Name:
+        type: string
+      Template:
+        type: string
+      Value:
         type: string
     type: object
   exercise.variantDTO:

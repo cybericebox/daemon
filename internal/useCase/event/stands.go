@@ -559,10 +559,10 @@ func (u *EventUseCase) moveLegacySet(ctx context.Context, deleter standLabDelete
 	return nil
 }
 
-// FlagLinkResolver is the optional part of the topology resolver that names the
-// flag-linked tasks of a pinned variant. Without it no device gets a flag.
-type FlagLinkResolver interface {
-	ResolveDeployedFlagLinks(context.Context, uuid.UUID, int32) ([]exerciseModel.FlagLink, error)
+// DeployedVariantResolver is the optional part of the topology resolver that gives the pinned variant a team's lab
+// is built from (task keys and ids, state tasks, variables; no answer value). Without it no device gets a bootstrap.
+type DeployedVariantResolver interface {
+	ResolveDeployedVariant(context.Context, uuid.UUID, int32) (exerciseModel.Variant, error)
 }
 
 type topologyKey struct {
@@ -850,10 +850,17 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 		return false, "", nil
 	}
 	u.imageWaits.done(waitKey)
-	topology, err = u.withTeamFlags(ctx, lab, pulled.Topology)
+	topology, err = u.withTeamBootstraps(ctx, lab, pulled.Topology)
 	if err != nil {
-		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error()), now); markErr != nil {
-			return false, "", model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+		if _, markErr := u.failStandLab(
+			ctx,
+			lab.Binding,
+			eventStandModel.Reason("Bootstrap resolution failed: "+err.Error()),
+			now,
+		); markErr != nil {
+			return false, "", model.ErrPlatform.WithError(markErr).
+				WithMessage("Failed to fail stand lab").
+				Err()
 		}
 		return false, "", nil
 	}
@@ -1099,36 +1106,67 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab, fair bool) 
 	return meta
 }
 
-// withTeamFlags sets, for every task of the variant linked to a device, the
-// team's stored expected flag as that device's env var. The value is read from
-// the team challenge that was pinned at materialization; it is never re-rolled,
-// so a recreated Lab shows the same flag as before. A task the event does not
-// use has no team challenge and adds nothing.
-func (u *EventUseCase) withTeamFlags(ctx context.Context, lab labBindingRepo.PendingLab, topology exerciseModel.Topology) (exerciseModel.Topology, error) {
-	resolver, ok := u.topologies.(FlagLinkResolver)
+// withTeamBootstraps resolves, for the team's lab, the bootstrap of every device of the variant: each task's value
+// is the team's stored expected answer, read from the team challenge that was pinned at materialization (never
+// re-rolled, so a recreated Lab holds the same value as before), and each variable of the infrastructure is drawn
+// for this Lab. The resolved bootstrap.env reaches the laboratory through the environment mechanism. A variant that
+// asks for what the laboratory cannot apply yet (files, script, command, terminal, a state check) is refused, so the
+// stand fails with a reason instead of starting half-working.
+func (u *EventUseCase) withTeamBootstraps(
+	ctx context.Context,
+	lab labBindingRepo.PendingLab,
+	topology exerciseModel.Topology,
+) (exerciseModel.Topology, error) {
+	resolver, ok := u.topologies.(DeployedVariantResolver)
 	if !ok {
 		return topology, nil
 	}
-	links, err := resolver.ResolveDeployedFlagLinks(ctx, lab.ExerciseVersionID, lab.VariantIndex)
-	if err != nil || len(links) == 0 {
-		return topology, err
-	}
-	teamChallenges, err := u.teamChallenges.List(ctx, lab.Binding.EventTeamID)
+	variant, err := resolver.ResolveDeployedVariant(ctx, lab.ExerciseVersionID, lab.VariantIndex)
 	if err != nil {
 		return topology, err
 	}
-	flagByTask := make(map[uuid.UUID]string, len(teamChallenges))
-	for _, tc := range teamChallenges {
-		challenge, getErr := u.eventChallenges.GetForEvent(ctx, lab.Binding.EventID, tc.EventChallengeID)
-		if getErr != nil {
-			return topology, getErr
+	if err = variant.RequireLabSupported(); err != nil {
+		return topology, err
+	}
+	pinned := exerciseModel.PinnedValues{Tasks: map[string]string{}}
+	if len(variant.AnswerTasks()) > 0 {
+		teamChallenges, listErr := u.teamChallenges.List(ctx, lab.Binding.EventTeamID)
+		if listErr != nil {
+			return topology, listErr
 		}
-		flagByTask[challenge.TaskID] = tc.ExpectedFlag
+		keyByTask := variant.TaskKeyByID()
+		for _, tc := range teamChallenges {
+			challenge, getErr := u.eventChallenges.GetForEvent(
+				ctx,
+				lab.Binding.EventID,
+				tc.EventChallengeID,
+			)
+			if getErr != nil {
+				return topology, getErr
+			}
+			if key, known := keyByTask[challenge.TaskID]; known && tc.ExpectedFlag != "" {
+				pinned.Tasks[key] = tc.ExpectedFlag
+			}
+		}
 	}
-	for i := range links {
-		links[i].Flag = flagByTask[links[i].TaskID]
+	// The topology carries the opened secrets and the pulled images; the variant only supplies the document.
+	variant.Topology = topology
+	// A task the event does not use has no team challenge and so no value: its variable is left out of the lab.
+	unpinned := map[string]struct{}{}
+	for _, task := range variant.AnswerTasks() {
+		if _, pinnedTask := pinned.Tasks[task.Key]; !pinnedTask {
+			unpinned[task.Key] = struct{}{}
+		}
 	}
-	return topology.WithFlagEnv(links)
+	variant = variant.WithoutEnvOfTasks(unpinned)
+	if pinned.Vars, err = variant.PinVariables(nil); err != nil {
+		return topology, err
+	}
+	resolved, err := variant.ResolveInstance(pinned)
+	if err != nil {
+		return topology, err
+	}
+	return variant.Topology.WithBootstraps(resolved.Bootstraps)
 }
 
 // assessStands persists every candidate's stand status and reports whether

@@ -39383,6 +39383,33 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.answerDTO": {
+            "type": "object",
+            "properties": {
+                "IgnoreCase": {
+                    "type": "boolean"
+                },
+                "InputHint": {
+                    "type": "string"
+                },
+                "Trim": {
+                    "type": "boolean"
+                },
+                "Type": {
+                    "type": "string",
+                    "enum": [
+                        "flag",
+                        "text"
+                    ]
+                },
+                "Values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "exercise.approveProposalRequest": {
             "type": "object",
             "properties": {
@@ -39472,6 +39499,57 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.bootstrapDTO": {
+            "type": "object",
+            "properties": {
+                "Env": {
+                    "type": "array",
+                    "maxItems": 64,
+                    "items": {
+                        "$ref": "#/definitions/exercise.envVarDTO"
+                    }
+                },
+                "Files": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "items": {
+                        "$ref": "#/definitions/exercise.bootstrapFileDTO"
+                    }
+                },
+                "Interpreter": {
+                    "type": "string"
+                },
+                "Script": {
+                    "type": "string"
+                },
+                "Timeout": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.bootstrapFileDTO": {
+            "type": "object",
+            "properties": {
+                "Content": {
+                    "type": "string"
+                },
+                "Group": {
+                    "type": "string"
+                },
+                "Mode": {
+                    "type": "string"
+                },
+                "Owner": {
+                    "type": "string"
+                },
+                "Path": {
+                    "type": "string"
+                },
+                "Source": {
+                    "$ref": "#/definitions/exercise.attachmentDTO"
+                }
+            }
+        },
         "exercise.bulkAccessRequest": {
             "type": "object",
             "required": [
@@ -39557,6 +39635,17 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.checkDTO": {
+            "type": "object",
+            "properties": {
+                "Answer": {
+                    "$ref": "#/definitions/exercise.answerDTO"
+                },
+                "State": {
+                    "$ref": "#/definitions/exercise.stateDTO"
+                }
+            }
+        },
         "exercise.checkImagesRequest": {
             "type": "object",
             "required": [
@@ -39590,6 +39679,23 @@ const docTemplate = `{
             "properties": {
                 "SHA256": {
                     "description": "SHA256 is the hex digest of the whole file, computed by the client.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.conditionDTO": {
+            "type": "object",
+            "properties": {
+                "Custom": {
+                    "$ref": "#/definitions/exercise.customCheckDTO"
+                },
+                "DeviceID": {
+                    "type": "string"
+                },
+                "File": {
+                    "$ref": "#/definitions/exercise.fileCheckDTO"
+                },
+                "Timeout": {
                     "type": "string"
                 }
             }
@@ -39657,6 +39763,26 @@ const docTemplate = `{
             "properties": {
                 "Reference": {
                     "description": "Reference is platform:\u003cname\u003e@sha256:\u003cmanifest digest\u003e, the device image to save.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.customCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Interpreter": {
+                    "type": "string"
+                },
+                "OutputContains": {
+                    "type": "string"
+                },
+                "OutputMatches": {
+                    "type": "string"
+                },
+                "Run": {
+                    "type": "string"
+                },
+                "User": {
                     "type": "string"
                 }
             }
@@ -39979,15 +40105,36 @@ const docTemplate = `{
         "exercise.deviceDTO": {
             "type": "object",
             "properties": {
-                "EnvVars": {
+                "Args": {
                     "type": "array",
-                    "maxItems": 64,
                     "items": {
-                        "$ref": "#/definitions/exercise.envVarDTO"
+                        "type": "string"
+                    }
+                },
+                "Bootstrap": {
+                    "description": "Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the\nservice process. Absent when the device has none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.bootstrapDTO"
+                        }
+                    ]
+                },
+                "Command": {
+                    "description": "Command and Args replace the entrypoint and arguments of the image (up to 32 and 64 entries).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 },
                 "External": {
                     "$ref": "#/definitions/exercise.externalDTO"
+                },
+                "Hardware": {
+                    "type": "string",
+                    "enum": [
+                        "fast",
+                        "compatible"
+                    ]
                 },
                 "ID": {
                     "type": "string"
@@ -40036,6 +40183,17 @@ const docTemplate = `{
                 "SecurityPreset": {
                     "description": "SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,\nNET_ADMIN and /dev/net/tun). Any other value is refused.",
                     "type": "string"
+                },
+                "System": {
+                    "description": "System (linux|windows) and Hardware (fast|compatible) are reserved for the vm profile.",
+                    "type": "string",
+                    "enum": [
+                        "linux",
+                        "windows"
+                    ]
+                },
+                "Terminal": {
+                    "$ref": "#/definitions/exercise.terminalDTO"
                 },
                 "Type": {
                     "description": "Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container\nprofile.",
@@ -40633,6 +40791,32 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Protocol": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.fileCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Contains": {
+                    "type": "string"
+                },
+                "Exists": {
+                    "type": "boolean"
+                },
+                "Group": {
+                    "type": "string"
+                },
+                "Matches": {
+                    "type": "string"
+                },
+                "Mode": {
+                    "type": "string"
+                },
+                "Owner": {
+                    "type": "string"
+                },
+                "Path": {
                     "type": "string"
                 }
             }
@@ -41375,6 +41559,30 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.stateDTO": {
+            "type": "object",
+            "properties": {
+                "Conditions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.conditionDTO"
+                    }
+                },
+                "Interval": {
+                    "type": "string"
+                },
+                "Manual": {
+                    "type": "boolean"
+                },
+                "Mode": {
+                    "type": "string",
+                    "enum": [
+                        "once",
+                        "continuous"
+                    ]
+                }
+            }
+        },
         "exercise.taskDTO": {
             "type": "object",
             "properties": {
@@ -41384,21 +41592,19 @@ const docTemplate = `{
                         "$ref": "#/definitions/exercise.attachmentDTO"
                     }
                 },
+                "Check": {
+                    "description": "Check is what makes the task done: exactly one of Answer and State.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.checkDTO"
+                        }
+                    ]
+                },
                 "Description": {
                     "type": "object"
                 },
-                "DeviceFlagVar": {
-                    "type": "string"
-                },
                 "Difficulty": {
                     "type": "string"
-                },
-                "Flag": {
-                    "description": "Flag holds the candidate flag values: empty → random at deploy time; one\nvalue → fixed; several → one picked at random at deploy time. Mirrors\nexerciseModel.Task.Flag 1:1 (no FlagSource/FlagMode wrapper).",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 },
                 "Hints": {
                     "description": "Hints a team may unlock: IDs and levels match across variants, the\ntext may differ per variant. The price is set per event.",
@@ -41410,7 +41616,8 @@ const docTemplate = `{
                 "ID": {
                     "type": "string"
                 },
-                "LinkedDeviceID": {
+                "Key": {
+                    "description": "Key names the task inside its variant (the task substitution of a bootstrap and Requires use it): lowercase a-z, 0-9 and _,\nstarting with a letter, up to 32. Empty on save: the backend gives the task a stable one (task_\u003cposition\u003e).",
                     "type": "string"
                 },
                 "Name": {
@@ -41420,6 +41627,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/exercise.placeholderDTO"
+                    }
+                },
+                "Requires": {
+                    "description": "Requires are the keys of the tasks of the same variant this one waits for.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
@@ -41434,6 +41648,20 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "TaskID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.terminalDTO": {
+            "type": "object",
+            "properties": {
+                "Command": {
+                    "type": "string"
+                },
+                "Enabled": {
+                    "type": "boolean"
+                },
+                "User": {
                     "type": "string"
                 }
             }
@@ -41474,6 +41702,12 @@ const docTemplate = `{
                 },
                 "VPN": {
                     "$ref": "#/definitions/exercise.networkDTO"
+                },
+                "Variables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.variableDTO"
+                    }
                 },
                 "VisualRender": {
                     "type": "object"
@@ -41524,6 +41758,20 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "UploadID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.variableDTO": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                },
+                "Template": {
+                    "type": "string"
+                },
+                "Value": {
                     "type": "string"
                 }
             }

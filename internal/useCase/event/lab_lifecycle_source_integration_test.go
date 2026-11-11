@@ -39,7 +39,7 @@ func publishLifecycleSource(t *testing.T, f *standFixture, set sharedSet) uuid.U
 		t.Fatal(err)
 	}
 	f.sets.topology[next.ID] = f.sets.topology[previous]
-	f.sets.links[next.ID] = f.sets.links[previous]
+	f.sets.variants[next.ID] = f.sets.variants[previous]
 	return next.ID
 }
 func requireTerminalSourcePreserved(t *testing.T, f *standFixture, set sharedSet, before eventLabModel.Lab, expectedSolves int) {

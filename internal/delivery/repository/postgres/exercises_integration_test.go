@@ -34,7 +34,7 @@ func itVariants() []exerciseModel.Variant {
 			Name:        "Find the flag",
 			Description: json.RawMessage(`{"blocks":[]}`),
 			Difficulty:  exerciseModel.DifficultyEasy,
-			Flag:        []string{"ICE{x}"},
+			Check:       exerciseModel.FlagCheck("ICE{x}"),
 		}},
 	}}
 }
@@ -236,10 +236,21 @@ func TestExerciseCheckpointRestorePreservesCurrentDraft(t *testing.T) {
 	ex := mustCreateExercise(t, repo, "IT checkpoint restore")
 	draftID := uuid.Must(uuid.NewV7())
 	first := exerciseModel.ExerciseVersion{AdminNote: "first state", Variants: itVariants()}
-	first.Variants[0].Topology.Devices = []exerciseModel.Device{{
-		ID: uuid.Must(uuid.NewV7()), Name: "db", Type: exerciseModel.DeviceTypeContainer, Image: "postgres",
-		EnvVars: []exerciseModel.EnvVar{{Name: "DB_PASS", Value: "encrypted:opaque-ciphertext", Secret: true}},
-	}}
+	first.Variants[0].Topology.Devices = []exerciseModel.Device{
+		{
+			ID: uuid.Must(
+				uuid.NewV7(),
+			),
+			Name:  "db",
+			Type:  exerciseModel.DeviceTypeContainer,
+			Image: "postgres",
+			Bootstrap: exerciseModel.Bootstrap{
+				Env: []exerciseModel.EnvVar{
+					{Name: "DB_PASS", Value: "encrypted:opaque-ciphertext", Secret: true},
+				},
+			},
+		},
+	}
 	if _, err := repo.UpsertDraft(ctx, ex.ID, draftID, first, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("first draft: %v", err)
 	}
@@ -257,7 +268,7 @@ func TestExerciseCheckpointRestorePreservesCurrentDraft(t *testing.T) {
 	if err != nil || restored.ID != draftID || restored.AdminNote != "first state" {
 		t.Fatalf("restored draft: %+v err=%v", restored, err)
 	}
-	if got := restored.Variants[0].Topology.Devices[0].EnvVars[0].Value; got != "encrypted:opaque-ciphertext" {
+	if got := restored.Variants[0].Topology.Devices[0].Bootstrap.Env[0].Value; got != "encrypted:opaque-ciphertext" {
 		t.Fatalf("restore must copy stored ciphertext without re-encrypting it: %q", got)
 	}
 	previous, err := repo.GetVersion(ctx, beforeRestoreID)

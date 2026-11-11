@@ -252,9 +252,21 @@ func TestEveryMutatingCallCarriesTheInstanceLabel(t *testing.T) {
 func TestDeployLabSendsVariantOnceWithLabelsDeployGroupAndAllVariablesAsLabEnv(t *testing.T) {
 	f := &fakeAgent{groups: readyGroup()}
 	c := newClient(f)
-	web := exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx",
-		EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: "ICE{x}"}, {Name: "MODE", Value: "ctf"}}}
-	topo := exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}, Devices: []exerciseModel.Device{web}}
+	web := exerciseModel.Device{
+		Name:  "web",
+		Type:  exerciseModel.DeviceTypeContainer,
+		Image: "nginx",
+		Bootstrap: exerciseModel.Bootstrap{
+			Env: []exerciseModel.EnvVar{
+				{Name: "FLAG", Value: "ICE{x}"},
+				{Name: "MODE", Value: "ctf"},
+			},
+		},
+	}
+	topo := exerciseModel.Topology{
+		VPN:     exerciseModel.NetworkSpec{Enabled: true},
+		Devices: []exerciseModel.Device{web},
+	}
 	meta := infraModel.LabMeta{
 		Labels:      map[string]string{infraModel.LabelTask: "task-1", infraModel.LabelTeam: "team-1"},
 		GroupLabels: map[string]string{infraModel.LabelTeam: "team-1"},

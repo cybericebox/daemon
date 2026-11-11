@@ -300,17 +300,69 @@ type taskDTO struct {
 	Name        string          `json:"Name"`
 	Description json.RawMessage `json:"Description,omitempty" swaggertype:"object"`
 	Difficulty  string          `json:"Difficulty"`
-	// Flag holds the candidate flag values: empty → random at deploy time; one
-	// value → fixed; several → one picked at random at deploy time. Mirrors
-	// exerciseModel.Task.Flag 1:1 (no FlagSource/FlagMode wrapper).
-	Flag           []string         `json:"Flag,omitempty"`
-	LinkedDeviceID *uuid.UUID       `json:"LinkedDeviceID,omitempty"`
-	DeviceFlagVar  string           `json:"DeviceFlagVar,omitempty"`
-	Attachments    []attachmentDTO  `json:"Attachments,omitempty"`
-	Placeholders   []placeholderDTO `json:"Placeholders,omitempty"`
+	// Key names the task inside its variant (the task substitution of a bootstrap and Requires use it): lowercase a-z, 0-9 and _,
+	// starting with a letter, up to 32. Empty on save: the backend gives the task a stable one (task_<position>).
+	Key string `json:"Key,omitempty"`
+	// Requires are the keys of the tasks of the same variant this one waits for.
+	Requires []string `json:"Requires,omitempty"`
+	// Check is what makes the task done: exactly one of Answer and State.
+	Check        checkDTO         `json:"Check"`
+	Attachments  []attachmentDTO  `json:"Attachments,omitempty"`
+	Placeholders []placeholderDTO `json:"Placeholders,omitempty"`
 	// Hints a team may unlock: IDs and levels match across variants, the
 	// text may differ per variant. The price is set per event.
 	Hints []hintDTO `json:"Hints,omitempty"`
+}
+
+type checkDTO struct {
+	Answer *answerDTO `json:"Answer,omitempty"`
+	State  *stateDTO  `json:"State,omitempty"`
+}
+
+// answerDTO: the participant types a value. Type is flag or text. Values: none (flag only) → a random flag per
+// instance; one → fixed; several → one is pinned per instance; "template:<pattern>" → generated. A flag value is
+// ICE{...}; a text value is free text (up to 256 characters, at most 100 values). IgnoreCase and Trim are for the
+// type text only (Trim is on when absent). Values are never sent to a reader who may not see the solution.
+type answerDTO struct {
+	Type       string   `json:"Type"                 enums:"flag,text"`
+	Values     []string `json:"Values,omitempty"`
+	InputHint  string   `json:"InputHint,omitempty"`
+	IgnoreCase bool     `json:"IgnoreCase,omitempty"`
+	Trim       *bool    `json:"Trim,omitempty"`
+}
+
+// stateDTO: nothing is typed, the lab checks devices. Interval is a duration from 5s to 24h ("" = no schedule).
+type stateDTO struct {
+	Mode       string         `json:"Mode,omitempty"     enums:"once,continuous"`
+	Interval   string         `json:"Interval,omitempty"`
+	Manual     bool           `json:"Manual,omitempty"`
+	Conditions []conditionDTO `json:"Conditions"`
+}
+
+// conditionDTO observes one node device; exactly one of File and Custom is set. Timeout is a duration from 1s to 1m.
+type conditionDTO struct {
+	DeviceID uuid.UUID       `json:"DeviceID"`
+	Timeout  string          `json:"Timeout,omitempty"`
+	File     *fileCheckDTO   `json:"File,omitempty"`
+	Custom   *customCheckDTO `json:"Custom,omitempty"`
+}
+
+type fileCheckDTO struct {
+	Path     string `json:"Path"`
+	Exists   *bool  `json:"Exists,omitempty"`
+	Contains string `json:"Contains,omitempty"`
+	Matches  string `json:"Matches,omitempty"`
+	Mode     string `json:"Mode,omitempty"`
+	Owner    string `json:"Owner,omitempty"`
+	Group    string `json:"Group,omitempty"`
+}
+
+type customCheckDTO struct {
+	Run            string `json:"Run"`
+	Interpreter    string `json:"Interpreter,omitempty"`
+	User           string `json:"User,omitempty"`
+	OutputContains string `json:"OutputContains,omitempty"`
+	OutputMatches  string `json:"OutputMatches,omitempty"`
 }
 
 type hintDTO struct {
@@ -412,6 +464,40 @@ type envVarDTO struct {
 	ValueGroup int `json:"ValueGroup,omitempty"`
 }
 
+// bootstrapDTO: Timeout is a duration from 1s to 10m. Env at most 64 variables; the task and variable substitutions
+// (see docs/exercise-http-api-1.0.md) work in Env values, File contents and Script.
+type bootstrapDTO struct {
+	Timeout     string             `json:"Timeout,omitempty"`
+	Env         []envVarDTO        `json:"Env,omitempty"         binding:"max=64"`
+	Files       []bootstrapFileDTO `json:"Files,omitempty"       binding:"max=32"`
+	Script      string             `json:"Script,omitempty"`
+	Interpreter string             `json:"Interpreter,omitempty"`
+}
+
+// bootstrapFileDTO places a file: exactly one of Content (up to 64 KiB) and Source (an uploaded file, like an
+// attachment).
+type bootstrapFileDTO struct {
+	Path    string         `json:"Path"`
+	Content string         `json:"Content,omitempty"`
+	Source  *attachmentDTO `json:"Source,omitempty"`
+	Owner   string         `json:"Owner,omitempty"`
+	Group   string         `json:"Group,omitempty"`
+	Mode    string         `json:"Mode,omitempty"`
+}
+
+type terminalDTO struct {
+	Enabled bool   `json:"Enabled"`
+	Command string `json:"Command,omitempty"`
+	User    string `json:"User,omitempty"`
+}
+
+// variableDTO is a variable of the infrastructure: exactly one of Value and Template.
+type variableDTO struct {
+	Name     string `json:"Name"`
+	Value    string `json:"Value,omitempty"`
+	Template string `json:"Template,omitempty"`
+}
+
 type externalDTO struct {
 	Port     int32  `json:"Port"`
 	Protocol string `json:"Protocol"`
@@ -444,8 +530,17 @@ type deviceDTO struct {
 	// Resources is refused (400, 20974): a device size is a preset. It is never returned.
 	Resources  *resourcesDTO  `json:"Resources,omitempty"`
 	Interfaces []interfaceDTO `json:"Interfaces,omitempty"`
-	EnvVars    []envVarDTO    `json:"EnvVars,omitempty" binding:"max=64"`
 	External   *externalDTO   `json:"External,omitempty"`
+	// Command and Args replace the entrypoint and arguments of the image (up to 32 and 64 entries).
+	Command []string `json:"Command,omitempty"`
+	Args    []string `json:"Args,omitempty"`
+	// System (linux|windows) and Hardware (fast|compatible) are reserved for the vm profile.
+	System   string `json:"System,omitempty"   enums:"linux,windows"`
+	Hardware string `json:"Hardware,omitempty" enums:"fast,compatible"`
+	// Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
+	// service process. Absent when the device has none.
+	Bootstrap *bootstrapDTO `json:"Bootstrap,omitempty"`
+	Terminal  *terminalDTO  `json:"Terminal,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
 	// WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
@@ -464,6 +559,7 @@ type connectionDTO struct {
 }
 
 type topologyDTO struct {
+	Variables    []variableDTO   `json:"Variables,omitempty"`
 	VPN          networkDTO      `json:"VPN"`
 	Internet     networkDTO      `json:"Internet"`
 	Devices      []deviceDTO     `json:"Devices,omitempty" binding:"dive"`
@@ -792,17 +888,15 @@ func (d variantDTO) copyOf() uuid.NullUUID {
 
 func (d taskDTO) toDomain() exerciseModel.Task {
 	out := exerciseModel.Task{
-		Name:          d.Name,
-		Description:   d.Description,
-		Difficulty:    exerciseModel.Difficulty(d.Difficulty),
-		Flag:          d.Flag,
-		DeviceFlagVar: d.DeviceFlagVar,
+		Name:        d.Name,
+		Description: d.Description,
+		Difficulty:  exerciseModel.Difficulty(d.Difficulty),
+		Key:         d.Key,
+		Requires:    d.Requires,
+		Check:       d.Check.toDomain(),
 	}
 	if d.ID != nil {
 		out.ID = *d.ID
-	}
-	if d.LinkedDeviceID != nil {
-		out.LinkedDeviceID = uuid.NullUUID{UUID: *d.LinkedDeviceID, Valid: true}
 	}
 	for _, a := range d.Attachments {
 		out.Attachments = append(out.Attachments, exerciseModel.AttachmentRef{FileID: a.FileID, Name: a.Name})
@@ -826,6 +920,183 @@ func (d taskDTO) toDomain() exerciseModel.Task {
 	return out
 }
 
+func (c checkDTO) toDomain() exerciseModel.Check {
+	var out exerciseModel.Check
+	if a := c.Answer; a != nil {
+		out.Answer = &exerciseModel.AnswerCheck{
+			Type:       exerciseModel.AnswerType(a.Type),
+			Values:     a.Values,
+			InputHint:  a.InputHint,
+			IgnoreCase: a.IgnoreCase,
+			Trim:       a.Trim,
+		}
+	}
+	if s := c.State; s != nil {
+		state := &exerciseModel.StateCheck{
+			Mode:       exerciseModel.StateMode(s.Mode),
+			Interval:   s.Interval,
+			Manual:     s.Manual,
+			Conditions: []exerciseModel.Condition{},
+		}
+		for _, condition := range s.Conditions {
+			mapped := exerciseModel.Condition{
+				DeviceID: condition.DeviceID,
+				Timeout:  condition.Timeout,
+			}
+			if f := condition.File; f != nil {
+				mapped.File = &exerciseModel.FileObservation{
+					Path:     f.Path,
+					Exists:   f.Exists,
+					Contains: f.Contains,
+					Matches:  f.Matches,
+					Mode:     f.Mode,
+					Owner:    f.Owner,
+					Group:    f.Group,
+				}
+			}
+			if o := condition.Custom; o != nil {
+				mapped.Custom = &exerciseModel.CustomObservation{
+					Run:            o.Run,
+					Interpreter:    o.Interpreter,
+					User:           o.User,
+					OutputContains: o.OutputContains,
+					OutputMatches:  o.OutputMatches,
+				}
+			}
+			state.Conditions = append(state.Conditions, mapped)
+		}
+		out.State = state
+	}
+	return out
+}
+
+func checkToDTO(c exerciseModel.Check) checkDTO {
+	var out checkDTO
+	if a := c.Answer; a != nil {
+		out.Answer = &answerDTO{
+			Type:       string(a.Type),
+			Values:     a.Values,
+			InputHint:  a.InputHint,
+			IgnoreCase: a.IgnoreCase,
+			Trim:       a.Trim,
+		}
+	}
+	if s := c.State; s != nil {
+		state := &stateDTO{
+			Mode:       string(s.Mode),
+			Interval:   s.Interval,
+			Manual:     s.Manual,
+			Conditions: []conditionDTO{},
+		}
+		for _, condition := range s.Conditions {
+			mapped := conditionDTO{DeviceID: condition.DeviceID, Timeout: condition.Timeout}
+			if f := condition.File; f != nil {
+				mapped.File = &fileCheckDTO{
+					Path:     f.Path,
+					Exists:   f.Exists,
+					Contains: f.Contains,
+					Matches:  f.Matches,
+					Mode:     f.Mode,
+					Owner:    f.Owner,
+					Group:    f.Group,
+				}
+			}
+			if o := condition.Custom; o != nil {
+				mapped.Custom = &customCheckDTO{
+					Run:            o.Run,
+					Interpreter:    o.Interpreter,
+					User:           o.User,
+					OutputContains: o.OutputContains,
+					OutputMatches:  o.OutputMatches,
+				}
+			}
+			state.Conditions = append(state.Conditions, mapped)
+		}
+		out.State = state
+	}
+	return out
+}
+
+func (b *bootstrapDTO) toDomain() exerciseModel.Bootstrap {
+	if b == nil {
+		return exerciseModel.Bootstrap{}
+	}
+	out := exerciseModel.Bootstrap{Timeout: b.Timeout, Script: b.Script, Interpreter: b.Interpreter}
+	for _, ev := range b.Env {
+		out.Env = append(
+			out.Env,
+			exerciseModel.EnvVar{Name: ev.Name, Value: ev.Value, Secret: ev.Secret},
+		)
+	}
+	for _, f := range b.Files {
+		mapped := exerciseModel.BootstrapFile{
+			Path:    f.Path,
+			Content: f.Content,
+			Owner:   f.Owner,
+			Group:   f.Group,
+			Mode:    f.Mode,
+		}
+		if f.Source != nil {
+			mapped.Source = &exerciseModel.AttachmentRef{
+				FileID: f.Source.FileID,
+				Name:   f.Source.Name,
+			}
+		}
+		out.Files = append(out.Files, mapped)
+	}
+	return out
+}
+
+func bootstrapToDTO(b exerciseModel.Bootstrap) *bootstrapDTO {
+	if b.IsZero() {
+		return nil
+	}
+	out := &bootstrapDTO{Timeout: b.Timeout, Script: b.Script, Interpreter: b.Interpreter}
+	for _, ev := range b.Env {
+		// Secrets are already masked in the view; HasValue keeps the admin UI informed that a stored value exists.
+		// Pragmatic v1 contract: HasValue == ev.Secret (a saved secret is almost always non-empty; a secret saved as
+		// an empty value would show HasValue=true, which is tolerable for v1 — see useCase/exercise/secret.go
+		// maskSecrets).
+		out.Env = append(
+			out.Env,
+			envVarDTO{Name: ev.Name, Value: ev.Value, Secret: ev.Secret, HasValue: ev.Secret},
+		)
+	}
+	for _, f := range b.Files {
+		mapped := bootstrapFileDTO{
+			Path:    f.Path,
+			Content: f.Content,
+			Owner:   f.Owner,
+			Group:   f.Group,
+			Mode:    f.Mode,
+		}
+		if f.Source != nil {
+			mapped.Source = &attachmentDTO{FileID: f.Source.FileID, Name: f.Source.Name}
+		}
+		out.Files = append(out.Files, mapped)
+	}
+	return out
+}
+
+func variablesToModel(vars []variableDTO) []exerciseModel.Variable {
+	var out []exerciseModel.Variable
+	for _, v := range vars {
+		out = append(
+			out,
+			exerciseModel.Variable{Name: v.Name, Value: v.Value, Template: v.Template},
+		)
+	}
+	return out
+}
+
+func variablesToDTO(vars []exerciseModel.Variable) []variableDTO {
+	var out []variableDTO
+	for _, v := range vars {
+		out = append(out, variableDTO{Name: v.Name, Value: v.Value, Template: v.Template})
+	}
+	return out
+}
+
 func networkToModel(d networkDTO) exerciseModel.NetworkSpec {
 	out := exerciseModel.NetworkSpec{Enabled: d.Enabled, DHCP: d.DHCP, DNS: d.DNS}
 	for _, r := range d.DHCPRanges {
@@ -844,6 +1115,7 @@ func networkFromModel(n exerciseModel.NetworkSpec) networkDTO {
 
 func (d topologyDTO) toDomain() exerciseModel.Topology {
 	out := exerciseModel.Topology{
+		Variables:    variablesToModel(d.Variables),
 		VPN:          networkToModel(d.VPN),
 		Internet:     networkToModel(d.Internet),
 		VisualRender: d.VisualRender,
@@ -884,8 +1156,19 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 			}
 			domainDev.Interfaces = append(domainDev.Interfaces, domainIface)
 		}
-		for _, ev := range dev.EnvVars {
-			domainDev.EnvVars = append(domainDev.EnvVars, exerciseModel.EnvVar{Name: ev.Name, Value: ev.Value, Secret: ev.Secret})
+		domainDev.Command, domainDev.Args = dev.Command, dev.Args
+		domainDev.System, domainDev.Hardware = exerciseModel.SystemKind(
+			dev.System,
+		), exerciseModel.HardwareKind(
+			dev.Hardware,
+		)
+		domainDev.Bootstrap = dev.Bootstrap.toDomain()
+		if dev.Terminal != nil {
+			domainDev.Terminal = exerciseModel.Terminal{
+				Enabled: dev.Terminal.Enabled,
+				Command: dev.Terminal.Command,
+				User:    dev.Terminal.User,
+			}
 		}
 		if dev.External != nil {
 			domainDev.External = &exerciseModel.ExternalAccess{Port: dev.External.Port, Protocol: dev.External.Protocol}
@@ -941,16 +1224,13 @@ func variantToDTO(v exerciseModel.Variant) variantDTO {
 func taskToDTO(t exerciseModel.Task) taskDTO {
 	out := taskDTO{
 		Name: t.Name, Description: t.Description, Difficulty: string(t.Difficulty),
-		Flag:          t.Flag,
-		DeviceFlagVar: t.DeviceFlagVar,
+		Key:      t.Key,
+		Requires: t.Requires,
+		Check:    checkToDTO(t.Check),
 	}
 	if t.ID != uuid.Nil {
 		id := t.ID
 		out.ID = &id
-	}
-	if t.LinkedDeviceID.Valid {
-		id := t.LinkedDeviceID.UUID
-		out.LinkedDeviceID = &id
 	}
 	for _, a := range t.Attachments {
 		out.Attachments = append(out.Attachments, attachmentDTO{FileID: a.FileID, Name: a.Name})
@@ -972,6 +1252,7 @@ func taskToDTO(t exerciseModel.Task) taskDTO {
 
 func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	out := topologyDTO{
+		Variables:    variablesToDTO(t.Variables),
 		VPN:          networkFromModel(t.VPN),
 		Internet:     networkFromModel(t.Internet),
 		VisualRender: t.VisualRender,
@@ -1004,13 +1285,15 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 			}
 			dtoDev.Interfaces = append(dtoDev.Interfaces, dtoIface)
 		}
-		for _, ev := range dev.EnvVars {
-			// Secrets are already masked in the view; HasValue keeps the admin
-			// UI informed that a stored value exists. Pragmatic v1 contract:
-			// HasValue == ev.Secret (a saved secret is almost always non-empty;
-			// a secret saved as an empty value would show HasValue=true, which
-			// is tolerable for v1 — see useCase/exercise/secret.go maskSecrets).
-			dtoDev.EnvVars = append(dtoDev.EnvVars, envVarDTO{Name: ev.Name, Value: ev.Value, Secret: ev.Secret, HasValue: ev.Secret})
+		dtoDev.Command, dtoDev.Args = dev.Command, dev.Args
+		dtoDev.System, dtoDev.Hardware = string(dev.System), string(dev.Hardware)
+		dtoDev.Bootstrap = bootstrapToDTO(dev.Bootstrap)
+		if !dev.Terminal.IsZero() {
+			dtoDev.Terminal = &terminalDTO{
+				Enabled: dev.Terminal.Enabled,
+				Command: dev.Terminal.Command,
+				User:    dev.Terminal.User,
+			}
 		}
 		if dev.External != nil {
 			dtoDev.External = &externalDTO{Port: dev.External.Port, Protocol: dev.External.Protocol}
@@ -1059,9 +1342,18 @@ func withContentHashes(variants []variantDTO, groups [][][]int, fileHashes map[u
 	for vi := range variants {
 		for di := range variants[vi].Topology.Devices {
 			device := &variants[vi].Topology.Devices[di]
-			for ei := range device.EnvVars {
-				if device.EnvVars[ei].Secret && vi < len(groups) && di < len(groups[vi]) && ei < len(groups[vi][di]) {
-					device.EnvVars[ei].ValueGroup = groups[vi][di][ei]
+			if device.Bootstrap == nil {
+				continue
+			}
+			for fi := range device.Bootstrap.Files {
+				if source := device.Bootstrap.Files[fi].Source; source != nil {
+					source.ContentHash = fileHashes[source.FileID]
+				}
+			}
+			for ei := range device.Bootstrap.Env {
+				if device.Bootstrap.Env[ei].Secret && vi < len(groups) && di < len(groups[vi]) &&
+					ei < len(groups[vi][di]) {
+					device.Bootstrap.Env[ei].ValueGroup = groups[vi][di][ei]
 				}
 			}
 		}

@@ -142,11 +142,11 @@ func TestBoardNeverTakesBackWhatATeamWasShown(t *testing.T) {
 			v.Variants[0].Tasks[i].ID = uuid.Must(uuid.NewV7()) // a re-import issued new task ids
 		}
 	})
-	links := f.sets.links[reissued]
+	reissuedVariant := f.sets.variants[reissued]
 	newTasks, err := exerciseRepoVersionTasks(ctx, f, reissued)
 	require.NoError(t, err)
-	for i := range links {
-		links[i].TaskID = newTasks[i]
+	for i := range reissuedVariant.Tasks {
+		reissuedVariant.Tasks[i].ID = newTasks[i]
 	}
 	_, err = f.uc.UpdateEventExercise(ctx, f.eventID, set.exerciseID, &reissued, f.ownerID, true)
 	require.NoError(t, err)

@@ -204,7 +204,8 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	if err = throttleSubmission(txCtx, challengeAttemptRepo.New(txRepo), eventID, teamID, tc.EventChallengeID, tc.ID, in.ReceivedAt, !moderators); err != nil {
 		return SubmitChallengeResult{}, err
 	}
-	correct := challengeAttempt.FlagMatches(tc.ExpectedFlag, canonicalAnswer)
+	correct := eventChallengeModel.AnswerOfSnapshot(tc.Snapshot).
+		Matches(tc.ExpectedFlag, canonicalAnswer, in.Answer)
 	var before *time.Time
 	wasSolved := false
 	if correct && !practice {

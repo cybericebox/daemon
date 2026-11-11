@@ -246,17 +246,17 @@ func standContentChanged(previous, next exerciseModel.ExerciseVersion, variant i
 	if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
 		return true
 	}
-	return !maps.Equal(flagLinks(before), flagLinks(after))
+	return !maps.Equal(taskKeys(before), taskKeys(after))
 }
 
-func flagLinks(variant exerciseModel.Variant) map[string]uuid.UUID {
-	links := map[string]uuid.UUID{}
+// taskKeys maps each task (by normalized name) to its key: a bootstrap places the value of a task by that key, so a
+// changed key changes what the Lab is given. The bootstraps themselves are part of the topology compared above.
+func taskKeys(variant exerciseModel.Variant) map[string]string {
+	keys := map[string]string{}
 	for _, task := range variant.Tasks {
-		if task.LinkedDeviceID.Valid {
-			links[normalizedTaskName(task.Name)] = task.LinkedDeviceID.UUID
-		}
+		keys[normalizedTaskName(task.Name)] = task.Key
 	}
-	return links
+	return keys
 }
 
 // rebind runs in the switch transaction. A Lab that never reached the agent is reset in place: its bindings forget

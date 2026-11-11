@@ -123,11 +123,27 @@ func (e exerciseSpec) variants() []exerciseModel.Variant {
 				Name:        task.Name,
 				Description: mustJSON(lexical(task.Text...)),
 				Difficulty:  task.Difficulty,
-				Flag:        []string{task.Flag},
+				Key:         task.Key,
+				Check: exerciseModel.Check{
+					Answer: &exerciseModel.AnswerCheck{
+						Type:   exerciseModel.AnswerTypeFlag,
+						Values: []string{task.Flag},
+					},
+				},
 			}
 			if task.Device != "" {
-				built.LinkedDeviceID = uuid.NullUUID{UUID: deviceIDs[task.Device], Valid: true}
-				built.DeviceFlagVar = task.FlagVar
+				// The flag reaches the device through its bootstrap env, like any task value.
+				for di := range topology.Devices {
+					if topology.Devices[di].ID == deviceIDs[task.Device] {
+						topology.Devices[di].Bootstrap.Env = append(
+							topology.Devices[di].Bootstrap.Env,
+							exerciseModel.EnvVar{
+								Name:  task.FlagVar,
+								Value: "{{task." + task.Key + "}}",
+							},
+						)
+					}
+				}
 			}
 			for i, hint := range task.Hints {
 				built.Hints = append(built.Hints, exerciseModel.Hint{
@@ -185,7 +201,9 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 			SecurityPreset: spec.Preset,
 			ResourcePreset: "small",
 			Interfaces:     []exerciseModel.Interface{{Name: "eth0", IP: ip}},
-			EnvVars:        []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},
+			Bootstrap: exerciseModel.Bootstrap{
+				Env: []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},
+			},
 		}
 		if spec.Web {
 			built.External = &exerciseModel.ExternalAccess{Port: 80, Protocol: "http"}

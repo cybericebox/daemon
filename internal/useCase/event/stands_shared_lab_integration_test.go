@@ -50,12 +50,44 @@ func (f *standFixture) attachSharedSet(t *testing.T) sharedSet {
 		id := uuid.Must(uuid.NewV7())
 		set.tasks = append(set.tasks, id)
 		variant.Tasks = append(variant.Tasks, exerciseModel.Task{
-			ID: id, Name: "Task " + set.vars[i], Description: json.RawMessage(`{"blocks":[]}`),
-			Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{" + set.vars[i] + "}"},
+			ID:          id,
+			Name:        "Task " + set.vars[i],
+			Description: json.RawMessage(`{"blocks":[]}`),
+			Difficulty:  exerciseModel.DifficultyEasy,
+			Key:         "task_" + strings.ToLower(set.vars[i][len("FLAG_"):]),
+			Check:       exerciseModel.FlagCheck("ICE{" + set.vars[i] + "}"),
 		})
 	}
-	variant.Topology.Devices = []exerciseModel.Device{{ID: set.devices[0], Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1"}, {ID: set.devices[1], Name: "db", Type: exerciseModel.DeviceTypeContainer, Image: "postgres:16"}}
-	draft, err := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
+	variant.Topology.Devices = []exerciseModel.Device{
+		{
+			ID:    set.devices[0],
+			Name:  "web",
+			Type:  exerciseModel.DeviceTypeContainer,
+			Image: "nginx:1",
+		},
+		{
+			ID:    set.devices[1],
+			Name:  "db",
+			Type:  exerciseModel.DeviceTypeContainer,
+			Image: "postgres:16",
+		},
+	}
+	// Each task's flag reaches the device the task names through that device's bootstrap env.
+	for i, name := range set.vars {
+		device := &variant.Topology.Devices[set.deviceOf[i]]
+		device.Bootstrap.Env = append(
+			device.Bootstrap.Env,
+			exerciseModel.EnvVar{Name: name, Value: "{{task." + variant.Tasks[i].Key + "}}"},
+		)
+	}
+	draft, err := exercises.UpsertDraft(
+		ctx,
+		value.ID,
+		uuid.Must(uuid.NewV7()),
+		exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}},
+		now,
+		uuid.NullUUID{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +102,6 @@ func (f *standFixture) attachSharedSet(t *testing.T) sharedSet {
 		t.Fatal(err)
 	}
 	set.exerciseID = attachment.ID
-	var links []exerciseModel.FlagLink
 	for i, task := range set.tasks {
 		challenge, err := f.db.Queries.CreateEventChallenge(ctx, postgres.CreateEventChallengeParams{
 			ID: uuid.Must(uuid.NewV7()), EventExerciseID: attachment.ID, TaskID: task, OrderIndex: int32(i),
@@ -80,10 +111,9 @@ func (f *standFixture) attachSharedSet(t *testing.T) sharedSet {
 			t.Fatal(err)
 		}
 		set.challenges = append(set.challenges, challenge.ID)
-		links = append(links, exerciseModel.FlagLink{TaskID: task, DeviceID: set.devices[set.deviceOf[i]], Var: set.vars[i]})
 	}
 	f.sets.topology[draft.ID] = variant.Topology
-	f.sets.links[draft.ID] = links
+	f.sets.variants[draft.ID] = exerciseModel.Variant{Tasks: variant.Tasks}
 	return set
 }
 
@@ -159,7 +189,7 @@ func TestStandEngine_OneLabPerExerciseWithEveryTaskFlag(t *testing.T) {
 			t.Fatalf("stored flag: %q, %v", stored, err)
 		}
 		var got []string
-		for _, env := range topology.Devices[set.deviceOf[i]].EnvVars {
+		for _, env := range topology.Devices[set.deviceOf[i]].Bootstrap.Env {
 			if env.Name == set.vars[i] {
 				got = append(got, env.Value)
 			}

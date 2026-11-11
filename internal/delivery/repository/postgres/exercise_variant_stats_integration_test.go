@@ -34,7 +34,7 @@ func vsID(n int) uuid.UUID {
 func vsVariants() []exerciseModel.Variant {
 	task := func(id uuid.UUID, name string) exerciseModel.Task {
 		return exerciseModel.Task{ID: id, Name: name, Description: json.RawMessage(`{"blocks":[]}`),
-			Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{x}"}}
+			Difficulty: exerciseModel.DifficultyEasy, Check: exerciseModel.FlagCheck("ICE{x}")}
 	}
 	return []exerciseModel.Variant{
 		{ID: vsVariant0, Index: 0, Tasks: []exerciseModel.Task{task(vsTask1, "One"), task(vsTask2, "Two")}},

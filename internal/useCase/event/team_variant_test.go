@@ -20,7 +20,14 @@ import (
 func variantVersion(n int, taskID uuid.UUID) exerciseModel.ExerciseVersion {
 	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7())}
 	for range n {
-		version.Variants = append(version.Variants, exerciseModel.Variant{Tasks: []exerciseModel.Task{{ID: taskID, Name: "Task", Flag: []string{"ICE{x}"}}}})
+		version.Variants = append(
+			version.Variants,
+			exerciseModel.Variant{
+				Tasks: []exerciseModel.Task{
+					{ID: taskID, Name: "Task", Check: exerciseModel.FlagCheck("ICE{x}")},
+				},
+			},
+		)
 	}
 	return version
 }
@@ -100,7 +107,12 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 	next := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7())}
 	for range 3 {
 		next.Variants = append(next.Variants, exerciseModel.Variant{Tasks: []exerciseModel.Task{
-			{ID: taskOne, Name: "One", Flag: []string{"ICE{x}"}}, {ID: taskTwo, Name: "Two", Flag: []string{"ICE{x}"}},
+			{
+				ID:    taskOne,
+				Name:  "One",
+				Check: exerciseModel.FlagCheck("ICE{x}"),
+			},
+			{ID: taskTwo, Name: "Two", Check: exerciseModel.FlagCheck("ICE{x}")},
 		}})
 	}
 	board := []eventChallengeModel.EventChallenge{{ID: uuid.Must(uuid.NewV7()), TaskID: taskOne}, {ID: uuid.Must(uuid.NewV7()), TaskID: taskTwo}}

@@ -736,13 +736,13 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		}
 		hints := teamHints(task)
 		changed := !jsonEqual(snapshot, row.Snapshot) || !slices.Equal(hints, row.Hints)
-		if !row.Solved && !task.LinkedDeviceID.Valid {
+		if !row.Solved && !deliveredIntoLab(next, variantIndex, task) {
 			previousTaskID := taskID
 			if old, moved := repointed[row.EventChallengeID]; moved {
 				previousTaskID = old
 			}
 			oldTask, hadTask := findTask(previous, row.VariantIndex, previousTaskID)
-			if !hadTask || variantIndex != row.VariantIndex || !slices.Equal(oldTask.Flag, task.Flag) {
+			if !hadTask || variantIndex != row.VariantIndex || !sameAnswerSource(oldTask, task) {
 				if row.ExpectedFlag, err = flags.issue(ctx, variantIndex, task); err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 				}
@@ -756,7 +756,37 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	return nil
 }
 
-func findTask(version exerciseModel.ExerciseVersion, variant int32, taskID uuid.UUID) (exerciseModel.Task, bool) {
+// deliveredIntoLab: the task's value reaches the team's lab through a bootstrap, so the value stored for the team is
+// the one the lab holds and a version switch must not re-issue it.
+func deliveredIntoLab(
+	version exerciseModel.ExerciseVersion,
+	variant int32,
+	task exerciseModel.Task,
+) bool {
+	if variant < 0 || int(variant) >= len(version.Variants) {
+		return false
+	}
+	_, delivered := version.Variants[variant].DeliveredTaskKeys()[task.Key]
+	return delivered
+}
+
+// sameAnswerSource: two tasks draw their value from the same answer (type and values).
+func sameAnswerSource(a, b exerciseModel.Task) bool {
+	if (a.Check.Answer == nil) != (b.Check.Answer == nil) {
+		return false
+	}
+	if a.Check.Answer == nil {
+		return true
+	}
+	return a.Check.Answer.Type == b.Check.Answer.Type &&
+		slices.Equal(a.Check.Answer.Values, b.Check.Answer.Values)
+}
+
+func findTask(
+	version exerciseModel.ExerciseVersion,
+	variant int32,
+	taskID uuid.UUID,
+) (exerciseModel.Task, bool) {
 	if variant < 0 || int(variant) >= len(version.Variants) {
 		return exerciseModel.Task{}, false
 	}
