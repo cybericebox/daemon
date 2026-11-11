@@ -161,6 +161,17 @@ func (u *ExerciseUseCase) PreviewArchiveImport(ctx context.Context, actor Actor,
 			}
 			item.TargetExercise = &info
 			item.ReplacesDraft = targetEntity.DraftVersionID.Valid
+			if selected >= 0 {
+				diff, warnings, matchErr := importIdentity(&parsed.Versions[selected], targetVersion)
+				if matchErr != nil {
+					failure := model.ErrPlatform.WithError(matchErr).WithMessage("Failed to match the import with the exercise").Err()
+					return ArchiveImportPreview{}, importItemError(failure, parsed.ItemKey, "")
+				}
+				source = parsed.Versions[selected]
+				if item.Report, err = u.importReport(ctx, &targetEntity, source, diff, warnings, false); err != nil {
+					return ArchiveImportPreview{}, importItemError(err, parsed.ItemKey, "")
+				}
+			}
 		} else {
 			// A user may choose NEW after an editable ID auto-match. That
 			// suggestion is not the selected destination or comparison baseline.
@@ -169,6 +180,11 @@ func (u *ExerciseUseCase) PreviewArchiveImport(ctx context.Context, actor Actor,
 				if err = u.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
 					return ArchiveImportPreview{}, importItemError(err, parsed.ItemKey, "target")
 				}
+			}
+		}
+		if item.Target.Mode != "update" && selected >= 0 {
+			if item.Report, err = u.importReport(ctx, nil, source, newImportDiff(source), nil, parsed.SourceExerciseID == uuid.Nil); err != nil {
+				return ArchiveImportPreview{}, importItemError(err, parsed.ItemKey, "")
 			}
 		}
 		item.SourceIDMismatch = in.FixedExerciseID != uuid.Nil && parsed.SourceExerciseID != uuid.Nil && parsed.SourceExerciseID != in.FixedExerciseID

@@ -38,6 +38,8 @@ type ImportResult struct {
 	ItemKey    string    `json:"ItemKey"`
 	Mode       string    `json:"Mode"`
 	ExerciseID uuid.UUID `json:"ExerciseID"`
+	// Report is what the item did to the exercise; set for an import into an existing exercise and for a new one alike.
+	Report *ImportReport `json:"Report,omitempty"`
 }
 
 // ImportSource is where the archive lies: a chunked upload (purpose exercise-archive) or a stored file.

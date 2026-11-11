@@ -19671,7 +19671,7 @@
         },
         "/exercises/import/preview": {
             "post": {
-                "description": "Omitted Targets are nonbinding editable-ID suggestions. Explicit choices must name every item exactly once. FixedExerciseID forces one item into that editable target. Revisions bind the exact immutable source/item and current target content. Summary never returns flags or device secrets.",
+                "description": "This is the dry run of an import: nothing is written. Omitted Targets are nonbinding editable-ID suggestions (a document without an exercise id is suggested as a new exercise, with the warning no_exercise_id). Explicit choices must name every item exactly once. FixedExerciseID forces one item into that editable target. Revisions bind the exact immutable source/item and current target content. Each item carries Summary (counts) and Report: Diff (per variant, tasks and devices kept/added/removed by identity), Issues (errors that would stop the result being published, with Path), Publishable, Warnings and Usage (events and labs using the exercise). Neither returns flags or device secrets. The apply call returns the same Report per result.",
                 "consumes": [
                     "application/json"
                 ],
@@ -39325,6 +39325,14 @@
                 "ReplacesDraft": {
                     "type": "boolean"
                 },
+                "Report": {
+                    "description": "Report is the dry-run answer: what stays, comes and goes by identity, the errors that would stop the result\nbeing published, who uses the exercise and the warnings. The apply call returns the same report per item.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.ImportReport"
+                        }
+                    ]
+                },
                 "SourceExerciseID": {
                     "type": "string"
                 },
@@ -42393,6 +42401,134 @@
                 }
             }
         },
+        "exerciseModel.ImportChanges": {
+            "type": "object",
+            "properties": {
+                "Added": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportItem"
+                    }
+                },
+                "Kept": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportItem"
+                    }
+                },
+                "Removed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportItem"
+                    }
+                }
+            }
+        },
+        "exerciseModel.ImportDiff": {
+            "type": "object",
+            "properties": {
+                "Variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportVariantDiff"
+                    }
+                }
+            }
+        },
+        "exerciseModel.ImportIssue": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "integer"
+                },
+                "Context": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "Message": {
+                    "type": "string"
+                },
+                "Path": {
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.ImportItem": {
+            "type": "object",
+            "properties": {
+                "ID": {
+                    "description": "ID is the stored id a kept or removed item has. An added item gets its id when the draft is written.",
+                    "type": "string"
+                },
+                "Key": {
+                    "description": "Key is the task key (tasks only): the stored one for a kept task, the document's otherwise.",
+                    "type": "string"
+                },
+                "KeyChanged": {
+                    "description": "KeyChanged: a task matched by id keeps the stored key; this is true only when it could not (another task of\nthe document uses that key), so the document's key stays.",
+                    "type": "boolean"
+                },
+                "MatchedBy": {
+                    "description": "MatchedBy is set on kept items: the stored item keeps its id (and a task its key).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.ImportMatch"
+                        }
+                    ]
+                },
+                "Name": {
+                    "description": "Name is the name in the document (kept, added) or in the stored copy (removed).",
+                    "type": "string"
+                },
+                "PreviousName": {
+                    "description": "PreviousName is the stored name of a kept task whose name changed.",
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.ImportMatch": {
+            "type": "string",
+            "enum": [
+                "id",
+                "key",
+                "name",
+                "order"
+            ],
+            "x-enum-varnames": [
+                "ImportMatchID",
+                "ImportMatchKey",
+                "ImportMatchName",
+                "ImportMatchOrder"
+            ]
+        },
+        "exerciseModel.ImportReport": {
+            "type": "object",
+            "properties": {
+                "Diff": {
+                    "$ref": "#/definitions/exerciseModel.ImportDiff"
+                },
+                "Issues": {
+                    "description": "Issues are the errors of the result (draft validation and the publish checks). Errors of the document itself\nrefuse the request instead.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportIssue"
+                    }
+                },
+                "Publishable": {
+                    "description": "Publishable: the result passes every publish check.",
+                    "type": "boolean"
+                },
+                "Usage": {
+                    "$ref": "#/definitions/exerciseModel.ImportUsage"
+                },
+                "Warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportWarning"
+                    }
+                }
+            }
+        },
         "exerciseModel.ImportResult": {
             "type": "object",
             "properties": {
@@ -42404,6 +42540,128 @@
                 },
                 "Mode": {
                     "type": "string"
+                },
+                "Report": {
+                    "description": "Report is what the item did to the exercise; set for an import into an existing exercise and for a new one alike.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.ImportReport"
+                        }
+                    ]
+                }
+            }
+        },
+        "exerciseModel.ImportUsage": {
+            "type": "object",
+            "properties": {
+                "Events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportUsageEvent"
+                    }
+                },
+                "TestDeploys": {
+                    "description": "TestDeploys are the test labs of the exercise that are leased now (any author).",
+                    "type": "integer"
+                }
+            }
+        },
+        "exerciseModel.ImportUsageEvent": {
+            "type": "object",
+            "properties": {
+                "Added": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportUsageTask"
+                    }
+                },
+                "Archived": {
+                    "type": "boolean"
+                },
+                "Blocked": {
+                    "description": "Blocked: the event could not move to the result as it is: a removed task has recorded answers.",
+                    "type": "boolean"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Removed": {
+                    "description": "Removed and Added are the tasks of the event's challenge variant that would go and come, by the rule the\nevent itself applies when it moves to a new version (by task id, else by name).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.ImportUsageTask"
+                    }
+                },
+                "RunningLabs": {
+                    "description": "RunningLabs are the event's team laboratories of this exercise that are running now.",
+                    "type": "integer"
+                },
+                "VariantMissing": {
+                    "description": "VariantMissing: the event's fixed variant would not exist in the result.",
+                    "type": "boolean"
+                },
+                "VersionPublished": {
+                    "description": "VersionPublished: the event runs the version published now; otherwise it is pinned to an older one.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "exerciseModel.ImportUsageTask": {
+            "type": "object",
+            "properties": {
+                "Attempts": {
+                    "description": "Attempts and Solves are the recorded answers of the event's challenge (removed tasks only).",
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Solves": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exerciseModel.ImportVariantDiff": {
+            "type": "object",
+            "properties": {
+                "Devices": {
+                    "$ref": "#/definitions/exerciseModel.ImportChanges"
+                },
+                "MatchedBy": {
+                    "$ref": "#/definitions/exerciseModel.ImportMatch"
+                },
+                "Position": {
+                    "description": "Position is the 1-based position in the document (0 for a removed variant); StoredPosition the position in\nthe stored copy (0 for an added variant).",
+                    "type": "integer"
+                },
+                "Status": {
+                    "type": "string"
+                },
+                "StoredPosition": {
+                    "type": "integer"
+                },
+                "Tasks": {
+                    "description": "Tasks of an added variant that match a stored task (by id or key) are listed as kept: they take its identity.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.ImportChanges"
+                        }
+                    ]
+                }
+            }
+        },
+        "exerciseModel.ImportWarning": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "string"
+                },
+                "Context": {
+                    "type": "object",
+                    "additionalProperties": {}
                 }
             }
         },

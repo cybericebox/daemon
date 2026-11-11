@@ -234,3 +234,107 @@ also starts.
   path in the device, absent for the device total) and `limit` in bytes. At import `path` is also there, the place of the
   variant in the document (`versions[1].variants[1]`).
 - The editor can show the size of a chosen file and refuse early with the same numbers; the server check is the final one.
+
+## Import into an existing exercise
+
+The catalog frontend builds the import screens from this section. The routes are the existing ones; what is new is the
+`Report` of every item (dry run and apply alike), the identity matching and the rule below.
+
+### Rules
+
+1. An item has two targets: **new** (`Mode: "new"`) or **into a chosen existing exercise** (`Mode: "update"` with
+   `ExerciseID`). The result is always a **draft**; the published version is never touched. An import into an existing
+   exercise **replaces its draft** (the draft slot is reused, or created); nothing is merged field by field.
+2. A document **without `exercise.id`** is never matched to an existing exercise (not by name either): the preview
+   suggests `new` and the item's `Report.Warnings` holds `no_exercise_id`. The user may still choose an existing exercise
+   explicitly (`Targets` or `FixedExerciseID`); then the warning is not given.
+3. **Identity is kept by matching** (see below): a matched task keeps its stored `id` and `key`, a matched device its
+   `id`, so what points at them (event challenges and their recorded answers, laboratory checks, device ids in checks)
+   stays valid. Items of the document that match nothing are new; stored items the document lacks are not in the draft
+   any more.
+4. Nothing is written by the preview.
+5. Academy users in progress and events are not touched by a draft. An event keeps running the version it is pinned to
+   until its organizer updates the attachment to a published version.
+
+### Matching
+
+| What | Matched | Notes |
+|---|---|---|
+| Variant | by `id`; the rest in order (the n-th unmatched variant of the document with the n-th unmatched stored one) | A variant has no name and its `index` is only decoration, so id and then order are all there is. A stored variant nothing matches is removed. |
+| Task (inside the matched variant) | by `id`, then by `key` | A variant of the document without a stored counterpart looks at the first stored variant, which carries the identity of the task in every variant. A task without a key in the document gets `task_<position>` first, as everywhere, so such a document matches by position. |
+| Device (inside the matched variant) | by `name` only | A renamed device is **removed and added**: it gets a new id. |
+| Hint (inside a matched task) | by `id`, then by position | |
+
+A matched task takes the **stored key**. References the document made to its own key (`Requires` of other tasks,
+`{{task.<key>}}` in bootstrap values, files, script and check expectations) are rewritten to the stored key. If another
+task of the document already uses the stored key, the task keeps the document's key, its item has `KeyChanged: true` and the
+report has the warning `task_key_conflict`.
+
+### Dry run: `POST /exercises/import/preview`
+
+Body (unchanged): `{UploadID | FileID, Password?, OwnerEventID?, FixedExerciseID?, Targets?: [{ItemKey, Mode, ExerciseID?}]}`.
+Without `Targets` an item whose document has an `exercise.id` of an editable exercise is *suggested* as `update`.
+
+Each item of `Items` (existing fields as before: `ItemKey`, `Name`, `Target`, `SuggestedTarget`, `TargetExercise`,
+`ConfirmationRevision`, `ReplacesDraft`, `Summary` with the counts) gets:
+
+```json
+"Report": {
+  "Diff": { "Variants": [ {
+      "Status": "kept | added | removed",
+      "Position": 1,            "StoredPosition": 1,        // 1-based; 0 = none (added / removed)
+      "MatchedBy": "id | order",
+      "Tasks":   { "Kept":    [ {"Name": "Web", "PreviousName": "Web task", "Key": "web", "ID": "…", "MatchedBy": "id | key", "KeyChanged": false} ],
+                   "Added":   [ {"Name": "New task", "Key": "fresh"} ],
+                   "Removed": [ {"Name": "Old task", "Key": "old", "ID": "…"} ] },
+      "Devices": { "Kept":    [ {"Name": "srv", "ID": "…", "MatchedBy": "name"} ],
+                   "Added":   [ {"Name": "database"} ],
+                   "Removed": [ {"Name": "db", "ID": "…"} ] } } ] },
+  "Issues": [ {"Code": 23504, "Message": "…", "Path": "variants[2].topology.devices[1]", "Context": {"task": "…", "field": "…"}} ],
+  "Publishable": false,
+  "Warnings": [ {"Code": "used_by_events", "Context": {"events": 2}} ],
+  "Usage": { "Events": [ { "EventID": "…", "Name": "…", "Archived": false, "VersionPublished": true, "RunningLabs": 3,
+                           "Removed": [ {"Name": "Old task", "Attempts": 12, "Solves": 4} ],
+                           "Added":   [ {"Name": "New task"} ],
+                           "VariantMissing": false, "Blocked": true } ],
+             "TestDeploys": 0 }
+}
+```
+
+- `Diff.Variants` lists the variants of the document in order (`kept`/`added`), then the stored variants that go
+  (`removed`, with all their tasks and devices as `Removed`). For an item that creates a new exercise everything is `added`.
+  The slices are never `null`. Tasks of an `added` variant that match a stored task are listed as `Kept` (they take its
+  identity). `ID` is the stored id; an added item gets its id when the draft is written.
+- `Issues` are the errors of the result: the whole version's publish errors, then each variant's own, then the platform
+  gates (node profiles, infrastructure, resources). Each has the public `Code` and `Message` of the error, the document
+  `Path` of what it names (the variant is 1-based in the imported version; empty when it names the whole version) and the
+  public `Context` the error carries (`task`, `device`, `field`, ...). Errors of the document itself (a broken key, an unknown
+  field) refuse the request instead, as before, with `path`. `Publishable` is true exactly when `Issues` is empty. A draft
+  with issues is still imported.
+- `Warnings` never forbid anything. Codes: `no_exercise_id`, `task_key_conflict` (`task`, `key`), `used_by_events`
+  (`events`), `removed_task_has_attempts` (`event`, `task`, `attempts`, `solves`), `running_labs` (`labs`: running event
+  laboratories plus leased test labs of the exercise).
+- `Usage` is present for an update (empty for a new exercise). `Events` are the **active attachments** of the exercise in
+  events (archived events included, `Archived`). `VersionPublished` tells whether the event is pinned to the version
+  published now. `Removed` / `Added` are the tasks of the event's variant (its fixed variant, else the first) that would go
+  and come once the draft is **published and the organizer moves the event to it**, by the event's own rule (task id, then
+  name). `Attempts` / `Solves` are the answers recorded on the removed task's challenge in that event (solves: teams with a
+  correct, non-practice answer). `Blocked`: moving that event would be refused, because a removed task has recorded answers
+  or the event's fixed variant would not exist (`VariantMissing`).
+
+### Apply: `POST /exercises/import/uploaded` and `POST /exercises/import/upload`
+
+Unchanged request (`Targets`, `FixedExerciseID`, `ConfirmedUpdates: [{ItemKey, Revision, ReplaceDraft}]`; every update
+needs the preview's `ConfirmationRevision` and `ReplaceDraft: true` when the exercise has a draft). The response
+`{Exercises, Results, Created, Updated, Unchanged}`: every element of `Results` is `{ItemKey, Mode, ExerciseID, Report}`
+with the **same `Report`** the dry run showed (`Mode` is `new`, `update` or `unchanged`; `unchanged` leaves the working
+copy as it is). A background import (device image files, `202 {JobID}`) carries the same `Results[].Report` in
+`GET /exercises/import/jobs/{jobID}` when it is done.
+
+### Errors
+
+Existing import errors, unchanged: 22901 targets do not match the items, 22902 one exercise from several items, 22903
+exactly one source, 22904 in-task import needs one item and its fixed target, 22905 confirm the update and the draft
+replacement, 22908 an update needs the immutable source route, 72906 the source or target changed (preview again),
+20990 unsupported schema (expects `cib-exercise/1.0`). No new error codes: the report's `Issues` reuse the codes of the
+publish checks (23501 to 23513 and the older ones, see above).

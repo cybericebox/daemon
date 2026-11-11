@@ -1055,6 +1055,21 @@ func (mr *MockQuerierMockRecorder) CountLabTelemetryErasuresQueuedBefore(ctx, qu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountLabTelemetryErasuresQueuedBefore", reflect.TypeOf((*MockQuerier)(nil).CountLabTelemetryErasuresQueuedBefore), ctx, queuedBefore)
 }
 
+// CountLeasedExerciseTestDeploys mocks base method.
+func (m *MockQuerier) CountLeasedExerciseTestDeploys(ctx context.Context, arg postgres.CountLeasedExerciseTestDeploysParams) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountLeasedExerciseTestDeploys", ctx, arg)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountLeasedExerciseTestDeploys indicates an expected call of CountLeasedExerciseTestDeploys.
+func (mr *MockQuerierMockRecorder) CountLeasedExerciseTestDeploys(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountLeasedExerciseTestDeploys", reflect.TypeOf((*MockQuerier)(nil).CountLeasedExerciseTestDeploys), ctx, arg)
+}
+
 // CountLiveEventsWithTag mocks base method.
 func (m *MockQuerier) CountLiveEventsWithTag(ctx context.Context, arg postgres.CountLiveEventsWithTagParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9212,6 +9227,21 @@ func (mr *MockQuerierMockRecorder) ListEventsPage(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventsPage", reflect.TypeOf((*MockQuerier)(nil).ListEventsPage), ctx, arg)
 }
 
+// ListExerciseActiveAttachments mocks base method.
+func (m *MockQuerier) ListExerciseActiveAttachments(ctx context.Context, arg postgres.ListExerciseActiveAttachmentsParams) ([]postgres.ListExerciseActiveAttachmentsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseActiveAttachments", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListExerciseActiveAttachmentsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseActiveAttachments indicates an expected call of ListExerciseActiveAttachments.
+func (mr *MockQuerierMockRecorder) ListExerciseActiveAttachments(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseActiveAttachments", reflect.TypeOf((*MockQuerier)(nil).ListExerciseActiveAttachments), ctx, arg)
+}
+
 // ListExerciseAuthors mocks base method.
 func (m *MockQuerier) ListExerciseAuthors(ctx context.Context, arg postgres.ListExerciseAuthorsParams) ([]postgres.ListExerciseAuthorsRow, error) {
 	m.ctrl.T.Helper()
@@ -9240,6 +9270,21 @@ func (m *MockQuerier) ListExerciseCardExtras(ctx context.Context, ids []uuid.UUI
 func (mr *MockQuerierMockRecorder) ListExerciseCardExtras(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseCardExtras", reflect.TypeOf((*MockQuerier)(nil).ListExerciseCardExtras), ctx, ids)
+}
+
+// ListExerciseChallengeAnswerCounts mocks base method.
+func (m *MockQuerier) ListExerciseChallengeAnswerCounts(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseChallengeAnswerCountsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseChallengeAnswerCounts", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ListExerciseChallengeAnswerCountsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseChallengeAnswerCounts indicates an expected call of ListExerciseChallengeAnswerCounts.
+func (mr *MockQuerierMockRecorder) ListExerciseChallengeAnswerCounts(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseChallengeAnswerCounts", reflect.TypeOf((*MockQuerier)(nil).ListExerciseChallengeAnswerCounts), ctx, exerciseID)
 }
 
 // ListExerciseHeldFiles mocks base method.

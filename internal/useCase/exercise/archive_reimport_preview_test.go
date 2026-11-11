@@ -28,6 +28,7 @@ import (
 
 func TestReimportPreviewReturnsDuplicateSuggestionsAndBindsExactSourceAndTarget(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectNoUsage(q)
 	media, sources := newFakeMedia(), newFakeSources()
 	id, draftID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	doc := []byte(`{"schema":"cib-exercise/1.0","exercise":{"id":"` + id.String() + `","name":"Portable task"},"versions":[{"status":"draft","variants":[]}]}`)
@@ -137,6 +138,7 @@ func TestReimportPreviewSummaryDoesNotExposeFlagsOrSecrets(t *testing.T) {
 
 func TestReimportPreviewFixedTargetAndInvalidExplicitPlans(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectNoUsage(q)
 	sources := newFakeSources()
 	id, sourceID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(postgres.Exercise{ID: id, Name: "Existing target"}, nil).AnyTimes()
@@ -250,6 +252,7 @@ func TestReimportPreviewUpdateUsesSaveDraftInfrastructureGateAndDefersPublishRes
 	archive, err := exercise.BuildArchiveNoManifest(examplePreset(t, "xlarge", false))
 	require.NoError(t, err)
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectNoUsage(q)
 	sources := newFakeSources()
 	sources.stage(archiveUpID, importer, archive, mediaModel.UploadPurposeExerciseArchive)
 	uc := newUC(q, newFakeMedia())
@@ -392,6 +395,7 @@ func TestReimportPreviewRejectsAChangedDraftPointer(t *testing.T) {
 
 func TestReimportPreviewEventUpdateDoesNotNeedCatalogCreationRights(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectNoUsage(q)
 	sources := newFakeSources()
 	id, event := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	target := postgres.Exercise{ID: id, Name: "Event target", Scope: 1, OwnerEventID: uuid.NullUUID{UUID: event, Valid: true}}

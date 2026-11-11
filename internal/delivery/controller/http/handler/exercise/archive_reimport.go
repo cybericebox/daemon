@@ -19,7 +19,7 @@ type archivePreviewRequest struct {
 
 // previewArchive godoc
 // @Summary Preview every archive item without writing tasks, files or images
-// @Description Omitted Targets are nonbinding editable-ID suggestions. Explicit choices must name every item exactly once. FixedExerciseID forces one item into that editable target. Revisions bind the exact immutable source/item and current target content. Summary never returns flags or device secrets.
+// @Description This is the dry run of an import: nothing is written. Omitted Targets are nonbinding editable-ID suggestions (a document without an exercise id is suggested as a new exercise, with the warning no_exercise_id). Explicit choices must name every item exactly once. FixedExerciseID forces one item into that editable target. Revisions bind the exact immutable source/item and current target content. Each item carries Summary (counts) and Report: Diff (per variant, tasks and devices kept/added/removed by identity), Issues (errors that would stop the result being published, with Path), Publishable, Warnings and Usage (events and labs using the exercise). Neither returns flags or device secrets. The apply call returns the same Report per result.
 // @Tags exercises
 // @Accept json
 // @Produce json

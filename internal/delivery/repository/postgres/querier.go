@@ -141,6 +141,8 @@ type Querier interface {
 	CountIncompleteSignalHookExecutions(ctx context.Context, signalID uuid.UUID) (int64, error)
 	CountLabGroupPlacementsByAgent(ctx context.Context) ([]CountLabGroupPlacementsByAgentRow, error)
 	CountLabTelemetryErasuresQueuedBefore(ctx context.Context, queuedBefore time.Time) (int64, error)
+	// The test labs of an exercise that are leased now, any author.
+	CountLeasedExerciseTestDeploys(ctx context.Context, arg CountLeasedExerciseTestDeploysParams) (int32, error)
 	// Conflict means overlapping HALF-OPEN platform windows, not merely a reused
 	// tag. The exclusion constraint closes the race between concurrent writers.
 	CountLiveEventsWithTag(ctx context.Context, arg CountLiveEventsWithTagParams) (int64, error)
@@ -1212,6 +1214,9 @@ type Querier interface {
 	// platform default, else 7).
 	ListEventsDueStartReminder(ctx context.Context, nowAt time.Time) ([]ListEventsDueStartReminderRow, error)
 	ListEventsPage(ctx context.Context, arg ListEventsPageParams) ([]Event, error)
+	// The active attachments (status 0: neither superseded nor detached) of an exercise in events, with what each runs
+	// now: its pinned version and how many team laboratories of it are running. Read by the import warning.
+	ListExerciseActiveAttachments(ctx context.Context, arg ListExerciseActiveAttachmentsParams) ([]ListExerciseActiveAttachmentsRow, error)
 	// The authors of the exercises the viewer may read (viewer_id NULL: every exercise), by use, for the author filter.
 	// Only the first and last name, never the email; search matches either; ids (non-empty) keeps only those authors
 	// (the names of the chosen ones).
@@ -1219,6 +1224,9 @@ type Querier interface {
 	// Card decorations for a page of exercises in one query: owner event name,
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
+	// Recorded answers per board challenge of the active attachments of an exercise: every attempt, and the teams that
+	// solved it (a correct attempt that is not practice).
+	ListExerciseChallengeAnswerCounts(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseChallengeAnswerCountsRow, error)
 	// Which of the files the task stores as its copy of a content (a co-author's upload found by the hash lookup).
 	ListExerciseHeldFiles(ctx context.Context, arg ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]ListExerciseProposalsRow, error)
@@ -1664,7 +1672,7 @@ type Querier interface {
 	// Offset mode is used by the admin table: column sorting and a page count
 	// cannot be expressed by the legacy created_at cursor.
 	ListUsersPage(ctx context.Context, arg ListUsersPageParams) ([]User, error)
-	// The flag candidates of every task of pinned versions, by variant position.
+	// The answer (type and values) of every task of pinned versions, by variant position.
 	ListVersionTaskFlags(ctx context.Context, ids []uuid.UUID) ([]ListVersionTaskFlagsRow, error)
 	// The same reduced variants for specific versions (an event pins versions, not "the published one").
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListVersionVariantDevicesRow, error)
