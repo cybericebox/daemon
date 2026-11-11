@@ -491,6 +491,15 @@ func (u *ExerciseUseCase) ListVersions(ctx context.Context, exerciseID uuid.UUID
 // devices by id, and the secret merge/encrypt passes key by variant id, so
 // every id must exist before either runs — this MUST run before
 // submittedSecretKeys/mergeKeptSecrets/encryptSecrets in SaveDraft.
+// inheritTaskKeys gives a task without a key the key of the first variant's task at the same position.
+func inheritTaskKeys(tasks, first []exerciseModel.Task) {
+	for ti := range min(len(tasks), len(first)) {
+		if tasks[ti].Key == "" {
+			tasks[ti].Key = first[ti].Key
+		}
+	}
+}
+
 func normalizeContentIDs(variants []exerciseModel.Variant) {
 	for vi := range variants {
 		if variants[vi].ID == uuid.Nil {
@@ -526,5 +535,11 @@ func normalizeContentIDs(variants []exerciseModel.Variant) {
 				variants[vi].Topology.Devices[di].ID = uuid.Must(uuid.NewV7())
 			}
 		}
+		// Task keys: a task without one takes the key of the task at its position in the first variant, else a
+		// stable generated one, so {{task.<key>}} and requires mean the same task in every variant.
+		if vi > 0 {
+			inheritTaskKeys(variants[vi].Tasks, variants[0].Tasks)
+		}
+		variants[vi].NormalizeTaskKeys()
 	}
 }

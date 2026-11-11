@@ -66,7 +66,7 @@ func TestNewImportBringsOnlyTheDraftAndAllocatesItsCopyName(t *testing.T) {
 	require.NoError(t, err)
 	archive := mustExerciseArchive(t, `{"name":"Legacy root name"}`, `[
 		{"status":"draft","exercise":{"name":"Existing draft name","description":"draft description","tags":["crypto"]},"variants":[]},
-		{"status":"published","exercise":{"name":"Published authored name","description":"published description","tags":["web"]},"variants":[{"tasks":[{"name":"Published task","difficulty":"easy","flag":["ICE{x}"],"description":{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"Solve the task"}]}]}}}]}]},
+		{"status":"published","exercise":{"name":"Published authored name","description":"published description","tags":["web"]},"variants":[{"tasks":[{"name":"Published task","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{x}"]}},"description":{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"Solve the task"}]}]}}}]}]},
 		{"status":"checkpoint","exercise":{"name":"Historical authored name","tags":["misc"]},"variants":[]}
 	]`)
 	created, err := uc.ImportExerciseArchive(ctx, exercise.ImportExerciseInput{Archive: archive})

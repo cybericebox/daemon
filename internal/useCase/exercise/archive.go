@@ -317,9 +317,15 @@ func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
 	for vi, version := range versions {
 		for xi, variant := range version.Variants {
 			for di, device := range variant.Topology.Devices {
-				for ei, env := range device.EnvVars {
+				for ei, env := range device.Bootstrap.Env {
 					if env.Secret && env.Value != "" {
-						return fmt.Sprintf("versions[%d].variants[%d].topology.devices[%d].env_vars[%d]", vi+1, xi+1, di+1, ei+1)
+						return fmt.Sprintf(
+							"versions[%d].variants[%d].topology.devices[%d].bootstrap.env[%d]",
+							vi+1,
+							xi+1,
+							di+1,
+							ei+1,
+						)
 					}
 				}
 			}
@@ -427,13 +433,11 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	}
 	for versionIndex := range parsed.Versions {
 		for variantIndex := range parsed.Versions[versionIndex].Variants {
-			for taskIndex := range parsed.Versions[versionIndex].Variants[variantIndex].Tasks {
-				attachments := parsed.Versions[versionIndex].Variants[variantIndex].Tasks[taskIndex].Attachments
-				for attachmentIndex := range attachments {
-					attachments[attachmentIndex].FileID = mapped[attachments[attachmentIndex].FileID]
-				}
-				parsed.Versions[versionIndex].Variants[variantIndex].Tasks[taskIndex].Attachments = attachments
-			}
+			parsed.Versions[versionIndex].Variants[variantIndex].EachFileRef(
+				func(ref *exerciseModel.AttachmentRef) {
+					ref.FileID = mapped[ref.FileID]
+				},
+			)
 		}
 	}
 	return nil
@@ -621,6 +625,43 @@ func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exer
 						ref.Name = mediaNames[ref.FileID]
 					}
 					uses = append(uses, fileUse{Hash: hashOf[ref.FileID], Name: ref.Name, Version: vi + 1, Variant: xi + 1, Task: ti + 1, Attachment: ai + 1})
+				}
+			}
+			// The source files of the device bootstraps sit with their variant, like a device image.
+			for di := range versions[vi].Variants[xi].Topology.Devices {
+				files := versions[vi].Variants[xi].Topology.Devices[di].Bootstrap.Files
+				for fi := range files {
+					ref := files[fi].Source
+					if ref == nil {
+						continue
+					}
+					if _, done := hashOf[ref.FileID]; !done {
+						hash, body, name, err := u.streamExportedFile(ctx, ref.FileID)
+						if err != nil {
+							return nil, nil, err
+						}
+						hashOf[ref.FileID], mediaNames[ref.FileID] = hash, name
+						if _, seen := bodies[hash]; !seen {
+							if err = budget.add(len(body)); err != nil {
+								return nil, nil, err
+							}
+						}
+						bodies[hash] = body
+					}
+					if ref.Name == "" {
+						ref.Name = mediaNames[ref.FileID]
+					}
+					uses = append(
+						uses,
+						fileUse{
+							Hash:       hashOf[ref.FileID],
+							Name:       ref.Name,
+							Version:    vi + 1,
+							Variant:    xi + 1,
+							Device:     di + 1,
+							Attachment: fi + 1,
+						},
+					)
 				}
 			}
 		}

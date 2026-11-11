@@ -151,10 +151,15 @@ func examplePreset(t *testing.T, preset string, draft bool) map[string][]byte {
 	files := exampleEntries(t)
 	doc := files["exercise.yaml"]
 	require.Equal(t, 1, bytes.Count(doc, []byte("resource_preset: micro")))
-	doc = bytes.Replace(doc, []byte("resource_preset: micro"), []byte("resource_preset: "+preset), 1)
-	if draft {
-		require.Equal(t, 1, bytes.Count(doc, []byte("- status: published")))
-		doc = bytes.Replace(doc, []byte("- status: published"), []byte("- status: draft"), 1)
+	doc = bytes.Replace(
+		doc,
+		[]byte("resource_preset: micro"),
+		[]byte("resource_preset: "+preset),
+		1,
+	)
+	if !draft {
+		require.Equal(t, 1, bytes.Count(doc, []byte("- status: draft")))
+		doc = bytes.Replace(doc, []byte("- status: draft"), []byte("- status: published"), 1)
 	}
 	return replaced(files, "exercise.yaml", doc)
 }

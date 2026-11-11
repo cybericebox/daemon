@@ -156,8 +156,11 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 func TestImportExerciseArchive_PublishedDocumentImportsAsDraft(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, `{"name":"Опублікована"}`, `[{"status":"published","variants":[{"tasks":[{
-		"name":"Тест","difficulty":"easy","flag":["ICE{x}"],
+	archive := mustExerciseArchive(
+		t,
+		`{"name":"Опублікована"}`,
+		`[{"status":"published","variants":[{"tasks":[{
+		"name":"Тест","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{x}"]}},
 		"description":{"root":{"type":"text","text":"Опис"}},
 		"hints":[{"text":"підказка"}]}]}]}]`)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(

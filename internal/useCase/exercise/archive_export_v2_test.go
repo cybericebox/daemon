@@ -193,7 +193,7 @@ func exportFixtureVersions() []exerciseModel.ExerciseVersion {
 		return exerciseModel.Device{
 			ID: exportID(id), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27",
 			SecurityPreset: exerciseModel.SecurityPresetStandard, ResourcePreset: "micro",
-			EnvVars: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}},
+			Bootstrap: exerciseModel.Bootstrap{Env: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}}},
 		}
 	}
 	topology := func(base int) exerciseModel.Topology {
@@ -209,8 +209,8 @@ func exportFixtureVersions() []exerciseModel.ExerciseVersion {
 	task := func(id int, name string, attachments ...exerciseModel.AttachmentRef) exerciseModel.Task {
 		return exerciseModel.Task{
 			ID: exportID(id), Name: name, Description: json.RawMessage(`{"root":{"type":"text","text":"Опис"}}`),
-			Difficulty: exerciseModel.DifficultyMedium, Flag: []string{"ICE{" + name + "}"},
-			LinkedDeviceID: uuid.NullUUID{UUID: exportID(100), Valid: true}, DeviceFlagVar: "FLAG",
+			Difficulty: exerciseModel.DifficultyMedium, Check: exerciseModel.FlagCheck("ICE{" + name + "}"),
+			Key:         name,
 			Attachments: attachments,
 			Hints:       []exerciseModel.Hint{{ID: exportID(id + 50), Text: "підказка", Level: exerciseModel.HintLevelSteps}},
 		}
@@ -231,7 +231,6 @@ func exportFixtureVersions() []exerciseModel.ExerciseVersion {
 			{ID: exportID(3), Topology: topology(200), Tasks: []exerciseModel.Task{
 				func() exerciseModel.Task {
 					t := task(12, "three", exerciseModel.AttachmentRef{FileID: fileUnicode, Name: norm.NFD.String("Йод.txt")})
-					t.LinkedDeviceID = uuid.NullUUID{UUID: exportID(200), Valid: true}
 					return t
 				}(),
 			}},
@@ -459,7 +458,7 @@ func TestExportExerciseArchive_ProtectedV2(t *testing.T) {
 	variant := &versions[0].Variants[0]
 	sealed, err := cipher.EncryptWithContext([]byte("plain-secret-value"), exercise.EnvSecretContext(variant.ID, "web", "DB_PASS"))
 	require.NoError(t, err)
-	variant.Topology.Devices[0].EnvVars = append(variant.Topology.Devices[0].EnvVars, exerciseModel.EnvVar{Name: "DB_PASS", Value: sealed, Secret: true})
+	variant.Topology.Devices[0].Bootstrap.Env = append(variant.Topology.Devices[0].Bootstrap.Env, exerciseModel.EnvVar{Name: "DB_PASS", Value: sealed, Secret: true})
 
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
@@ -477,7 +476,7 @@ func TestExportExerciseArchive_ProtectedV2(t *testing.T) {
 	require.Contains(t, files, "files/v1/shared/common.bin")
 	parsed, err := exercise.ParseExerciseArchive(data, "strong password", exercise.DefaultLimits())
 	require.NoError(t, err)
-	require.Equal(t, "plain-secret-value", parsed.Versions[0].Variants[0].Topology.Devices[0].EnvVars[1].Value)
+	require.Equal(t, "plain-secret-value", parsed.Versions[0].Variants[0].Topology.Devices[0].Bootstrap.Env[1].Value)
 }
 
 func TestExportSeveralTasks_FoldersInOneZip(t *testing.T) {
@@ -522,7 +521,7 @@ func TestExportSeveralTasks_ProtectedBundle(t *testing.T) {
 	variant := &versions[0].Variants[0]
 	sealed, err := cipher.EncryptWithContext([]byte("plain-secret-value"), exercise.EnvSecretContext(variant.ID, "web", "DB_PASS"))
 	require.NoError(t, err)
-	variant.Topology.Devices[0].EnvVars = append(variant.Topology.Devices[0].EnvVars, exerciseModel.EnvVar{Name: "DB_PASS", Value: sealed, Secret: true})
+	variant.Topology.Devices[0].Bootstrap.Env = append(variant.Topology.Devices[0].Bootstrap.Env, exerciseModel.EnvVar{Name: "DB_PASS", Value: sealed, Secret: true})
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectExport(t, q, exportExerciseID, "Веб", versions)
@@ -583,8 +582,8 @@ func richVersions() []exerciseModel.ExerciseVersion {
 		},
 		Tasks: []exerciseModel.Task{{
 			ID: exportID(30), Name: "rich", Difficulty: exerciseModel.DifficultyHard,
-			Description:    json.RawMessage(`{"root":{"type":"root","children":[]}}`),
-			LinkedDeviceID: uuid.NullUUID{UUID: exportID(302), Valid: true}, DeviceFlagVar: "FLAG",
+			Description: json.RawMessage(`{"root":{"type":"root","children":[]}}`),
+			Key:         "rich", Check: exerciseModel.TextCheck("answer"),
 			Placeholders: []exerciseModel.Placeholder{
 				{Key: "server", Kind: exerciseModel.PlaceholderIP, IPReference: "vpn", LastOctet: 10, ShowMask: true},
 				{Key: "site", Kind: exerciseModel.PlaceholderExternalLink, AsLink: true, Scheme: "https"},

@@ -52,7 +52,14 @@ func flagsByTask(t *testing.T, raw []byte) map[uuid.UUID]string {
 
 func TestDeployVariantTest_StaticRunsWithoutAgentOrResources(t *testing.T) {
 	t1, t2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	q, variantID, versionID, ownerID := staticFixture(t, []exerciseModel.Task{{ID: t1, Name: "Login", Flag: []string{"ICE{fixed}"}}, {ID: t2, Name: "Admin"}}, nil)
+	q, variantID, versionID, ownerID := staticFixture(
+		t,
+		[]exerciseModel.Task{
+			{ID: t1, Name: "Login", Check: exerciseModel.FlagCheck("ICE{fixed}")},
+			{ID: t2, Name: "Admin", Check: exerciseModel.FlagCheck()},
+		},
+		nil,
+	)
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
 	gate := &fakeGate{}
@@ -112,7 +119,13 @@ func TestDeployVariantTest_StaticCountsTowardTheLimit(t *testing.T) {
 
 func TestDeployVariantTest_StaticIgnoresDeviceFreeTemplateFlags(t *testing.T) {
 	t1 := uuid.Must(uuid.NewV7())
-	q, variantID, versionID, ownerID := staticFixture(t, []exerciseModel.Task{{ID: t1, Flag: []string{"template:ICE{[0-9][0-9][0-9][0-9]}"}}}, nil)
+	q, variantID, versionID, ownerID := staticFixture(
+		t,
+		[]exerciseModel.Task{
+			{ID: t1, Check: exerciseModel.FlagCheck("template:ICE{[0-9][0-9][0-9][0-9]}")},
+		},
+		nil,
+	)
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})

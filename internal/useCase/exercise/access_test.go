@@ -158,8 +158,8 @@ func TestRedactFlags(t *testing.T) {
 	userID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	variants := func() []exerciseModel.Variant {
 		return []exerciseModel.Variant{
-			{Tasks: []exerciseModel.Task{{Flag: []string{"a"}}}},
-			{Tasks: []exerciseModel.Task{{Flag: []string{"b"}}}},
+			{Tasks: []exerciseModel.Task{{Check: exerciseModel.FlagCheck("a")}}},
+			{Tasks: []exerciseModel.Task{{Check: exerciseModel.FlagCheck("b")}}},
 		}
 	}
 	rows := func(version uuid.UUID, mode int16, role int16) []postgres.ListManagedExerciseAttachmentsRow {
@@ -188,32 +188,38 @@ func TestRedactFlags(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i, want := range tc.want {
-				if got := len(out.Variants[i].Tasks[0].Flag) > 0; got != want {
+				if got := len(out.Variants[i].Tasks[0].Check.AnswerValues()) > 0; got != want {
 					t.Fatalf("variant %d flag visible=%v want %v", i, got, want)
 				}
 			}
-			if len(in.Variants[0].Tasks[0].Flag) == 0 {
+			if len(in.Variants[0].Tasks[0].Check.AnswerValues()) == 0 {
 				t.Fatal("the input view was mutated")
 			}
 		})
 	}
 }
 
-// WithoutFlags takes every flag and flag env var out of a copy; the original keeps them.
+// WithoutFlags takes every answer value out of a copy; the original keeps them.
 func TestWithoutFlags(t *testing.T) {
 	v := exercise.VersionView{Variants: []exerciseModel.Variant{
-		{Tasks: []exerciseModel.Task{{Flag: []string{"a"}, DeviceFlagVar: "FLAG"}, {Flag: []string{"b", "c"}}}},
-		{Tasks: []exerciseModel.Task{{Flag: []string{"d"}}}},
+		{
+			Tasks: []exerciseModel.Task{
+				{Check: exerciseModel.FlagCheck("a")},
+				{Check: exerciseModel.FlagCheck("b", "c")},
+			},
+		},
+		{Tasks: []exerciseModel.Task{{Check: exerciseModel.FlagCheck("d")}}},
 	}}
 	out := exercise.WithoutFlags(v)
 	for _, variant := range out.Variants {
 		for _, task := range variant.Tasks {
-			if task.Flag != nil {
+			if task.Check.AnswerValues() != nil || task.Check.Answer == nil {
 				t.Fatalf("flag left: %+v", task)
 			}
 		}
 	}
-	if out.Variants[0].Tasks[0].DeviceFlagVar != "" || v.Variants[0].Tasks[0].DeviceFlagVar != "FLAG" || v.Variants[0].Tasks[0].Flag[0] != "a" || v.Variants[1].Tasks[0].Flag[0] != "d" {
+	if v.Variants[0].Tasks[0].Check.AnswerValues()[0] != "a" ||
+		v.Variants[1].Tasks[0].Check.AnswerValues()[0] != "d" {
 		t.Fatalf("copy %+v original %+v", out, v)
 	}
 }

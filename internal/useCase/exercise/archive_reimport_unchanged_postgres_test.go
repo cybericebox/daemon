@@ -32,8 +32,10 @@ func TestReimportOfTheSameContentLeavesTheDraftAlone(t *testing.T) {
 	entity, err = repo.Create(ctx, entity)
 	require.NoError(t, err)
 	archive, err := exercise.BuildArchiveV1(map[string][]byte{
-		"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Same task","description":"d","tags":["web"]},"versions":[{"status":"draft","admin_note":"n","variants":[{"tasks":[{"name":"One","flag":["ICE{same}"],"attachments":[{"file":"files/a.txt"}]}]}]}]}`),
-		"a/files/a.txt":   []byte("same file"),
+		"a/exercise.json": []byte(
+			`{"schema":"cib-exercise/1.0","exercise":{"name":"Same task","description":"d","tags":["web"]},"versions":[{"status":"draft","admin_note":"n","variants":[{"tasks":[{"name":"One","check":{"answer":{"type":"flag","values":["ICE{same}"]}},"attachments":[{"file":"files/a.txt"}]}]}]}]}`,
+		),
+		"a/files/a.txt": []byte("same file"),
 	})
 	require.NoError(t, err)
 	sources := newPostgresSources(t, db)

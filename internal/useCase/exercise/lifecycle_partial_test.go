@@ -20,7 +20,7 @@ func TestSaveDraft_AcceptsIncompleteWorkingCopy(t *testing.T) {
 	for name, variants := range map[string][]exerciseModel.Variant{
 		"no variants": nil,
 		"blank task and malformed flag": {
-			{Tasks: []exerciseModel.Task{{Name: "", Difficulty: "", Flag: []string{"not a flag"}}}},
+			{Tasks: []exerciseModel.Task{{Name: "", Difficulty: "", Check: exerciseModel.FlagCheck("not a flag")}}},
 			{Tasks: nil},
 		},
 	} {
@@ -73,7 +73,7 @@ func TestGetWorkingCopy(t *testing.T) {
 		if err != nil || view.ID != publishedID || view.Status != "published" || view.AdminNote != "live" || len(view.Variants) != 1 {
 			t.Fatalf("view=%+v err=%v", view, err)
 		}
-		if env := view.Variants[0].Topology.Devices[0].EnvVars[0]; env.Value != "" {
+		if env := view.Variants[0].Topology.Devices[0].Bootstrap.Env[0]; env.Value != "" {
 			t.Fatalf("secrets must stay masked: %+v", env)
 		}
 	})

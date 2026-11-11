@@ -30,20 +30,32 @@ const saveDevice, saveEnv = "web", "PASS"
 
 // saveVariant: one task, one device with the secret env PASS.
 func saveVariant(id uuid.UUID, name, description, flag, pass string) exerciseModel.Variant {
-	task := exerciseModel.Task{ID: saveTaskID, Name: name, Difficulty: exerciseModel.DifficultyEasy}
+	task := exerciseModel.Task{
+		ID:         saveTaskID,
+		Name:       name,
+		Difficulty: exerciseModel.DifficultyEasy,
+		Check:      exerciseModel.FlagCheck(),
+	}
 	if description != "" {
 		task.Description = json.RawMessage(description)
 	}
 	if flag != "" {
-		task.Flag = []string{flag}
+		task.Check = exerciseModel.FlagCheck(flag)
 	}
 	return exerciseModel.Variant{
 		ID:    id,
 		Tasks: []exerciseModel.Task{task},
-		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{
-			ID: saveDeviceID, Name: saveDevice, Type: exerciseModel.DeviceTypeContainer, Image: "img",
-			EnvVars: []exerciseModel.EnvVar{{Name: saveEnv, Value: pass, Secret: true}},
-		}}},
+		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{
+			{
+				ID:    saveDeviceID,
+				Name:  saveDevice,
+				Type:  exerciseModel.DeviceTypeContainer,
+				Image: "img",
+				Bootstrap: exerciseModel.Bootstrap{
+					Env: []exerciseModel.EnvVar{{Name: saveEnv, Value: pass, Secret: true}},
+				},
+			},
+		}},
 	}
 }
 
@@ -112,7 +124,11 @@ func (s *linkedSave) save(t *testing.T, in exercise.SaveDraftInput) []exerciseMo
 	return written
 }
 
-func secretOf(v exerciseModel.Variant) string { return v.Topology.Devices[0].EnvVars[0].Value }
+func secretOf(
+	v exerciseModel.Variant,
+) string {
+	return v.Topology.Devices[0].Bootstrap.Env[0].Value
+}
 
 func TestSaveDraft_RewritesLinkedVariantFromBase(t *testing.T) {
 	s := newLinkedSave(t, nil)
@@ -128,7 +144,7 @@ func TestSaveDraft_RewritesLinkedVariantFromBase(t *testing.T) {
 	require.JSONEq(t, `{"d":"D"}`, string(got.Tasks[0].Description))
 	require.Len(t, got.Tasks[0].Hints, 1)
 	require.Equal(t, "h", got.Tasks[0].Hints[0].Text)
-	require.Equal(t, []string{"ICE{b}"}, got.Tasks[0].Flag)
+	require.Equal(t, []string{"ICE{b}"}, got.Tasks[0].Check.AnswerValues())
 	require.Equal(t, uuid.NullUUID{UUID: saveBaseID, Valid: true}, got.LinkedTo)
 }
 
@@ -177,7 +193,7 @@ func TestSaveDraft_UnlinksDeletedBase(t *testing.T) {
 	require.False(t, written[0].IsLinked())
 	require.Equal(t, "Своє", written[0].Tasks[0].Name)
 	require.JSONEq(t, `{"d":"своє"}`, string(written[0].Tasks[0].Description))
-	require.Equal(t, []string{"ICE{b}"}, written[0].Tasks[0].Flag)
+	require.Equal(t, []string{"ICE{b}"}, written[0].Tasks[0].Check.AnswerValues())
 }
 
 func TestSaveDraft_LinkedVariantGetsOwnSecretCiphertext(t *testing.T) {
@@ -269,7 +285,7 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 	doc := `{"schema":"cib-exercise/1.0","exercise":{"name":"Пов'язані"},"versions":[{"status":"draft","variants":[
 		{"tasks":[{"name":"Тест","difficulty":"easy"}],
 		 "topology":{"devices":[{"name":"web","type":"container","image":"img",
-		   "env_vars":[{"name":"PASS","value":"base-pass","secret":true}]}]}},
+		   "bootstrap":{"env":[{"name":"PASS","value":"base-pass","secret":true}]}}]}},
 		{"linked_to":1,"tasks":[{}]}]}]}`
 	archive, err := exercise.BuildProtectedArchiveV1(map[string][]byte{"exercise.json": []byte(doc)}, "pw")
 	require.NoError(t, err)
@@ -289,9 +305,9 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 		require.NoError(t, openErr)
 		require.Equal(t, "base-pass", string(plain))
 	}
-	origin := base.Topology.Devices[0].EnvVars[0].Origin
+	origin := base.Topology.Devices[0].Bootstrap.Env[0].Origin
 	require.NotEmpty(t, origin, "equal imported values share one origin")
-	require.Equal(t, origin, linked.Topology.Devices[0].EnvVars[0].Origin)
+	require.Equal(t, origin, linked.Topology.Devices[0].Bootstrap.Env[0].Origin)
 }
 
 // Sources resolve before they are used: C links to B, a new copy of A whose secret is blank.
@@ -381,7 +397,7 @@ func TestSaveDraft_SecretGroupsFollowOriginNotValue(t *testing.T) {
 	require.Equal(t, groups[0][0][0], groups[1][0][0], "the linked variant's inherited secret is the base's value")
 	require.NotEqual(t, groups[0][0][0], groups[2][0][0], "an equal value typed anew is never matched")
 	for _, variant := range view.Variants {
-		env := variant.Topology.Devices[0].EnvVars[0]
+		env := variant.Topology.Devices[0].Bootstrap.Env[0]
 		require.Empty(t, env.Value, "the secret value is never returned")
 		require.Empty(t, env.Origin, "the origin stays on the server")
 	}
@@ -391,7 +407,7 @@ func TestSaveDraft_SecretGroupsFollowOriginNotValue(t *testing.T) {
 	require.NoError(t, json.Unmarshal(s.written.Variants, &written))
 	stored := newLinkedSave(t, written)
 	keep := func(v exerciseModel.Variant) exerciseModel.Variant {
-		v.Topology.Devices[0].EnvVars[0].Value = ""
+		v.Topology.Devices[0].Bootstrap.Env[0].Value = ""
 		return v
 	}
 	again, err := stored.uc.SaveDraft(context.Background(), saveExerciseID, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{
@@ -402,7 +418,11 @@ func TestSaveDraft_SecretGroupsFollowOriginNotValue(t *testing.T) {
 	var rewritten []exerciseModel.Variant
 	require.NoError(t, json.Unmarshal(stored.written.Variants, &rewritten))
 	for i := range written {
-		require.Equal(t, written[i].Topology.Devices[0].EnvVars[0].Origin, rewritten[i].Topology.Devices[0].EnvVars[0].Origin)
+		require.Equal(
+			t,
+			written[i].Topology.Devices[0].Bootstrap.Env[0].Origin,
+			rewritten[i].Topology.Devices[0].Bootstrap.Env[0].Origin,
+		)
 	}
 	require.Equal(t, again.SecretGroups[0][0][0], again.SecretGroups[1][0][0])
 	require.NotEqual(t, again.SecretGroups[0][0][0], again.SecretGroups[2][0][0])
@@ -414,12 +434,20 @@ func TestSecretValueGroups_LegacyByValueOnly(t *testing.T) {
 	s := newLinkedSave(t, nil)
 	legacy := func(id uuid.UUID, plain string) exerciseModel.Variant {
 		v := saveVariant(id, "Нове", "", "ICE{a}", "")
-		v.Topology.Devices[0].EnvVars[0].Value = seal(t, id, plain)
+		v.Topology.Devices[0].Bootstrap.Env[0].Value = seal(t, id, plain)
 		return v
 	}
 	typed := legacy(saveThirdID, "same")
-	typed.Topology.Devices[0].EnvVars[0].Origin = "typed-origin"
-	groups := exercise.SecretValueGroups(s.uc, []exerciseModel.Variant{legacy(saveBaseID, "same"), legacy(saveLinkedID, "same"), typed, legacy(saveDraftID, "other")})
+	typed.Topology.Devices[0].Bootstrap.Env[0].Origin = "typed-origin"
+	groups := exercise.SecretValueGroups(
+		s.uc,
+		[]exerciseModel.Variant{
+			legacy(saveBaseID, "same"),
+			legacy(saveLinkedID, "same"),
+			typed,
+			legacy(saveDraftID, "other"),
+		},
+	)
 	require.Equal(t, groups[0][0][0], groups[1][0][0])
 	require.NotEqual(t, groups[0][0][0], groups[2][0][0])
 	require.NotEqual(t, groups[0][0][0], groups[3][0][0])

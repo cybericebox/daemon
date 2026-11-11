@@ -20,7 +20,6 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
@@ -253,6 +252,10 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
+	// A task that asks for what the laboratory cannot apply yet is refused here, not started half-working.
+	if err = variant.RequireLabSupported(); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
 	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
 	// no agent. An event preview always needs a laboratory.
 	if eventID == nil && len(variant.Topology.Devices) == 0 {
@@ -281,18 +284,24 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	// Each flag-linked task gets one test value for this deploy, the same
-	// policy as an event (none: random, one: fixed, several: a pick, template:
-	// generated). The values stay on the server; the author checks a found flag with CheckTestFlag.
-	links := variant.FlagLinks()
-	for i := range links {
-		flag, flagErr := flagpattern.Resolve(links[i].Candidates, testFlagRandomBytes, rand.Reader)
-		if flagErr != nil {
-			return exerciseModel.DeployHandle{}, model.ErrPlatform.WithError(flagErr).WithMessage("Failed to resolve test flag").Err()
-		}
-		links[i].Flag = flag
+	// Each answer task gets one test value for this deploy, the same policy as an event (none: random, one: fixed,
+	// several: a pick, template: generated), and each variable of the infrastructure one value. The values stay on
+	// the server; the author checks a found answer with CheckTestFlag. The device bootstraps are then resolved with
+	// them and only the resolved environment goes to the laboratory.
+	deployFlags, pinned, err := pinTestAnswers(variant)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
 	}
-	if topo, err = topo.WithFlagEnv(links); err != nil {
+	if pinned.Vars, err = variant.PinVariables(rand.Reader); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	resolveFrom := variant
+	resolveFrom.Topology = topo // the secrets are opened
+	resolved, err := resolveFrom.ResolveInstance(pinned)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	if topo, err = topo.WithBootstraps(resolved.Bootstraps); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
 	// Every image must be pullable before anything is created; the agent gets exactly the credentials they need.
@@ -302,10 +311,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	}
 
 	now := u.timeNow()
-	deployFlags := make([]exerciseModel.DeployFlag, 0, len(links))
-	for _, link := range links {
-		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
-	}
 	id := uuid.Must(uuid.NewV7())
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
 	// or unplanned room; otherwise the error names the nearest free window. An event preview lab is taken the same
@@ -392,14 +397,15 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 
 // deployStaticTest starts the test of a variant without devices: a row with a flag for every task and a lease,
 // no laboratory, group or VPN. It counts toward the author's limit like a laboratory but never touches the agent.
-func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant, lease time.Duration) (exerciseModel.DeployHandle, error) {
-	flags := make([]exerciseModel.DeployFlag, 0, len(variant.Tasks))
-	for _, task := range variant.Tasks {
-		flag, err := flagpattern.Resolve(task.Flag, testFlagRandomBytes, rand.Reader)
-		if err != nil {
-			return exerciseModel.DeployHandle{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve test flag").Err()
-		}
-		flags = append(flags, exerciseModel.DeployFlag{TaskID: task.ID, Name: task.Name, Flag: flag})
+func (u *ExerciseUseCase) deployStaticTest(
+	ctx context.Context,
+	ownerID, versionID uuid.UUID,
+	variant exerciseModel.Variant,
+	lease time.Duration,
+) (exerciseModel.DeployHandle, error) {
+	flags, _, pinErr := pinTestAnswers(variant)
+	if pinErr != nil {
+		return exerciseModel.DeployHandle{}, pinErr
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
@@ -407,20 +413,36 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 	if err := u.admitStaticTest(ctx, id, ownerID, lease); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, lease)
-	err := u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
-		existing, err := repo.ListOwned(ctx, ownerID)
-		if err != nil {
-			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
-		}
-		if running := u.activeLabs(existing, now); len(running) >= u.MaxActiveTestDeploys() {
-			return false, u.labLimitError(ctx, running)
-		}
-		if _, err = repo.Create(ctx, deploy); err != nil {
-			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
-		}
-		return true, nil
-	})
+	deploy := exerciseModel.NewStaticTestDeploy(
+		id,
+		versionID,
+		variant.ID,
+		ownerID,
+		flags,
+		now,
+		lease,
+	)
+	err := u.underOwnerLock(
+		ctx,
+		ownerID,
+		func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+			existing, err := repo.ListOwned(ctx, ownerID)
+			if err != nil {
+				return false, model.ErrPlatform.WithError(err).
+					WithMessage("Failed to reserve test deploy").
+					Err()
+			}
+			if running := u.activeLabs(existing, now); len(running) >= u.MaxActiveTestDeploys() {
+				return false, u.labLimitError(ctx, running)
+			}
+			if _, err = repo.Create(ctx, deploy); err != nil {
+				return false, model.ErrPlatform.WithError(err).
+					WithMessage("Failed to reserve test deploy").
+					Err()
+			}
+			return true, nil
+		},
+	)
 	if err != nil {
 		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 		defer cancel()
@@ -821,7 +843,7 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 		if f.TaskID != taskID {
 			continue
 		}
-		if !challengeAttempt.FlagMatches(f.Flag, flag) {
+		if !testAnswerMatches(f, flag) {
 			return false, nil
 		}
 		// A correct answer is remembered with the deploy, so the solved state survives a reload.
@@ -1275,19 +1297,24 @@ func (u *ExerciseUseCase) deployedVariant(ctx context.Context, versionID uuid.UU
 	return version.Variants[variantIndex], nil
 }
 
-// ResolveDeployedFlagLinks lists the flag-linked tasks of one pinned variant, so
-// the event stand engine can inject each team's stored flag into the device.
-// Only names and ids are returned; no flag value leaves the catalog here.
-func (u *ExerciseUseCase) ResolveDeployedFlagLinks(ctx context.Context, versionID uuid.UUID, variantIndex int32) ([]exerciseModel.FlagLink, error) {
+// ResolveDeployedVariant is the pinned variant the event stand engine builds a team's lab from: the task keys and
+// ids (so each team's stored answer values can be placed as {{task.<key>}}) and the shape of the document the lab
+// needs. No answer value and no bootstrap content leaves the catalog here: only the resolved bootstraps (see
+// ResolveDeployedBootstraps) carry values, and only after the caller supplies the pinned ones.
+func (u *ExerciseUseCase) ResolveDeployedVariant(
+	ctx context.Context,
+	versionID uuid.UUID,
+	variantIndex int32,
+) (exerciseModel.Variant, error) {
 	variant, err := u.deployedVariant(ctx, versionID, variantIndex)
 	if err != nil {
-		return nil, err
+		return exerciseModel.Variant{}, err
 	}
-	links := variant.FlagLinks()
-	for i := range links {
-		links[i].Candidates = nil
+	for i := range variant.Tasks {
+		variant.Tasks[i] = variant.Tasks[i].WithoutSolution()
 	}
-	return links, nil
+	variant.Topology = u.redactedTopology(variant.Topology)
+	return variant, nil
 }
 
 // ResolveVersionTopologies exposes the non-secret topology shape for every
@@ -1301,12 +1328,7 @@ func (u *ExerciseUseCase) ResolveVersionTopologies(ctx context.Context, versionI
 	}
 	out := make([]exerciseModel.Topology, 0, len(version.Variants))
 	for _, variant := range version.Variants {
-		topology := variant.Topology
-		topology.Devices = append([]exerciseModel.Device(nil), topology.Devices...)
-		for index := range topology.Devices {
-			topology.Devices[index].EnvVars = nil
-		}
-		out = append(out, topology)
+		out = append(out, u.redactedTopology(variant.Topology))
 	}
 	return out, nil
 }
@@ -1331,6 +1353,45 @@ func (u *ExerciseUseCase) loadVersionVariant(ctx context.Context, versionID, var
 	return uuid.Nil, exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 }
 
+// redactedTopology is the shape of a topology without what a device is told to run: the bootstrap (env values,
+// files, script) is dropped. The stored topology is not changed.
+func (u *ExerciseUseCase) redactedTopology(topology exerciseModel.Topology) exerciseModel.Topology {
+	topology.Devices = append([]exerciseModel.Device(nil), topology.Devices...)
+	for index := range topology.Devices {
+		topology.Devices[index].Bootstrap = exerciseModel.Bootstrap{}
+	}
+	return topology
+}
+
+// pinTestAnswers pins one value for every answer task of the variant (the same policy as an event: none: a random
+// flag, one: fixed, several: a pick, template: generated). It returns the values for the author's check and the
+// same by task key for the substitution.
+func pinTestAnswers(
+	variant exerciseModel.Variant,
+) ([]exerciseModel.DeployFlag, exerciseModel.PinnedValues, error) {
+	pinned := exerciseModel.PinnedValues{Tasks: map[string]string{}}
+	var flags []exerciseModel.DeployFlag
+	for _, task := range variant.AnswerTasks() {
+		value, err := task.Check.Answer.Resolve(testFlagRandomBytes, rand.Reader)
+		if err != nil {
+			return nil, exerciseModel.PinnedValues{}, model.ErrPlatform.WithError(err).
+				WithMessage("Failed to resolve test flag").
+				Err()
+		}
+		flags = append(flags, exerciseModel.NewDeployFlag(task, value))
+		pinned.Tasks[task.Key] = value
+	}
+	return flags, pinned, nil
+}
+
+// testAnswerMatches compares what the author typed with the pinned value under the options of the task's answer.
+func testAnswerMatches(f exerciseModel.DeployFlag, typed string) bool {
+	if f.IsText() {
+		return challengeAttempt.AnswerMatches(f.Flag, typed, f.IgnoreCase, !f.NoTrim)
+	}
+	return challengeAttempt.FlagMatches(f.Flag, typed)
+}
+
 // decryptTopologySecrets returns a copy of the topology with secret env-var
 // values decrypted to plaintext for deployment. The stored variant (ciphertext)
 // is never mutated — devices and their env slices are copied before rewriting.
@@ -1340,11 +1401,11 @@ func (u *ExerciseUseCase) decryptTopologySecrets(variantID uuid.UUID, topo exerc
 	copy(out.Devices, topo.Devices)
 	for di := range out.Devices {
 		d := &out.Devices[di]
-		if len(d.EnvVars) == 0 {
+		if len(d.Bootstrap.Env) == 0 {
 			continue
 		}
-		envs := make([]exerciseModel.EnvVar, len(d.EnvVars))
-		copy(envs, d.EnvVars)
+		envs := make([]exerciseModel.EnvVar, len(d.Bootstrap.Env))
+		copy(envs, d.Bootstrap.Env)
 		for ei := range envs {
 			if !envs[ei].Secret || envs[ei].Value == "" {
 				continue
@@ -1358,7 +1419,7 @@ func (u *ExerciseUseCase) decryptTopologySecrets(variantID uuid.UUID, topo exerc
 			}
 			envs[ei].Value = string(pt)
 		}
-		d.EnvVars = envs
+		d.Bootstrap.Env = envs
 	}
 	return out, nil
 }

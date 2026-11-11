@@ -125,10 +125,18 @@ func TestPlainText_PassesPublishValidation(t *testing.T) {
 	}
 	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{{
 		Topology: exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}},
-		Tasks: []exerciseModel.Task{{
-			ID: uuid.FromStringOrNil("11111111-1111-1111-1111-111111111111"), Name: "Question", Difficulty: exerciseModel.DifficultyEasy,
-			Description: raw, Flag: []string{"ICE{x}"}, Placeholders: placeholders,
-		}},
+		Tasks: []exerciseModel.Task{
+			{
+				ID: uuid.FromStringOrNil(
+					"11111111-1111-1111-1111-111111111111",
+				),
+				Name:         "Question",
+				Difficulty:   exerciseModel.DifficultyEasy,
+				Description:  raw,
+				Check:        exerciseModel.FlagCheck("ICE{x}"),
+				Placeholders: placeholders,
+			},
+		},
 	}}}
 	if err := version.ValidateForPublish(); err != nil {
 		t.Fatalf("ValidateForPublish: %v", err)

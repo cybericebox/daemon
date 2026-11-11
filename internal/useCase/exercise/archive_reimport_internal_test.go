@@ -73,8 +73,12 @@ func TestReimportWorkingVersionChoosesDraftThenPublishedThenFirstHistory(t *test
 
 func TestReimportParsesEveryItemBeforeReturningAny(t *testing.T) {
 	data, err := BuildArchiveV1(map[string][]byte{
-		"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Valid"},"versions":[{"status":"draft","variants":[]}]}`),
-		"z/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Invalid"},"versions":[{"variants":[]}]}`),
+		"a/exercise.json": []byte(
+			`{"schema":"cib-exercise/1.0","exercise":{"name":"Valid"},"versions":[{"status":"draft","variants":[]}]}`,
+		),
+		"z/exercise.json": []byte(
+			`{"schema":"cib-exercise/1.0","exercise":{"name":"Invalid"},"versions":[{"status":"bogus","variants":[]}]}`,
+		),
 	})
 	require.NoError(t, err)
 	entries, protected, err := openZipAt(bytes.NewReader(data), int64(len(data)), "", DefaultLimits())

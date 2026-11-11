@@ -53,6 +53,7 @@ func TestParseExerciseArchive_WindowsArchive(t *testing.T) {
 		`my-task\exercise.yaml`:     doc,
 		`my-task\files\notes.txt`:   []byte("a"),
 		`my-task\files\notes-2.txt`: []byte("b"),
+		`my-task\files\config.yaml`: []byte("c"),
 		`my-task\Thumbs.db`:         []byte("x"),
 		`my-task\files\desktop.ini`: []byte("x"),
 	} {

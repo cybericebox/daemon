@@ -118,7 +118,11 @@ func TestReimportPreviewRejectsUnownedAndIncompleteSourcesBeforeAnyRepositoryAcc
 func TestReimportPreviewSummaryDoesNotExposeFlagsOrSecrets(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	sources := newFakeSources()
-	archive := mustExerciseArchive(t, `{"name":"Portable task"}`, `[{"status":"draft","variants":[{"tasks":[{"name":"Task name","difficulty":"easy","flag":["ICE{never_return_this}"]}]}]}]`)
+	archive := mustExerciseArchive(
+		t,
+		`{"name":"Portable task"}`,
+		`[{"status":"draft","variants":[{"tasks":[{"name":"Task name","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{never_return_this}"]}}}]}]}]`,
+	)
 	sources.stage(archiveUpID, importer, archive, mediaModel.UploadPurposeExerciseArchive)
 	uc := newUC(q, newFakeMedia())
 	uc.SetArchiveImport(exercise.ArchiveImportDependencies{Sources: sources})

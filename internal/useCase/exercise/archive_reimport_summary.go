@@ -98,7 +98,10 @@ func (u *ExerciseUseCase) importSummary(ctx context.Context, parsed ParsedExerci
 			summary.Variants.Changed++
 		}
 		for ti := 0; ti < min(len(sourceCopy.Variants[vi].Tasks), len(targetCopy.Variants[vi].Tasks)); ti++ {
-			if !slices.Equal(sourceCopy.Variants[vi].Tasks[ti].Flag, targetCopy.Variants[vi].Tasks[ti].Flag) {
+			if !slices.Equal(
+				sourceCopy.Variants[vi].Tasks[ti].Check.AnswerValues(),
+				targetCopy.Variants[vi].Tasks[ti].Check.AnswerValues(),
+			) {
 				summary.FlagsChanged++
 			}
 		}
@@ -127,12 +130,10 @@ func importFileIdentity(id uuid.UUID, name string, hashes map[uuid.UUID]string) 
 
 func importFiles(variants []exerciseModel.Variant, hashes map[uuid.UUID]string) map[string]bool {
 	files := map[string]bool{}
-	for _, variant := range variants {
-		for _, task := range variant.Tasks {
-			for _, file := range task.Attachments {
-				files[importFileIdentity(file.FileID, file.Name, hashes)] = true
-			}
-		}
+	for i := range variants {
+		variants[i].EachFileRef(func(file *exerciseModel.AttachmentRef) {
+			files[importFileIdentity(file.FileID, file.Name, hashes)] = true
+		})
 	}
 	return files
 }
@@ -193,9 +194,12 @@ func canonicalImportVariants(variants []exerciseModel.Variant, hashes map[uuid.U
 		for ti := range variant.Tasks {
 			task := &variant.Tasks[ti]
 			task.ID = comparisonID("task", ti)
-			if task.LinkedDeviceID.Valid {
-				if id, ok := ids[task.LinkedDeviceID.UUID.String()]; ok {
-					task.LinkedDeviceID.UUID = uuid.FromStringOrNil(id)
+			if task.Check.State != nil {
+				for ci := range task.Check.State.Conditions {
+					condition := &task.Check.State.Conditions[ci]
+					if id, ok := ids[condition.DeviceID.String()]; ok {
+						condition.DeviceID = uuid.FromStringOrNil(id)
+					}
 				}
 			}
 			keys := map[string]string{}
@@ -223,11 +227,13 @@ func canonicalImportVariants(variants []exerciseModel.Variant, hashes map[uuid.U
 					hint.Text = string(text)
 				}
 			}
-			for ai := range task.Attachments {
-				file := &task.Attachments[ai]
-				file.FileID = uuid.NewV5(uuid.NamespaceOID, importFileIdentity(file.FileID, file.Name, hashes))
-			}
 		}
+		variant.EachFileRef(func(file *exerciseModel.AttachmentRef) {
+			file.FileID = uuid.NewV5(
+				uuid.NamespaceOID,
+				importFileIdentity(file.FileID, file.Name, hashes),
+			)
+		})
 		for ci := range variant.Topology.Connections {
 			for ei := range variant.Topology.Connections[ci].Endpoints {
 				endpoint := &variant.Topology.Connections[ci].Endpoints[ei]

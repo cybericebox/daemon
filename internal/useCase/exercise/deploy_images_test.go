@@ -65,10 +65,30 @@ func imageFixture(t *testing.T, exerciseID uuid.UUID, image string) (*postgresMo
 	t.Helper()
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	device := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: image,
-		EnvVars: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}}}
-	variants, err := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{device}}}})
+	variantID, versionID, ownerID := uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	)
+	device := exerciseModel.Device{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "web",
+		Type:  exerciseModel.DeviceTypeContainer,
+		Image: image,
+		Bootstrap: exerciseModel.Bootstrap{
+			Env: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}},
+		},
+	}
+	variants, err := json.Marshal(
+		[]exerciseModel.Variant{
+			{
+				ID:       variantID,
+				Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{device}},
+			},
+		},
+	)
 	require.NoError(t, err)
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, ExerciseID: exerciseID, Variants: variants}, nil).AnyTimes()
 	return q, variantID, versionID, ownerID
@@ -114,7 +134,7 @@ func TestDeployVariantTest_SendsTheRewrittenTopologyAndThePlatformCredential(t *
 	require.NoError(t, err)
 	require.Equal(t, 1, infra.deployCalls)
 	require.Equal(t, rewrittenWeb, infra.deployedTopo.Devices[0].Image)
-	require.Equal(t, "prod", infra.deployedTopo.Devices[0].EnvVars[0].Value)
+	require.Equal(t, "prod", infra.deployedTopo.Devices[0].Bootstrap.Env[0].Value)
 	require.Equal(t, []infraModel.RegistryCredential{platformPull}, infra.meta.PullCredentials)
 }
 

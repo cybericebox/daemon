@@ -85,11 +85,22 @@ func TestArchiveIgnoresMetadataOfVersionsTheImportLeavesOut(t *testing.T) {
 func TestPublishMetadataNameCollisionStaysWithTheNameField(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	id := uuid.Must(uuid.NewV7())
-	variants := []exerciseModel.Variant{{ID: uuid.Must(uuid.NewV7()), Tasks: []exerciseModel.Task{{
-		ID: uuid.Must(uuid.NewV7()), Name: "Valid static task", Difficulty: exerciseModel.DifficultyEasy,
-		Description: json.RawMessage(`{"root":{"type":"text","text":"Solve this task"}}`), Flag: []string{"ICE{x}"},
-	}}}}
-	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(postgres.Exercise{ID: id, Name: "Published name"}, nil)
+	variants := []exerciseModel.Variant{{ID: uuid.Must(uuid.NewV7()), Tasks: []exerciseModel.Task{
+		{
+			ID: uuid.Must(
+				uuid.NewV7(),
+			),
+			Name:       "Valid static task",
+			Difficulty: exerciseModel.DifficultyEasy,
+			Description: json.RawMessage(
+				`{"root":{"type":"text","text":"Solve this task"}}`,
+			),
+			Check: exerciseModel.FlagCheck("ICE{x}"),
+		},
+	}}}
+	q.EXPECT().
+		GetExerciseByID(gomock.Any(), id).
+		Return(postgres.Exercise{ID: id, Name: "Published name"}, nil)
 	q.EXPECT().GetDraftVersion(gomock.Any(), id).Return(postgres.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: id, Status: "draft", Name: "Occupied name", Variants: mustMarshal(t, variants),
 	}, nil)

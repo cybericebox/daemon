@@ -91,7 +91,7 @@ func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 }
 
 func TestToParsed_ResolvesDeviceNames(t *testing.T) {
-	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","linked_device":"%s"}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
+	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","check":{"state":{"conditions":[{"device":"%s","file":{"path":"/etc/app"}}]}}}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
 	parsed, err := mustDecodeV2(t, strings.Replace(doc, "%s", "web", 1)).toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -104,9 +104,8 @@ func TestToParsed_ResolvesDeviceNames(t *testing.T) {
 	if got := variant.Topology.Connections[0].Endpoints[0].DeviceID; got != deviceID {
 		t.Fatalf("endpoint device = %v, want %v", got, deviceID)
 	}
-	linked := variant.Tasks[0].LinkedDeviceID
-	if !linked.Valid || linked.UUID != deviceID {
-		t.Fatalf("linked device = %+v, want %v", linked, deviceID)
+	if got := variant.Tasks[0].Check.State.Conditions[0].DeviceID; got != deviceID {
+		t.Fatalf("condition device = %v, want %v", got, deviceID)
 	}
 	if variant.ID == uuid.Nil {
 		t.Fatal("id-less variant gets a fresh id")

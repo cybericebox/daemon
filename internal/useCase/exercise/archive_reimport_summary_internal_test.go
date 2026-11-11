@@ -19,7 +19,68 @@ import (
 func summaryVersion(t *testing.T) (exerciseModel.ExerciseVersion, uuid.UUID) {
 	t.Helper()
 	variant, task, device, hint, file := freshID(), freshID(), freshID(), freshID(), freshID()
-	return exerciseModel.ExerciseVersion{Name: "Same name", Tags: []string{"web"}, Variants: []exerciseModel.Variant{{ID: variant, Index: 3, Tasks: []exerciseModel.Task{{ID: task, Name: "Task name", Flag: []string{"ICE{flag}"}, LinkedDeviceID: uuid.NullUUID{UUID: device, Valid: true}, Attachments: []exerciseModel.AttachmentRef{{FileID: file, Name: "solve.zip"}}, Placeholders: []exerciseModel.Placeholder{{Key: task.String(), Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web"}}, Description: json.RawMessage(`{"root":{"children":[{"type":"variable","varName":"` + task.String() + `"}]}}`), Hints: []exerciseModel.Hint{{ID: hint, Level: exerciseModel.HintLevelNudge, Text: `{"root":{"children":[{"varName":"` + task.String() + `","type":"variable"}]}}`}}}}, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: device, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "external:image", EnvVars: []exerciseModel.EnvVar{{Name: "PASSWORD", Secret: true, Value: "private value"}}}}, Connections: []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointDevice, DeviceID: device}}}}, VisualRender: json.RawMessage(`{"positions":{"` + device.String() + `":{"x":4,"y":6}}}`)}}}}, file
+	return exerciseModel.ExerciseVersion{
+		Name: "Same name",
+		Tags: []string{"web"},
+		Variants: []exerciseModel.Variant{
+			{
+				ID:    variant,
+				Index: 3,
+				Tasks: []exerciseModel.Task{
+					{
+						ID:    task,
+						Name:  "Task name",
+						Check: exerciseModel.FlagCheck("ICE{flag}"),
+						Attachments: []exerciseModel.AttachmentRef{
+							{FileID: file, Name: "solve.zip"},
+						},
+						Placeholders: []exerciseModel.Placeholder{
+							{
+								Key:        task.String(),
+								Kind:       exerciseModel.PlaceholderExternalLink,
+								DeviceName: "web",
+							},
+						},
+						Description: json.RawMessage(
+							`{"root":{"children":[{"type":"variable","varName":"` + task.String() + `"}]}}`,
+						),
+						Hints: []exerciseModel.Hint{
+							{
+								ID:    hint,
+								Level: exerciseModel.HintLevelNudge,
+								Text:  `{"root":{"children":[{"varName":"` + task.String() + `","type":"variable"}]}}`,
+							},
+						},
+					},
+				},
+				Topology: exerciseModel.Topology{
+					Devices: []exerciseModel.Device{
+						{
+							ID:    device,
+							Name:  "web",
+							Type:  exerciseModel.DeviceTypeContainer,
+							Image: "external:image",
+							Bootstrap: exerciseModel.Bootstrap{
+								Env: []exerciseModel.EnvVar{
+									{Name: "PASSWORD", Secret: true, Value: "private value"},
+								},
+							},
+						},
+					},
+					Connections: []exerciseModel.Connection{
+						{
+							Endpoints: []exerciseModel.Endpoint{
+								{Kind: exerciseModel.EndpointDevice, DeviceID: device},
+							},
+						},
+					},
+					VisualRender: json.RawMessage(
+						`{"positions":{"` + device.String() + `":{"x":4,"y":6}}}`,
+					),
+				},
+			},
+		},
+	}, file
 }
 
 func TestImportSummaryCanonicalizesGeneratedReferencesFilesAndOpenedSecrets(t *testing.T) {
@@ -31,17 +92,28 @@ func TestImportSummaryCanonicalizesGeneratedReferencesFilesAndOpenedSecrets(t *t
 	target, targetFile := summaryVersion(t)
 	ciphertext, err := cipher.EncryptWithContext([]byte("private value"), envSecretContext(target.Variants[0].ID, "web", "PASSWORD"))
 	require.NoError(t, err)
-	target.Variants[0].Topology.Devices[0].EnvVars[0].Value = ciphertext
-	q.EXPECT().ListFileHashes(gomock.Any(), []uuid.UUID{targetFile}).Return([]postgres.ListFileHashesRow{{ID: targetFile, ContentHash: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}}, nil).AnyTimes()
-	parsed := ParsedExerciseArchive{FilePaths: map[uuid.UUID]string{sourceFile: "files/solve.zip"}, Files: map[string][]byte{"files/solve.zip": []byte("hello")}}
+	target.Variants[0].Topology.Devices[0].Bootstrap.Env[0].Value = ciphertext
+	q.EXPECT().
+		ListFileHashes(gomock.Any(), []uuid.UUID{targetFile}).
+		Return([]postgres.ListFileHashesRow{{ID: targetFile, ContentHash: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}}, nil).
+		AnyTimes()
+	parsed := ParsedExerciseArchive{
+		FilePaths: map[uuid.UUID]string{sourceFile: "files/solve.zip"},
+		Files:     map[string][]byte{"files/solve.zip": []byte("hello")},
+	}
 	summary, err := u.importSummary(context.Background(), parsed, source, target, nil)
 	require.NoError(t, err)
 	require.Zero(t, summary.Variants.Changed, "new IDs, placeholder keys and ciphertext are not content changes")
 	require.Zero(t, summary.FlagsChanged)
 	require.Equal(t, ImportFileChange{}, summary.Files)
 	require.False(t, summary.MetadataChanged)
-	require.Equal(t, ciphertext, target.Variants[0].Topology.Devices[0].EnvVars[0].Value, "opening comparison secrets never mutates stored content")
-	source.Variants[0].Tasks[0].Flag = []string{"ICE{different}"}
+	require.Equal(
+		t,
+		ciphertext,
+		target.Variants[0].Topology.Devices[0].Bootstrap.Env[0].Value,
+		"opening comparison secrets never mutates stored content",
+	)
+	source.Variants[0].Tasks[0].Check = exerciseModel.FlagCheck("ICE{different}")
 	source.Variants[0].Tasks[0].Attachments[0].Name = "renamed.zip"
 	source.Name = "Draft rename"
 	summary, err = u.importSummary(context.Background(), parsed, source, target, nil)
@@ -70,17 +142,32 @@ func TestImportSummaryRebuildsLinkedVariantsAndNormalizesImageNames(t *testing.T
 	u := &ExerciseUseCase{exercises: exerciseRepo.New(q)}
 	source, sourceFile := summaryVersion(t)
 	target, targetFile := summaryVersion(t)
-	source.Variants[0].Topology.Devices[0].EnvVars = nil
-	target.Variants[0].Topology.Devices[0].EnvVars = nil
+	source.Variants[0].Topology.Devices[0].Bootstrap.Env = nil
+	target.Variants[0].Topology.Devices[0].Bootstrap.Env = nil
 	digest := "sha256:" + strings.Repeat("a", 64)
 	source.Variants[0].Topology.Devices[0].Image = "image-file-marker"
 	target.Variants[0].Topology.Devices[0].Image = "platform:old-display-name@" + digest
 	for _, v := range []*exerciseModel.ExerciseVersion{&source, &target} {
 		base := v.Variants[0]
-		v.Variants = append(v.Variants, exerciseModel.Variant{ID: freshID(), Index: 7, LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true}, Tasks: []exerciseModel.Task{{ID: base.Tasks[0].ID, Flag: []string{"ICE{other}"}}}})
+		v.Variants = append(
+			v.Variants,
+			exerciseModel.Variant{
+				ID:       freshID(),
+				Index:    7,
+				LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true},
+				Tasks: []exerciseModel.Task{
+					{ID: base.Tasks[0].ID, Check: exerciseModel.FlagCheck("ICE{other}")},
+				},
+			},
+		)
 	}
-	q.EXPECT().ListFileHashes(gomock.Any(), []uuid.UUID{targetFile}).Return([]postgres.ListFileHashesRow{{ID: targetFile, ContentHash: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}}, nil)
-	parsed := ParsedExerciseArchive{FilePaths: map[uuid.UUID]string{sourceFile: "files/a"}, Files: map[string][]byte{"files/a": []byte("hello")}}
+	q.EXPECT().
+		ListFileHashes(gomock.Any(), []uuid.UUID{targetFile}).
+		Return([]postgres.ListFileHashesRow{{ID: targetFile, ContentHash: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}}, nil)
+	parsed := ParsedExerciseArchive{
+		FilePaths: map[uuid.UUID]string{sourceFile: "files/a"},
+		Files:     map[string][]byte{"files/a": []byte("hello")},
+	}
 	summary, err := u.importSummary(context.Background(), parsed, source, target, map[string]imageRegistryUseCase.ArchiveImageInspection{"image-file-marker": {Digest: digest}})
 	require.NoError(t, err)
 	require.Equal(t, ImportCountChange{}, summary.Variants)

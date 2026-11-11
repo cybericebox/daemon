@@ -105,7 +105,7 @@ func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id
 	return Access{}, nil
 }
 
-// RedactFlags removes the fixed flags (and the device env var carrying them) a non-admin reader of a published catalog version may not see: they stay
+// RedactFlags removes the solution (answer values and state conditions) a non-admin reader of a published catalog version may not see: they stay
 // only where the exercise is attached to an event the caller manages, at the version that attachment pins and,
 // for a fixed-variant attachment, in that variant alone. The view's own variants are never mutated.
 func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v VersionView) (VersionView, error) {
@@ -134,9 +134,8 @@ func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v Versio
 			continue
 		}
 		tasks := make([]exerciseModel.Task, len(variants[i].Tasks))
-		copy(tasks, variants[i].Tasks)
 		for ti := range tasks {
-			tasks[ti].Flag, tasks[ti].DeviceFlagVar = nil, ""
+			tasks[ti] = variants[i].Tasks[ti].WithoutSolution()
 		}
 		variants[i].Tasks = tasks
 	}
@@ -144,17 +143,16 @@ func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v Versio
 	return v, nil
 }
 
-// WithoutFlags is the version with every flag taken out (Task.Flag and the device env var that carries it,
-// DeviceFlagVar), for a reader who sees the content but never the flags (an event viewer). The view's own variants
+// WithoutFlags is the version with every solution taken out (the answer values and the state conditions of each
+// task), for a reader who sees the content but never the flags (an event viewer). The view's own variants
 // are never mutated.
 func WithoutFlags(v VersionView) VersionView {
 	variants := make([]exerciseModel.Variant, len(v.Variants))
 	copy(variants, v.Variants)
 	for i := range variants {
 		tasks := make([]exerciseModel.Task, len(variants[i].Tasks))
-		copy(tasks, variants[i].Tasks)
 		for ti := range tasks {
-			tasks[ti].Flag, tasks[ti].DeviceFlagVar = nil, ""
+			tasks[ti] = variants[i].Tasks[ti].WithoutSolution()
 		}
 		variants[i].Tasks = tasks
 	}

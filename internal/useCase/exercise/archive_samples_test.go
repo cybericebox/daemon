@@ -15,7 +15,7 @@ import (
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
-// testdata/static.zip is a copy of dist/static.zip of the test-exercises repository.
+// testdata/static.zip is dist/static.zip of the test-exercises repository, written in the shape of cib-exercise/1.0.
 func TestSampleArchive_StaticImports(t *testing.T) {
 	archive, err := os.ReadFile("testdata/static.zip")
 	require.NoError(t, err)
