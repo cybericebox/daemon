@@ -97,9 +97,9 @@ func TestParseTextAndResolveText(t *testing.T) {
 	if _, err = flagpattern.ResolveText(nil, constantReader(0)); err == nil {
 		t.Fatal("a text answer needs a value")
 	}
-	// The flag rules are not touched: a flag template keeps its ICE{} edges and refuses the repeat count.
-	if _, err = flagpattern.Parse(`template:ICE{[a-f0-9]{16}}`); err == nil {
-		t.Fatal("a flag template does not take a repeat count")
+	// A flag template keeps its ICE{} edges and takes the repeat count too.
+	if _, err = flagpattern.Parse(`template:ICE{[a-f0-9]{16}}`); err != nil {
+		t.Fatalf("a flag template takes a repeat count: %v", err)
 	}
 	if _, err = flagpattern.Parse(`template:ICE{[a-f0-9][a-f0-9]}`); err != nil {
 		t.Fatalf("a flag template: %v", err)

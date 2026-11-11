@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -47,7 +48,11 @@ func Parse(candidate string) (Pattern, error) {
 	}
 	body := value[len("ICE{") : len(value)-1]
 	for _, r := range body {
-		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '{' || r == '}' {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return Pattern{}, ErrInvalidPattern
+		}
+		// A template may hold braces only as the repeat count of a class (checked below); a fixed flag never does.
+		if !isTemplate && (r == '{' || r == '}') {
 			return Pattern{}, ErrInvalidPattern
 		}
 	}
@@ -63,6 +68,8 @@ func Parse(candidate string) (Pattern, error) {
 			literal.Reset()
 		}
 	}
+	// lastChoices is the class of the previous random position while a repeat count `{n}` may still follow it.
+	var lastChoices []byte
 	for i := 0; i < len(body); {
 		switch body[i] {
 		case '\\':
@@ -72,6 +79,7 @@ func Parse(candidate string) (Pattern, error) {
 			next := body[i+1]
 			if next == '[' || next == ']' || next == '\\' {
 				literal.WriteByte(next)
+				lastChoices = nil
 				i += 2
 				continue
 			}
@@ -81,6 +89,7 @@ func Parse(candidate string) (Pattern, error) {
 			}
 			flushLiteral()
 			p.addChoices(choices)
+			lastChoices = choices
 			hasRandomSlot = true
 			i += 2
 		case '[':
@@ -90,12 +99,29 @@ func Parse(candidate string) (Pattern, error) {
 			}
 			flushLiteral()
 			p.addChoices(choices)
+			lastChoices = choices
 			hasRandomSlot = true
 			i = next
-		case ']':
+		case '{':
+			// The repeat count of the class before it: `[a-f0-9]{16}` is sixteen random characters.
+			end := strings.IndexByte(body[i:], '}')
+			if lastChoices == nil || end < 0 {
+				return Pattern{}, ErrInvalidPattern
+			}
+			n, err := strconv.Atoi(body[i+1 : i+end])
+			if err != nil || n < 1 || n > MaxRepeat {
+				return Pattern{}, ErrInvalidPattern
+			}
+			for range n - 1 {
+				p.addChoices(lastChoices)
+			}
+			lastChoices = nil // one count per position
+			i += end + 1
+		case ']', '}':
 			return Pattern{}, ErrInvalidPattern
 		default:
 			literal.WriteByte(body[i])
+			lastChoices = nil
 			i++
 		}
 	}
