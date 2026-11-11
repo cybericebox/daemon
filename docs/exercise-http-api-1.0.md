@@ -85,8 +85,8 @@ agent never blocks what the exercise needs. An exercise that forbids them starts
 `cybericebox.com/vpn-reverse` (`1` the exercise allows, `0` forbids) and `cybericebox.com/vpn-reverse-sent` (`1` the key was
 really requested).
 
-**What is in force: `VPNReverse`** (derived from what was really requested and from what the agent can enforce now) in the test deploy status, the stand status of organizers (`GET /events/{id}/manage/labs...`) and the
-infrastructure test lab view: `blocked`, `allowed`, or `not_enforced` (the exercise forbids the connections but the agent of that node
+**What is in force: `VPNReverse`** (derived from what was really requested and from the laboratory's own confirmation, `LabStatus.vpn_lab_initiated_blocked`) in the test deploy status, the stand status of organizers (`GET /events/{id}/manage/labs...`) and the
+infrastructure test lab view: `blocked` (only when the laboratory confirms the block is applied by the group's VPN gateway), `allowed` (the key was sent, or an older agent whose lab the exercise wanted open), or `not_enforced` (not confirmed: an older agent, a VPN pod not rolled yet, or not applied yet; the exercise forbids the connections but the agent of that node
 cannot enforce the block, so they are possible: show a warning, never "blocked"). The lab still starts, nothing is refused. Absent
 for a lab without a VPN. `ReverseConnections` stays what the exercise asks for.
 

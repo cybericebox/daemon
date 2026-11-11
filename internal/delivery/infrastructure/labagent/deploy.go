@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/gofrs/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strings"
-	"time"
 
 	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
@@ -45,8 +46,14 @@ func (c *Client) requestLabels() map[string]string {
 // one. The lab is queued and provisioned asynchronously by the operator's scheduler;
 // the caller polls LabStatus. The namespace wait is short (group namespace creation is
 // fast), so this returns once the objects are created, not once the lab is Ready.
-func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1 || meta.BeforeCreate == nil) {
+func (c *Client) DeployLab(
+	ctx context.Context,
+	group, lab string,
+	meta infraModel.LabMeta,
+	topo exerciseModel.Topology,
+) error {
+	if meta.InitialLifecycle != nil &&
+		(meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1 || meta.BeforeCreate == nil) {
 		return fmt.Errorf("managed initial lifecycle requires a persisted operation and revision1")
 	}
 	if err := c.ensureGroup(ctx, group, meta.GroupLabels, meta.GroupPartID); err != nil {
@@ -65,7 +72,11 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		if err = json.Unmarshal(specJSON, &spec); err != nil {
 			return err
 		}
-		spec.Lifecycle = &labInitialLifecycle{DesiredState: "Running", OperationID: meta.InitialLifecycle.OperationID.String(), Revision: meta.InitialLifecycle.Revision}
+		spec.Lifecycle = &labInitialLifecycle{
+			DesiredState: "Running",
+			OperationID:  meta.InitialLifecycle.OperationID.String(),
+			Revision:     meta.InitialLifecycle.Revision,
+		}
 		if specJSON, err = json.Marshal(spec); err != nil {
 			return err
 		}
@@ -84,18 +95,40 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		if err != nil {
 			return err
 		}
-		if err = meta.BeforeCreate(ctx, infraModel.LabCreateDispatch{GroupUID: expectedGroupUID, DefinitionHash: hash}); err != nil {
+		if err = meta.BeforeCreate(
+			ctx,
+			infraModel.LabCreateDispatch{GroupUID: expectedGroupUID, DefinitionHash: hash},
+		); err != nil {
 			return err
 		}
 	}
 	res, err := c.CreateLabs(ctx, &labpb.CreateLabsRequest{
-		Labels:   c.requestLabels(),
-		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON, RegistryCredentials: registryCredentials(meta.PullCredentials)}},
-		Items: []*labpb.LabItem{{
-			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: build.Env,
-			Bootstrap: build.Bootstrap, Checks: build.Checks,
-			Labels: withVPNReverseLabel(meta.Labels, topo, build.VPNReverseSent), DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
-		}},
+		Labels: c.requestLabels(),
+		Variants: []*labpb.LabVariant{
+			{
+				VariantId:           deployVariantID,
+				SpecJson:            specJSON,
+				RegistryCredentials: registryCredentials(meta.PullCredentials),
+			},
+		},
+		Items: []*labpb.LabItem{
+			{
+				ExpectedGroupUid: expectedGroupUID,
+				LabGroup:         group,
+				Name:             lab,
+				VariantId:        deployVariantID,
+				Env:              build.Env,
+				Bootstrap:        build.Bootstrap,
+				Checks:           build.Checks,
+				Labels: withVPNReverseLabel(
+					meta.Labels,
+					topo,
+					build.VPNReverseSent,
+				),
+				DeployGroup:   meta.DeployGroup,
+				ReservationId: meta.PartID,
+			},
+		},
 	})
 	if err != nil {
 		return agentErr("create lab", err)
@@ -106,11 +139,12 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	return nil
 }
 
-// vpnReverseOf derives what is in force from what was requested from the laboratory (the labels) and whether the agent
-// enforces the block. The key was sent: allowed. Not sent: a capable agent blocks (even if the exercise wanted them: a defect the
-// deploy avoids); an older agent allows everything, so the exercise's wish decides: wanted is allowed, otherwise the block is
-// not enforced. Empty for a lab without a VPN.
-func vpnReverseOf(labels map[string]string, agentEnforces bool) string {
+// vpnReverseOf derives what is in force for connections the lab starts to the VPN clients. "blocked" is reported only when the
+// laboratory says so (status.vpn_lab_initiated_blocked: the switch is off and the group's VPN gateway has really applied the
+// block). The key was sent: allowed. Not sent and confirmed: blocked. Not sent and not confirmed (an older agent, a VPN pod
+// not rolled yet, not applied yet): not_enforced, except an older agent whose lab the exercise wanted open, which allows
+// everything: allowed. There is no separate "pending" state. Empty for a lab without a VPN.
+func vpnReverseOf(labels map[string]string, confirmedBlocked, agentEnforces bool) string {
 	wanted, ok := labels[infraModel.LabelVPNReverse]
 	if !ok {
 		return ""
@@ -118,16 +152,20 @@ func vpnReverseOf(labels map[string]string, agentEnforces bool) string {
 	switch {
 	case labels[infraModel.LabelVPNReverseSent] == "1":
 		return exerciseModel.VPNReverseAllowed
-	case agentEnforces:
+	case confirmedBlocked:
 		return exerciseModel.VPNReverseBlocked
-	case wanted == "1":
+	case wanted == "1" && !agentEnforces:
 		return exerciseModel.VPNReverseAllowed
 	}
 	return exerciseModel.VPNReverseNotEnforced
 }
 
 // withVPNReverseLabel adds to the lab's labels what its exercise asks of connections to the VPN clients (only for a lab with a VPN).
-func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology, sent bool) map[string]string {
+func withVPNReverseLabel(
+	labels map[string]string,
+	topo exerciseModel.Topology,
+	sent bool,
+) map[string]string {
 	if !topo.VPN.Enabled {
 		return labels
 	}
@@ -149,14 +187,22 @@ func withVPNReverseLabel(labels map[string]string, topo exerciseModel.Topology, 
 // The answer says only that the request was recorded for the checker; the results come back in the Monitoring stream. A
 // laboratory with the checks option off refuses the call as a whole.
 func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []string) error {
-	res, err := c.RunChecks(ctx, &labpb.RunChecksRequest{Items: []*labpb.RunChecksItem{{LabGroup: group, Lab: lab, CheckIds: ids}}})
+	res, err := c.RunChecks(
+		ctx,
+		&labpb.RunChecksRequest{
+			Items: []*labpb.RunChecksItem{{LabGroup: group, Lab: lab, CheckIds: ids}},
+		},
+	)
 	if err != nil {
 		if status.Code(err) == codes.FailedPrecondition {
-			return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", "checks").WithError(err).Err()
+			return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", "checks").
+				WithError(err).
+				Err()
 		}
 		return agentErr("run checks", err)
 	}
-	if len(res.GetResults()) == 1 && res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
+	if len(res.GetResults()) == 1 &&
+		res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
 		return fmt.Errorf("run checks: %w", errNotFound)
 	}
 	return oneResult("run checks", res.GetResults())
@@ -176,7 +222,12 @@ func (c *Client) EnsureVPNGroupUnder(ctx context.Context, group, reservationID s
 // groupItem is one group to create. The sizes of its own pods (the VPN by the group's users, the gateway by
 // its internet labs; computed with this agent's formula and carried in ctx by the fleet) are passed
 // explicitly here, so the pods are created at exactly the size the backend planned and reserved.
-func groupItem(ctx context.Context, group string, labels map[string]string, reservationID string) *labpb.LabGroupItem {
+func groupItem(
+	ctx context.Context,
+	group string,
+	labels map[string]string,
+	reservationID string,
+) *labpb.LabGroupItem {
 	item := &labpb.LabGroupItem{Name: group, Labels: labels, ReservationId: reservationID}
 	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok {
 		setGroupSizes(item, sizes)
@@ -185,7 +236,12 @@ func groupItem(ctx context.Context, group string, labels map[string]string, rese
 }
 
 // ensureGroup creates the group when it is missing; labels it lacks are added to an existing one.
-func (c *Client) ensureGroup(ctx context.Context, group string, labels map[string]string, reservationID string) error {
+func (c *Client) ensureGroup(
+	ctx context.Context,
+	group string,
+	labels map[string]string,
+	reservationID string,
+) error {
 	res, err := c.CreateLabGroups(ctx, &labpb.CreateLabGroupsRequest{
 		Labels: c.requestLabels(),
 		Items:  []*labpb.LabGroupItem{groupItem(ctx, group, labels, reservationID)},
@@ -205,17 +261,33 @@ func (c *Client) ensureGroup(ctx context.Context, group string, labels map[strin
 		return err
 	}
 
-	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok && sizes.Total() != (resourcesModel.Amount{}) {
+	if sizes, ok := infraModel.GroupSizesFrom(
+		ctx,
+	); ok &&
+		sizes.Total() != (resourcesModel.Amount{}) {
 		projected, hasProjection := any(existing).(interface {
 			GetVpnSize() *labpb.PodSize
 			GetGatewaySize() *labpb.PodSize
 		})
-		if !hasProjection || existing.GetUid() == "" || projected.GetVpnSize() == nil || projected.GetGatewaySize() == nil {
+		if !hasProjection || existing.GetUid() == "" || projected.GetVpnSize() == nil ||
+			projected.GetGatewaySize() == nil {
 			return fmt.Errorf("existing laboratory group sizes are unavailable: %w", err)
 		}
 		vpn, gateway := projected.GetVpnSize(), projected.GetGatewaySize()
-		actual := infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: vpn.GetCpuMillicores(), MemoryBytes: vpn.GetMemoryBytes()}, Gateway: resourcesModel.Amount{CPUMillicores: gateway.GetCpuMillicores(), MemoryBytes: gateway.GetMemoryBytes()}}
-		if actual.VPN.CPUMillicores <= 0 || actual.VPN.MemoryBytes <= 0 || actual.Gateway.CPUMillicores <= 0 || actual.Gateway.MemoryBytes <= 0 || !actual.Holds(sizes) {
+		actual := infraModel.GroupSizes{
+			VPN: resourcesModel.Amount{
+				CPUMillicores: vpn.GetCpuMillicores(),
+				MemoryBytes:   vpn.GetMemoryBytes(),
+			},
+			Gateway: resourcesModel.Amount{
+				CPUMillicores: gateway.GetCpuMillicores(),
+				MemoryBytes:   gateway.GetMemoryBytes(),
+			},
+		}
+		if actual.VPN.CPUMillicores <= 0 || actual.VPN.MemoryBytes <= 0 ||
+			actual.Gateway.CPUMillicores <= 0 ||
+			actual.Gateway.MemoryBytes <= 0 ||
+			!actual.Holds(sizes) {
 			return fmt.Errorf("existing laboratory group is undersized: %w", err)
 		}
 	}
@@ -255,7 +327,10 @@ func (c *Client) LabExists(ctx context.Context, group, lab string) (bool, error)
 	if err != nil || !exists {
 		return false, err
 	}
-	list, err := c.ListLabs(ctx, &labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}})
+	list, err := c.ListLabs(
+		ctx,
+		&labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}},
+	)
 	if err != nil {
 		return false, fmt.Errorf("get lab: %w", err)
 	}
@@ -301,7 +376,10 @@ func (c *Client) EnsureLabClient(ctx context.Context, group, client string) (str
 }
 
 // createLabClient creates the client once; exists says it was already there and gave no config.
-func (c *Client) createLabClient(ctx context.Context, group, client string) (config string, exists bool, err error) {
+func (c *Client) createLabClient(
+	ctx context.Context,
+	group, client string,
+) (config string, exists bool, err error) {
 	res, err := c.CreateLabGroupClients(ctx, &labpb.CreateLabGroupClientsRequest{
 		Labels: c.requestLabels(),
 		Items:  []*labpb.LabGroupClientItem{{LabGroup: group, Name: client}},
@@ -310,26 +388,38 @@ func (c *Client) createLabClient(ctx context.Context, group, client string) (con
 		return "", false, agentErr("create lab group client", err)
 	}
 	if len(res.GetResults()) != 1 {
-		return "", false, fmt.Errorf("create lab group client: %d results for 1 item", len(res.GetResults()))
+		return "", false, fmt.Errorf(
+			"create lab group client: %d results for 1 item",
+			len(res.GetResults()),
+		)
 	}
 	item := res.GetResults()[0]
 	switch item.GetResult().GetState() {
 	case labpb.ItemState_ITEM_STATE_CREATED:
 		if item.GetClient().GetStatus().GetConfig() == "" {
-			return "", false, fmt.Errorf("VPN client %q was created without a configuration", client)
+			return "", false, fmt.Errorf(
+				"VPN client %q was created without a configuration",
+				client,
+			)
 		}
 		return item.GetClient().GetStatus().GetConfig(), false, nil
 	case labpb.ItemState_ITEM_STATE_EXISTS, labpb.ItemState_ITEM_STATE_UPDATED:
 		return "", true, nil
 	default:
-		return "", false, oneResult("create lab group client", []*labpb.ItemResult{item.GetResult()})
+		return "", false, oneResult(
+			"create lab group client",
+			[]*labpb.ItemResult{item.GetResult()},
+		)
 	}
 }
 
 // LabClientHandshake is the time of a named client's last WireGuard handshake as the
 // agent reports it; the zero time means the client never connected (or has no statistics yet).
 func (c *Client) LabClientHandshake(ctx context.Context, group, client string) (time.Time, error) {
-	list, err := c.ListLabGroupClients(ctx, &labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: client}}})
+	list, err := c.ListLabGroupClients(
+		ctx,
+		&labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: client}}},
+	)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("get lab group client: %w", err)
 	}
@@ -346,7 +436,10 @@ func (c *Client) LabClientHandshake(ctx context.Context, group, client string) (
 // DeleteLabClient removes one named client from a lab group. A missing group or
 // client already is the desired state.
 func (c *Client) DeleteLabClient(ctx context.Context, group, client string) error {
-	res, err := c.DeleteLabGroupClients(ctx, &labpb.DeleteRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: client}}})
+	res, err := c.DeleteLabGroupClients(
+		ctx,
+		&labpb.DeleteRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: client}}},
+	)
 	if err != nil {
 		return fmt.Errorf("delete lab group client: %w", err)
 	}
@@ -372,7 +465,11 @@ func (c *Client) awaitGroupNamespace(ctx context.Context, group string) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			return fmt.Errorf("lab group %q namespace not provisioned within %s", group, namespaceWait)
+			return fmt.Errorf(
+				"lab group %q namespace not provisioned within %s",
+				group,
+				namespaceWait,
+			)
 		case <-tick.C:
 		}
 	}
@@ -380,12 +477,19 @@ func (c *Client) awaitGroupNamespace(ctx context.Context, group string) error {
 
 // LabStatus reports the deployed lab's runtime status. A group without a namespace yet reads as
 // Provisioning rather than an error.
-func (c *Client) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
+func (c *Client) LabStatus(
+	ctx context.Context,
+	group, lab string,
+) (exerciseModel.LabDeployStatus, error) {
 	return c.labStatus(ctx, group, lab, false)
 }
 
 // labStatus is LabStatus for an agent that does (agentEnforces) or does not enforce the block of connections the lab starts.
-func (c *Client) labStatus(ctx context.Context, group, lab string, agentEnforces bool) (exerciseModel.LabDeployStatus, error) {
+func (c *Client) labStatus(
+	ctx context.Context,
+	group, lab string,
+	agentEnforces bool,
+) (exerciseModel.LabDeployStatus, error) {
 	g, err := c.getGroup(ctx, group)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, err
@@ -393,15 +497,27 @@ func (c *Client) labStatus(ctx context.Context, group, lab string, agentEnforces
 	if g.GetStatus().GetNamespace() == "" {
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseProvisioning}, nil
 	}
-	list, err := c.ListLabs(ctx, &labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}})
+	list, err := c.ListLabs(
+		ctx,
+		&labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}},
+	)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, fmt.Errorf("get lab: %w", err)
 	}
 	if len(list.GetItems()) == 0 {
-		return exerciseModel.LabDeployStatus{}, fmt.Errorf("get lab %q of group %q: %w", lab, group, errNotFound)
+		return exerciseModel.LabDeployStatus{}, fmt.Errorf(
+			"get lab %q of group %q: %w",
+			lab,
+			group,
+			errNotFound,
+		)
 	}
 	status := mapLabStatus(list.GetItems()[0])
-	status.VPNReverse = vpnReverseOf(list.GetItems()[0].GetLabels(), agentEnforces)
+	status.VPNReverse = vpnReverseOf(
+		list.GetItems()[0].GetLabels(),
+		list.GetItems()[0].GetStatus().GetVpnLabInitiatedBlocked(),
+		agentEnforces,
+	)
 	status.GroupImageWarning = g.GetStatus().GetImageWarning()
 	return status, nil
 }
@@ -432,7 +548,10 @@ func (c *Client) DestroyLabGroup(ctx context.Context, group string) error {
 // DeleteLab removes one Lab from its group and keeps the group (gateway and
 // VPN clients). A missing group or Lab already is the desired state.
 func (c *Client) DeleteLab(ctx context.Context, group, lab string) error {
-	res, err := c.DeleteLabs(ctx, &labpb.DeleteRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}})
+	res, err := c.DeleteLabs(
+		ctx,
+		&labpb.DeleteRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}},
+	)
 	if err != nil {
 		return fmt.Errorf("delete lab: %w", err)
 	}
@@ -442,16 +561,33 @@ func (c *Client) DeleteLab(ctx context.Context, group, lab string) error {
 // ReconcileLabGroupAccess replaces the complete group policy through the
 // Laboratory agent. The group policy is default-deny, so callers must always
 // pass the complete desired access snapshot.
-func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy) error {
+func (c *Client) ReconcileLabGroupAccess(
+	ctx context.Context,
+	group string,
+	policies []labAccessModel.ClientPolicy,
+) error {
 	return c.reconcileLabGroupAccess(ctx, group, policies, nil)
 }
-func (c *Client) ReconcileLabGroupAccessRevision(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target eventLabModel.AccessTarget) error {
-	if target.Group != group || target.ExpectedGroupUID == "" || target.OperationID == uuid.Nil || target.Revision <= 0 {
+
+func (c *Client) ReconcileLabGroupAccessRevision(
+	ctx context.Context,
+	group string,
+	policies []labAccessModel.ClientPolicy,
+	target eventLabModel.AccessTarget,
+) error {
+	if target.Group != group || target.ExpectedGroupUID == "" || target.OperationID == uuid.Nil ||
+		target.Revision <= 0 {
 		return fmt.Errorf("replace lab group access policy: incomplete or foreign revision target")
 	}
 	return c.reconcileLabGroupAccess(ctx, group, policies, &target)
 }
-func (c *Client) reconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target *eventLabModel.AccessTarget) error {
+
+func (c *Client) reconcileLabGroupAccess(
+	ctx context.Context,
+	group string,
+	policies []labAccessModel.ClientPolicy,
+	target *eventLabModel.AccessTarget,
+) error {
 	rules := make([]*labpb.LabGroupAccessRule, 0, len(policies))
 	for _, policy := range policies {
 		// An empty LabNames list means "all Labs" in the operator protocol.
@@ -500,13 +636,16 @@ func policyResult(op string, results []*labpb.ItemResult) error {
 // configuration. The operator performs the corresponding scale-down or resume.
 func (c *Client) SetLabGroupSuspended(ctx context.Context, group string, suspended bool) error {
 	res, err := c.UpdateLabGroups(ctx, &labpb.UpdateLabGroupsRequest{
-		Items: []*labpb.UpdateLabGroupItem{{Name: group, Changes: &labpb.LabGroupChanges{Suspended: &suspended}}},
+		Items: []*labpb.UpdateLabGroupItem{
+			{Name: group, Changes: &labpb.LabGroupChanges{Suspended: &suspended}},
+		},
 	})
 	if err != nil {
 		return agentErr("set lab group suspended", err)
 	}
 	// A newly created team may not have requested any VPN group yet.
-	if suspended && len(res.GetResults()) == 1 && res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
+	if suspended && len(res.GetResults()) == 1 &&
+		res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
 		return nil
 	}
 	return oneResult("set lab group suspended", res.GetResults())
@@ -517,12 +656,21 @@ func (c *Client) SetLabGroupSuspended(ctx context.Context, group string, suspend
 func (c *Client) SetLabGroupVPNDisabled(ctx context.Context, group string, disabled bool) error {
 	probe := !disabled
 	res, err := c.UpdateLabGroups(ctx, &labpb.UpdateLabGroupsRequest{
-		Items: []*labpb.UpdateLabGroupItem{{Name: group, Changes: &labpb.LabGroupChanges{VpnDisabled: &disabled, ProbeWhileSuspended: &probe}}},
+		Items: []*labpb.UpdateLabGroupItem{
+			{
+				Name: group,
+				Changes: &labpb.LabGroupChanges{
+					VpnDisabled:         &disabled,
+					ProbeWhileSuspended: &probe,
+				},
+			},
+		},
 	})
 	if err != nil {
 		return agentErr("set lab group VPN disabled", err)
 	}
-	if disabled && len(res.GetResults()) == 1 && res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
+	if disabled && len(res.GetResults()) == 1 &&
+		res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
 		return nil
 	}
 	return oneResult("set lab group VPN disabled", res.GetResults())
@@ -530,7 +678,10 @@ func (c *Client) SetLabGroupVPNDisabled(ctx context.Context, group string, disab
 
 // ResetDevice discards the snapshots of one device and restarts it from its base image.
 func (c *Client) ResetDevice(ctx context.Context, group, lab, device string) error {
-	res, err := c.ResetDevices(ctx, &labpb.DevicesRequest{Items: []*labpb.ItemRef{{LabGroup: group, Lab: lab, Name: device}}})
+	res, err := c.ResetDevices(
+		ctx,
+		&labpb.DevicesRequest{Items: []*labpb.ItemRef{{LabGroup: group, Lab: lab, Name: device}}},
+	)
 	if err != nil {
 		return deviceActionErr("reset device", err)
 	}
@@ -540,8 +691,10 @@ func (c *Client) ResetDevice(ctx context.Context, group, lab, device string) err
 // RescueDevice switches one device to rescue mode (a shell from its latest snapshot) or back.
 func (c *Client) RescueDevice(ctx context.Context, group, lab, device string, enable bool) error {
 	res, err := c.RescueDevices(ctx, &labpb.RescueDevicesRequest{
-		Devices: &labpb.DevicesRequest{Items: []*labpb.ItemRef{{LabGroup: group, Lab: lab, Name: device}}},
-		Enable:  enable,
+		Devices: &labpb.DevicesRequest{
+			Items: []*labpb.ItemRef{{LabGroup: group, Lab: lab, Name: device}},
+		},
+		Enable: enable,
 	})
 	if err != nil {
 		return deviceActionErr("rescue device", err)
@@ -552,14 +705,32 @@ func (c *Client) RescueDevice(ctx context.Context, group, lab, device string, en
 // PrewarmImages asks the platform image cache to fetch the images from their upstream registries
 // before labs need them. It is asynchronous and idempotent: every call returns the current state of
 // each image, so repeating it polls.
-func (c *Client) PrewarmImages(ctx context.Context, images []string, creds []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
-	res, err := c.Client.PrewarmImages(ctx, &labpb.PrewarmImagesRequest{Images: images, RegistryCredentials: registryCredentials(creds)})
+func (c *Client) PrewarmImages(
+	ctx context.Context,
+	images []string,
+	creds []infraModel.RegistryCredential,
+) ([]infraModel.ImagePrewarm, error) {
+	res, err := c.Client.PrewarmImages(
+		ctx,
+		&labpb.PrewarmImagesRequest{
+			Images:              images,
+			RegistryCredentials: registryCredentials(creds),
+		},
+	)
 	if err != nil {
 		return nil, agentErr("prewarm images", err)
 	}
 	out := make([]infraModel.ImagePrewarm, 0, len(res.GetImages()))
 	for _, image := range res.GetImages() {
-		out = append(out, infraModel.ImagePrewarm{Image: image.GetImage(), State: prewarmState(image.GetState()), Error: image.GetError(), Digest: image.GetDigest()})
+		out = append(
+			out,
+			infraModel.ImagePrewarm{
+				Image:  image.GetImage(),
+				State:  prewarmState(image.GetState()),
+				Error:  image.GetError(),
+				Digest: image.GetDigest(),
+			},
+		)
 	}
 	return out, nil
 }
@@ -571,7 +742,14 @@ func registryCredentials(creds []infraModel.RegistryCredential) []*labpb.Registr
 	}
 	out := make([]*labpb.RegistryCredential, 0, len(creds))
 	for _, c := range creds {
-		out = append(out, &labpb.RegistryCredential{Registry: c.Registry, Username: c.Username, Password: c.Password})
+		out = append(
+			out,
+			&labpb.RegistryCredential{
+				Registry: c.Registry,
+				Username: c.Username,
+				Password: c.Password,
+			},
+		)
 	}
 	return out
 }
@@ -650,7 +828,11 @@ func deviceActionErr(op string, err error) error {
 func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 	st := l.GetStatus()
 	if st == nil {
-		return exerciseModel.LabDeployStatus{LabUID: l.GetUid(), LabGeneration: l.GetGeneration(), Phase: exerciseModel.DeployPhasePending}
+		return exerciseModel.LabDeployStatus{
+			LabUID:        l.GetUid(),
+			LabGeneration: l.GetGeneration(),
+			Phase:         exerciseModel.DeployPhasePending,
+		}
 	}
 	out := exerciseModel.LabDeployStatus{
 		LabUID: l.GetUid(), LabGeneration: l.GetGeneration(),
@@ -662,8 +844,13 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 	}
 	if q := st.GetScheduling(); q != nil {
 		out.Queue = &exerciseModel.LabQueue{
-			Position: q.GetPosition(), Length: q.GetLength(), Reason: q.GetReason(), Message: q.GetMessage(),
-			Group: q.GetGroup(), Pods: q.GetPods(), Pending: q.GetPending(),
+			Position: q.GetPosition(),
+			Length:   q.GetLength(),
+			Reason:   q.GetReason(),
+			Message:  q.GetMessage(),
+			Group:    q.GetGroup(),
+			Pods:     q.GetPods(),
+			Pending:  q.GetPending(),
 		}
 	}
 	for _, d := range st.GetDevices() {
@@ -672,11 +859,21 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 			out.CPUMillicores += d.GetCpuMillicores()
 			out.MemoryBytes += d.GetMemoryBytes()
 		}
-		device := exerciseModel.LabDeployedDevice{Name: d.GetName(), Ready: d.GetReady(), Reason: d.GetPodReason(), CPUThrottledPercent: d.GetCpuThrottledPercent()}
+		device := exerciseModel.LabDeployedDevice{
+			Name:                d.GetName(),
+			Ready:               d.GetReady(),
+			Reason:              d.GetPodReason(),
+			CPUThrottledPercent: d.GetCpuThrottledPercent(),
+		}
 		if sn := d.GetSnapshot(); sn != nil {
 			device.Snapshot = &exerciseModel.DeviceSnapshot{
-				LastSnapshotAt: unixMilli(sn.GetLastSnapshotUnixMs()), RestoredAt: unixMilli(sn.GetRestoredUnixMs()),
-				SizeBytes: sn.GetSizeBytes(), Warning: sn.GetWarning(), Rescue: sn.GetRescue(),
+				LastSnapshotAt: unixMilli(
+					sn.GetLastSnapshotUnixMs(),
+				),
+				RestoredAt: unixMilli(sn.GetRestoredUnixMs()),
+				SizeBytes:  sn.GetSizeBytes(),
+				Warning:    sn.GetWarning(),
+				Rescue:     sn.GetRescue(),
 			}
 		}
 		device.Scheduling = mapPodScheduling(d.GetScheduling())
@@ -707,7 +904,11 @@ func mapBootstrap(b *labpb.BootstrapStatus) *exerciseModel.DeviceBootstrapStatus
 	default:
 		return nil
 	}
-	return &exerciseModel.DeviceBootstrapStatus{Phase: phase, Attempts: b.GetAttempts(), Reason: b.GetReason()}
+	return &exerciseModel.DeviceBootstrapStatus{
+		Phase:    phase,
+		Attempts: b.GetAttempts(),
+		Reason:   b.GetReason(),
+	}
 }
 
 // mapPodScheduling maps the scheduler state of one device pod; nil when the scheduler does not track it.
@@ -716,12 +917,22 @@ func mapPodScheduling(p *labpb.PodScheduling) *exerciseModel.PodScheduling {
 		return nil
 	}
 	out := &exerciseModel.PodScheduling{
-		State: podState(p.GetState()), QueuedAt: unixMilli(p.GetQueuedUnixMs()),
-		DispatchedAt: unixMilli(p.GetDispatchedUnixMs()), StartedAt: unixMilli(p.GetStartedUnixMs()),
-		Withdrawals: p.GetWithdrawals(), RetryAfter: unixMilli(p.GetRetryAfterUnixMs()),
+		State:    podState(p.GetState()),
+		QueuedAt: unixMilli(p.GetQueuedUnixMs()),
+		DispatchedAt: unixMilli(
+			p.GetDispatchedUnixMs(),
+		),
+		StartedAt:   unixMilli(p.GetStartedUnixMs()),
+		Withdrawals: p.GetWithdrawals(),
+		RetryAfter:  unixMilli(p.GetRetryAfterUnixMs()),
 	}
 	if f := p.GetFailure(); f != nil {
-		out.Failure = &exerciseModel.PodFailure{Reason: f.GetReason(), Message: f.GetMessage(), RestartCount: f.GetRestartCount(), At: unixMilli(f.GetAtUnixMs())}
+		out.Failure = &exerciseModel.PodFailure{
+			Reason:       f.GetReason(),
+			Message:      f.GetMessage(),
+			RestartCount: f.GetRestartCount(),
+			At:           unixMilli(f.GetAtUnixMs()),
+		}
 	}
 	return out
 }
