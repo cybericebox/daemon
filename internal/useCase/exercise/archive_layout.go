@@ -253,6 +253,11 @@ func (l *archiveLinks) attachment(where string, a archiveAttachmentV2) (exercise
 	return exerciseModel.AttachmentRef{FileID: id, Name: name}, nil
 }
 
+// sourceSize is the size of the archive file a bootstrap file names, for the size check of the document.
+func (l *archiveLinks) sourceSize(ref exerciseModel.AttachmentRef) (int64, error) {
+	return int64(len(l.files[l.parsed.FilePaths[ref.FileID]])), nil
+}
+
 // orphan reports the first (alphabetical) folder file the document does not link to.
 func (l *archiveLinks) orphan() error {
 	for _, name := range sortedArchiveNames(l.files) {

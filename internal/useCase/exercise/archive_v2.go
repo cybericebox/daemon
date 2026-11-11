@@ -692,6 +692,9 @@ func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLink
 	if err = variant.ValidateDocument(); err != nil {
 		return exerciseModel.Variant{}, withArchivePath(err, path)
 	}
+	if err = variant.ValidateBootstrapSizes(links.sourceSize); err != nil {
+		return exerciseModel.Variant{}, withArchivePath(err, path)
+	}
 	return variant, nil
 }
 

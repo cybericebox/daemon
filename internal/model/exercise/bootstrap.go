@@ -23,6 +23,11 @@ const (
 	MaxBootstrapFiles = 32
 	// MaxBootstrapContentBytes bounds the inline content of one file and the script.
 	MaxBootstrapContentBytes = 64 * 1024
+	// MaxBootstrapFileBytes bounds one bootstrap file, inline or a file of the archive (Source): the laboratory's own
+	// ceiling. MaxBootstrapDeviceBytes bounds the script and all files of one device together (a Secret holds 1 MiB and
+	// the files go in as base64). The start of a lab and the draft save and import check the same numbers.
+	MaxBootstrapFileBytes   = 256 * 1024
+	MaxBootstrapDeviceBytes = 512 * 1024
 	// MinBootstrapTimeout and MaxBootstrapTimeout bound the time limit of a bootstrap (absent: the lab's default).
 	MinBootstrapTimeout = time.Second
 	MaxBootstrapTimeout = 10 * time.Minute
@@ -298,6 +303,37 @@ func (t Topology) ValidateDeviceRuntime() error {
 	for _, device := range t.Devices {
 		if err := validateDeviceRuntime(device); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ValidateBootstrapSizes checks the sizes a bootstrap takes in the lab: a file over MaxBootstrapFileBytes, or a script
+// and files over MaxBootstrapDeviceBytes in all, are refused with ErrBootstrapTooLarge naming the device, the field and,
+// for a file, its path in the device (file). The size of a file of the archive is asked through size (its stored or imported
+// bytes); a file whose size is unknown is an error of size itself.
+func (v Variant) ValidateBootstrapSizes(size func(AttachmentRef) (int64, error)) error {
+	for _, d := range v.Topology.Devices {
+		total := int64(len(d.Bootstrap.Script))
+		for i, f := range d.Bootstrap.Files {
+			field := fmt.Sprintf("bootstrap.files[%d]", i+1)
+			n := int64(len(f.Content))
+			if f.Source != nil {
+				var err error
+				if n, err = size(*f.Source); err != nil {
+					return err
+				}
+				field += ".source"
+			}
+			if n > MaxBootstrapFileBytes {
+				return ErrBootstrapTooLarge.WithPublicContext("device", d.Name).WithPublicContext("field", field).
+					WithPublicContext("file", f.Path).WithPublicContext("limit", MaxBootstrapFileBytes).Err()
+			}
+			total += n
+		}
+		if total > MaxBootstrapDeviceBytes {
+			return ErrBootstrapTooLarge.WithPublicContext("device", d.Name).WithPublicContext("field", "bootstrap").
+				WithPublicContext("limit", MaxBootstrapDeviceBytes).Err()
 		}
 	}
 	return nil

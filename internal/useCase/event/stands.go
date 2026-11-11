@@ -1215,9 +1215,6 @@ func (u *EventUseCase) pinStandVariables(ctx context.Context, lab labBindingRepo
 	return values, nil
 }
 
-// maxBootstrapFileBytes bounds a bootstrap file read from the archive (the laboratory takes 256 KiB a file).
-const maxBootstrapFileBytes = 256 << 10
-
 // readBootstrapFile reads the bytes of a bootstrap file that names a file of the archive.
 func (u *EventUseCase) readBootstrapFile(ctx context.Context) func(exerciseModel.AttachmentRef) ([]byte, error) {
 	return func(ref exerciseModel.AttachmentRef) ([]byte, error) {
@@ -1229,11 +1226,11 @@ func (u *EventUseCase) readBootstrapFile(ctx context.Context) func(exerciseModel
 			return nil, err
 		}
 		defer func() { _ = rc.Close() }()
-		body, err := io.ReadAll(io.LimitReader(rc, maxBootstrapFileBytes+1))
+		body, err := io.ReadAll(io.LimitReader(rc, exerciseModel.MaxBootstrapFileBytes+1))
 		if err != nil {
 			return nil, err
 		}
-		if len(body) > maxBootstrapFileBytes {
+		if len(body) > exerciseModel.MaxBootstrapFileBytes {
 			return nil, errors.New("the file is over 256 KiB")
 		}
 		return body, nil

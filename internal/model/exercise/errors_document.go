@@ -83,4 +83,9 @@ var (
 				WithMessage("The check was asked for too often, try again later").
 				WithDetailCode(16).
 				WithHTTPCode(http.StatusTooManyRequests)
+	// ErrBootstrapTooLarge: a bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB in
+	// all; device, field, file (the file's path in the device) and limit (bytes) say where and how much.
+	ErrBootstrapTooLarge = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("A bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB").
+				WithDetailCode(17)
 )

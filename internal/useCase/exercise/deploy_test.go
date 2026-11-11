@@ -1549,6 +1549,14 @@ func (f fileStore) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, m
 	return io.NopCloser(strings.NewReader(body)), mediaModel.File{ID: id}, nil
 }
 
+func (f fileStore) GetFile(_ context.Context, id uuid.UUID) (mediaModel.File, error) {
+	body, ok := f[id]
+	if !ok {
+		return mediaModel.File{}, errors.New("no such file")
+	}
+	return mediaModel.File{ID: id, SizeBytes: int64(len(body))}, nil
+}
+
 // The runtime of the document reaches the laboratory: the bootstrap with the values of the deploy and the files read from
 // the store, the command, the terminal, and the conditions of a state task as checks that map back to the task.
 func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T) {

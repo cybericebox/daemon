@@ -402,3 +402,27 @@ func TestStatusIsOptionalAndIgnoredByTheDocument(t *testing.T) {
 	_, err = parseDoc(t, strings.Replace(doc, `"variants"`, `"status":"bogus","variants"`, 1))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 }
+
+// An archive file over the bootstrap ceiling is refused at import with the path of the file in the device.
+func TestToParsed_BootstrapSourceSize(t *testing.T) {
+	doc := func(source string) string {
+		return variantDoc(
+			`{"name":"t"}`,
+			`{"devices":[{"name":"web","type":"node","bootstrap":{"files":[{"path":"/etc/app.bin","source":"`+source+`"}]}}]}`,
+		)
+	}
+	decode := func(source string, size int) (ParsedExerciseArchive, error) {
+		decoded, err := decodeArchiveV2([]byte(doc(source)))
+		require.NoError(t, err)
+		return decoded.toParsed(map[string][]byte{source: make([]byte, size)})
+	}
+	_, err := decode("files/ok.bin", exerciseModel.MaxBootstrapFileBytes)
+	require.NoError(t, err)
+	_, err = decode("files/big.bin", exerciseModel.MaxBootstrapFileBytes+1)
+	require.ErrorIs(t, err, exerciseModel.ErrBootstrapTooLarge.Err())
+	ctx := publicContext(t, err)
+	require.Equal(t, "/etc/app.bin", ctx["file"])
+	require.Equal(t, "web", ctx["device"])
+	require.Equal(t, "bootstrap.files[1].source", ctx["field"])
+	require.Equal(t, "versions[1].variants[1]", ctx["path"])
+}

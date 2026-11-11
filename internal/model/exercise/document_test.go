@@ -422,3 +422,45 @@ func TestWithoutSolutionAndTextMatching(t *testing.T) {
 	require.Nil(t, answer.WithoutSolution().Check.AnswerValues())
 	require.Equal(t, []string{"ICE{x}"}, answer.Check.AnswerValues())
 }
+
+func bootstrapVariant(script string, files ...exerciseModel.BootstrapFile) exerciseModel.Variant {
+	return exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{
+		Name: "web", Type: exerciseModel.DeviceTypeNode, Bootstrap: exerciseModel.Bootstrap{Script: script, Files: files},
+	}}}}
+}
+
+// The size of a bootstrap is bounded per file and per device; a file of the archive counts by its stored size.
+func TestValidateBootstrapSizes(t *testing.T) {
+	big, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	sizes := map[uuid.UUID]int64{
+		big:   exerciseModel.MaxBootstrapFileBytes + 1,
+		other: exerciseModel.MaxBootstrapFileBytes,
+	}
+	size := func(ref exerciseModel.AttachmentRef) (int64, error) { return sizes[ref.FileID], nil }
+	source := func(path string, id uuid.UUID) exerciseModel.BootstrapFile {
+		return exerciseModel.BootstrapFile{Path: path, Source: &exerciseModel.AttachmentRef{FileID: id}}
+	}
+
+	require.NoError(t, bootstrapVariant("", source("/a", other)).ValidateBootstrapSizes(size), "exactly the ceiling is fine")
+
+	err := bootstrapVariant("", source("/etc/blob.bin", big)).ValidateBootstrapSizes(size)
+	require.ErrorIs(t, err, exerciseModel.ErrBootstrapTooLarge.Err())
+	ctx := err.(interface{ PublicContext() map[string]any }).PublicContext()
+	require.Equal(t, "web", ctx["device"])
+	require.Equal(t, "bootstrap.files[1].source", ctx["field"])
+	require.Equal(t, "/etc/blob.bin", ctx["file"])
+	require.Equal(t, exerciseModel.MaxBootstrapFileBytes, ctx["limit"])
+
+	// Two files under the file ceiling whose sum with the script passes the device ceiling.
+	err = bootstrapVariant(strings.Repeat("x", 1024), source("/a", other), source("/b", other)).ValidateBootstrapSizes(size)
+	require.ErrorIs(t, err, exerciseModel.ErrBootstrapTooLarge.Err())
+	ctx = err.(interface{ PublicContext() map[string]any }).PublicContext()
+	require.Equal(t, "bootstrap", ctx["field"])
+	require.NotContains(t, ctx, "file")
+	require.Equal(t, exerciseModel.MaxBootstrapDeviceBytes, ctx["limit"])
+
+	// Exactly the device ceiling passes, inline text counts by its length.
+	require.NoError(t, bootstrapVariant("", source("/a", other), exerciseModel.BootstrapFile{
+		Path: "/b", Content: strings.Repeat("y", exerciseModel.MaxBootstrapDeviceBytes-exerciseModel.MaxBootstrapFileBytes),
+	}).ValidateBootstrapSizes(size))
+}

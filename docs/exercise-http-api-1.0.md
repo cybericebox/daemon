@@ -220,3 +220,17 @@ POST /exercises/{id}/images/service   {"Images": ["platform:web@sha256:…", "ng
   `Command` in that case, otherwise the start refuses with the device named.
 - The device DTO is unchanged: the values are not stored in the exercise, and a device without `Command` keeps meaning «what
   the image runs».
+
+## Size of bootstrap files
+
+A device's bootstrap is refused when a file is over 256 KiB (`MaxBootstrapFileBytes`, inline text or a file of the archive
+named by `source`) or when the script and all files of the device are over 512 KiB together (`MaxBootstrapDeviceBytes`).
+The same two numbers are checked when a lab starts (the start reads the file with the same cap), so a file that was saved
+also starts.
+
+- When: at a draft save (`PUT /exercises/{id}/draft`) by the stored size of the file, and at import by the bytes in the archive.
+- Answer: 400, code 23517. Public context: `device` (name), `field` (`bootstrap.files[N].source`, `bootstrap.files[N].content` is
+  not reachable: inline text is capped at 64 KiB by its own rule; or `bootstrap` for the device total), `file` (the file's
+  path in the device, absent for the device total) and `limit` in bytes. At import `path` is also there, the place of the
+  variant in the document (`versions[1].variants[1]`).
+- The editor can show the size of a chosen file and refuse early with the same numbers; the server check is the final one.

@@ -63,6 +63,9 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
 		return VersionView{}, err
 	}
+	if err = u.requireBootstrapSizes(ctx, version.Variants); err != nil {
+		return VersionView{}, err
+	}
 	// Snapshot which secret fields the caller actually submitted BEFORE the
 	// merge fills blanks from the stored draft — merged values are ciphertext
 	// and must never be re-encrypted.
@@ -112,6 +115,9 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, err
 	}
 	if err = session.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
+		return VersionView{}, err
+	}
+	if err = session.requireBootstrapSizes(ctx, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 	if err = session.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
