@@ -26,7 +26,10 @@ type Pattern struct {
 	literal  string
 	segments []segment
 	template bool
-	count    *big.Int
+	// bare marks a pattern of free text (a text answer, an infrastructure variable): its outputs have no ICE{}
+	// edges. A flag pattern is never bare.
+	bare  bool
+	count *big.Int
 }
 
 func (p Pattern) IsTemplate() bool { return p.template }
