@@ -59,14 +59,14 @@ type Task struct {
 	Description json.RawMessage `json:"description,omitempty"`
 	Difficulty  Difficulty      `json:"difficulty"`
 
-	// Flag holds the candidate flag values: len 0 → a flag is generated
-	// randomly at deploy time; len 1 → that fixed value is used as-is; len >1
-	// → one value is picked at random at deploy time.
-	Flag []string `json:"flag,omitempty"`
-	// LinkedDeviceID + DeviceFlagVar: the flag is injected into that device's
-	// env var at deploy time.
-	LinkedDeviceID uuid.NullUUID `json:"linked_device_id,omitempty"`
-	DeviceFlagVar  string        `json:"device_flag_var,omitempty"`
+	// Key names the task inside its variant: {{task.<key>}} places its pinned value and Requires names tasks by it.
+	// An import and a save give a task without one a stable key (see NormalizeTaskKeys).
+	Key string `json:"key,omitempty"`
+	// Requires are the keys of tasks of the same variant that must be done before this one opens.
+	// The gating itself is applied where a task is solved (follow-up); this is only the data.
+	Requires []string `json:"requires,omitempty"`
+	// Check is what makes the task done: exactly one of a typed answer or a state of the lab.
+	Check Check `json:"check"`
 
 	Attachments  []AttachmentRef `json:"attachments,omitempty"`
 	Placeholders []Placeholder   `json:"placeholders,omitempty"`
@@ -167,7 +167,7 @@ type Variant struct {
 	Index int32     `json:"index"` // decorative admin-facing number; not an identity
 	Note  string    `json:"note"`  // per-variant admin note (never shown to participants)
 	// LinkedTo is the base variant (same version) this one inherits its content from;
-	// only Flag and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
+	// only the answer values and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
 	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
 	Weight int `json:"weight,omitempty"`
@@ -185,9 +185,6 @@ type ImageOverride struct {
 	Image    string    `json:"image"`
 }
 
-// MaxDeviceEnvVars bounds the env vars of one device.
-const MaxDeviceEnvVars = 64
-
 // MaxVariantWeight bounds a variant's weight.
 const MaxVariantWeight = 100
 
@@ -196,13 +193,19 @@ func (v Variant) EffectiveWeight() int {
 	return min(max(v.Weight, 1), MaxVariantWeight)
 }
 
-// ValidateTopologyForDeploy enforces runnable graph rules without requiring
-// publication-only task descriptions or flag content in a saved draft.
+// ValidateTopologyForDeploy enforces runnable graph rules and resolvable substitutions without requiring
+// publication-only task descriptions or answer content in a saved draft.
 func (v Variant) ValidateTopologyForDeploy() error {
 	if err := v.Topology.validateStructure(); err != nil {
 		return err
 	}
-	return v.Topology.validateGraph(v.Tasks)
+	if err := v.Topology.validateGraph(); err != nil {
+		return err
+	}
+	if err := validateVariables(v.Topology.Variables); err != nil {
+		return err
+	}
+	return v.ValidateSubstitutions()
 }
 
 // ExerciseVersion is a full content snapshot: the variant set persisted as one
@@ -280,9 +283,6 @@ func (v *ExerciseVersion) ValidateStructure() error {
 			if !task.Difficulty.Valid() {
 				return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
 			}
-			if !validFlag(task.Flag) {
-				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
-			}
 			if err := validateHints(task, canonicalTasks[taskIndex]); err != nil {
 				return err
 			}
@@ -303,9 +303,12 @@ func (v *ExerciseVersion) ValidateStructure() error {
 		if err := validateImageOverrides(variantIndex, variant); err != nil {
 			return err
 		}
-		if err := variant.Topology.validateFlagEnvTargets(variant.Tasks); err != nil {
+		if err := variant.ValidateDocument(); err != nil {
 			return err
 		}
+	}
+	if err := validateChecksAcross(v.Variants); err != nil {
+		return err
 	}
 	return validateLinkedFlags(v.Variants)
 }
@@ -318,9 +321,13 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 		return err
 	}
 	for _, variant := range v.Variants {
-		if err := variant.Topology.validateGraph(variant.Tasks); err != nil {
+		if err := variant.Topology.validateGraph(); err != nil {
 			return err
 		}
+		if err := variant.RequireChecks(); err != nil {
+			return err
+		}
+		delivered := variant.DeliveredTaskKeys()
 		for _, task := range variant.Tasks {
 			if !hasTaskDescriptionContent(task.Description) {
 				return ErrTaskDescriptionRequired.WithContext("task", task.Name).Err()
@@ -330,11 +337,8 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 					return ErrHintTextRequired.WithContext("task", task.Name).Err()
 				}
 			}
-			if !task.LinkedDeviceID.Valid && len(task.Flag) == 0 {
-				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
-			}
-			if !task.LinkedDeviceID.Valid && (len(task.Flag) != 1 || strings.HasPrefix(task.Flag[0], flagpattern.TemplatePrefix)) {
-				return ErrFlagMultiNeedsDevice.WithContext("task", task.Name).Err()
+			if err := requireSingleValueWithoutDelivery(task, delivered); err != nil {
+				return err
 			}
 			if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
 				return err
@@ -345,6 +349,25 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 		}
 	}
 	return validateLinkedContent(v.Variants)
+}
+
+// requireSingleValueWithoutDelivery: a task whose value does not reach a lab (no bootstrap names its
+// {{task.<key>}}) has exactly one fixed value, because the participant has no way to learn which one is theirs.
+func requireSingleValueWithoutDelivery(task Task, delivered map[string]struct{}) error {
+	answer := task.Check.Answer
+	if answer == nil {
+		return nil
+	}
+	if _, ok := delivered[task.Key]; ok {
+		return nil
+	}
+	if len(answer.Values) == 0 {
+		return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
+	}
+	if len(answer.Values) != 1 || strings.HasPrefix(answer.Values[0], flagpattern.TemplatePrefix) {
+		return ErrFlagMultiNeedsDevice.WithContext("task", task.Name).Err()
+	}
+	return nil
 }
 
 // HasInfrastructure reports whether any variant has a lab topology (devices):
@@ -358,16 +381,29 @@ func HasInfrastructure(variants []Variant) bool {
 	return false
 }
 
-// CollectFileIDs returns every attachment FileID across a variant set —
-// consumed by the media reference sync on draft save.
+// CollectFileIDs returns every file id across a variant set (task attachments and the source files of device
+// bootstraps) — consumed by the media reference sync on draft save.
 func CollectFileIDs(variants []Variant) []uuid.UUID {
 	var ids []uuid.UUID
-	for _, v := range variants {
-		for _, t := range v.Tasks {
-			for _, a := range t.Attachments {
-				ids = append(ids, a.FileID)
+	for i := range variants {
+		variants[i].EachFileRef(func(ref *AttachmentRef) { ids = append(ids, ref.FileID) })
+	}
+	return ids
+}
+
+// EachFileRef calls fn for every stored file the variant names: the attachments of its tasks and the source files
+// of its devices' bootstrap. fn may change the reference in place.
+func (v *Variant) EachFileRef(fn func(*AttachmentRef)) {
+	for ti := range v.Tasks {
+		for ai := range v.Tasks[ti].Attachments {
+			fn(&v.Tasks[ti].Attachments[ai])
+		}
+	}
+	for di := range v.Topology.Devices {
+		for fi := range v.Topology.Devices[di].Bootstrap.Files {
+			if source := v.Topology.Devices[di].Bootstrap.Files[fi].Source; source != nil {
+				fn(source)
 			}
 		}
 	}
-	return ids
 }

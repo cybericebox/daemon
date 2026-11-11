@@ -64,19 +64,35 @@ type DeployHandle struct {
 	Group     string
 	Lab       string
 	Namespace string
-	// Flags are the values injected into the linked devices of a test deploy,
-	// one per flag-linked task, so the author can compare them.
+	// Flags are the values pinned for the answer tasks of a test deploy, so the author can compare them.
 	Flags []DeployFlag
 	// Static is true for a test without devices: there is no lab behind the handle.
 	Static bool
 }
 
-// DeployFlag is the resolved test flag of one device-linked task.
+// DeployFlag is the value pinned for one answer task of a test deploy, with the options the author's answer is
+// compared under (a text answer may ignore case and keep its edge spaces).
 type DeployFlag struct {
 	TaskID uuid.UUID `json:"task_id"`
 	Name   string    `json:"name"`
 	Flag   string    `json:"flag"`
+	// Type, IgnoreCase and Trim are the options of the task's answer; a deploy stored before them is a flag.
+	Type       AnswerType `json:"type,omitempty"`
+	IgnoreCase bool       `json:"ignore_case,omitempty"`
+	NoTrim     bool       `json:"no_trim,omitempty"`
 }
+
+// NewDeployFlag pins a value for a task's answer.
+func NewDeployFlag(task Task, value string) DeployFlag {
+	flag := DeployFlag{TaskID: task.ID, Name: task.Name, Flag: value}
+	if answer := task.Check.Answer; answer != nil && answer.Type == AnswerTypeText {
+		flag.Type, flag.IgnoreCase, flag.NoTrim = answer.Type, answer.IgnoreCase, !answer.TrimEffective()
+	}
+	return flag
+}
+
+// IsText reports whether the value is compared as free text.
+func (f DeployFlag) IsText() bool { return f.Type == AnswerTypeText }
 
 // LabDeployStatus is the runtime status of a deployed variant lab.
 type LabDeployStatus struct {

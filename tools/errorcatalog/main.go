@@ -73,6 +73,7 @@ var objectByName = map[string]int{
 	"DeviceObjectCode":             32,
 	"PasskeyObjectCode":            33,
 	"TablePrefsObjectCode":         34,
+	"ExerciseDocumentObjectCode":   35,
 }
 
 // declRe captures one builder chain: var name, base error, object constant, and

@@ -19,7 +19,7 @@ func (v Variant) IsLinked() bool { return v.LinkedTo.Valid }
 // variant that is not in the version is dropped (the content stays as an
 // independent variant); a link to itself or to a linked variant is an error.
 // A linked variant keeps only its ID, Index, Note, Weight, link, image overrides
-// and, per task, its own Flag and Attachments (matched by task ID, else by
+// and, per task, its own answer values and Attachments (matched by task ID, else by
 // position); everything else is a deep copy of the base, with the overridden
 // device images written in. An independent variant has no image overrides.
 // Idempotent.
@@ -57,10 +57,19 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 			return err
 		}
 		for taskIndex := range rebuilt.Tasks {
-			rebuilt.Tasks[taskIndex].Flag = nil
 			rebuilt.Tasks[taskIndex].Attachments = nil
-			if own, ok := matchLinkedTask(linked.Tasks, rebuilt.Tasks[taskIndex].ID, taskIndex); ok {
-				rebuilt.Tasks[taskIndex].Flag = own.Flag
+			if answer := rebuilt.Tasks[taskIndex].Check.Answer; answer != nil {
+				answer.Values = nil
+			}
+			if own, ok := matchLinkedTask(
+				linked.Tasks,
+				rebuilt.Tasks[taskIndex].ID,
+				taskIndex,
+			); ok {
+				if answer := rebuilt.Tasks[taskIndex].Check.Answer; answer != nil &&
+					own.Check.Answer != nil {
+					answer.Values = own.Check.Answer.Values
+				}
 				rebuilt.Tasks[taskIndex].Attachments = own.Attachments
 			}
 		}
@@ -165,7 +174,7 @@ func matchLinkedTask(tasks []Task, baseID uuid.UUID, position int) (Task, bool) 
 	return Task{}, false
 }
 
-// validateLinkedFlags: within a base and its linked variants, a fixed flag
+// validateLinkedFlags: within a base and its linked variants, a fixed answer
 // value of one task position must not repeat across variants (templates may).
 func validateLinkedFlags(variants []Variant) error {
 	groups := make(map[uuid.UUID][]Variant, len(variants))
@@ -186,7 +195,7 @@ func validateLinkedFlags(variants []Variant) error {
 				if taskIndex >= len(member.Tasks) {
 					continue
 				}
-				for _, value := range member.Tasks[taskIndex].Flag {
+				for _, value := range member.Tasks[taskIndex].Check.values() {
 					if strings.HasPrefix(value, flagpattern.TemplatePrefix) {
 						continue
 					}
@@ -203,7 +212,7 @@ func validateLinkedFlags(variants []Variant) error {
 
 // validateLinkedContent is the publish gate for linked variants (variants are already rebuilt from their bases, so
 // the subtasks line up by position): a linked variant has files for every subtask whose base has files, and it
-// differs from its base in a flag, files or an image.
+// differs from its base in an answer value, files or an image.
 func validateLinkedContent(variants []Variant) error {
 	positions := make(map[uuid.UUID]int, len(variants))
 	for i, variant := range variants {
@@ -237,7 +246,7 @@ func validateLinkedVariant(number int, linked, base Variant) error {
 				WithPublicContext("task", baseTask.Name).
 				Err()
 		}
-		if len(own.Attachments) > 0 || !slices.Equal(own.Flag, baseTask.Flag) {
+		if len(own.Attachments) > 0 || !slices.Equal(own.Check.values(), baseTask.Check.values()) {
 			differs = true
 		}
 	}

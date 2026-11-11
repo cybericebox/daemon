@@ -39,4 +39,5 @@ const (
 	DeviceObjectCode
 	PasskeyObjectCode
 	TablePrefsObjectCode
+	ExerciseDocumentObjectCode
 )

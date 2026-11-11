@@ -121,6 +121,9 @@ type (
 	// Topology is one variant's lab layout. Spec §8/§9: devices + direct
 	// connections + the vpn/internet singletons as NetworkSpec fields.
 	Topology struct {
+		// Variables are set once per instance and used as {{var.<name>}} in any device's bootstrap and in the
+		// expectations of the conditions.
+		Variables    []Variable      `json:"variables,omitempty"`
 		VPN          NetworkSpec     `json:"vpn"`
 		Internet     NetworkSpec     `json:"internet"`
 		Devices      []Device        `json:"devices"`
@@ -154,8 +157,18 @@ type (
 		ResourcePreset string           `json:"resource_preset,omitempty"`
 		Resources      *DeviceResources `json:"resources,omitempty"`
 		Interfaces     []Interface      `json:"interfaces,omitempty"`
-		EnvVars        []EnvVar         `json:"env_vars,omitempty"`
 		External       *ExternalAccess  `json:"external,omitempty"` // exposure: web
+		// Command and Args replace the entrypoint and arguments of the image (empty = the image's own).
+		Command []string `json:"command,omitempty"`
+		Args    []string `json:"args,omitempty"`
+		// System and Hardware are reserved for the vm profile (default linux / fast).
+		System   SystemKind   `json:"system,omitempty"`
+		Hardware HardwareKind `json:"hardware,omitempty"`
+		// Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
+		// service process.
+		Bootstrap Bootstrap `json:"bootstrap,omitzero"`
+		// Terminal opens a terminal of the device in the participant's browser; off unless enabled.
+		Terminal Terminal `json:"terminal,omitzero"`
 		// Persistence keeps the device's writable layer across an unplanned restart; nil = off.
 		Persistence *DevicePersistence `json:"persistence,omitempty"`
 		// WaitReadyFile makes the device Ready only once the application has created /run/ready inside the
@@ -272,7 +285,8 @@ func (t Topology) validateStructure() error {
 		if d.Type.IsForwarding() && strings.TrimSpace(d.Name) == "" {
 			return ErrDeviceDisplayNameInvalid.WithContext("device", d.Name).Err()
 		}
-		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
+		if !d.Type.Valid() ||
+			(d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		if d.Profile != "" && (!d.Type.IsNode() || !d.Profile.Valid()) {
@@ -303,6 +317,9 @@ func (t Topology) validateStructure() error {
 				return ErrDeviceInterfaceInvalid.WithContext("device", d.Name).Err()
 			}
 		}
+		if err := validateDeviceRuntime(d); err != nil {
+			return err
+		}
 		if d.External != nil && (d.External.Port < 1 || d.External.Port > 65535 ||
 			(d.External.Protocol != "http" && d.External.Protocol != "https")) {
 			return ErrDeviceExternalInvalid.WithContext("device", d.Name).Err()
@@ -324,11 +341,11 @@ func (t Topology) validateStructure() error {
 }
 
 // validateGraph enforces the cross-item publish rules (spec §8/§9): unique
-// names, endpoint resolution, port occupancy and flag-device links. L2 shape
+// names, endpoint resolution and port occupancy. L2 shape
 // (loops, broadcast-domain separation) is not validated here: unmanaged
 // switches/hubs can be cabled to real hardware outside the declared topology,
 // so a static check would be meaningless — the editor UI warns instead.
-func (t Topology) validateGraph(tasks []Task) error {
+func (t Topology) validateGraph() error {
 	// 1. Unique device names + index by id.
 	byID := make(map[uuid.UUID]Device, len(t.Devices))
 	names := make(map[string]bool, len(t.Devices))
@@ -390,16 +407,6 @@ func (t Topology) validateGraph(tasks []Task) error {
 		return err
 	}
 
-	// Flag-device links resolve to a non-forwarding device with a var name.
-	for _, task := range tasks {
-		if !task.LinkedDeviceID.Valid {
-			continue
-		}
-		d, ok := byID[task.LinkedDeviceID.UUID]
-		if !ok || d.Type.IsForwarding() || task.DeviceFlagVar == "" {
-			return ErrFlagDeviceUnresolved.WithContext("task", task.Name).Err()
-		}
-	}
 	return nil
 }
 
@@ -461,41 +468,6 @@ func validForwardingPort(name string) bool {
 	}
 	number, parseErr := strconv.Atoi(strings.TrimPrefix(name, prefix))
 	return parseErr == nil && number >= 1 && number <= 48 && name == prefix+strconv.Itoa(number)
-}
-
-func (t Topology) validateFlagEnvTargets(tasks []Task) error {
-	devices := make(map[uuid.UUID]Device, len(t.Devices))
-	for _, device := range t.Devices {
-		devices[device.ID] = device
-	}
-	type target struct {
-		deviceID uuid.UUID
-		name     string
-	}
-	used := make(map[target]struct{})
-	for _, task := range tasks {
-		if !task.LinkedDeviceID.Valid || task.DeviceFlagVar == "" {
-			continue
-		}
-		device, found := devices[task.LinkedDeviceID.UUID]
-		if !found {
-			continue // Publish validation reports the missing device.
-		}
-		key := target{deviceID: device.ID, name: task.DeviceFlagVar}
-		_, duplicateTask := used[key]
-		conflict := duplicateTask
-		for _, env := range device.EnvVars {
-			if env.Name == task.DeviceFlagVar {
-				conflict = true
-				break
-			}
-		}
-		if conflict {
-			return ErrFlagEnvironmentConflict.WithContext("task", task.Name).WithContext("device", device.Name).WithContext("env_var", task.DeviceFlagVar).Err()
-		}
-		used[key] = struct{}{}
-	}
-	return nil
 }
 
 func hasInterface(d Device, name string) bool {

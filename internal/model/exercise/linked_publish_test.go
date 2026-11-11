@@ -25,7 +25,7 @@ func linkedPublishVersion(n int) exerciseModel.ExerciseVersion {
 		ID:    uuid.Must(uuid.NewV7()),
 		Tasks: []exerciseModel.Task{validTask()},
 	}
-	base.Tasks[0].Flag = []string{"ICE{base}"}
+	base.Tasks[0].Check = exerciseModel.FlagCheck("ICE{base}")
 	variants := []exerciseModel.Variant{base}
 	for i := range n {
 		linked := exerciseModel.Variant{
@@ -33,7 +33,7 @@ func linkedPublishVersion(n int) exerciseModel.ExerciseVersion {
 			LinkedTo: uuid.NullUUID{UUID: base.ID, Valid: true},
 		}
 		task := base.Tasks[0]
-		task.Flag = []string{"ICE{linked" + string(rune('a'+i)) + "}"}
+		task.Check = exerciseModel.FlagCheck("ICE{linked" + string(rune('a'+i)) + "}")
 		linked.Tasks = []exerciseModel.Task{task}
 		variants = append(variants, linked)
 	}
@@ -70,15 +70,18 @@ func templateLinkedVersion(n int) exerciseModel.ExerciseVersion {
 	version := linkedPublishVersion(n)
 	for i := range version.Variants {
 		task := &version.Variants[i].Tasks[0]
-		task.LinkedDeviceID = uuid.NullUUID{UUID: deviceID, Valid: true}
-		task.DeviceFlagVar = "FLAG"
-		task.Flag = []string{`template:ICE{\d}`}
+		task.Key = "flag"
+		task.Check = exerciseModel.FlagCheck(`template:ICE{\d}`)
 		version.Variants[i].Topology.Devices = []exerciseModel.Device{
 			{
 				ID:    deviceID,
 				Name:  "srv",
 				Type:  exerciseModel.DeviceTypeContainer,
 				Image: "platform:srv@sha256:" + strings.Repeat("ab", 32),
+				// The template reaches the device through its bootstrap env: that is the delivery.
+				Bootstrap: exerciseModel.Bootstrap{
+					Env: []exerciseModel.EnvVar{{Name: "FLAG", Value: "{{task.flag}}"}},
+				},
 			},
 		}
 	}
@@ -107,13 +110,13 @@ func TestValidateForPublish_LinkedVariantMustDifferFromItsBase(t *testing.T) {
 	})
 	t.Run("a flag of its own makes it differ", func(t *testing.T) {
 		version := templateLinkedVersion(1)
-		version.Variants[1].Tasks[0].Flag = []string{`template:ICE{[a-f]}`}
+		version.Variants[1].Tasks[0].Check = exerciseModel.FlagCheck(`template:ICE{[a-f]}`)
 		require.NoError(t, version.ValidateForPublish())
 	})
 	t.Run("only the third is identical", func(t *testing.T) {
 		version := templateLinkedVersion(3)
-		version.Variants[1].Tasks[0].Flag = []string{`template:ICE{[a-f]}`}
-		version.Variants[3].Tasks[0].Flag = []string{`template:ICE{[g-z]}`}
+		version.Variants[1].Tasks[0].Check = exerciseModel.FlagCheck(`template:ICE{[a-f]}`)
+		version.Variants[3].Tasks[0].Check = exerciseModel.FlagCheck(`template:ICE{[g-z]}`)
 		err := version.ValidateForPublish()
 		require.ErrorIs(t, err, exerciseModel.ErrLinkedVariantIdentical.Err())
 		assert.Equal(t, map[string]any{"variant": 3}, publicContext(t, err))
@@ -127,15 +130,17 @@ func TestValidateForPublish_KhctfShape(t *testing.T) {
 	version := linkedPublishVersion(14)
 	for i := range version.Variants {
 		task := &version.Variants[i].Tasks[0]
-		task.LinkedDeviceID = uuid.NullUUID{UUID: deviceID, Valid: true}
-		task.DeviceFlagVar = "FLAG"
-		task.Flag = []string{"ICE{pwn" + string(rune('a'+i)) + "}"}
+		task.Key = "flag"
+		task.Check = exerciseModel.FlagCheck("ICE{pwn" + string(rune('a'+i)) + "}")
 		version.Variants[i].Topology.Devices = []exerciseModel.Device{
 			{
 				ID:    deviceID,
 				Name:  "pwn",
 				Type:  exerciseModel.DeviceTypeContainer,
 				Image: "platform:pwn@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				Bootstrap: exerciseModel.Bootstrap{
+					Env: []exerciseModel.EnvVar{{Name: "FLAG", Value: "{{task.flag}}"}},
+				},
 			},
 		}
 	}

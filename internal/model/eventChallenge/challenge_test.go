@@ -28,7 +28,17 @@ func TestSetPointsRange(t *testing.T) {
 }
 
 func TestNew_CopiesPublicTaskWithoutFlag(t *testing.T) {
-	challenge, err := eventChallengeModel.New(uuid.Must(uuid.NewV7()), exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{secret}"}}, 0, time.Now())
+	challenge, err := eventChallengeModel.New(
+		uuid.Must(uuid.NewV7()),
+		exerciseModel.Task{
+			ID:         uuid.Must(uuid.NewV7()),
+			Name:       "Task",
+			Difficulty: exerciseModel.DifficultyEasy,
+			Check:      exerciseModel.FlagCheck("ICE{secret}"),
+		},
+		0,
+		time.Now(),
+	)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -104,5 +114,47 @@ func TestSetMaxFlagAttempts(t *testing.T) {
 	}
 	if err = challenge.SetMaxFlagAttempts(nil); err != nil || challenge.MaxFlagAttempts != nil {
 		t.Fatalf("clear: %v %v", challenge.MaxFlagAttempts, err)
+	}
+}
+
+func TestSnapshotCarriesTheAnswerOptionsAndNeverTheValue(t *testing.T) {
+	no := false
+	task := exerciseModel.Task{
+		ID:         uuid.Must(uuid.NewV7()),
+		Name:       "Task",
+		Difficulty: exerciseModel.DifficultyEasy,
+		Check: exerciseModel.Check{
+			Answer: &exerciseModel.AnswerCheck{
+				Type:       exerciseModel.AnswerTypeText,
+				Values:     []string{"OSPF-secret"},
+				InputHint:  "abbreviation",
+				IgnoreCase: true,
+				Trim:       &no,
+			},
+		},
+	}
+	snapshot, err := eventChallengeModel.SnapshotForTask(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(snapshot), "OSPF-secret") ||
+		strings.Contains(string(snapshot), "values") {
+		t.Fatalf("the expected value reached the snapshot: %s", snapshot)
+	}
+	answer := eventChallengeModel.AnswerOfSnapshot(snapshot)
+	if answer.Type != exerciseModel.AnswerTypeText || answer.InputHint != "abbreviation" ||
+		!answer.IgnoreCase ||
+		!answer.NoTrim {
+		t.Fatalf("answer = %+v", answer)
+	}
+	// Kept edge spaces compare against the value as typed; ignore_case folds.
+	if !answer.Matches("OSPF", "ospf", "ospf") || answer.Matches("OSPF", "ospf", " ospf") {
+		t.Fatal("text answer compare is wrong")
+	}
+	// A snapshot made before the answer options (and one of a flag) compares as a flag.
+	old := eventChallengeModel.AnswerOfSnapshot([]byte(`{"name":"x"}`))
+	if old.Type != exerciseModel.AnswerTypeFlag || !old.Matches("ICE{a}", "ICE{a}", " ICE{a}") ||
+		old.Matches("ICE{a}", "ice{a}", "ice{a}") {
+		t.Fatalf("flag compare: %+v", old)
 	}
 }

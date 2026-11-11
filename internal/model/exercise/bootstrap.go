@@ -1,0 +1,300 @@
+package exerciseModel
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model/flagpattern"
+)
+
+// Limits of the device runtime keys and of the variables. Each is part of the document contract.
+const (
+	// MaxDeviceEnvVars bounds the env vars of one device.
+	MaxDeviceEnvVars = 64
+	// MaxEnvValueBytes bounds one env value.
+	MaxEnvValueBytes = 4096
+	// MaxBootstrapFiles bounds the files one bootstrap places.
+	MaxBootstrapFiles = 32
+	// MaxBootstrapContentBytes bounds the inline content of one file and the script.
+	MaxBootstrapContentBytes = 64 * 1024
+	// MinBootstrapTimeout and MaxBootstrapTimeout bound the time limit of a bootstrap (absent: the lab's default).
+	MinBootstrapTimeout = time.Second
+	MaxBootstrapTimeout = 10 * time.Minute
+	// MaxCommandEntries and MaxArgsEntries bound the service command and its arguments; MaxCommandEntryBytes one entry.
+	MaxCommandEntries    = 32
+	MaxArgsEntries       = 64
+	MaxCommandEntryBytes = 4096
+	// MaxVariables bounds the variables of one topology; MaxVariableValueBytes one constant value.
+	MaxVariables          = 64
+	MaxVariableValueBytes = 1024
+)
+
+type (
+	// SystemKind is the guest system of a node; reserved for the vm profile.
+	SystemKind string
+	// HardwareKind is the kind of virtual hardware of a node; reserved for the vm profile.
+	HardwareKind string
+)
+
+const (
+	SystemLinux   SystemKind = "linux"
+	SystemWindows SystemKind = "windows"
+
+	HardwareFast       HardwareKind = "fast"
+	HardwareCompatible HardwareKind = "compatible"
+)
+
+func (s SystemKind) Valid() bool { return s == "" || s == SystemLinux || s == SystemWindows }
+
+func (h HardwareKind) Valid() bool { return h == "" || h == HardwareFast || h == HardwareCompatible }
+
+type (
+	// Bootstrap is everything that happens to a clean device before its service starts, in one block. It runs as
+	// root, only on a clean filesystem (first start, reset). A task value is a substitution ({{task.<key>}}) in an
+	// env value, a file content or the script.
+	Bootstrap struct {
+		// Timeout is a Go duration, MinBootstrapTimeout..MaxBootstrapTimeout; empty = the lab's default.
+		Timeout string `json:"timeout,omitempty"`
+		// Env are the variables of the service process. A value here is always visible to a participant inside the
+		// device. Secret values are stored encrypted.
+		Env         []EnvVar        `json:"env,omitempty"`
+		Files       []BootstrapFile `json:"files,omitempty"`
+		Script      string          `json:"script,omitempty"`
+		Interpreter string          `json:"interpreter,omitempty"`
+	}
+
+	// BootstrapFile places one file: exactly one of Content (text, with substitutions) and Source (a file of the
+	// archive, stored like an attachment).
+	BootstrapFile struct {
+		Path    string         `json:"path"`
+		Content string         `json:"content,omitempty"`
+		Source  *AttachmentRef `json:"source,omitempty"`
+		Owner   string         `json:"owner,omitempty"`
+		Group   string         `json:"group,omitempty"`
+		Mode    string         `json:"mode,omitempty"`
+	}
+
+	// Terminal is a terminal of the device in the participant's browser, without VPN. Off unless Enabled.
+	Terminal struct {
+		Enabled bool   `json:"enabled,omitempty"`
+		Command string `json:"command,omitempty"` // default /bin/sh
+		User    string `json:"user,omitempty"`    // default: the user of the image
+	}
+
+	// Variable is set once for the whole infrastructure of a variant and used as {{var.<name>}}: exactly one of
+	// Value (a constant) and Template (a pattern, generated once per instance).
+	Variable struct {
+		Name     string `json:"name"`
+		Value    string `json:"value,omitempty"`
+		Template string `json:"template,omitempty"`
+	}
+)
+
+// IsZero lets encoding/json omit an empty bootstrap.
+func (b Bootstrap) IsZero() bool {
+	return b.Timeout == "" && len(b.Env) == 0 && len(b.Files) == 0 && b.Script == "" &&
+		b.Interpreter == ""
+}
+
+// IsZero lets encoding/json omit an empty terminal.
+func (t Terminal) IsZero() bool { return t == Terminal{} }
+
+// UnappliedKeys names, in document terms, the runtime keys of a node that the laboratory does not apply yet:
+// command, args, bootstrap.files, bootstrap.script and terminal. (bootstrap.env is applied.)
+func (d Device) UnappliedKeys() []string {
+	var keys []string
+	if len(d.Command) > 0 {
+		keys = append(keys, "command")
+	}
+	if len(d.Args) > 0 {
+		keys = append(keys, "args")
+	}
+	if len(d.Bootstrap.Files) > 0 {
+		keys = append(keys, "bootstrap.files")
+	}
+	if d.Bootstrap.Script != "" {
+		keys = append(keys, "bootstrap.script")
+	}
+	if d.Terminal.Enabled {
+		keys = append(keys, "terminal")
+	}
+	return keys
+}
+
+var (
+	// slugRe is a task key and a variable name: it is written inside {{task.<key>}} and {{var.<name>}}.
+	slugRe    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+	envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+)
+
+// ValidKey reports whether a task key or variable name is well-formed.
+func ValidKey(s string) bool { return slugRe.MatchString(s) }
+
+// validateDeviceRuntime checks the runtime keys of one device on their own. It returns an error naming the
+// document key that is wrong; the cross-references (substitutions) are checked per variant.
+func validateDeviceRuntime(d Device) error {
+	bad := func(field string) error {
+		return ErrDeviceRuntimeInvalid.WithPublicContext("device", d.Name).
+			WithPublicContext("field", field).
+			Err()
+	}
+	if d.Type.IsForwarding() {
+		if len(d.Command) > 0 || len(d.Args) > 0 || d.System != "" || d.Hardware != "" ||
+			!d.Bootstrap.IsZero() ||
+			!d.Terminal.IsZero() {
+			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
+		}
+		return nil
+	}
+	if len(d.Command) > MaxCommandEntries || len(d.Args) > MaxArgsEntries {
+		return bad("command")
+	}
+	for i, entry := range d.Command {
+		if entry == "" || len(entry) > MaxCommandEntryBytes || strings.ContainsRune(entry, 0) {
+			return bad(fmt.Sprintf("command[%d]", i+1))
+		}
+	}
+	for i, entry := range d.Args {
+		if len(entry) > MaxCommandEntryBytes || strings.ContainsRune(entry, 0) {
+			return bad(fmt.Sprintf("args[%d]", i+1))
+		}
+	}
+	if !d.System.Valid() {
+		return bad("system")
+	}
+	if !d.Hardware.Valid() {
+		return bad("hardware")
+	}
+	if d.EffectiveProfile() != NodeProfileVM {
+		if d.System == SystemWindows {
+			return bad("system")
+		}
+		if d.Hardware == HardwareCompatible {
+			return bad("hardware")
+		}
+	}
+	if t := d.Terminal; !t.IsZero() {
+		if !t.Enabled && (t.Command != "" || t.User != "") {
+			return bad("terminal.enabled")
+		}
+		if t.Command != "" && !validInterpreter(t.Command) {
+			return bad("terminal.command")
+		}
+		if t.User != "" && !accountNameRe.MatchString(t.User) {
+			return bad("terminal.user")
+		}
+	}
+	return validateBootstrap(d, bad)
+}
+
+func validateBootstrap(d Device, bad func(string) error) error {
+	b := d.Bootstrap
+	if b.Timeout != "" && !validDurationIn(b.Timeout, MinBootstrapTimeout, MaxBootstrapTimeout) {
+		return bad("bootstrap.timeout")
+	}
+	if len(b.Env) > MaxDeviceEnvVars {
+		return bad("bootstrap.env")
+	}
+	names := make(map[string]struct{}, len(b.Env))
+	for i, env := range b.Env {
+		field := fmt.Sprintf("bootstrap.env[%d]", i+1)
+		if !envNameRe.MatchString(env.Name) {
+			return bad(field + ".name")
+		}
+		if _, duplicate := names[env.Name]; duplicate {
+			return bad(field + ".name")
+		}
+		names[env.Name] = struct{}{}
+		// A secret value is stored sealed; its length is not the author's text any more.
+		if !env.Secret &&
+			(len(env.Value) > MaxEnvValueBytes || strings.ContainsRune(env.Value, 0)) {
+			return bad(field + ".value")
+		}
+	}
+	if len(b.Files) > MaxBootstrapFiles {
+		return bad("bootstrap.files")
+	}
+	paths := make(map[string]struct{}, len(b.Files))
+	for i, file := range b.Files {
+		field := fmt.Sprintf("bootstrap.files[%d]", i+1)
+		switch {
+		case !validAbsolutePath(file.Path):
+			return bad(field + ".path")
+		case (file.Source != nil) == (file.Content != ""):
+			return bad(field + ".content")
+		case len(file.Content) > MaxBootstrapContentBytes || strings.ContainsRune(file.Content, 0):
+			return bad(field + ".content")
+		case file.Source != nil && file.Source.FileID == uuid.Nil:
+			return bad(field + ".source")
+		case file.Owner != "" && !accountNameRe.MatchString(file.Owner):
+			return bad(field + ".owner")
+		case file.Group != "" && !accountNameRe.MatchString(file.Group):
+			return bad(field + ".group")
+		case file.Mode != "" && !fileModeRe.MatchString(file.Mode):
+			return bad(field + ".mode")
+		}
+		if _, duplicate := paths[file.Path]; duplicate {
+			return bad(field + ".path")
+		}
+		paths[file.Path] = struct{}{}
+	}
+	if len(b.Script) > MaxBootstrapContentBytes || strings.ContainsRune(b.Script, 0) {
+		return bad("bootstrap.script")
+	}
+	if b.Interpreter != "" && (b.Script == "" || !validInterpreter(b.Interpreter)) {
+		return bad("bootstrap.interpreter")
+	}
+	return nil
+}
+
+// validateVariables checks the variables of a topology: unique valid names, exactly one of value and template.
+func validateVariables(vars []Variable) error {
+	if len(vars) > MaxVariables {
+		return ErrVariableInvalid.WithPublicContext("field", "variables").Err()
+	}
+	seen := make(map[string]struct{}, len(vars))
+	for i, v := range vars {
+		bad := func(key string) error {
+			return ErrVariableInvalid.WithPublicContext("field", fmt.Sprintf("variables[%d].%s", i+1, key)).
+				Err()
+		}
+		if !ValidKey(v.Name) {
+			return bad("name")
+		}
+		if _, duplicate := seen[v.Name]; duplicate {
+			return bad("name")
+		}
+		seen[v.Name] = struct{}{}
+		if (v.Value == "") == (v.Template == "") {
+			return bad("value")
+		}
+		if v.Template != "" {
+			if _, err := flagpattern.ParseVariable(
+				v.Template,
+			); err != nil ||
+				utf8.RuneCountInString(v.Template) > MaxTextAnswerRunes {
+				return bad("template")
+			}
+		} else if len(v.Value) > MaxVariableValueBytes || strings.ContainsFunc(v.Value, unicode.IsControl) {
+			return bad("value")
+		}
+	}
+	return nil
+}
+
+// ValidateDeviceRuntime checks the runtime keys (command, args, system, hardware, terminal, bootstrap) of every
+// device of the topology on their own.
+func (t Topology) ValidateDeviceRuntime() error {
+	for _, device := range t.Devices {
+		if err := validateDeviceRuntime(device); err != nil {
+			return err
+		}
+	}
+	return nil
+}
