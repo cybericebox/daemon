@@ -33,6 +33,7 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	runChecks string
 	reimport previewCalls
 	// deployLength is the run length the last deploy asked for.
 	deployLength time.Duration
@@ -306,6 +307,10 @@ func (f *fakeUC) ExtendTestDeploy(_ context.Context, _, _ uuid.UUID) (exerciseMo
 func (f *fakeUC) CheckTestFlag(_ context.Context, _, _, taskID uuid.UUID, flag string) (bool, error) {
 	f.checked = flag
 	return flag == "ICE{ok}" && taskID != uuid.Nil, f.err
+}
+func (f *fakeUC) RunTestDeployChecks(_ context.Context, _, deployID, taskID uuid.UUID) error {
+	f.runChecks = deployID.String() + "/" + taskID.String()
+	return f.err
 }
 func (f *fakeUC) OpenTestDeployLink(_ context.Context, _, _ uuid.UUID, _ string, _ int32) (labaccess.Link, error) {
 	return f.sessionLink, f.err

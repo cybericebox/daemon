@@ -833,6 +833,7 @@ func (u *ExerciseUseCase) deployTestStatus(ctx context.Context, userID, deployID
 	// no access; only the author's config, stored with this deploy, is ever handed out.
 	status.VPNConfig = ""
 	status.SolvedTasks = deploy.Solved
+	u.withTaskStates(ctx, &status, deploy)
 	if expired {
 		return status, deploy, nil // the access ended with the lease: no VPN config, handshake or probe address
 	}

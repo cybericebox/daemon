@@ -124,8 +124,12 @@ type LabDeployStatus struct {
 	VPNLastHandshake           time.Time
 	// VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
 	VPNProbeURL string
-	// SolvedTasks are the tasks the author has already checked correctly; filled by the use case.
+	// SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
+	// StateTasks); filled by the use case.
 	SolvedTasks []uuid.UUID
+	// StateTasks is where every task checked by the state of the lab stands, for the author of the test only; filled by the
+	// use case from the recorded check results. Absent for a variant without state tasks.
+	StateTasks []TaskCheckState
 	// ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.
 	ExpiresAt time.Time
 	Expired   bool
@@ -150,6 +154,34 @@ type LabDeployedDevice struct {
 	Scheduling *PodScheduling
 	// Bootstrap is where the device's bootstrap is; nil for a device without one. For staff and the task author only.
 	Bootstrap *DeviceBootstrapStatus
+}
+
+// TaskCheckState is the state of one task checked by the lab. Solved follows its mode: once: every check has passed once and
+// it stays so; continuous: every check passes now and it may go back. FirstSolvedAt is the first time every check had
+// passed (kept when a continuous task goes back). The author sees each check with its detail; a participant never does.
+type TaskCheckState struct {
+	TaskID        uuid.UUID
+	Key           string
+	Mode          StateMode
+	Manual        bool
+	Solved        bool
+	SolvedAt      *time.Time
+	FirstSolvedAt *time.Time
+	// Known: every check of the task has a result.
+	Known  bool
+	Checks []CheckDetail
+}
+
+// CheckDetail is one laboratory check of a task with its last result, for the author or the teacher.
+type CheckDetail struct {
+	ID string
+	// Passed is the current state; Known is false until the check has a result.
+	Passed        bool
+	Known         bool
+	FirstPassedAt *time.Time
+	ChangedAt     *time.Time
+	Value         string
+	Detail        string
 }
 
 // Bootstrap phases of a device (the laboratory's contract 1.5): pending until it is done, failed when its attempts are used up.

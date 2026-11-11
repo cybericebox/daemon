@@ -65,6 +65,33 @@ type (
 		Name   string `json:"Name"`
 	}
 
+	// deployStateTaskResponse is a task checked by the state of the lab, as the author of the test sees it. Mode is "once"
+	// (Solved once every check has passed once, and it stays so) or "continuous" (Solved while every check passes now; it
+	// may go back, and FirstSolvedAt keeps the first time). Known: every check has a result. Manual: ManualRun is allowed.
+	deployStateTaskResponse struct {
+		TaskID        string                      `json:"TaskID"`
+		Key           string                      `json:"Key"`
+		Mode          string                      `json:"Mode"`
+		Manual        bool                        `json:"Manual"`
+		Solved        bool                        `json:"Solved"`
+		SolvedAt      *time.Time                  `json:"SolvedAt"`
+		FirstSolvedAt *time.Time                  `json:"FirstSolvedAt"`
+		Known         bool                        `json:"Known"`
+		Checks        []deployCheckDetailResponse `json:"Checks"`
+	}
+
+	// deployCheckDetailResponse is one laboratory check with its last result. Detail and Value come from the device and are for
+	// the author only: they may hold what a participant must find themselves.
+	deployCheckDetailResponse struct {
+		ID            string     `json:"ID"`
+		Known         bool       `json:"Known"`
+		Passed        bool       `json:"Passed"`
+		FirstPassedAt *time.Time `json:"FirstPassedAt"`
+		ChangedAt     *time.Time `json:"ChangedAt"`
+		Value         string     `json:"Value"`
+		Detail        string     `json:"Detail"`
+	}
+
 	deployStatusResponse struct {
 		Phase        string                 `json:"Phase"`
 		Ready        bool                   `json:"Ready"`
@@ -81,8 +108,11 @@ type (
 		// the VPN or gateway image. Empty when fine.
 		ImageWarning      string `json:"ImageWarning"`
 		GroupImageWarning string `json:"GroupImageWarning"`
-		// SolvedTaskIDs are the tasks the author has already checked correctly.
+		// SolvedTaskIDs are the tasks the author has already checked correctly, and the state tasks whose checks pass.
 		SolvedTaskIDs []string `json:"SolvedTaskIDs"`
+		// StateTasks is where every task checked by the state of the lab stands (author only, with the details of the checks);
+		// absent for a variant without such tasks.
+		StateTasks []deployStateTaskResponse `json:"StateTasks,omitempty"`
 		// VPNLastHandshake is the client's last handshake; absent when it never connected.
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
 		// VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.
@@ -159,6 +189,18 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		Queue: labview.Queue(s.Queue), ImageWarning: s.ImageWarning, GroupImageWarning: s.GroupImageWarning,
 	}
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
+	for _, task := range s.StateTasks {
+		item := deployStateTaskResponse{
+			TaskID: task.TaskID.String(), Key: task.Key, Mode: string(task.Mode), Manual: task.Manual, Solved: task.Solved,
+			SolvedAt: task.SolvedAt, FirstSolvedAt: task.FirstSolvedAt, Known: task.Known, Checks: []deployCheckDetailResponse{},
+		}
+		for _, c := range task.Checks {
+			item.Checks = append(item.Checks, deployCheckDetailResponse{
+				ID: c.ID, Known: c.Known, Passed: c.Passed, FirstPassedAt: c.FirstPassedAt, ChangedAt: c.ChangedAt, Value: c.Value, Detail: c.Detail,
+			})
+		}
+		out.StateTasks = append(out.StateTasks, item)
+	}
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
 	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt
@@ -329,6 +371,47 @@ func (h *Handler) checkDeploy(ctx *gin.Context) {
 	}
 	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, deployCheckResponse{Correct: correct})
+}
+
+type deployRunChecksResponse struct {
+	// Asked: the laboratory was asked to run the checks of the task now. The result comes with the next status.
+	Asked bool `json:"Asked"`
+}
+
+// runDeployChecks godoc
+// @Summary  Run the checks of a state task of a test deploy now
+// @Description Asks the laboratory to run the checks of one task checked by the state of the lab. Only a task that allows a manual run; at most 3 asks a minute per task (429 with Retry-After). The answer only says the request was recorded: read the result from the deploy status. Author of the deploy only.
+// @Tags     exercises
+// @Produce  json
+// @Param    deployID  path  string  true  "test deployment id"
+// @Param    taskID    path  string  true  "task id"
+// @Success  200  {object}  response.Response{data=deployRunChecksResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Failure  429  {object}  response.Response
+// @Router   /exercises/deploys/{deployID}/tasks/{taskID}/run-checks [post]
+func (h *Handler) runDeployChecks(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	deployID, err := uuid.FromString(ctx.Param("deployID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx)
+		return
+	}
+	taskID, err := uuid.FromString(ctx.Param("taskID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx)
+		return
+	}
+	if err = h.useCase.RunTestDeployChecks(ctx, claims.UserID, deployID, taskID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, deployRunChecksResponse{Asked: true})
 }
 
 // listDeploys godoc

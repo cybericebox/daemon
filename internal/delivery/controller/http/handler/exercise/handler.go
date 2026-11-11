@@ -83,6 +83,7 @@ type (
 		ListTestDeploys(ctx context.Context, userID, exerciseID uuid.UUID) ([]exerciseModel.TestDeploy, error)
 		ExtendTestDeploy(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, error)
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
+		RunTestDeployChecks(ctx context.Context, userID, deployID, taskID uuid.UUID) error
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
 		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
 		CommitArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
@@ -271,6 +272,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("deploys/:deployID/extend", self, h.extendDeploy)
 		ex.POST("deploys/:deployID/link", self, h.deployLink)
 		ex.POST("deploys/:deployID/check", self, h.checkDeploy)
+		ex.POST("deploys/:deployID/tasks/:taskID/run-checks", self, h.runDeployChecks)
 		ex.POST("deploys/:deployID/devices/:device/reset", self, h.resetDeployDevice)
 		ex.POST("deploys/:deployID/devices/:device/rescue", self, h.rescueDeployDevice)
 		ex.DELETE("deploys/:deployID", self, h.destroyDeploy)

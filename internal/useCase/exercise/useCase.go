@@ -73,6 +73,8 @@ type ExerciseUseCase struct {
 	images IImageAccess
 	// files reads the stored files a bootstrap names (SetFileReader); nil: such a file cannot be read.
 	files IFileReader
+	// labChecks keeps the results of laboratory checks and the manual runs asked for (SetLabChecks); nil: none shown.
+	labChecks ILabChecks
 	// The background import of archives with image files (SetArchiveImport); nil: such archives are refused.
 	archiveImages  IArchiveImages
 	archiveSources IArchiveSources

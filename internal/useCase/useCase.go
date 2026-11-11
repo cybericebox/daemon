@@ -26,6 +26,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/instanceValueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/jobQueueRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labCheckRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
@@ -406,6 +407,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetImageAccess(imageRegistryUC)
 	// A bootstrap file of the archive is read from the file store when a lab is built.
 	exerciseUC.SetFileReader(mediaUC)
+	// The results of the laboratory checks, shown to the author of a test and asked for on demand.
+	exerciseUC.SetLabChecks(labCheckRepo.New(deps.Repo.Pool()))
 	// Task archives naming device image files import in the background: images pushed through the registry use
 	// case, the archive read where it lies, the password sealed with the platform cipher.
 	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{

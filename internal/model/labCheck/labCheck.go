@@ -123,3 +123,9 @@ func TaskStates(variant exerciseModel.Variant, results []Result) []TaskState {
 	}
 	return out
 }
+
+// ChecksRunRateLimit bounds the manual runs of one task's checks: at most Attempts within Window per lab group (a team) and task.
+var ChecksRunRateLimit = struct {
+	Attempts int
+	Window   time.Duration
+}{Attempts: 3, Window: time.Minute}
