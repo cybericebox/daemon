@@ -314,6 +314,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
 			WaitDetails:              waitDetailRepo.New(deps.Repo.Pool()),
 			StandVariables:           instanceValueRepo.New(deps.Repo.Pool()),
+			LabChecks:                labCheckRepo.New(deps.Repo.Pool()),
 			RevealDecline:            revealDeclineRepo.New(deps.Repo),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,

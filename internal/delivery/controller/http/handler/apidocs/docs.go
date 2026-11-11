@@ -17115,6 +17115,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/teams/challenges/{challengeID}/run-checks": {
+            "post": {
+                "description": "Only for a task checked by the state of the lab that allows a manual check. A task that waits for other tasks answers 409 with the names of what it waits for (public context waits_for). At most 3 asks a minute per team and task (429 with Retry-After). The answer only says the request was recorded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Ask for a check of the caller's own task now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event challenge ID",
+                        "name": "challengeID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.runChecksResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/teams/challenges/{challengeID}/solves": {
             "get": {
                 "description": "Needs the board gates and event results access (under a freeze only solves before it, and results not published answer with the results-hidden error). TeamName is the public scoreboard name. Only visible teams are listed, plus the caller's own team (Own). Oldest solve first; FirstBlood marks the earliest solve among the visible teams. The cursor is the id of the last solve of the previous page (NextCursor); sort is ignored.",
@@ -18693,6 +18753,72 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/deploys/{deployID}/tasks/{taskID}/run-checks": {
+            "post": {
+                "description": "Asks the laboratory to run the checks of one task checked by the state of the lab. Only a task that allows a manual run; at most 3 asks a minute per task (429 with Retry-After). The answer only says the request was recorded: read the result from the deploy status. Author of the deploy only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Run the checks of a state task of a test deploy now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "test deployment id",
+                        "name": "deployID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "task id",
+                        "name": "taskID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.deployRunChecksResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -38948,6 +39074,15 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.runChecksResponse": {
+            "type": "object",
+            "properties": {
+                "Asked": {
+                    "description": "Asked: the laboratory was asked to check the task now. The result is not in this answer: the task is marked solved by\nitself once its checks pass (read the board). Nothing of what is checked, expected or found is ever returned.",
+                    "type": "boolean"
+                }
+            }
+        },
         "eventself.scoreboardEntryResponse": {
             "type": "object",
             "properties": {
@@ -39819,6 +39954,32 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.deployCheckDetailResponse": {
+            "type": "object",
+            "properties": {
+                "ChangedAt": {
+                    "type": "string"
+                },
+                "Detail": {
+                    "type": "string"
+                },
+                "FirstPassedAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Known": {
+                    "type": "boolean"
+                },
+                "Passed": {
+                    "type": "boolean"
+                },
+                "Value": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.deployCheckRequest": {
             "type": "object",
             "required": [
@@ -39844,6 +40005,14 @@ const docTemplate = `{
         "exercise.deployDeviceResponse": {
             "type": "object",
             "properties": {
+                "Bootstrap": {
+                    "description": "Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); absent for a\ndevice without one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/labview.BootstrapResponse"
+                        }
+                    ]
+                },
                 "Limit": {
                     "description": "Limit is the code of a resource limit the device hits (\"device_cpu_limit\": more than half of its CPU periods\nare throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.",
                     "type": "string"
@@ -39988,6 +40157,50 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.deployRunChecksResponse": {
+            "type": "object",
+            "properties": {
+                "Asked": {
+                    "description": "Asked: the laboratory was asked to run the checks of the task now. The result comes with the next status.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "exercise.deployStateTaskResponse": {
+            "type": "object",
+            "properties": {
+                "Checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.deployCheckDetailResponse"
+                    }
+                },
+                "FirstSolvedAt": {
+                    "type": "string"
+                },
+                "Key": {
+                    "type": "string"
+                },
+                "Known": {
+                    "type": "boolean"
+                },
+                "Manual": {
+                    "type": "boolean"
+                },
+                "Mode": {
+                    "type": "string"
+                },
+                "Solved": {
+                    "type": "boolean"
+                },
+                "SolvedAt": {
+                    "type": "string"
+                },
+                "TaskID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.deployStatusResponse": {
             "type": "object",
             "properties": {
@@ -40043,10 +40256,17 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "SolvedTaskIDs": {
-                    "description": "SolvedTaskIDs are the tasks the author has already checked correctly.",
+                    "description": "SolvedTaskIDs are the tasks the author has already checked correctly, and the state tasks whose checks pass.",
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "StateTasks": {
+                    "description": "StateTasks is where every task checked by the state of the lab stands (author only, with the details of the checks);\nabsent for a variant without such tasks.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.deployStateTaskResponse"
                     }
                 },
                 "VPNCIDR": {
@@ -42017,6 +42237,48 @@ const docTemplate = `{
                 }
             }
         },
+        "exerciseModel.CheckDetail": {
+            "type": "object",
+            "properties": {
+                "changedAt": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "firstPassedAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "known": {
+                    "type": "boolean"
+                },
+                "passed": {
+                    "description": "Passed is the current state; Known is false until the check has a result.",
+                    "type": "boolean"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.DeviceBootstrapStatus": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "exerciseModel.DeviceSnapshot": {
             "type": "object",
             "properties": {
@@ -42145,10 +42407,17 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "solvedTasks": {
-                    "description": "SolvedTasks are the tasks the author has already checked correctly; filled by the use case.",
+                    "description": "SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see\nStateTasks); filled by the use case.",
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "stateTasks": {
+                    "description": "StateTasks is where every task checked by the state of the lab stands, for the author of the test only; filled by the\nuse case from the recorded check results. Absent for a variant without state tasks.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.TaskCheckState"
                     }
                 },
                 "usageAvailable": {
@@ -42177,6 +42446,14 @@ const docTemplate = `{
         "exerciseModel.LabDeployedDevice": {
             "type": "object",
             "properties": {
+                "bootstrap": {
+                    "description": "Bootstrap is where the device's bootstrap is; nil for a device without one. For staff and the task author only.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.DeviceBootstrapStatus"
+                        }
+                    ]
+                },
                 "cputhrottledPercent": {
                     "description": "CPUThrottledPercent is the share of CPU periods the device was throttled in the agent's window (0: no data).",
                     "type": "integer",
@@ -42298,6 +42575,53 @@ const docTemplate = `{
                     "description": "Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when\nthe cluster sends it again (zero: no wait).",
                     "type": "integer",
                     "format": "int32"
+                }
+            }
+        },
+        "exerciseModel.StateMode": {
+            "type": "string",
+            "enum": [
+                "once",
+                "continuous"
+            ],
+            "x-enum-varnames": [
+                "StateModeOnce",
+                "StateModeContinuous"
+            ]
+        },
+        "exerciseModel.TaskCheckState": {
+            "type": "object",
+            "properties": {
+                "checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.CheckDetail"
+                    }
+                },
+                "firstSolvedAt": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "known": {
+                    "description": "Known: every check of the task has a result.",
+                    "type": "boolean"
+                },
+                "manual": {
+                    "type": "boolean"
+                },
+                "mode": {
+                    "$ref": "#/definitions/exerciseModel.StateMode"
+                },
+                "solved": {
+                    "type": "boolean"
+                },
+                "solvedAt": {
+                    "type": "string"
+                },
+                "taskID": {
+                    "type": "string"
                 }
             }
         },
@@ -42787,6 +43111,16 @@ const docTemplate = `{
         "infrastructure.agentFeaturesResponse": {
             "type": "object",
             "properties": {
+                "BootstrapAvailable": {
+                    "type": "boolean"
+                },
+                "ChecksEnabled": {
+                    "description": "ChecksEnabled: the laboratory runs lab checks (a task with a state check can start there). TerminalEnabled: the\nbrowser terminal is on. BootstrapAvailable: the agent carries the device bootstrap (contract 1.5); false for an\nolder agent. ChecksMaxPerLab is the most checks of one lab (0 when not reported).",
+                    "type": "boolean"
+                },
+                "ChecksMaxPerLab": {
+                    "type": "integer"
+                },
                 "DeviceMaxCPUMillicores": {
                     "description": "DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the\ncontainer devices of one lab. 0 = no limit.",
                     "type": "integer"
@@ -42878,6 +43212,9 @@ const docTemplate = `{
                 "SchedulerMaxPods": {
                     "description": "SchedulerMaxPods is the most pods starting at once; 0 = no limit.",
                     "type": "integer"
+                },
+                "TerminalEnabled": {
+                    "type": "boolean"
                 },
                 "VPN": {
                     "description": "VPN and Gateway size the pods of a lab group: base plus per user (VPN) or per lab with internet\n(gateway), at most Max; 0 in all three = the agent did not report it.",
@@ -43648,9 +43985,31 @@ const docTemplate = `{
                 }
             }
         },
+        "labview.BootstrapResponse": {
+            "type": "object",
+            "properties": {
+                "Attempts": {
+                    "type": "integer"
+                },
+                "Phase": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                }
+            }
+        },
         "labview.DeviceResponse": {
             "type": "object",
             "properties": {
+                "Bootstrap": {
+                    "description": "Bootstrap is the device's bootstrap: absent for a device without one. Organizers and the task author only.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/labview.BootstrapResponse"
+                        }
+                    ]
+                },
                 "LogicalName": {
                     "description": "LogicalName is the device name in the exercise topology; empty when unknown.",
                     "type": "string"

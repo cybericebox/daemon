@@ -157,6 +157,7 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 		teams.GET("challenges/mine", h.listOwnChallenges)
 		teams.GET("challenges/:challengeID/files/:fileID", h.downloadChallengeAttachment)
 		teams.POST("challenges/:challengeID/open", h.openChallenge)
+		teams.POST("challenges/:challengeID/run-checks", h.runChecks)
 		teams.GET("challenges/:challengeID/solves", h.challengeSolves)
 		// Stands are managed only by moderators (manage/labs); participants
 		// read the lab status, their team stand status and their VPN config.

@@ -102,7 +102,7 @@ func TestWithTeamBootstraps_PinsVariablesAcrossBuilds(t *testing.T) {
 	}
 	teamA, teamB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 
-	passwordOf := func(team uuid.UUID) (string, []exerciseModel.LabCheck) {
+	passwordOf := func(team uuid.UUID) string {
 		built, checks, err := u.withTeamBootstraps(context.Background(), lab(team), topology)
 		require.NoError(t, err)
 		m := regexp.MustCompile(`^echo admin:([a-z0-9]{16}) > /etc/users$`).FindStringSubmatch(built.Devices[0].Bootstrap.Script)
@@ -111,16 +111,16 @@ func TestWithTeamBootstraps_PinsVariablesAcrossBuilds(t *testing.T) {
 		require.Len(t, checks, 1)
 		require.Equal(t, "configured:1", checks[0].ID)
 		require.Equal(t, "admin:"+m[1], checks[0].Parts[0].File.Contains, "the expectation holds the same value")
-		return m[1], checks
+		return m[1]
 	}
 
-	first, _ := passwordOf(teamA)
-	second, _ := passwordOf(teamA) // the lab is rebuilt or reset
-	third, _ := passwordOf(teamA)
+	first := passwordOf(teamA)
+	second := passwordOf(teamA) // the lab is rebuilt or reset
+	third := passwordOf(teamA)
 	require.Equal(t, first, second)
 	require.Equal(t, first, third)
 	require.Equal(t, 1, store.pins, "drawn and stored once")
-	other, _ := passwordOf(teamB)
+	other := passwordOf(teamB)
 	require.NotEqual(t, first, other, "every team's stand has its own value")
 	require.Equal(t, 2, store.pins)
 

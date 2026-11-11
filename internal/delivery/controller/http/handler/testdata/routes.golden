@@ -383,6 +383,7 @@ POST   /api/events/:id/teams/challenges/:challengeID/hints/:hintID/unlock | gate
 GET    /api/events/:id/teams/challenges/:challengeID/lab | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/challenges/:challengeID/lab/link | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/challenges/:challengeID/open | gate: self | layers: eventself.touchPresence
+POST   /api/events/:id/teams/challenges/:challengeID/run-checks | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/challenges/:challengeID/solves | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/challenges/:challengeID/submit | gate: self | layers: eventself.touchPresence,middleware.ReceivedAfterBody
 GET    /api/events/:id/teams/challenges/mine | gate: self | layers: eventself.touchPresence
@@ -465,6 +466,7 @@ POST   /api/exercises/deploys/:deployID/devices/:device/rescue | gate: self | la
 POST   /api/exercises/deploys/:deployID/devices/:device/reset | gate: self | layers: -
 POST   /api/exercises/deploys/:deployID/extend | gate: self | layers: -
 POST   /api/exercises/deploys/:deployID/link | gate: self | layers: -
+POST   /api/exercises/deploys/:deployID/tasks/:taskID/run-checks | gate: self | layers: -
 GET    /api/exercises/elevations | gate: exercises.elevations.read | layers: -
 GET    /api/exercises/elevations/:elevationID | gate: exercises.elevations.read | layers: -
 POST   /api/exercises/elevations/:elevationID/approve | gate: exercises.elevations.write | layers: -

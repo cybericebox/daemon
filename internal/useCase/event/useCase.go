@@ -262,6 +262,8 @@ type EventUseCase struct {
 	waitDetails  WaitDetailStore
 	// standVariables pins the variables of a team's stand (nil: drawn on every build).
 	standVariables StandVariableStore
+	// labChecks limits the manual runs of checks (nil: a manual run is refused).
+	labChecks LabCheckStore
 	// revealDecline keeps the teams declined from a cohort (nil: off).
 	revealDecline RevealDeclineStore
 	elevations    ApprovalStore
@@ -299,6 +301,8 @@ type Dependencies struct {
 	WaitDetails WaitDetailStore
 	// StandVariables pins the variables of the infrastructure per team and event exercise; nil draws them on every build.
 	StandVariables StandVariableStore
+	// LabChecks limits the manual runs of checks per team and task; nil refuses a manual run.
+	LabChecks LabCheckStore
 	// RevealDecline keeps the teams declined from a cohort; nil switches the decline off (the cohort is all or nothing).
 	RevealDecline RevealDeclineStore
 	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
@@ -430,6 +434,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		autoRecreate:             deps.AutoRecreate,
 		waitDetails:              deps.WaitDetails,
 		standVariables:           deps.StandVariables,
+		labChecks:                deps.LabChecks,
 		revealDecline:            deps.RevealDecline,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),

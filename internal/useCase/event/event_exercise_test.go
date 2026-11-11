@@ -723,3 +723,69 @@ func TestUpdateEventExercise_RefusesANewerVersionWithAStateTask(t *testing.T) {
 		t.Fatalf("update to a state task: %v", err)
 	}
 }
+
+// The `requires` of the document become the prerequisites of the board: the second task waits for the first.
+func TestAttachExercise_SeedsThePrerequisitesFromRequires(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	theoryID, practiceID, finalID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+	task := func(id uuid.UUID, key string, requires ...string) string {
+		quoted := make([]string, len(requires))
+		for i, r := range requires {
+			quoted[i] = `"` + r + `"`
+		}
+		list := strings.Join(quoted, ",")
+		return `{"id":"` + id.String() + `","name":"` + key + ` task","key":"` + key + `","difficulty":"easy","requires":[` + list + `],"check":{"answer":{"type":"text","values":["x"]}}}`
+	}
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{
+		ID: versionID, ExerciseID: exerciseID, Status: string(exerciseModel.VersionStatusPublished), PublishedAt: pgtype.Timestamptz{Time: now, Valid: true}, CreatedAt: now,
+		Variants: []byte(`[{"tasks":[` + task(theoryID, "theory") + `,` + task(practiceID, "practice", "theory") + `,` + task(finalID, "final", "theory", "practice") + `]}]`),
+	}, nil)
+	q.EXPECT().GetExerciseByID(gomock.Any(), exerciseID).Return(postgres.Exercise{ID: exerciseID, Name: "Route"}, nil)
+	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil)
+	q.EXPECT().EventHasActiveExerciseFamily(gomock.Any(), gomock.Any()).Return(false, nil)
+	q.EXPECT().CreateEventExercise(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateEventExerciseParams) (postgres.EventExercise, error) {
+			return postgres.EventExercise{ID: arg.ID, EventID: arg.EventID, ExerciseID: arg.ExerciseID, ExerciseVersionID: arg.ExerciseVersionID, VariantMode: arg.VariantMode, CreatedAt: arg.CreatedAt, CreatedBy: arg.CreatedBy}, nil
+		})
+	var created []postgres.EventChallenge
+	q.EXPECT().CreateEventChallenge(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateEventChallengeParams) (postgres.EventChallenge, error) {
+			row := postgres.EventChallenge{ID: arg.ID, EventExerciseID: arg.EventExerciseID, TaskID: arg.TaskID, OrderIndex: arg.OrderIndex, Snapshot: arg.Snapshot, CreatedAt: arg.CreatedAt}
+			created = append(created, row)
+			return row, nil
+		}).Times(3)
+	q.EXPECT().ListEventChallenges(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, uuid.UUID) ([]postgres.EventChallenge, error) { return created, nil })
+	deleted := map[uuid.UUID]bool{}
+	prerequisites := map[uuid.UUID][]uuid.UUID{}
+	q.EXPECT().DeleteEventChallengePrerequisites(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id uuid.UUID) error { deleted[id] = true; return nil }).Times(2)
+	q.EXPECT().CreateEventChallengePrerequisite(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateEventChallengePrerequisiteParams) error {
+			prerequisites[arg.ChallengeID] = append(prerequisites[arg.ChallengeID], arg.PrerequisiteChallengeID)
+			return nil
+		}).Times(3)
+
+	if _, err := uc.AttachExercise(context.Background(), eventID, event.AttachExerciseInput{ExerciseVersionID: versionID, VariantMode: eventExerciseModel.VariantModePerTeam}, uuid.Must(uuid.NewV7())); err != nil {
+		t.Fatalf("AttachExercise: %v", err)
+	}
+	byTask := map[uuid.UUID]uuid.UUID{}
+	for _, c := range created {
+		byTask[c.TaskID] = c.ID
+	}
+	if len(prerequisites[byTask[theoryID]]) != 0 || deleted[byTask[theoryID]] {
+		t.Fatalf("the first task waits for nothing: %v", prerequisites)
+	}
+	if got := prerequisites[byTask[practiceID]]; len(got) != 1 || got[0] != byTask[theoryID] {
+		t.Fatalf("practice waits for theory: %v", got)
+	}
+	got := prerequisites[byTask[finalID]]
+	if len(got) != 2 || got[0] != byTask[theoryID] || got[1] != byTask[practiceID] {
+		t.Fatalf("final waits for theory and practice: %v", got)
+	}
+}

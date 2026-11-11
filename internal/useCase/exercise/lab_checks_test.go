@@ -3,7 +3,7 @@ package exercise_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +56,7 @@ func (m *memoryLabChecks) AskRun(_ context.Context, group, task string, window t
 // checksInfra is the fake infrastructure that can also run checks.
 type checksInfra struct {
 	*fakeInfra
+
 	asked []string
 	err   error
 }
@@ -65,16 +66,7 @@ func (c *checksInfra) RunLabChecks(_ context.Context, group, lab string, ids []s
 	return c.err
 }
 
-func join(ids []string) string {
-	out := ""
-	for i, id := range ids {
-		if i > 0 {
-			out += ","
-		}
-		out += id
-	}
-	return out
-}
+func join(ids []string) string { return strings.Join(ids, ",") }
 
 type stateFixture struct {
 	q                                       *postgresMocks.MockQuerier
@@ -215,7 +207,7 @@ func TestRunTestDeployChecks_IsRateLimitedPerTask(t *testing.T) {
 	require.ErrorIs(t, err, exerciseModel.ErrChecksRunTooOften.Err())
 	require.Len(t, infra.asked, labCheckModel.ChecksRunRateLimit.Attempts, "the refused ask never reached the laboratory")
 	var appErr apperr.Error
-	require.True(t, errors.As(err, &appErr))
+	require.ErrorAs(t, err, &appErr)
 	require.EqualValues(t, 60, appErr.StatusCode().Details()[apperr.DetailRetryAfterSeconds])
 
 	// Another task is not held; after the window the same task runs again.

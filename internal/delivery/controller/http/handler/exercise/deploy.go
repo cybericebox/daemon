@@ -153,9 +153,9 @@ type (
 		Scheduling *labview.SchedulingResponse `json:"Scheduling"`
 		// Snapshot is null for a device without state persistence.
 		Snapshot *labview.SnapshotResponse `json:"Snapshot"`
-		// Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); null for a
+		// Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); absent for a
 		// device without one.
-		Bootstrap *labview.BootstrapResponse `json:"Bootstrap"`
+		Bootstrap *labview.BootstrapResponse `json:"Bootstrap,omitempty"`
 	}
 
 	rescueDeviceRequest struct {

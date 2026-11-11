@@ -3,6 +3,7 @@ package exerciseModel
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -151,7 +152,8 @@ func TaskKeyOfCheck(id string) (string, bool) {
 
 // ceilSeconds rounds a duration up to whole seconds.
 func ceilSeconds(d time.Duration) int32 {
-	return int32((d + time.Second - 1) / time.Second)
+	seconds := (d + time.Second - 1) / time.Second
+	return int32(min(seconds, math.MaxInt32))
 }
 
 // BuildLabChecks turns the resolved conditions of the state tasks into the checks of the lab, grouped per (task, device) in

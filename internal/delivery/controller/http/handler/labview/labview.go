@@ -88,8 +88,8 @@ type (
 		// Scheduling is null when the scheduler does not track the device.
 		Scheduling *SchedulingResponse `json:"Scheduling"`
 		Snapshot   *SnapshotResponse   `json:"Snapshot"`
-		// Bootstrap is the device's bootstrap: null for a device without one. Organizers and the task author only.
-		Bootstrap *BootstrapResponse `json:"Bootstrap"`
+		// Bootstrap is the device's bootstrap: absent for a device without one. Organizers and the task author only.
+		Bootstrap *BootstrapResponse `json:"Bootstrap,omitempty"`
 	}
 
 	// BootstrapResponse is where the bootstrap of a device is. Phase is pending, done or failed (its attempts are used up);

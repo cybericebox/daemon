@@ -98,7 +98,7 @@ var (
 	ErrTaskDifficultyInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Task difficulty is invalid").WithDetailCode(14)
 	ErrFlagSourceInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("A flag answer must use ICE{...} without whitespace").WithDetailCode(15)
+				WithMessage("A flag answer must use ICE{...} without whitespace; braces only as the repeat count {n} of a class in a template").WithDetailCode(15)
 	ErrFlagMultiNeedsDevice = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Several answer values or a template need the task value delivered into a lab by a bootstrap").
 				WithDetailCode(76)

@@ -6672,6 +6672,14 @@ definitions:
       TotalTeams:
         type: integer
     type: object
+  eventself.runChecksResponse:
+    properties:
+      Asked:
+        description: |-
+          Asked: the laboratory was asked to check the task now. The result is not in this answer: the task is marked solved by
+          itself once its checks pass (read the board). Nothing of what is checked, expected or found is ever returned.
+        type: boolean
+    type: object
   eventself.scoreboardEntryResponse:
     properties:
       NameHidden:
@@ -7267,6 +7275,23 @@ definitions:
       URL:
         type: string
     type: object
+  exercise.deployCheckDetailResponse:
+    properties:
+      ChangedAt:
+        type: string
+      Detail:
+        type: string
+      FirstPassedAt:
+        type: string
+      ID:
+        type: string
+      Known:
+        type: boolean
+      Passed:
+        type: boolean
+      Value:
+        type: string
+    type: object
   exercise.deployCheckRequest:
     properties:
       Flag:
@@ -7283,6 +7308,12 @@ definitions:
     type: object
   exercise.deployDeviceResponse:
     properties:
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/labview.BootstrapResponse'
+        description: |-
+          Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); absent for a
+          device without one.
       Limit:
         description: |-
           Limit is the code of a resource limit the device hits ("device_cpu_limit": more than half of its CPU periods
@@ -7390,6 +7421,36 @@ definitions:
           $ref: '#/definitions/exercise.deployTaskResponse'
         type: array
     type: object
+  exercise.deployRunChecksResponse:
+    properties:
+      Asked:
+        description: 'Asked: the laboratory was asked to run the checks of the task
+          now. The result comes with the next status.'
+        type: boolean
+    type: object
+  exercise.deployStateTaskResponse:
+    properties:
+      Checks:
+        items:
+          $ref: '#/definitions/exercise.deployCheckDetailResponse'
+        type: array
+      FirstSolvedAt:
+        type: string
+      Key:
+        type: string
+      Known:
+        type: boolean
+      Manual:
+        type: boolean
+      Mode:
+        type: string
+      Solved:
+        type: boolean
+      SolvedAt:
+        type: string
+      TaskID:
+        type: string
+    type: object
   exercise.deployStatusResponse:
     properties:
       Access:
@@ -7433,9 +7494,17 @@ definitions:
           answer stays 200 until it is gone, then 404.'
         type: boolean
       SolvedTaskIDs:
-        description: SolvedTaskIDs are the tasks the author has already checked correctly.
+        description: SolvedTaskIDs are the tasks the author has already checked correctly,
+          and the state tasks whose checks pass.
         items:
           type: string
+        type: array
+      StateTasks:
+        description: |-
+          StateTasks is where every task checked by the state of the lab stands (author only, with the details of the checks);
+          absent for a variant without such tasks.
+        items:
+          $ref: '#/definitions/exercise.deployStateTaskResponse'
         type: array
       VPNCIDR:
         type: string
@@ -8831,6 +8900,35 @@ definitions:
       VersionID:
         type: string
     type: object
+  exerciseModel.CheckDetail:
+    properties:
+      changedAt:
+        type: string
+      detail:
+        type: string
+      firstPassedAt:
+        type: string
+      id:
+        type: string
+      known:
+        type: boolean
+      passed:
+        description: Passed is the current state; Known is false until the check has
+          a result.
+        type: boolean
+      value:
+        type: string
+    type: object
+  exerciseModel.DeviceBootstrapStatus:
+    properties:
+      attempts:
+        format: int32
+        type: integer
+      phase:
+        type: string
+      reason:
+        type: string
+    type: object
   exerciseModel.DeviceSnapshot:
     properties:
       lastSnapshotAt:
@@ -8932,10 +9030,18 @@ definitions:
           row goes once the agent no longer has it.'
         type: boolean
       solvedTasks:
-        description: SolvedTasks are the tasks the author has already checked correctly;
-          filled by the use case.
+        description: |-
+          SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
+          StateTasks); filled by the use case.
         items:
           type: string
+        type: array
+      stateTasks:
+        description: |-
+          StateTasks is where every task checked by the state of the lab stands, for the author of the test only; filled by the
+          use case from the recorded check results. Absent for a variant without state tasks.
+        items:
+          $ref: '#/definitions/exerciseModel.TaskCheckState'
         type: array
       usageAvailable:
         type: boolean
@@ -8960,6 +9066,11 @@ definitions:
     type: object
   exerciseModel.LabDeployedDevice:
     properties:
+      bootstrap:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.DeviceBootstrapStatus'
+        description: Bootstrap is where the device's bootstrap is; nil for a device
+          without one. For staff and the task author only.
       cputhrottledPercent:
         description: 'CPUThrottledPercent is the share of CPU periods the device was
           throttled in the agent''s window (0: no data).'
@@ -9054,6 +9165,38 @@ definitions:
           the cluster sends it again (zero: no wait).
         format: int32
         type: integer
+    type: object
+  exerciseModel.StateMode:
+    enum:
+    - once
+    - continuous
+    type: string
+    x-enum-varnames:
+    - StateModeOnce
+    - StateModeContinuous
+  exerciseModel.TaskCheckState:
+    properties:
+      checks:
+        items:
+          $ref: '#/definitions/exerciseModel.CheckDetail'
+        type: array
+      firstSolvedAt:
+        type: string
+      key:
+        type: string
+      known:
+        description: 'Known: every check of the task has a result.'
+        type: boolean
+      manual:
+        type: boolean
+      mode:
+        $ref: '#/definitions/exerciseModel.StateMode'
+      solved:
+        type: boolean
+      solvedAt:
+        type: string
+      taskID:
+        type: string
     type: object
   exerciseModel.VersionStatus:
     enum:
@@ -9403,6 +9546,16 @@ definitions:
     type: object
   infrastructure.agentFeaturesResponse:
     properties:
+      BootstrapAvailable:
+        type: boolean
+      ChecksEnabled:
+        description: |-
+          ChecksEnabled: the laboratory runs lab checks (a task with a state check can start there). TerminalEnabled: the
+          browser terminal is on. BootstrapAvailable: the agent carries the device bootstrap (contract 1.5); false for an
+          older agent. ChecksMaxPerLab is the most checks of one lab (0 when not reported).
+        type: boolean
+      ChecksMaxPerLab:
+        type: integer
       DeviceMaxCPUMillicores:
         description: |-
           DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the
@@ -9470,6 +9623,8 @@ definitions:
       SchedulerMaxPods:
         description: SchedulerMaxPods is the most pods starting at once; 0 = no limit.
         type: integer
+      TerminalEnabled:
+        type: boolean
       VPN:
         allOf:
         - $ref: '#/definitions/infrastructure.groupPodSizingResponse'
@@ -9982,8 +10137,22 @@ definitions:
         description: URL is the full link to open in the browser.
         type: string
     type: object
+  labview.BootstrapResponse:
+    properties:
+      Attempts:
+        type: integer
+      Phase:
+        type: string
+      Reason:
+        type: string
+    type: object
   labview.DeviceResponse:
     properties:
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/labview.BootstrapResponse'
+        description: 'Bootstrap is the device''s bootstrap: absent for a device without
+          one. Organizers and the task author only.'
       LogicalName:
         description: LogicalName is the device name in the exercise topology; empty
           when unknown.
@@ -24103,6 +24272,46 @@ paths:
       summary: Record that the caller opened a task of the team's board
       tags:
       - events-self
+  /events/{id}/teams/challenges/{challengeID}/run-checks:
+    post:
+      description: Only for a task checked by the state of the lab that allows a manual
+        check. A task that waits for other tasks answers 409 with the names of what
+        it waits for (public context waits_for). At most 3 asks a minute per team
+        and task (429 with Retry-After). The answer only says the request was recorded.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event challenge ID
+        in: path
+        name: challengeID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.runChecksResponse'
+              type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Ask for a check of the caller's own task now
+      tags:
+      - events-self
   /events/{id}/teams/challenges/{challengeID}/solves:
     get:
       description: Needs the board gates and event results access (under a freeze
@@ -26284,6 +26493,50 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get the link that opens one web device of a ready test deploy
+      tags:
+      - exercises
+  /exercises/deploys/{deployID}/tasks/{taskID}/run-checks:
+    post:
+      description: 'Asks the laboratory to run the checks of one task checked by the
+        state of the lab. Only a task that allows a manual run; at most 3 asks a minute
+        per task (429 with Retry-After). The answer only says the request was recorded:
+        read the result from the deploy status. Author of the deploy only.'
+      parameters:
+      - description: test deployment id
+        in: path
+        name: deployID
+        required: true
+        type: string
+      - description: task id
+        in: path
+        name: taskID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.deployRunChecksResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Run the checks of a state task of a test deploy now
       tags:
       - exercises
   /exercises/deploys/{group}:

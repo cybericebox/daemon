@@ -114,7 +114,7 @@ func TaskStates(variant exerciseModel.Variant, results []Result) []TaskState {
 				at := latestChange
 				state.Solved, state.SolvedAt = true, &at
 			}
-		default:
+		case exerciseModel.StateModeOnce:
 			if allEver {
 				state.Solved, state.SolvedAt = true, state.FirstSolvedAt
 			}

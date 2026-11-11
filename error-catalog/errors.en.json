@@ -61,7 +61,7 @@
   "20912": "All variants must have the same number of tasks",
   "20913": "Task name must be 3-50 characters",
   "20914": "Task difficulty is invalid",
-  "20915": "A flag answer must use ICE{...} without whitespace",
+  "20915": "A flag answer must use ICE{...} without whitespace; braces only as the repeat count {n} of a class in a template",
   "20916": "Container name must be a DNS label: lowercase a-z, 0-9 and '-', not starting or ending with '-'",
   "20917": "Device type is invalid",
   "20918": "Device interface is invalid",

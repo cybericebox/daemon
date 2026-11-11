@@ -2,6 +2,7 @@ package labagent
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"time"
 
@@ -385,7 +386,7 @@ func buildDeviceBootstrap(d exerciseModel.Device) *labpb.DeviceBootstrap {
 	}
 	if d.Bootstrap.Timeout != "" {
 		if timeout, err := time.ParseDuration(d.Bootstrap.Timeout); err == nil && timeout > 0 {
-			out.TimeLimitSeconds = int32((timeout + time.Second - 1) / time.Second)
+			out.TimeLimitSeconds = int32(min((timeout+time.Second-1)/time.Second, math.MaxInt32))
 		}
 	}
 	for _, f := range d.Bootstrap.Files {

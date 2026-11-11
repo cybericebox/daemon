@@ -34,7 +34,7 @@ import (
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
 	runChecks string
-	reimport previewCalls
+	reimport  previewCalls
 	// deployLength is the run length the last deploy asked for.
 	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and

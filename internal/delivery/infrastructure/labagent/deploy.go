@@ -657,6 +657,8 @@ func mapBootstrap(b *labpb.BootstrapStatus) *exerciseModel.DeviceBootstrapStatus
 		phase = exerciseModel.BootstrapPhaseDone
 	case labpb.BootstrapPhase_BOOTSTRAP_PHASE_FAILED:
 		phase = exerciseModel.BootstrapPhaseFailed
+	case labpb.BootstrapPhase_BOOTSTRAP_PHASE_NONE:
+		return nil
 	default:
 		return nil
 	}

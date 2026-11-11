@@ -25,7 +25,7 @@ Error codes retired: 20924 (flag references a device), 20942 (flag target variab
 | Field | Type | Meaning and limits |
 |---|---|---|
 | `Key` | string | Name of the task in its variant: `^[a-z][a-z0-9_]{0,31}$`, unique in the variant. Used by `{{task.<Key>}}` and `Requires`. Empty on save: the backend sets a stable `task_<position>` (the key of the first variant's task at the same position when the position has one). Send the key back unchanged. |
-| `Requires` | string[] | Keys of tasks of the same variant that must be done first. At most 32; no repeats, no self reference, no cycles, every key must exist. The gating at solve time is a follow-up; this is the data. |
+| `Requires` | string[] | Keys of tasks of the same variant that must be done first. At most 32; no repeats, no self reference, no cycles, every key must exist. In an event the keys become the prerequisites of the board (see "Locks by `Requires`"). |
 | `Check` | object | `{Answer}` or `{State}`: exactly one (a draft may have neither; publishing needs one; the kind and the answer type are the same in every variant). |
 
 `Check.Answer` (the participant types a value):
@@ -33,12 +33,12 @@ Error codes retired: 20924 (flag references a device), 20942 (flag target variab
 | Field | Type | Limits |
 |---|---|---|
 | `Type` | `flag` \| `text` | required |
-| `Values` | string[] | flag: each `ICE{...}`, or `template:ICE{...}`; none = a random flag per instance. text: required, 1-100 values, each 1-256 characters, no control characters, `template:<pattern>` allowed (a pattern with at least one random position, classes `[a-z0-9]`, `\d \l \u`, repeat `{n}` 1-64). Without delivery into a lab (the task's `{{task.<Key>}}` referenced by a bootstrap) a task has exactly one fixed value at publish. |
+| `Values` | string[] | flag: each `ICE{...}`, or `template:ICE{...}` (a template may repeat a class with `{n}`, 1-64: `template:ICE{[a-f0-9]{16}}`; the generated flag never holds `{` or `}` inside); none = a random flag per instance. text: required, 1-100 values, each 1-256 characters, no control characters, `template:<pattern>` allowed (a pattern with at least one random position, classes `[a-z0-9]`, `\d \l \u`, repeat `{n}` 1-64). Without delivery into a lab (the task's `{{task.<Key>}}` referenced by a bootstrap) a task has exactly one fixed value at publish. |
 | `InputHint` | string | Shown inside the answer field; at most 100 characters, no control characters. Both types. Reaches participants in the pinned task snapshot as `Answer.input_hint`. |
 | `IgnoreCase` | bool | text only (an error on flag) |
 | `Trim` | bool \| null | text only; absent = on. An error on flag. |
 
-`Check.State` (the lab checks devices; Academy only, forbidden on events later):
+`Check.State` (the lab checks devices; Academy only: refused when the task is added to an event, see "State tasks never join an event"):
 
 | Field | Type | Limits |
 |---|---|---|
@@ -81,10 +81,40 @@ unresolved reference is an error naming the field (publish and test deploy).
   `Check.Answer.Values` and `Attachments`.
 - **Solutions are redacted** for readers who may not see them: `Check.Answer.Values` and `Check.State.Conditions` are
   emptied (they were `Flag` and `DeviceFlagVar`).
-- **Test deploy / event stands**: a task whose document needs what the laboratory does not apply yet (`Bootstrap.Files`,
-  `Bootstrap.Script`, `Command`, `Args`, enabled `Terminal`, or any `Check.State` task) is refused at start with the
-  error 73509 (public context `features`: what is not applied). `Bootstrap.Env` works. Template variables get a value
-  per built lab (not stored per instance yet).
+- **Test deploy / event stands** apply the whole runtime of the document (laboratory contract 1.5): the resolved
+  `Bootstrap.Files` and `Bootstrap.Script` (with `Interpreter` and `Timeout`) travel in the laboratory's bootstrap message
+  (a file that names a file of the archive is read from the file store, at most 256 KiB), `Bootstrap.Env` stays on the
+  environment path, `Command`/`Args`/`Terminal` are sent as the service command and the terminal block, and the
+  conditions of a `Check.State` task become laboratory checks. The refusal 73509 (public context `features`) is kept only
+  for what needs a guest agent: files, script, command, args or terminal of a device with the profile `vm` (itself refused
+  where a lab is deployed), and a state task that observes such a device.
+- **What the laboratory is told to run after a bootstrap.** A device with a bootstrap list (files or script) or with its own
+  `Command`/`Args` needs the service command: the author's `Command`/`Args`, else the image's entrypoint and cmd (an
+  author command replaces both; `Args` alone replace the image's cmd; an image without an entrypoint runs its cmd). The
+  user and the working directory are the image's. When neither the author nor the image gives a command the start is
+  refused with the error 73511 naming the device (`device`).
+- **Where the image configuration comes from.** The start configuration (entrypoint, cmd, user, working directory) of an
+  image of the platform registry (`platform:<name>@sha256:...`) is read from its config blob when the image is published
+  (archive import and the browser upload alike) and stored by manifest digest; the deploy looks it up. An image given
+  by reference to an external registry (`ghcr.io/...`) has none: no mechanism of the daemon reads the config of an external
+  image (it only checks that the manifest exists), so such a device needs its own `Command` when it has a bootstrap list.
+- **Laboratory options.** A task that needs an option the target laboratory does not offer is refused at start with the
+  error 73512 whose public context `options` names it: `checks` (a state task), `terminal`, `bootstrap` (an agent older than
+  contract 1.5), or a limit such as `bootstrap.max_files (at most 8)`, `checks.max_checks_per_lab (at most 64)`. An
+  agent that has not reported yet is not second-guessed.
+- **Variables of the infrastructure are pinned.** A template variable is drawn once per team's stand of an event exercise
+  (table `stand_variables`) and the same value goes into every rebuilt, recreated or reset lab (the bootstrap and the
+  expectations of the checks). A test lab is built once and keeps none.
+- **State tasks never join an event.** Attaching a version with a `Check.State` task to an event, updating an attached
+  exercise to such a version and reverting to one are refused with the error 23513 (public context `task`: the first such
+  task). Previewing a catalog exercise is not refused.
+- **Locks by `Requires`.** When a task joins an event (and when a newer version changes a task's `Requires`) its keys become
+  the prerequisites of its event challenge, the board's own lock: a team's challenge with an unsolved prerequisite has
+  `Locked` true in the participant board (`GET /events/{id}/teams/challenges/mine`), shows only name and difficulty and
+  lists the names of what it waits for in `Prerequisites` (`Name`, `Solved`); it accepts no answer (the existing
+  prerequisite error) and no manual check (error 73514, public context `waits_for`: the names of the unsolved prerequisites,
+  semicolon separated). The organizers may change the relations afterwards (`PUT .../relations`); the document sets them, it
+  does not pin them.
 - A test deploy now pins a value for **every answer task** (it used to pin the device-linked ones); the author checks
   them with the same call. A text answer is compared under its options.
 - The **participant task snapshot** (`Snapshot`) gets `answer`: `{type, input_hint?, ignore_case?, no_trim?}`. The
@@ -105,6 +135,66 @@ unresolved reference is an error naming the field (publish and test deploy).
 | 23507 | variable invalid | `field` (`variables[1].name`) |
 | 23508 | substitution unresolved | `field`, `reference` |
 | 23510 | resolved bootstrap names a missing device | |
-| 73509 | the lab cannot apply this yet | `features` |
+| 23513 | a task with `Check.State` cannot join an event | `task` |
+| 73509 | the lab cannot apply this (a vm-profile device needs a guest agent) | `features` |
+| 73511 | the command to start after the bootstrap of a device is unknown | `device` |
+| 73512 | the laboratory lacks an option or a size the task needs | `options` |
+| 73514 | the task waits for other tasks | `waits_for` |
+| 73515 | the task does not allow a manual check, or is not a state task | |
+| 73516 | the manual check was asked for too often (HTTP 429, `Retry-After`) | |
 
 On import every one of the document errors also carries `path` (`versions[1].variants[2]`).
+
+## Results of laboratory checks
+
+Every laboratory check of a state task has an id `"<task key>:<n>"` (n: the position of the device among the devices of the
+task's conditions, from 1): one check per (task, device), carrying all the task's conditions on that device. The id maps
+back to the task. The laboratory publishes only changes in its Monitoring stream; the daemon records each result per lab
+(table `lab_check_results`): passed and not passed are stored, `first_passed_at` never goes back, an error ("could not be
+made") keeps the stored state and only refreshes the detail, an unknown state and ids of other makers are ignored.
+
+A task is **solved** when all its checks are: mode `once`: every check has passed at least once (it stays solved, at the
+moment the last of them first passed); mode `continuous`: every check passes now (it may go back to not solved; `SolvedAt` is
+when the current pass began and `FirstSolvedAt` the first time every check had passed, kept after it goes back).
+`Detail` and `Value` of a check are for the author and the teacher only.
+
+Schedule and time limit: the time limit of a check is its longest condition `Timeout`, else 30 s (capped by a shorter
+`Interval`); a schedule is never shorter than the time limit (an explicit timeout longer than the `Interval` raises the
+schedule to it).
+
+### Test deploy status: `GET /exercises/deploys/{deployID}`
+
+New fields (author of the deploy only):
+
+| Field | Meaning |
+|---|---|
+| `StateTasks[]` | one per state task: `TaskID`, `Key`, `Mode`, `Manual`, `Solved`, `SolvedAt`, `FirstSolvedAt`, `Known` (every check has a result), `Checks[]` {`ID`, `Known`, `Passed`, `FirstPassedAt`, `ChangedAt`, `Value`, `Detail`} |
+| `SolvedTaskIDs` | now also holds the state tasks that are solved |
+| `Devices[].Bootstrap` | `{Phase: pending|done|failed, Attempts, Reason}`; absent for a device without a bootstrap |
+
+The same `Devices[].Bootstrap` is in the stand status that organizers and administrators read (`labview`); a participant never
+gets it, nor `Detail`, expected values or the definition of a check.
+
+### Manual run
+
+- `POST /exercises/deploys/{deployID}/tasks/{taskID}/run-checks`: the author asks for a check of one state task of their
+  own test lab now. Answer `{Asked: true}`: the request was recorded for the laboratory, the result comes with the next
+  status. A task that is not a state task or does not allow `Manual` answers 73515.
+- `POST /events/{id}/teams/challenges/{challengeID}/run-checks`: a participant asks for a check of their own team's task.
+  Same answer; all the board's locks apply (published, stage, prerequisites: 73514 with `waits_for`); the answer never carries
+  anything of what is checked. Reachable only for a task that has a state check, which an event does not take today.
+
+Both are limited to 3 asks a minute per lab group (a team; the author's own group for a test) and task: the next one answers
+429 with `Retry-After` (73516). A laboratory with the checks option off refuses with 73512 (`options: checks`).
+
+### Agents: `GET /infrastructure/agents`
+
+`Features` gets `ChecksEnabled`, `ChecksMaxPerLab`, `TerminalEnabled` and `BootstrapAvailable` (false for an agent older than
+contract 1.5), so the catalog can tell whether a state task can start there.
+
+## Terminal
+
+The terminal block is sent to the laboratory (`terminal {enabled, command[], user}` of the device). Issuing a link to the
+browser terminal is not built: the laboratory's terminal component and the proxy route for it do not exist yet; the
+link will be issued next to `OpenTestDeployLink` / the participant lab link (`ExerciseUseCase.OpenTestDeployLink`,
+`EventUseCase` lab link) once they do.

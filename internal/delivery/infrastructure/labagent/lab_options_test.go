@@ -2,7 +2,6 @@ package labagent
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -153,7 +152,7 @@ func TestRunLabChecksAsksTheAgentForOneLab(t *testing.T) {
 	f.a.runChecksErr = nil
 	f.a.itemState = labpb.ItemState_ITEM_STATE_NOT_FOUND
 	err = f.fleet.RunLabChecks(ctx, "e-1-t-1", "gone", nil)
-	require.True(t, errors.Is(err, errNotFound))
+	require.ErrorIs(t, err, errNotFound)
 
 	// A refusal of the lab itself (no manual run allowed) is an error.
 	f.a.itemState = labpb.ItemState_ITEM_STATE_FAILED

@@ -604,6 +604,12 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 	// A challenge stays whenever the new version has the same task (by id, or by name when a re-import re-issued
 	// the ids): its row, group, order, points, publication and team copies are kept, only the content is refreshed.
 	match := matchBoardTasks(board, tasks)
+	// What each kept task required in the version pinned until now: a task whose `requires` changed gets the new ones.
+	refs := make([]challengeRef, len(board))
+	for i, challenge := range board {
+		refs[i] = challengeRef{ID: challenge.ID, TaskID: challenge.TaskID}
+	}
+	wasRequiring := previousRequires(refs, previous, link.CanonicalVariant(len(previous.Variants)))
 	for i := range board {
 		task, stays := match.Tasks[board[i].ID]
 		if !stays {
@@ -656,6 +662,22 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 		if _, err = challenges.Create(ctx, challenge); err != nil {
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
+	}
+	// The `requires` of the document: for a new task, and for a kept task whose requires differ from the version before.
+	added := make(map[uuid.UUID]bool, len(match.Added))
+	for _, task := range match.Added {
+		added[task.ID] = true
+	}
+	changedTask := make(map[uuid.UUID]bool, len(board))
+	for challengeID, task := range match.Tasks {
+		if requiresChanged(wasRequiring[challengeID], task.Requires) {
+			changedTask[task.ID] = true
+		}
+	}
+	if err = applyDocumentRequires(ctx, challenges, link.ID, tasks, func(task exerciseModel.Task) bool {
+		return (added[task.ID] && len(task.Requires) > 0) || changedTask[task.ID]
+	}); err != nil {
+		return eventExerciseModel.EventExercise{}, err
 	}
 	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, match.Repointed, terminalLabs, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
@@ -938,7 +960,8 @@ func materializeChallenges(ctx context.Context, repo IRepository, link eventExer
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
 	}
-	return nil
+	// The `requires` of the document become the prerequisites of the board.
+	return applyDocumentRequires(ctx, challenges, link.ID, version.Variants[link.CanonicalVariant(len(version.Variants))].Tasks, nil)
 }
 
 // requireInfrastructureForVersion keeps exercises with a lab topology off
