@@ -55,6 +55,10 @@ type (
 		// Configs keeps the start configuration of the platform images (entrypoint, cmd, user, working directory) so a lab with
 		// a bootstrap knows what to run after it. Nil: not kept, and a deploy then finds no configuration.
 		Configs ImageConfigStore
+		// ExternalConfigs keeps the start configuration read from the registry for images by reference to an external
+		// registry (no layer is pulled), so a deploy never needs the registry for it. Nil: not kept, and such an image has
+		// no known user.
+		ExternalConfigs ExternalConfigStore
 		// HeadTimeout bounds one registry request of an availability check (default 10 s);
 		// CallTimeout bounds one whole check call (default 30 s).
 		HeadTimeout, CallTimeout time.Duration
@@ -66,12 +70,19 @@ type (
 		Get(ctx context.Context, digests []string) (map[string]exerciseModel.ImageService, error)
 	}
 
+	// ExternalConfigStore keeps the start configuration of an external image by normalized reference and credential scope.
+	ExternalConfigStore interface {
+		Save(ctx context.Context, reference, scope, digest string, service exerciseModel.ImageService, now time.Time) error
+		Get(ctx context.Context, references, scopes []string) (map[string]imageRegistryRepo.ExternalImageConfig, error)
+	}
+
 	ImageRegistryUseCase struct {
-		configs  ImageConfigStore
-		settings *imageRegistryRepo.Repository
-		secrets  *imageRegistryRepo.EventSecrets
-		images   *imageRegistryRepo.PlatformImages
-		media    MediaSource
+		configs    ImageConfigStore
+		extConfigs ExternalConfigStore
+		settings   *imageRegistryRepo.Repository
+		secrets    *imageRegistryRepo.EventSecrets
+		images     *imageRegistryRepo.PlatformImages
+		media      MediaSource
 
 		blobPushes    *imageRegistryRepo.BlobPushes
 		queueBlobPush BlobPushQueue
@@ -110,6 +121,7 @@ func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
 		configs:       deps.Configs,
+		extConfigs:    deps.ExternalConfigs,
 		settings:      imageRegistryRepo.New(deps.Repo),
 		secrets:       imageRegistryRepo.NewEventSecrets(deps.Repo),
 		images:        imageRegistryRepo.NewPlatformImages(deps.Repo),

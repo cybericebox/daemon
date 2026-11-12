@@ -106,6 +106,8 @@ type ImageServiceInfo struct {
 	// image published before the configuration was kept, and when the read fails; the other fields are then empty.
 	Known   bool
 	Service exerciseModel.ImageService
+	// Reason says why it is not known (ResolveImageServices only; the Service* constants), "" when it is.
+	Reason string
 }
 
 // ImageServices gives the stored start configuration (entrypoint, cmd, user, working directory) of each distinct
@@ -125,20 +127,27 @@ func (u *ImageRegistryUseCase) ImageServices(ctx context.Context, images []strin
 			digests = append(digests, ref.Digest)
 		}
 	}
-	if len(digests) == 0 || u.configs == nil {
-		return out
-	}
-	configs, err := u.configs.Get(ctx, digests)
-	if err != nil {
-		log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
-		return out
-	}
-	for i := range out {
-		ref, ok := imageRegistryModel.ParsePlatformRef(out[i].Image)
-		if !ok {
-			continue
+	if len(digests) > 0 && u.configs != nil {
+		configs, err := u.configs.Get(ctx, digests)
+		if err != nil {
+			log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
+		} else {
+			for i := range out {
+				ref, ok := imageRegistryModel.ParsePlatformRef(out[i].Image)
+				if !ok {
+					continue
+				}
+				if service, found := configs[ref.Digest]; found {
+					out[i].Known, out[i].Service = true, service
+				}
+			}
 		}
-		if service, found := configs[ref.Digest]; found {
+	}
+	// An external image whose configuration was read when an exercise with it was published (the public ones only: there
+	// is no credential scope here).
+	external := u.storedExternalServices(ctx, Scope{}, images)
+	for i := range out {
+		if service, found := external[out[i].Image]; found && !out[i].Known {
 			out[i].Known, out[i].Service = true, service
 		}
 	}
@@ -204,43 +213,48 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		return DeployImages{Unavailable: unavailable}, imageRegistryModel.ErrImagesUnavailable.
 			WithPublicContext(imageRegistryModel.ContextImages, unavailable).Err()
 	}
-	u.fillImageServices(ctx, topo, &out)
+	u.fillImageServices(ctx, scope, topo, &out)
 	return DeployImages{Topology: out, Credentials: creds}, nil
 }
 
-// fillImageServices gives every device whose image is a platform image the start configuration stored for it (what the
-// image runs and as whom), so the laboratory can be told what to start after a bootstrap and as which user. An image by
-// reference to an external registry has none: nothing reads its configuration, so such a device cannot be started through
-// the launcher (the deploy refuses with the device named: no command, or no known user). A failed read leaves the devices
-// without one.
-func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, original exerciseModel.Topology, out *exerciseModel.Topology) {
-	if u.configs == nil {
-		return
-	}
+// fillImageServices gives every device the start configuration stored for its image (what the image runs and as whom), so the
+// laboratory can be told what to start after a bootstrap and as which user: the platform image's by digest, and an external
+// image's as it was read from its registry when the exercise was published (by reference, in this scope or the public one).
+// No registry is asked here. A device whose image has none cannot be started through the launcher (the deploy refuses with
+// the device named). A failed read leaves the devices without one.
+func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, scope Scope, original exerciseModel.Topology, out *exerciseModel.Topology) {
 	digests := map[string]struct{}{}
+	var external []string
 	for _, d := range original.Devices {
 		if ref, ok := imageRegistryModel.ParsePlatformRef(d.Image); ok {
 			digests[ref.Digest] = struct{}{}
+		} else if d.Image != "" && !strings.HasPrefix(d.Image, "platform:") {
+			external = append(external, d.Image)
 		}
 	}
-	if len(digests) == 0 {
-		return
+	var platform map[string]exerciseModel.ImageService
+	if len(digests) > 0 && u.configs != nil {
+		list := make([]string, 0, len(digests))
+		for digest := range digests {
+			list = append(list, digest)
+		}
+		configs, err := u.configs.Get(ctx, list)
+		if err != nil {
+			log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
+		} else {
+			platform = configs
+		}
 	}
-	list := make([]string, 0, len(digests))
-	for digest := range digests {
-		list = append(list, digest)
-	}
-	configs, err := u.configs.Get(ctx, list)
-	if err != nil {
-		log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
-		return
-	}
+	stored := u.storedExternalServices(ctx, scope, external)
 	for i, d := range original.Devices {
-		ref, ok := imageRegistryModel.ParsePlatformRef(d.Image)
-		if !ok {
+		if ref, ok := imageRegistryModel.ParsePlatformRef(d.Image); ok {
+			if service, found := platform[ref.Digest]; found {
+				service := service
+				out.Devices[i].ImageService = &service
+			}
 			continue
 		}
-		if service, found := configs[ref.Digest]; found {
+		if service, found := stored[d.Image]; found {
 			service := service
 			out.Devices[i].ImageService = &service
 		}

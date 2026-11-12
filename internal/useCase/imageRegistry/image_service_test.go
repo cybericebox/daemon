@@ -63,7 +63,7 @@ func TestExternalImageHasNoStartConfiguration(t *testing.T) {
 	original := topo("docker.io/acme/app:1", "platform:web@sha256:"+strings.Repeat("a", 64))
 	out := original
 	out.Devices = slices.Clone(original.Devices)
-	f.uc.fillImageServices(context.Background(), original, &out)
+	f.uc.fillImageServices(context.Background(), Scope{}, original, &out)
 	require.Nil(t, out.Devices[0].ImageService, "nothing reads the configuration of an external image")
 	require.NotNil(t, out.Devices[1].ImageService, "a platform image has its stored one")
 }
@@ -90,7 +90,7 @@ func TestAnImageThatDeclaresNothingIsKnown(t *testing.T) {
 	original := topo(image, external, old)
 	out := original
 	out.Devices = slices.Clone(original.Devices)
-	f.uc.fillImageServices(context.Background(), original, &out)
+	f.uc.fillImageServices(context.Background(), Scope{}, original, &out)
 	require.NotNil(t, out.Devices[0].ImageService, "stored and empty: known")
 	require.Equal(t, exerciseModel.ServiceUserRoot, out.Devices[0].ImageService.ServiceUser())
 	require.Nil(t, out.Devices[1].ImageService, "an external image is not read")
