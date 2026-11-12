@@ -263,7 +263,6 @@ type Querier interface {
 	CreateResourceChangeRequest(ctx context.Context, arg CreateResourceChangeRequestParams) error
 	CreateResourceReservation(ctx context.Context, arg CreateResourceReservationParams) error
 	CreateResourceTestLabHold(ctx context.Context, arg CreateResourceTestLabHoldParams) error
-	CreateSecretEnvelope(ctx context.Context, arg CreateSecretEnvelopeParams) (SecretEnvelope, error)
 	// All timestamps come from the domain factory (NewSession), not DB defaults —
 	// one source of truth for entity defaults.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
@@ -743,7 +742,6 @@ type Querier interface {
 	GetResourceCalendarSettings(ctx context.Context) (ResourceCalendarSetting, error)
 	GetResourceChangeRequest(ctx context.Context, id uuid.UUID) (ResourceChangeRequest, error)
 	GetResourceReservation(ctx context.Context, id uuid.UUID) (ResourceReservation, error)
-	GetSecretEnvelope(ctx context.Context, id uuid.UUID) (SecretEnvelope, error)
 	GetSessionByID(ctx context.Context, id uuid.UUID) (Session, error)
 	GetSessionsByUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
 	GetSiteBanner(ctx context.Context, id uuid.UUID) (SiteBanner, error)

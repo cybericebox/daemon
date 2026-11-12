@@ -2179,21 +2179,6 @@ func (mr *MockQuerierMockRecorder) CreateResourceTestLabHold(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceTestLabHold", reflect.TypeOf((*MockQuerier)(nil).CreateResourceTestLabHold), ctx, arg)
 }
 
-// CreateSecretEnvelope mocks base method.
-func (m *MockQuerier) CreateSecretEnvelope(ctx context.Context, arg postgres.CreateSecretEnvelopeParams) (postgres.SecretEnvelope, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateSecretEnvelope", ctx, arg)
-	ret0, _ := ret[0].(postgres.SecretEnvelope)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateSecretEnvelope indicates an expected call of CreateSecretEnvelope.
-func (mr *MockQuerierMockRecorder) CreateSecretEnvelope(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecretEnvelope", reflect.TypeOf((*MockQuerier)(nil).CreateSecretEnvelope), ctx, arg)
-}
-
 // CreateSession mocks base method.
 func (m *MockQuerier) CreateSession(ctx context.Context, arg postgres.CreateSessionParams) (postgres.Session, error) {
 	m.ctrl.T.Helper()
@@ -6291,21 +6276,6 @@ func (m *MockQuerier) GetResourceReservation(ctx context.Context, id uuid.UUID) 
 func (mr *MockQuerierMockRecorder) GetResourceReservation(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceReservation", reflect.TypeOf((*MockQuerier)(nil).GetResourceReservation), ctx, id)
-}
-
-// GetSecretEnvelope mocks base method.
-func (m *MockQuerier) GetSecretEnvelope(ctx context.Context, id uuid.UUID) (postgres.SecretEnvelope, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSecretEnvelope", ctx, id)
-	ret0, _ := ret[0].(postgres.SecretEnvelope)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSecretEnvelope indicates an expected call of GetSecretEnvelope.
-func (mr *MockQuerierMockRecorder) GetSecretEnvelope(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecretEnvelope", reflect.TypeOf((*MockQuerier)(nil).GetSecretEnvelope), ctx, id)
 }
 
 // GetSessionByID mocks base method.

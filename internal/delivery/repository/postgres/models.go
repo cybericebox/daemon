@@ -1214,20 +1214,6 @@ type ResourceTestLabHold struct {
 	GroupName          string        `json:"group_name"`
 }
 
-type SecretEnvelope struct {
-	ID              uuid.UUID          `json:"id"`
-	Purpose         string             `json:"purpose"`
-	KeyVersion      int32              `json:"key_version"`
-	SignalType      string             `json:"signal_type"`
-	FieldPath       string             `json:"field_path"`
-	ScopeEventID    uuid.UUID          `json:"scope_event_id"`
-	RecipientUserID uuid.NullUUID      `json:"recipient_user_id"`
-	Ciphertext      string             `json:"ciphertext"`
-	WrappedDataKey  string             `json:"wrapped_data_key"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-}
-
 type Session struct {
 	ID        uuid.UUID `json:"id"`
 	UserID    uuid.UUID `json:"user_id"`
