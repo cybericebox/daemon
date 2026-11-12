@@ -1841,6 +1841,11 @@ definitions:
         type: array
       UpdateAvailable:
         type: boolean
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the pinned version has a console (terminal access) in the participant's browser. Not
+          meant for events; nothing bans it.
+        type: boolean
       VariantCount:
         type: integer
       VariantMode:
@@ -3001,6 +3006,10 @@ definitions:
         items:
           type: string
         type: array
+      UsesConsole:
+        description: 'UsesConsole: some device of the published version has a console
+          (terminal access). Not meant for events.'
+        type: boolean
     type: object
   event.readinessResponse:
     properties:
@@ -6947,6 +6956,27 @@ definitions:
       Scope:
         type: string
     type: object
+  exercise.accessDTO:
+    properties:
+      Command:
+        type: string
+      Kind:
+        enum:
+        - http
+        - terminal
+        - vnc
+        - rdp
+        type: string
+      Port:
+        type: integer
+      Protocol:
+        enum:
+        - http
+        - https
+        type: string
+      User:
+        type: string
+    type: object
   exercise.accessEventResponse:
     properties:
       CanWrite:
@@ -7191,11 +7221,26 @@ definitions:
   exercise.conditionDTO:
     properties:
       Custom:
-        $ref: '#/definitions/exercise.customCheckDTO'
+        allOf:
+        - $ref: '#/definitions/exercise.customCheckDTO'
+        description: Custom runs a command of the author in the device; User empty
+          = nobody (applied by the laboratory, not stored).
       DeviceID:
         type: string
+      Directory:
+        $ref: '#/definitions/exercise.directoryCheckDTO'
       File:
         $ref: '#/definitions/exercise.fileCheckDTO'
+      KernelParam:
+        $ref: '#/definitions/exercise.kernelParamCheckDTO'
+      Permission:
+        $ref: '#/definitions/exercise.permissionCheckDTO'
+      Port:
+        $ref: '#/definitions/exercise.portCheckDTO'
+      Process:
+        $ref: '#/definitions/exercise.processCheckDTO'
+      Request:
+        $ref: '#/definitions/exercise.requestCheckDTO'
       Timeout:
         type: string
     type: object
@@ -7567,6 +7612,11 @@ definitions:
     type: object
   exercise.deviceDTO:
     properties:
+      Access:
+        description: Access replaces the former External and Terminal keys.
+        items:
+          $ref: '#/definitions/exercise.accessDTO'
+        type: array
       Args:
         items:
           type: string
@@ -7583,8 +7633,6 @@ definitions:
         items:
           type: string
         type: array
-      External:
-        $ref: '#/definitions/exercise.externalDTO'
       Hardware:
         enum:
         - fast
@@ -7635,8 +7683,6 @@ definitions:
         - linux
         - windows
         type: string
-      Terminal:
-        $ref: '#/definitions/exercise.terminalDTO'
       Type:
         description: |-
           Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
@@ -7673,6 +7719,27 @@ definitions:
         type: integer
       Start:
         type: integer
+    type: object
+  exercise.directoryCheckDTO:
+    properties:
+      Exists:
+        type: boolean
+      Group:
+        type: string
+      HasEntries:
+        items:
+          type: string
+        type: array
+      LacksEntries:
+        items:
+          type: string
+        type: array
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
+        type: string
     type: object
   exercise.elevationCapacityResponse:
     properties:
@@ -7888,6 +7955,11 @@ definitions:
         type: array
       UpdatedAt:
         type: string
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console
+          is not meant for events; the event side shows it.
+        type: boolean
       VariantCount:
         description: VariantCount is how many variants the visible snapshot has; null
           without one (offset pages only).
@@ -7980,6 +8052,11 @@ definitions:
         type: string
       UpdatedByName:
         type: string
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console
+          is not meant for events; the event side shows it.
+        type: boolean
     type: object
   exercise.exerciseUsageEventResponse:
     properties:
@@ -8055,15 +8132,10 @@ definitions:
       Size:
         type: integer
     type: object
-  exercise.externalDTO:
-    properties:
-      Port:
-        type: integer
-      Protocol:
-        type: string
-    type: object
   exercise.fileCheckDTO:
     properties:
+      Checksum:
+        type: string
       Contains:
         type: string
       Exists:
@@ -8077,6 +8149,12 @@ definitions:
       Owner:
         type: string
       Path:
+        type: string
+      Type:
+        enum:
+        - file
+        - directory
+        - symlink
         type: string
     type: object
   exercise.fileLookupRequest:
@@ -8343,6 +8421,15 @@ definitions:
       Type:
         type: string
     type: object
+  exercise.kernelParamCheckDTO:
+    properties:
+      Equals:
+        type: string
+      Matches:
+        type: string
+      Name:
+        type: string
+    type: object
   exercise.missingBlobsRequest:
     properties:
       Digests:
@@ -8400,6 +8487,19 @@ definitions:
       Pending:
         type: integer
     type: object
+  exercise.permissionCheckDTO:
+    properties:
+      Execute:
+        type: boolean
+      Path:
+        type: string
+      Read:
+        type: boolean
+      User:
+        type: string
+      Write:
+        type: boolean
+    type: object
   exercise.persistenceDTO:
     properties:
       Debounce:
@@ -8431,6 +8531,33 @@ definitions:
         type: string
       ShowMask:
         type: boolean
+    type: object
+  exercise.portCheckDTO:
+    properties:
+      Address:
+        type: string
+      Listening:
+        type: boolean
+      Port:
+        type: integer
+      Process:
+        type: string
+      Protocol:
+        enum:
+        - tcp
+        - udp
+        type: string
+    type: object
+  exercise.processCheckDTO:
+    properties:
+      Matches:
+        type: string
+      Name:
+        type: string
+      Running:
+        type: boolean
+      User:
+        type: string
     type: object
   exercise.proposalResponse:
     properties:
@@ -8487,6 +8614,32 @@ definitions:
     properties:
       Note:
         type: string
+    type: object
+  exercise.requestCheckDTO:
+    properties:
+      BodyContains:
+        type: string
+      BodyMatches:
+        type: string
+      Host:
+        type: string
+      Method:
+        enum:
+        - GET
+        - HEAD
+        type: string
+      Path:
+        type: string
+      Port:
+        type: integer
+      Protocol:
+        enum:
+        - tcp
+        - http
+        - https
+        type: string
+      Status:
+        type: integer
     type: object
   exercise.requestElevationRequest:
     properties:
@@ -8684,15 +8837,6 @@ definitions:
       Solved:
         type: integer
       TaskID:
-        type: string
-    type: object
-  exercise.terminalDTO:
-    properties:
-      Command:
-        type: string
-      Enabled:
-        type: boolean
-      User:
         type: string
     type: object
   exercise.testRunLengthsResponse:

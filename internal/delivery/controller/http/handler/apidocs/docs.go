@@ -32078,6 +32078,10 @@ const docTemplate = `{
                 "UpdateAvailable": {
                     "type": "boolean"
                 },
+                "UsesConsole": {
+                    "description": "UsesConsole: some device of the pinned version has a console (terminal access) in the participant's browser. Not\nmeant for events; nothing bans it.",
+                    "type": "boolean"
+                },
                 "VariantCount": {
                     "type": "integer"
                 },
@@ -33771,6 +33775,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "UsesConsole": {
+                    "description": "UsesConsole: some device of the published version has a console (terminal access). Not meant for events.",
+                    "type": "boolean"
                 }
             }
         },
@@ -39547,6 +39555,36 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.accessDTO": {
+            "type": "object",
+            "properties": {
+                "Command": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "type": "string",
+                    "enum": [
+                        "http",
+                        "terminal",
+                        "vnc",
+                        "rdp"
+                    ]
+                },
+                "Port": {
+                    "type": "integer"
+                },
+                "Protocol": {
+                    "type": "string",
+                    "enum": [
+                        "http",
+                        "https"
+                    ]
+                },
+                "User": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.accessEventResponse": {
             "type": "object",
             "properties": {
@@ -39902,13 +39940,36 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Custom": {
-                    "$ref": "#/definitions/exercise.customCheckDTO"
+                    "description": "Custom runs a command of the author in the device; User empty = nobody (applied by the laboratory, not stored).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.customCheckDTO"
+                        }
+                    ]
                 },
                 "DeviceID": {
                     "type": "string"
                 },
+                "Directory": {
+                    "$ref": "#/definitions/exercise.directoryCheckDTO"
+                },
                 "File": {
                     "$ref": "#/definitions/exercise.fileCheckDTO"
+                },
+                "KernelParam": {
+                    "$ref": "#/definitions/exercise.kernelParamCheckDTO"
+                },
+                "Permission": {
+                    "$ref": "#/definitions/exercise.permissionCheckDTO"
+                },
+                "Port": {
+                    "$ref": "#/definitions/exercise.portCheckDTO"
+                },
+                "Process": {
+                    "$ref": "#/definitions/exercise.processCheckDTO"
+                },
+                "Request": {
+                    "$ref": "#/definitions/exercise.requestCheckDTO"
                 },
                 "Timeout": {
                     "type": "string"
@@ -40413,6 +40474,13 @@ const docTemplate = `{
         "exercise.deviceDTO": {
             "type": "object",
             "properties": {
+                "Access": {
+                    "description": "Access replaces the former External and Terminal keys.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.accessDTO"
+                    }
+                },
                 "Args": {
                     "type": "array",
                     "items": {
@@ -40433,9 +40501,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "External": {
-                    "$ref": "#/definitions/exercise.externalDTO"
                 },
                 "Hardware": {
                     "type": "string",
@@ -40500,9 +40565,6 @@ const docTemplate = `{
                         "windows"
                     ]
                 },
-                "Terminal": {
-                    "$ref": "#/definitions/exercise.terminalDTO"
-                },
                 "Type": {
                     "description": "Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container\nprofile.",
                     "type": "string"
@@ -40550,6 +40612,38 @@ const docTemplate = `{
                 },
                 "Start": {
                     "type": "integer"
+                }
+            }
+        },
+        "exercise.directoryCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Exists": {
+                    "type": "boolean"
+                },
+                "Group": {
+                    "type": "string"
+                },
+                "HasEntries": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "LacksEntries": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Mode": {
+                    "type": "string"
+                },
+                "Owner": {
+                    "type": "string"
+                },
+                "Path": {
+                    "type": "string"
                 }
             }
         },
@@ -40850,6 +40944,10 @@ const docTemplate = `{
                 "UpdatedAt": {
                     "type": "string"
                 },
+                "UsesConsole": {
+                    "description": "UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console\nis not meant for events; the event side shows it.",
+                    "type": "boolean"
+                },
                 "VariantCount": {
                     "description": "VariantCount is how many variants the visible snapshot has; null without one (offset pages only).",
                     "type": "integer"
@@ -40983,6 +41081,10 @@ const docTemplate = `{
                 },
                 "UpdatedByName": {
                     "type": "string"
+                },
+                "UsesConsole": {
+                    "description": "UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console\nis not meant for events; the event side shows it.",
+                    "type": "boolean"
                 }
             }
         },
@@ -41092,20 +41194,12 @@ const docTemplate = `{
                 }
             }
         },
-        "exercise.externalDTO": {
-            "type": "object",
-            "properties": {
-                "Port": {
-                    "type": "integer"
-                },
-                "Protocol": {
-                    "type": "string"
-                }
-            }
-        },
         "exercise.fileCheckDTO": {
             "type": "object",
             "properties": {
+                "Checksum": {
+                    "type": "string"
+                },
                 "Contains": {
                     "type": "string"
                 },
@@ -41126,6 +41220,14 @@ const docTemplate = `{
                 },
                 "Path": {
                     "type": "string"
+                },
+                "Type": {
+                    "type": "string",
+                    "enum": [
+                        "file",
+                        "directory",
+                        "symlink"
+                    ]
                 }
             }
         },
@@ -41504,6 +41606,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.kernelParamCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Equals": {
+                    "type": "string"
+                },
+                "Matches": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.missingBlobsRequest": {
             "type": "object",
             "required": [
@@ -41584,6 +41700,26 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.permissionCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Execute": {
+                    "type": "boolean"
+                },
+                "Path": {
+                    "type": "string"
+                },
+                "Read": {
+                    "type": "boolean"
+                },
+                "User": {
+                    "type": "string"
+                },
+                "Write": {
+                    "type": "boolean"
+                }
+            }
+        },
         "exercise.persistenceDTO": {
             "type": "object",
             "properties": {
@@ -41630,6 +41766,47 @@ const docTemplate = `{
                 },
                 "ShowMask": {
                     "type": "boolean"
+                }
+            }
+        },
+        "exercise.portCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Address": {
+                    "type": "string"
+                },
+                "Listening": {
+                    "type": "boolean"
+                },
+                "Port": {
+                    "type": "integer"
+                },
+                "Process": {
+                    "type": "string"
+                },
+                "Protocol": {
+                    "type": "string",
+                    "enum": [
+                        "tcp",
+                        "udp"
+                    ]
+                }
+            }
+        },
+        "exercise.processCheckDTO": {
+            "type": "object",
+            "properties": {
+                "Matches": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Running": {
+                    "type": "boolean"
+                },
+                "User": {
+                    "type": "string"
                 }
             }
         },
@@ -41712,6 +41889,44 @@ const docTemplate = `{
             "properties": {
                 "Note": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.requestCheckDTO": {
+            "type": "object",
+            "properties": {
+                "BodyContains": {
+                    "type": "string"
+                },
+                "BodyMatches": {
+                    "type": "string"
+                },
+                "Host": {
+                    "type": "string"
+                },
+                "Method": {
+                    "type": "string",
+                    "enum": [
+                        "GET",
+                        "HEAD"
+                    ]
+                },
+                "Path": {
+                    "type": "string"
+                },
+                "Port": {
+                    "type": "integer"
+                },
+                "Protocol": {
+                    "type": "string",
+                    "enum": [
+                        "tcp",
+                        "http",
+                        "https"
+                    ]
+                },
+                "Status": {
+                    "type": "integer"
                 }
             }
         },
@@ -41990,20 +42205,6 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "TaskID": {
-                    "type": "string"
-                }
-            }
-        },
-        "exercise.terminalDTO": {
-            "type": "object",
-            "properties": {
-                "Command": {
-                    "type": "string"
-                },
-                "Enabled": {
-                    "type": "boolean"
-                },
-                "User": {
                     "type": "string"
                 }
             }

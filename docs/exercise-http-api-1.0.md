@@ -47,11 +47,28 @@ Error codes retired: 20924 (flag references a device), 20942 (flag target variab
 | `Manual` | bool | the participant may press "check now" |
 | `Conditions` | Condition[] | 1 to 20 |
 
-`Condition`: `DeviceID` (a **node** device of the variant), `Timeout` (duration, 1s to 1m, optional), and exactly one of
-`File` {`Path` (absolute, no `.`/`..`, up to 4096 bytes), `Exists` (default true; `false` stands alone), `Contains`,
-`Matches` (Go regexp), `Mode` (octal, 3-4 digits), `Owner`, `Group`} or `Custom` {`Run` (up to 8192 bytes),
-`Interpreter` (absolute path), `User`, `OutputContains`, `OutputMatches` (Go regexp)}. Texts up to 1024 bytes.
-`Owner`/`Group`/`User`: `^[a-z_][a-z0-9_-]{0,31}$` or a numeric id.
+`Condition`: `DeviceID` (a **node** device of the variant), `Timeout` (duration, 1s to 1m, optional), and exactly one of eight
+observations. All keys are optional unless marked required; a condition holds when every key that is written holds.
+Texts up to 1024 bytes. `Owner`/`Group`/`User`: `^[a-z_][a-z0-9_-]{0,31}$` or a numeric id. Every text key takes the
+substitutions (`{{task.<key>}}`, `{{var.<name>}}`), as listed per observation; a value substituted into a regular
+expression is quoted. The built-in observations (all but `Custom`) run nothing of the device.
+
+| Observation | Keys |
+|---|---|
+| `File` | `Path` (required; absolute, no `.`/`..`, up to 4096 bytes), `Exists` (default true; `false` stands alone), `Type` (`file` \| `directory` \| `symlink`; `Contains`/`Matches`/`Checksum` need `file`), `Contains`, `Matches` (Go regexp), `Checksum` (sha256, 64 hex, or a substitution), `Mode` (octal, 3-4 digits), `Owner`, `Group` |
+| `Directory` | `Path` (required), `Exists` (default true; `false` stands alone), `Mode`, `Owner`, `Group`, `HasEntries[]`, `LacksEntries[]` (up to 32 names each; a name has no `/`) |
+| `Process` | `Name` (no path) and/or `Matches` (regexp on the command line; at least one of the two), `User`, `Running` (default true; `false` does not combine with `User`) |
+| `Port` | `Port` (required, 1-65535), `Protocol` (`tcp` \| `udp`, default tcp), `Listening` (default true; `false` does not combine with `Address`/`Process`), `Address` (an IP), `Process` (name) |
+| `KernelParam` | `Name` (required; sysctl name with dots), `Equals` and/or `Matches` (at least one) |
+| `Request` | `Protocol` (required: `tcp` \| `http` \| `https`), `Host` (default 127.0.0.1), `Port` (required), and for http/https only: `Method` (`GET` \| `HEAD`, default GET), `Path` (starts with `/`, default `/`), `Status` (100-599, default 200), `BodyContains`, `BodyMatches` |
+| `Permission` | `User` (required), `Path` (required), `Read`, `Write`, `Execute` (at least one; each written value must equal the real answer) |
+| `Custom` | `Run` (required, up to 8192 bytes), `Interpreter` (absolute path), `User` (empty = `nobody`, applied by the laboratory, never written into the stored document; any other user, root included, is the author's explicit choice and the catalog should mark it "may give these rights to the participant"), `OutputContains`, `OutputMatches` (Go regexp) |
+
+A wrong key answers 23505 with `field` = `check.state.conditions[N].<observation>.<key>` (for example
+`check.state.conditions[2].port.port`); none or several observations answer `...conditions[N].observation`. A laboratory that
+does not offer an observation kind the task uses is refused with 73512 and `options` = `checks.observation.<kind>`
+(`checks.observation.file.type` / `file.checksum` for those two file keys); until the laboratory contract carries the new
+kinds, a laboratory reports only `file` and `custom`. Nothing is dropped silently.
 
 ### Device (nodes only; a switch or hub with any of these is refused)
 
@@ -61,7 +78,7 @@ Error codes retired: 20924 (flag references a device), 20942 (flag target variab
 | `Args` | string[] (up to 64) |
 | `System` | `linux` \| `windows` (windows only with profile `vm`); default linux |
 | `Hardware` | `fast` \| `compatible` (compatible only with `vm`); default fast |
-| `Terminal` | {`Enabled`, `Command` (absolute shell, default /bin/sh), `User`}; `Command`/`User` only with `Enabled` |
+| `Access` | the ways to reach the device in the browser, see "Access list" below (replaces `External` and `Terminal`) |
 | `Bootstrap` | {`Timeout` (1s to 10m), `Env` (up to 64; name `^[A-Za-z_][A-Za-z0-9_]{0,63}$`, unique; value up to 4096 bytes), `Files` (up to 32), `Script` (up to 64 KiB), `Interpreter` (only with `Script`)} |
 
 `Bootstrap.Files[]`: `Path` (absolute, unique), exactly one of `Content` (up to 64 KiB) and `Source`
@@ -104,9 +121,9 @@ unresolved reference is an error naming the field (publish and test deploy).
 - **Test deploy / event stands** apply the whole runtime of the document (laboratory contract 1.5): the resolved
   `Bootstrap.Files` and `Bootstrap.Script` (with `Interpreter` and `Timeout`) travel in the laboratory's bootstrap message
   (a file that names a file of the archive is read from the file store, at most 256 KiB), `Bootstrap.Env` stays on the
-  environment path, `Command`/`Args`/`Terminal` are sent as the service command and the terminal block, and the
+  environment path, `Command`/`Args` are sent as the service command and the `terminal` access entry as the terminal block, and the
   conditions of a `Check.State` task become laboratory checks. The refusal 73509 (public context `features`) is kept only
-  for what needs a guest agent: files, script, command, args or terminal of a device with the profile `vm` (itself refused
+  for what needs a guest agent: files, script, command, args or a `terminal` access entry of a device with the profile `vm`, and a `vnc` or `rdp` access entry on any profile (itself refused
   where a lab is deployed), and a state task that observes such a device.
 - **What the laboratory is told to run after a bootstrap.** A device with a bootstrap list (files or script) or with its own
   `Command`/`Args` needs the service command: the author's `Command`/`Args`, else the image's entrypoint and cmd (an
@@ -151,7 +168,7 @@ unresolved reference is an error naming the field (publish and test deploy).
 | 23503 | check missing/both/another kind in a variant | `task` |
 | 23504 | answer invalid | `task`, `field` (`check.answer.<key>`) |
 | 23505 | state check invalid | `task`, `field` (`check.state...`) |
-| 23506 | device runtime key invalid | `device`, `field` (`bootstrap.env[2].name`, `terminal.user`...) |
+| 23506 | device runtime key invalid | `device`, `field` (`bootstrap.env[2].name`, `access[2].port`...) |
 | 23507 | variable invalid | `field` (`variables[1].name`) |
 | 23508 | substitution unresolved | `field`, `reference` |
 | 23518 | `reverse_connections` without the VPN network, or on the internet gateway | `field` |
@@ -213,12 +230,31 @@ Both are limited to 3 asks a minute per lab group (a team; the author's own grou
 `Features` gets `ChecksEnabled`, `ChecksMaxPerLab`, `TerminalEnabled` and `BootstrapAvailable` (false for an agent older than
 contract 1.5), so the catalog can tell whether a state task can start there.
 
-## Terminal
+## Access list
 
-The terminal block is sent to the laboratory (`terminal {enabled, command[], user}` of the device). Issuing a link to the
-browser terminal is not built: the laboratory's terminal component and the proxy route for it do not exist yet; the
-link will be issued next to `OpenTestDeployLink` / the participant lab link (`ExerciseUseCase.OpenTestDeployLink`,
-`EventUseCase` lab link) once they do.
+`Devices[].Access` replaces the keys `External` and `Terminal` (no compatibility: schema 1.0 is not released). Nodes only; a
+switch or hub with any entry is refused (20917).
+
+```
+Access: [ {Kind: "http", Port: 8080, Protocol: "http"},        // Protocol http | https, empty = http
+          {Kind: "terminal", Command: "/bin/sh", User: "app"}, // Command default /bin/sh, User default the image's user
+          {Kind: "vnc", Port: 5900}, {Kind: "rdp", Port: 3389} ]
+```
+
+- At most one entry per kind (up to 4). Kind `http`: `Port` 1-65535 required, `Protocol` optional. Kind `terminal`: `Command`
+  (absolute path) and `User` optional, no `Port`/`Protocol`; the entry being there means the console is on (there is no
+  `Enabled`). Kinds `vnc` and `rdp`: `Port` required, nothing else.
+- A wrong entry answers 23506 with `field` = `access[N].kind` / `.port` / `.protocol` / `.command` / `.user`.
+- `http` is what `External` was: the web link of a device, the `external.link` placeholder, the readiness port. A device with no
+  `http` entry has no web link (the placeholder is refused as before).
+- `vnc` and `rdp` are accepted and stored, but nothing serves them: the catalog shows them as unavailable, and a lab that needs
+  one is refused at start with 73509 (`features` = `device web: access.vnc`).
+- The `terminal` entry is sent to the laboratory as the terminal block; a laboratory without the terminal option is refused with
+  73512 (`options` = `terminal`). Issuing a link to the browser terminal is not built.
+- **A console is not meant for events.** Nothing bans it: `UsesConsole` (bool) is returned on the catalog card of an exercise
+  (`ExerciseScope`), on the event's catalog choice (`publishedExerciseChoice`) and on the event's attached exercise, so the
+  event side can show it. A ban would go next to `RequireNoStateTasks` in `loadAvailableVersion` (event_exercise.go).
+- Stored versions: migration 0225 turns `external` and `terminal` into `access` (a terminal that was off leaves no entry).
 
 ## What an image itself runs: `POST /exercises/{id}/images/service`
 
