@@ -615,10 +615,13 @@ type eventExerciseResponse struct {
 	UpdateAvailable     bool                       `json:"UpdateAvailable"`
 	Fork                *eventExerciseForkResponse `json:"Fork"`
 	Infrastructure      bool                       `json:"Infrastructure"`
-	VariantCount        int32                      `json:"VariantCount"`
-	ChallengeCount      int32                      `json:"ChallengeCount"`
-	PublishedCount      int32                      `json:"PublishedCount"`
-	HasAttempts         bool                       `json:"HasAttempts"`
+	// UsesConsole: some device of the pinned version has a console (terminal access) in the participant's browser. Not
+	// meant for events; nothing bans it.
+	UsesConsole    bool  `json:"UsesConsole"`
+	VariantCount   int32 `json:"VariantCount"`
+	ChallengeCount int32 `json:"ChallengeCount"`
+	PublishedCount int32 `json:"PublishedCount"`
+	HasAttempts    bool  `json:"HasAttempts"`
 	// Resources is the total of the pinned version: the least and the most it needs over its variants (equal for
 	// one variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the
 	// platform frame (a badge). NoAgentFits: no laboratory that is used can run it (never names one).
@@ -761,6 +764,8 @@ type publishedExerciseChoiceResponse struct {
 	// Scope: catalog | event (the event's own exercise).
 	Scope          string `json:"Scope"`
 	Infrastructure bool   `json:"Infrastructure"`
+	// UsesConsole: some device of the published version has a console (terminal access). Not meant for events.
+	UsesConsole bool `json:"UsesConsole"`
 	// Attached: the event already uses it (or its fork family).
 	Attached bool `json:"Attached"`
 	// Resources is the total of the published version (min and max over its variants); ResourceHeavy: an
@@ -1069,7 +1074,7 @@ func (r updateEventChallengeRelationsRequest) toInput() eventUseCase.UpdateEvent
 func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResponse {
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
-		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
+		Infrastructure: v.Infrastructure, UsesConsole: v.UsesConsole, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
 		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames), Tags: nonNilStrings(v.Tags)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
 	if v.FlagsRepeat != nil {

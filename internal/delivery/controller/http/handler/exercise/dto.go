@@ -43,6 +43,9 @@ type exerciseScopeResponse struct {
 	OriginEventID  *uuid.UUID          `json:"OriginEventID"`
 	ForkedFrom     *forkSourceResponse `json:"ForkedFrom"`
 	Infrastructure bool                `json:"Infrastructure"`
+	// UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console
+	// is not meant for events; the event side shows it.
+	UsesConsole bool `json:"UsesConsole"`
 	// Resources is the total of the published version: min and max over its variants (equal for one variant);
 	// zeros without a published version. ResourceHeavy: an approved elevation holds a device of the published
 	// version above the platform frame (shown as a badge).
@@ -76,7 +79,7 @@ type exercisePermissionsResponse struct {
 func scopeToResponse(v exerciseUseCase.ExerciseScopeView) exerciseScopeResponse {
 	out := exerciseScopeResponse{
 		Scope: v.Scope, OwnerEventID: v.OwnerEventID, OwnerEventName: v.OwnerEventName, AccessLevel: v.AccessLevel,
-		AccessEventIDs: v.AccessEventIDs, OriginEventID: v.OriginEventID, Infrastructure: v.Infrastructure,
+		AccessEventIDs: v.AccessEventIDs, OriginEventID: v.OriginEventID, Infrastructure: v.Infrastructure, UsesConsole: v.UsesConsole,
 		Resources: rangeToResponse(v.Resources), ResourceHeavy: v.ResourceHeavy,
 		PendingProposalID: v.PendingProposalID, Permissions: exercisePermissionsResponse(v.Permissions),
 	}

@@ -300,6 +300,7 @@ type taskResources struct {
 	Range       resourcesModel.Range
 	Heavy       bool
 	NoAgentFits bool
+	Console     bool
 }
 
 // versionsResources reads, for pinned versions (version id to exercise id), their resources: the range over
@@ -324,7 +325,7 @@ func (u *EventUseCase) versionsResources(ctx context.Context, versions map[uuid.
 	for version, exercise := range versions {
 		vs := variants[version]
 		task := planTask(policy, eventExerciseModel.EventExercise{ExerciseID: exercise}, vs, approvals[exercise])
-		res := taskResources{Range: task.Range, Heavy: task.Heavy}
+		res := taskResources{Range: task.Range, Heavy: task.Heavy, Console: exerciseModel.UsesConsole(vs)}
 		if planner != nil {
 			need := infraModel.PlacementNeed{Device: task.deviceMax, LabDevices: task.labDevices}
 			res.NoAgentFits = need.Known() && planner.NeedFit(need) != nil
@@ -338,7 +339,7 @@ func (u *EventUseCase) versionsResources(ctx context.Context, versions map[uuid.
 func (u *EventUseCase) applyVersionResources(ctx context.Context, view *EventExerciseView, version exerciseModel.ExerciseVersion) {
 	policy := u.resourcePolicy()
 	task := planTask(policy, eventExerciseModel.EventExercise{ExerciseID: version.ExerciseID}, version.Variants, u.approvals(ctx, []uuid.UUID{version.ExerciseID})[version.ExerciseID])
-	view.Resources, view.ResourceHeavy = task.Range, task.Heavy
+	view.Resources, view.ResourceHeavy, view.UsesConsole = task.Range, task.Heavy, version.UsesConsole()
 	if planner, ok := u.infra.(resourcePlanner); ok {
 		need := infraModel.PlacementNeed{Device: task.deviceMax, LabDevices: task.labDevices}
 		view.NoAgentFits = need.Known() && planner.NeedFit(need) != nil
@@ -357,7 +358,7 @@ func (u *EventUseCase) decorateExerciseResources(ctx context.Context, items []Ev
 	}
 	for i := range items {
 		r := res[items[i].ExerciseVersionID]
-		items[i].Resources, items[i].ResourceHeavy, items[i].NoAgentFits = r.Range, r.Heavy, r.NoAgentFits
+		items[i].Resources, items[i].ResourceHeavy, items[i].NoAgentFits, items[i].UsesConsole = r.Range, r.Heavy, r.NoAgentFits, r.Console
 	}
 	return nil
 }
@@ -374,7 +375,7 @@ func (u *EventUseCase) decorateCatalogResources(ctx context.Context, items []Eve
 	}
 	for i := range items {
 		r := res[items[i].PublishedVersionID]
-		items[i].Resources, items[i].ResourceHeavy = r.Range, r.Heavy
+		items[i].Resources, items[i].ResourceHeavy, items[i].UsesConsole = r.Range, r.Heavy, r.Console
 	}
 	return nil
 }

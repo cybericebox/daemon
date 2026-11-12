@@ -516,10 +516,13 @@ type EventExerciseView struct {
 	UpdateAvailable     bool
 	Fork                *EventExerciseForkView
 	Infrastructure      bool
-	VariantCount        int32
-	ChallengeCount      int32
-	PublishedCount      int32
-	HasAttempts         bool
+	// UsesConsole: some device of the pinned version has a terminal access entry (a console in the browser). A console is
+	// not meant for events; nothing bans it, the organizer sees it here.
+	UsesConsole    bool
+	VariantCount   int32
+	ChallengeCount int32
+	PublishedCount int32
+	HasAttempts    bool
 	// Resources is the total of the pinned version: the least and the most it needs over its variants (equal for
 	// one variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the
 	// platform frame (a badge in the task picker and list). NoAgentFits: no agent that is used can run it; it
@@ -571,6 +574,7 @@ type EventCatalogItem struct {
 	Scope              string
 	PublishedVersionID uuid.UUID
 	Infrastructure     bool
+	UsesConsole        bool
 	Attached           bool
 	// Resources is the total of the published version (min and max over its variants); ResourceHeavy: an
 	// approved elevation holds a device above the platform frame.

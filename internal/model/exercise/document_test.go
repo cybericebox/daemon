@@ -521,3 +521,16 @@ func TestAccessFieldAndReaders(t *testing.T) {
 	require.ErrorAs(t, err, &withContext)
 	require.Equal(t, "access[2].port", withContext.PublicContext()["field"])
 }
+
+func TestUsesConsole(t *testing.T) {
+	web := exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeNode, Access: []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80}}}
+	shell := exerciseModel.Device{Name: "sh", Type: exerciseModel.DeviceTypeNode, Access: []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}}}
+	variant := func(devices ...exerciseModel.Device) exerciseModel.Variant {
+		return exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: devices}}
+	}
+	require.False(t, exerciseModel.UsesConsole(nil))
+	require.False(t, exerciseModel.UsesConsole([]exerciseModel.Variant{variant(web)}), "http is not a console")
+	require.True(t, exerciseModel.UsesConsole([]exerciseModel.Variant{variant(web), variant(web, shell)}), "any variant counts")
+	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant(shell)}}
+	require.True(t, version.UsesConsole())
+}

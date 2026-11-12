@@ -80,6 +80,8 @@ type ExerciseScopeView struct {
 	OriginEventID  *uuid.UUID
 	ForkedFrom     *ExerciseForkSource
 	Infrastructure bool
+	// UsesConsole: some device of the published version has a terminal access entry (a console). Not meant for events.
+	UsesConsole bool
 	// Resources is the total of the published version (min and max over its variants); zero without one.
 	// ResourceHeavy: an approved elevation holds a device of the published version above the platform frame.
 	Resources         ResourceRange

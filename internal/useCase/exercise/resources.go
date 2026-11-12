@@ -226,6 +226,7 @@ type visibleResource struct {
 	Range          ResourceRange
 	Heavy          bool
 	Infrastructure bool
+	Console        bool
 }
 
 // visibleResources reads the same working/public snapshot as the catalog metadata and statistics.
@@ -242,7 +243,7 @@ func (u *ExerciseUseCase) visibleResources(ctx context.Context, actor Actor, ids
 	out := make(map[uuid.UUID]visibleResource, len(variants))
 	var needApprovals []uuid.UUID
 	for id, vs := range variants {
-		out[id] = visibleResource{Range: rangeOf(policy.VariantRange(vs)), Infrastructure: exerciseModel.HasInfrastructure(vs)}
+		out[id] = visibleResource{Range: rangeOf(policy.VariantRange(vs)), Infrastructure: exerciseModel.HasInfrastructure(vs), Console: exerciseModel.UsesConsole(vs)}
 		if len(policy.OutsideFrame(vs)) > 0 {
 			needApprovals = append(needApprovals, id)
 		}

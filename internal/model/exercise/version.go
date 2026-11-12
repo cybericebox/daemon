@@ -381,6 +381,23 @@ func HasInfrastructure(variants []Variant) bool {
 	return false
 }
 
+// UsesConsole reports whether any device of any variant has a terminal access entry (a console in the participant's
+// browser). A console is not meant for events: the event side shows it, no rule bans it yet. Where a ban would go: the
+// same place as RequireNoStateTasks, called from loadAvailableVersion in useCase/event/event_exercise.go.
+func UsesConsole(variants []Variant) bool {
+	for _, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if device.HasAccess(AccessTerminal) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// UsesConsole reports whether any variant of the version has a console.
+func (v *ExerciseVersion) UsesConsole() bool { return UsesConsole(v.Variants) }
+
 // CollectFileIDs returns every file id across a variant set (task attachments and the source files of device
 // bootstraps) — consumed by the media reference sync on draft save.
 func CollectFileIDs(variants []Variant) []uuid.UUID {

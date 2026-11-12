@@ -586,7 +586,7 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 			tags = []string{}
 		}
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
-			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
+			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, UsesConsole: item.UsesConsole, Attached: item.Attached,
 			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy,
 			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames),
 			MatchedCount: item.MatchedCount, AvailableCount: item.AvailableCount})
