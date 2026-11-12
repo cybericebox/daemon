@@ -101,9 +101,9 @@ func (u *ImageRegistryUseCase) CheckImageAvailability(ctx context.Context, scope
 // ImageServiceInfo is what the platform knows about the start configuration of one image reference.
 type ImageServiceInfo struct {
 	Image string
-	// Known: the start configuration is stored for the image. False for an image by reference to an external registry
-	// (nothing reads its config), for a platform image published before the configuration was kept, and when the
-	// read fails; the other fields are then empty.
+	// Known: the start configuration is stored for the image (an image that declares nothing has a stored empty one: it
+	// runs as root). False for an image by reference to an external registry (nothing reads its config), for a platform
+	// image published before the configuration was kept, and when the read fails; the other fields are then empty.
 	Known   bool
 	Service exerciseModel.ImageService
 }
@@ -138,7 +138,7 @@ func (u *ImageRegistryUseCase) ImageServices(ctx context.Context, images []strin
 		if !ok {
 			continue
 		}
-		if service, found := configs[ref.Digest]; found && !service.IsZero() {
+		if service, found := configs[ref.Digest]; found {
 			out[i].Known, out[i].Service = true, service
 		}
 	}
@@ -209,9 +209,10 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 }
 
 // fillImageServices gives every device whose image is a platform image the start configuration stored for it (what the
-// image runs and as whom), so the laboratory can be told what to start after a bootstrap. An image by reference to an
-// external registry has none: nothing reads its configuration, so such a device needs a command of its own when it has a
-// bootstrap list (the deploy then refuses with the device named). A failed read leaves the devices without one.
+// image runs and as whom), so the laboratory can be told what to start after a bootstrap and as which user. An image by
+// reference to an external registry has none: nothing reads its configuration, so such a device cannot be started through
+// the launcher (the deploy refuses with the device named: no command, or no known user). A failed read leaves the devices
+// without one.
 func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, original exerciseModel.Topology, out *exerciseModel.Topology) {
 	if u.configs == nil {
 		return
@@ -239,7 +240,7 @@ func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, original e
 		if !ok {
 			continue
 		}
-		if service, found := configs[ref.Digest]; found && !service.IsZero() {
+		if service, found := configs[ref.Digest]; found {
 			service := service
 			out.Devices[i].ImageService = &service
 		}

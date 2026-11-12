@@ -60,6 +60,12 @@ var (
 	ErrVPNOptionInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
 				WithMessage("Reverse connections need the VPN network switched on and cannot be set on the Internet gateway").
 				WithDetailCode(20)
+	// ErrServiceUserUnknown: a device is started through the launcher (a bootstrap list, a command or arguments) and the
+	// platform does not know which user its image declares: an image by reference to an external registry, or a platform
+	// image uploaded before its configuration was kept. device and variant name the place, field is "image".
+	ErrServiceUserUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("The user of the image is not known: a device started with a bootstrap or a command needs a platform image").
+				WithDetailCode(21)
 	// ErrServiceCommandUnknown: a device needs the laboratory told what to run after its bootstrap (or has a command of
 	// its own) but neither the author's command nor the image configuration gives one; device names it.
 	ErrServiceCommandUnknown = err.ErrConflict.WithObjectCode(model.ExerciseDocumentObjectCode).

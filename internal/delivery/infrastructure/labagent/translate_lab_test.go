@@ -202,3 +202,32 @@ func TestBuildLabChecks_MapsEveryObservation(t *testing.T) {
 	_, err := buildLabChecks(check(exerciseModel.Condition{}))
 	require.ErrorIs(t, err, exerciseModel.ErrRuntimeNotSupported.Err())
 }
+
+// The service is always told a user: the image's, else the root account; an image whose configuration is not known cannot be
+// started through the launcher (no empty user is ever sent: it would run the service as root).
+func TestBuildLab_ServiceUserIsAlwaysSent(t *testing.T) {
+	device := func(image *exerciseModel.ImageService) exerciseModel.Topology {
+		return exerciseModel.Topology{Devices: []exerciseModel.Device{{
+			ID: uuid.FromStringOrNil("00000000-0000-7000-8000-000000000001"), Name: "web", Type: exerciseModel.DeviceTypeNode,
+			Image: "platform:web@sha256:" + strings.Repeat("a", 64), Command: []string{"/app"}, ImageService: image,
+		}}}
+	}
+	user := func(topology exerciseModel.Topology) (string, error) {
+		build, err := BuildLab(topology, nil)
+		if err != nil {
+			return "", err
+		}
+		return decode(t, build.SpecJSON).Devices[0].Service.User, nil
+	}
+	for name, tc := range map[string]struct{ image, want string }{
+		"declared name":    {"www-data", "www-data"},
+		"declared number":  {"1000:1000", "1000:1000"},
+		"declared nothing": {"", "0"},
+	} {
+		got, err := user(device(&exerciseModel.ImageService{User: tc.image}))
+		require.NoError(t, err, name)
+		require.Equal(t, tc.want, got, name)
+	}
+	_, err := user(device(nil))
+	require.ErrorIs(t, err, exerciseModel.ErrServiceUserUnknown.Err())
+}

@@ -347,7 +347,7 @@ func InVariantIfScoped(failure error, number int) error {
 	for _, scoped := range []interface {
 		Err(skip ...int) appErr.Error
 	}{
-		ErrRuntimeNotSupported, ErrLabOptionUnavailable, ErrServiceCommandUnknown, ErrRuntimeDeviceUnresolved,
+		ErrRuntimeNotSupported, ErrLabOptionUnavailable, ErrServiceCommandUnknown, ErrServiceUserUnknown, ErrRuntimeDeviceUnresolved,
 		ErrDeviceRuntimeInvalid, ErrVariableInvalid, ErrStateInvalid, ErrBootstrapTooLarge, ErrSubstitutionUnresolved,
 	} {
 		if errors.Is(failure, scoped.Err()) {

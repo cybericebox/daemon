@@ -292,6 +292,7 @@
   "23517": "A bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB",
   "23519": "A description or a hint cannot hold a task or variable substitution",
   "23520": "Reverse connections need the VPN network switched on and cannot be set on the Internet gateway",
+  "23521": "The user of the image is not known: a device started with a bootstrap or a command needs a platform image",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",

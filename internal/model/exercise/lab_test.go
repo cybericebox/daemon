@@ -96,14 +96,53 @@ func TestLabServiceUnknownNamesTheDevice(t *testing.T) {
 			require.Contains(t, err.Error(), "web")
 		})
 	}
-	// The author's command is enough without an image.
+	// The author's command is enough for the command; the user needs the image's configuration (see below).
 	device := exerciseModel.Device{
-		Name: "web", Type: exerciseModel.DeviceTypeNode, Command: []string{"/app"},
+		Name: "web", Type: exerciseModel.DeviceTypeNode, Command: []string{"/app"}, ImageService: &exerciseModel.ImageService{},
 		Bootstrap: exerciseModel.Bootstrap{Script: "true"},
 	}
 	service, err := device.LabService()
 	require.NoError(t, err)
 	require.Equal(t, []string{"/app"}, service.Command)
+}
+
+// The service always runs as a user the platform knows: the image's USER in the form the image gives it, the root account
+// (0) when the image declares none, and a refusal naming the device when the image's configuration is not known: no guess,
+// an empty user would run the service as root even for an image that declares a non-root user.
+func TestLabServiceUser(t *testing.T) {
+	device := func(image *exerciseModel.ImageService) exerciseModel.Device {
+		return exerciseModel.Device{
+			Name: "web", Type: exerciseModel.DeviceTypeNode, Command: []string{"/app"}, ImageService: image,
+			Bootstrap: exerciseModel.Bootstrap{Script: "true"},
+		}
+	}
+	for name, tc := range map[string]struct{ image, want string }{
+		"name":             {"app", "app"},
+		"number":           {"1000", "1000"},
+		"name and group":   {"app:web", "app:web"},
+		"number and group": {"1000:1000", "1000:1000"},
+		"none declared":    {"", exerciseModel.ServiceUserRoot},
+		"root declared":    {"root", "root"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, err := device(&exerciseModel.ImageService{User: tc.image}).LabService()
+			require.NoError(t, err)
+			require.Equal(t, tc.want, service.User)
+		})
+	}
+	require.Equal(t, "0", exerciseModel.ServiceUserRoot)
+
+	_, err := device(nil).LabService()
+	require.ErrorIs(t, err, exerciseModel.ErrServiceUserUnknown.Err())
+	var carrier interface{ PublicContext() map[string]any }
+	require.ErrorAs(t, err, &carrier)
+	require.Equal(t, map[string]any{"device": "web", "field": "image"}, carrier.PublicContext())
+
+	// No launcher, nothing to tell, nothing to know.
+	plain := exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeNode}
+	service, err := plain.LabService()
+	require.NoError(t, err)
+	require.Nil(t, service)
 }
 
 func checksFixture() (exerciseModel.Variant, exerciseModel.Topology, []exerciseModel.ResolvedConditions) {
