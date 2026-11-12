@@ -263,7 +263,9 @@ type LabNeeds struct {
 	Observations []string
 	// MaxCheckTimeLimit and MaxCheckSchedule are the largest time limit and schedule, in seconds.
 	MaxCheckTimeLimit int
-	MaxCheckSchedule  int
+	// LongestCheck is the id of the check with the largest time limit, to name its task when the laboratory's ceiling is passed.
+	LongestCheck     string
+	MaxCheckSchedule int
 	// Bootstrap sizes: the most files of a device, the largest script and file, the most bytes of one device (script and files),
 	// the longest time limit in seconds.
 	MaxFiles          int
@@ -321,7 +323,9 @@ func NeedsOf(t Topology, checks []LabCheck) LabNeeds {
 	n.Observations = slices.Sorted(maps.Keys(kinds))
 	for _, c := range checks {
 		n.MaxParts = max(n.MaxParts, len(c.Parts))
-		n.MaxCheckTimeLimit = max(n.MaxCheckTimeLimit, int(c.TimeLimitSeconds))
+		if int(c.TimeLimitSeconds) > n.MaxCheckTimeLimit {
+			n.MaxCheckTimeLimit, n.LongestCheck = int(c.TimeLimitSeconds), c.ID
+		}
 		n.MaxCheckSchedule = max(n.MaxCheckSchedule, int(c.ScheduleSeconds))
 	}
 	return n

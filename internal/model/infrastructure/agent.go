@@ -167,6 +167,21 @@ func (c ChecksFeature) Offers(kind string) bool {
 	return slices.Contains(c.Observations, kind)
 }
 
+// timeLimitRefusal says, when a check of the lab has a time limit above the checker's ceiling, the refusal text and the place
+// (the task and the key) the author can fix; empty when the ceiling is not passed or not reported.
+func (c ChecksFeature) timeLimitRefusal(n exerciseModel.LabNeeds) (string, map[string]any) {
+	ceiling := c.MaxTimeLimitSeconds
+	if ceiling <= 0 || n.MaxCheckTimeLimit <= int(ceiling) {
+		return "", nil
+	}
+	text := "checks.max_time_limit_seconds (at most " + strconv.Itoa(int(ceiling)) + ")"
+	task, ok := exerciseModel.TaskKeyOfCheck(n.LongestCheck)
+	if !ok {
+		return text, nil
+	}
+	return text, map[string]any{"task": task, "field": "check.state.conditions[].timeout", "limit": ceiling}
+}
+
 // ServesAccess reports whether the laboratory serves a device access kind (http, terminal, vnc, rdp). An agent that reports no
 // access serves http only.
 func (f AgentFeatures) ServesAccess(kind string) bool {
@@ -201,6 +216,7 @@ func (f AgentFeatures) EnforcesVPNReverse() bool { return f.VPN != nil && f.VPN.
 // "terminal", "bootstrap.max_files (at most 8)". A limit of 0 is "not reported" and refuses nothing.
 func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 	var refused []string
+	var where map[string]any // the task and the key that pass a limit of the laboratory, when it can be named
 	over := func(name string, need int, limit int32) {
 		if limit > 0 && need > int(limit) {
 			refused = append(refused, name+" (at most "+strconv.Itoa(int(limit))+")")
@@ -212,7 +228,9 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 		} else {
 			over("checks.max_checks_per_lab", n.ChecksPerLab, f.Checks.MaxChecksPerLab)
 			over("checks.max_parts_per_check", n.MaxParts, f.Checks.MaxPartsPerCheck)
-			over("checks.max_time_limit_seconds", n.MaxCheckTimeLimit, f.Checks.MaxTimeLimitSeconds)
+			if text, at := f.Checks.timeLimitRefusal(n); text != "" {
+				refused, where = append(refused, text), at
+			}
 			over("checks.max_schedule_seconds", n.MaxCheckSchedule, f.Checks.MaxScheduleSeconds)
 			for _, kind := range n.Observations {
 				if !f.Checks.Offers(kind) {
@@ -238,7 +256,11 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 	if len(refused) == 0 {
 		return nil
 	}
-	return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", strings.Join(refused, "; ")).Err()
+	failure := exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", strings.Join(refused, "; "))
+	for key, value := range where {
+		failure = failure.WithPublicContext(key, value)
+	}
+	return failure.Err()
 }
 
 // UnavailableReason is why some lab nodes of an agent do not confirm a feature: a code of the fixed list, how many

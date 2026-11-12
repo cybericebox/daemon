@@ -479,3 +479,10 @@ saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without
   laboratory's checker. `custom.user` empty is `nobody` in the laboratory; the daemon writes no default. A `file` checksum is sent in lower case.
 - The console link uses the constant host `terminal` (`labaccess.TerminalHost`): the laboratory does not report its terminal host.
   The console link is refused (33518) when no laboratory that is used serves a console.
+- **Check time limit above the laboratory's ceiling** (chart `checks.maxTimeLimitSeconds`, reported as
+  `ChecksFeature.max_time_limit_seconds`): the lab is refused at start with 73512, `options` =
+  `checks.max_time_limit_seconds (at most N)`, and the public context names the `task` (key), the `field`
+  (`check.state.conditions[].timeout`) and the `limit`. Fix: lower the condition `timeout` of that task.
+- **Manual-run cooldown of the laboratory** (chart `checks.manualCooldown`): its `RESOURCE_EXHAUSTED` answer to a run is the
+  existing 429 (73516) with `Retry-After` taken from the wait the laboratory names ("wait N seconds"); without a number, no
+  `Retry-After`.

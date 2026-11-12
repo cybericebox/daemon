@@ -148,6 +148,16 @@ func TestRunLabChecksAsksTheAgentForOneLab(t *testing.T) {
 	require.ErrorIs(t, err, exerciseModel.ErrLabOptionUnavailable.Err())
 	require.Contains(t, err.Error(), "checks")
 
+	// The cooldown of the laboratory between manual runs is our "asked too often" with the wait it names.
+	f.a.runChecksErr = status.Error(codes.ResourceExhausted, "wait 7 seconds before the next manual run of this lab")
+	err = f.fleet.RunLabChecks(ctx, "e-1-t-1", "lab-1", nil)
+	require.ErrorIs(t, err, exerciseModel.ErrChecksRunTooOften.Err())
+	wait, ok := cooldownSeconds("wait 7 seconds before the next manual run of this lab")
+	require.True(t, ok)
+	require.EqualValues(t, 7, wait)
+	_, ok = cooldownSeconds("something else")
+	require.False(t, ok)
+
 	// A lab the agent does not know.
 	f.a.runChecksErr = nil
 	f.a.itemState = labpb.ItemState_ITEM_STATE_NOT_FOUND

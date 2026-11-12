@@ -36,3 +36,18 @@ func TestRequireLabOptionsRefusesObservationsTheCheckerLacks(t *testing.T) {
 	require.NoError(t, full.RequireLabOptions(needs))
 	require.NoError(t, first.RequireLabOptions(exerciseModel.LabNeeds{Checks: true, Observations: []string{"custom", "file"}}))
 }
+
+// A check whose time limit is above the laboratory's ceiling is refused with the task and the key named.
+func TestRequireLabOptionsNamesTheTaskOfACheckAboveTheCeiling(t *testing.T) {
+	features := &infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{Enabled: true, MaxTimeLimitSeconds: 120}}
+	err := features.RequireLabOptions(exerciseModel.LabNeeds{Checks: true, MaxCheckTimeLimit: 300, LongestCheck: "ospf:2"})
+	require.ErrorIs(t, err, exerciseModel.ErrLabOptionUnavailable.Err())
+	var withContext interface{ PublicContext() map[string]any }
+	require.ErrorAs(t, err, &withContext)
+	ctx := withContext.PublicContext()
+	require.Equal(t, "checks.max_time_limit_seconds (at most 120)", ctx["options"])
+	require.Equal(t, "ospf", ctx["task"])
+	require.Equal(t, "check.state.conditions[].timeout", ctx["field"])
+	require.EqualValues(t, 120, ctx["limit"])
+	require.NoError(t, features.RequireLabOptions(exerciseModel.LabNeeds{Checks: true, MaxCheckTimeLimit: 120, LongestCheck: "ospf:2"}))
+}

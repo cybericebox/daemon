@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 // deployVariantID names the one variant a single-lab deploy sends. A deploy
@@ -194,6 +197,14 @@ func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []stri
 		},
 	)
 	if err != nil {
+		if status.Code(err) == codes.ResourceExhausted {
+			// The laboratory's cooldown between manual runs: the same answer as our own rate limit, with the wait it gives.
+			failure := exerciseModel.ErrChecksRunTooOften
+			if wait, ok := cooldownSeconds(status.Convert(err).Message()); ok {
+				failure = failure.WithDetail(appErr.DetailRetryAfterSeconds, wait)
+			}
+			return failure.Err()
+		}
 		if status.Code(err) == codes.FailedPrecondition {
 			return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", "checks").
 				WithError(err).
@@ -206,6 +217,18 @@ func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []stri
 		return fmt.Errorf("run checks: %w", errNotFound)
 	}
 	return oneResult("run checks", res.GetResults())
+}
+
+var cooldownRe = regexp.MustCompile(`wait (\d+) seconds`)
+
+// cooldownSeconds reads the wait the laboratory names in its cooldown answer ("wait N seconds before the next manual run").
+func cooldownSeconds(message string) (int64, bool) {
+	match := cooldownRe.FindStringSubmatch(message)
+	if match == nil {
+		return 0, false
+	}
+	seconds, err := strconv.ParseInt(match[1], 10, 64)
+	return seconds, err == nil && seconds > 0
 }
 
 // EnsureVPNGroup creates the stable team group without requiring a Lab.
