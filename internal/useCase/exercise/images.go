@@ -18,6 +18,47 @@ type IImageAccess interface {
 	PrepareDeployImages(ctx context.Context, scope imageRegistryUseCase.Scope, topo exerciseModel.Topology) (imageRegistryUseCase.DeployImages, error)
 }
 
+// imageServiceReader is the optional part of the image registry that gives the stored start configuration of images.
+type imageServiceReader interface {
+	ImageServices(ctx context.Context, images []string) []imageRegistryUseCase.ImageServiceInfo
+}
+
+// requireServiceUsersKnown is the publish gate of the service user: a device that is started through the launcher (a
+// bootstrap list, a command or arguments) runs as the user its image declares, which the platform knows only for a platform
+// image whose configuration it stored. Any other image (an external registry reference, an old platform image) cannot be
+// published with such a device: the platform does not guess the user. Drafts are not checked. The error names the variant
+// and the device, field "image". Skipped without an image registry that can tell (narrow constructions).
+func (u *ExerciseUseCase) requireServiceUsersKnown(ctx context.Context, variants []exerciseModel.Variant) error {
+	reader, ok := u.images.(imageServiceReader)
+	if !ok {
+		return nil
+	}
+	var images []string
+	for _, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if device.NeedsServiceCommand() && device.Image != "" {
+				images = append(images, device.Image)
+			}
+		}
+	}
+	if len(images) == 0 {
+		return nil
+	}
+	known := map[string]bool{}
+	for _, info := range reader.ImageServices(ctx, images) {
+		known[info.Image] = info.Known
+	}
+	for position, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if device.NeedsServiceCommand() && device.Image != "" && !known[device.Image] {
+				return exerciseModel.ErrServiceUserUnknown.WithPublicContext("variant", position+1).
+					WithPublicContext("device", device.Name).WithPublicContext("field", "image").Err()
+			}
+		}
+	}
+	return nil
+}
+
 // SetImageAccess wires the image registry; nil (narrow constructions) deploys
 // the topology as stored, without checks or credentials.
 func (u *ExerciseUseCase) SetImageAccess(a IImageAccess) { u.images = a }
