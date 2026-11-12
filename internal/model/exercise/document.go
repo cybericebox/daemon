@@ -53,12 +53,12 @@ func (v Variant) ValidateDocument() error {
 			continue
 		}
 		if !ValidKey(task.Key) {
-			return ErrTaskKeyInvalid.WithPublicContext("task", task.Name).
+			return forTask(ErrTaskKeyInvalid, task).
 				WithPublicContext("key", task.Key).
 				Err()
 		}
 		if _, duplicate := keys[task.Key]; duplicate {
-			return ErrTaskKeyInvalid.WithPublicContext("task", task.Name).
+			return forTask(ErrTaskKeyInvalid, task).
 				WithPublicContext("key", task.Key).
 				Err()
 		}
@@ -87,7 +87,7 @@ func (v Variant) ValidateDocument() error {
 // names the task and the field: description, or hints[N].text.
 func validateTaskTexts(task Task) error {
 	bad := func(field string) error {
-		return ErrSubstitutionNotAllowed.WithPublicContext("task", task.Name).WithPublicContext("field", field).Err()
+		return forTask(ErrSubstitutionNotAllowed, task).WithPublicContext("field", field).Err()
 	}
 	if hasSubstitutionInJSON(task.Description) {
 		return bad("description")
@@ -140,7 +140,7 @@ func hasSubstitutionInJSON(raw json.RawMessage) bool {
 
 func validateRequires(task Task, keys map[string]int) error {
 	bad := func(key string) error {
-		return ErrTaskRequiresInvalid.WithPublicContext("task", task.Name).
+		return forTask(ErrTaskRequiresInvalid, task).
 			WithPublicContext("key", key).
 			Err()
 	}
@@ -178,7 +178,7 @@ func requiresCycle(tasks []Task, keys map[string]int) error {
 			}
 			switch state[next] {
 			case active:
-				return ErrTaskRequiresInvalid.WithPublicContext("task", tasks[i].Name).
+				return forTask(ErrTaskRequiresInvalid, tasks[i]).
 					WithPublicContext("key", key).
 					Err()
 			case fresh:
@@ -205,7 +205,7 @@ func requiresCycle(tasks []Task, keys map[string]int) error {
 func (v Variant) RequireChecks() error {
 	for _, task := range v.Tasks {
 		if task.Check.Kind() == "" {
-			return ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err()
+			return forTask(ErrTaskCheckInvalid, task).Err()
 		}
 	}
 	return nil
@@ -215,21 +215,21 @@ func (v Variant) RequireChecks() error {
 // looks at a node device.
 func (v Variant) validateTaskCheck(task Task, required bool) error {
 	if task.Check.Answer != nil && task.Check.State != nil {
-		return ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err()
+		return forTask(ErrTaskCheckInvalid, task).Err()
 	}
 	switch task.Check.Kind() {
 	case "answer":
 		if field := validAnswerShape(*task.Check.Answer); field != "" {
 			if field == "values" && task.Check.Answer.Type == AnswerTypeFlag {
-				return ErrFlagSourceInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
+				return forTask(ErrFlagSourceInvalid, task).WithPublicContext("field", "check.answer.values").Err()
 			}
-			return ErrAnswerInvalid.WithPublicContext("task", task.Name).
+			return forTask(ErrAnswerInvalid, task).
 				WithPublicContext("field", "check.answer."+field).
 				Err()
 		}
 	case "state":
 		if field := validateStateShape(*task.Check.State); field != "" {
-			return ErrStateInvalid.WithPublicContext("task", task.Name).
+			return forTask(ErrStateInvalid, task).
 				WithPublicContext("field", "check.state."+field).
 				Err()
 		}
@@ -241,14 +241,14 @@ func (v Variant) validateTaskCheck(task Task, required bool) error {
 		}
 		for i, c := range task.Check.State.Conditions {
 			if _, ok := nodes[c.DeviceID]; !ok {
-				return ErrStateInvalid.WithPublicContext("task", task.Name).
+				return forTask(ErrStateInvalid, task).
 					WithPublicContext("field", fmt.Sprintf("check.state.conditions[%d].device", i+1)).
 					Err()
 			}
 		}
 	default:
 		if required {
-			return ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err()
+			return forTask(ErrTaskCheckInvalid, task).Err()
 		}
 	}
 	return nil
@@ -269,7 +269,7 @@ func validateChecksAcross(variants []Variant) error {
 			base := canonical[i].Check
 			if task.Check.Kind() != base.Kind() ||
 				(task.Check.Answer != nil && base.Answer != nil && task.Check.Answer.Type != base.Answer.Type) {
-				return InVariant(ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err(), variantIndex+2)
+				return InVariant(forTask(ErrTaskCheckInvalid, task).Err(), variantIndex+2)
 			}
 		}
 	}
@@ -311,7 +311,7 @@ func (v *ExerciseVersion) HasStateTasks() bool {
 func (v *ExerciseVersion) RequireNoStateTasks() error {
 	for _, variant := range v.Variants {
 		if tasks := variant.StateTasks(); len(tasks) > 0 {
-			return ErrStateTaskNotForEvent.WithPublicContext("task", tasks[0].Name).Err()
+			return forTask(ErrStateTaskNotForEvent, tasks[0]).Err()
 		}
 	}
 	return nil

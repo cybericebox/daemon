@@ -58,7 +58,7 @@ var (
 					WithDetailCode(10)
 	// ErrVPNOptionInvalid: reverse_connections is set without vpn.enabled, or on the internet gateway; field names it.
 	ErrVPNOptionInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
-				WithMessage("Reverse connections need the VPN network switched on").
+				WithMessage("Reverse connections need the VPN network switched on and cannot be set on the Internet gateway").
 				WithDetailCode(20)
 	// ErrServiceCommandUnknown: a device needs the laboratory told what to run after its bootstrap (or has a command of
 	// its own) but neither the author's command nor the image configuration gives one; device names it.

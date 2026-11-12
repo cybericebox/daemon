@@ -269,7 +269,7 @@ func TestValidateStructure_LinkedFlagsDistinct(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, ErrLinkedFlagsNotDistinct.Err()))
-			assert.Contains(t, err.Error(), "TASK:=Task")
+			assert.Contains(t, err.Error(), "TASK_NAME:=Task")
 		})
 	}
 }

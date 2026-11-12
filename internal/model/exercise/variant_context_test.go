@@ -157,8 +157,48 @@ func TestPublishErrorsNameTheTaskAndField(t *testing.T) {
 			require.ErrorIs(t, err, tc.want.Err())
 			public := publicContext(t, err)
 			require.Equal(t, tc.field, public["field"])
-			require.Equal(t, version.Variants[0].Tasks[0].Name, public["task"], "the task is public")
+			require.Equal(t, "a", public["task"], "the task is its key, not its name")
+			require.Equal(t, version.Variants[0].Tasks[0].Name, public["task_name"], "the name is a key of its own")
 			require.Equal(t, 1, public["variant"])
 		})
 	}
+}
+
+// One rule for every error of the exercise document: the public task is the task KEY and its name is task_name; a task of an
+// old draft that has no key yet is named by task_name alone.
+func TestTaskInPublicContextIsTheKey(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate func(*exerciseModel.Task)
+		check  func(*exerciseModel.ExerciseVersion) error
+		want   appErr.ErrorCreator
+	}{
+		"task key": {func(task *exerciseModel.Task) { task.Key = "Bad-Key" }, (*exerciseModel.ExerciseVersion).ValidateStructure, exerciseModel.ErrTaskKeyInvalid},
+		"requires": {func(task *exerciseModel.Task) { task.Requires = []string{"ghost"} }, (*exerciseModel.ExerciseVersion).ValidateStructure, exerciseModel.ErrTaskRequiresInvalid},
+		"answer":   {func(task *exerciseModel.Task) { task.Check.Answer.Type = "bogus" }, (*exerciseModel.ExerciseVersion).ValidateStructure, exerciseModel.ErrAnswerInvalid},
+		"substitution": {func(task *exerciseModel.Task) {
+			task.Description = []byte(`{"root":{"children":[{"type":"text","text":"{{task.a}}"}]}}`)
+		}, (*exerciseModel.ExerciseVersion).ValidateStructure, exerciseModel.ErrSubstitutionNotAllowed},
+		"description": {func(task *exerciseModel.Task) { task.Description = nil }, (*exerciseModel.ExerciseVersion).ValidateForPublish, exerciseModel.ErrTaskDescriptionRequired},
+	} {
+		t.Run(name, func(t *testing.T) {
+			version := twoVariants()
+			tc.mutate(&version.Variants[0].Tasks[0])
+			err := tc.check(&version)
+			require.ErrorIs(t, err, tc.want.Err())
+			public := publicContext(t, err)
+			wantKey := "a"
+			if name == "task key" {
+				wantKey = "Bad-Key"
+			}
+			require.Equal(t, wantKey, public["task"])
+			require.Equal(t, "Find the flag", public["task_name"])
+		})
+	}
+	unkeyed := twoVariants()
+	unkeyed.Variants[0].Tasks[0].Key = ""
+	unkeyed.Variants[0].Tasks[0].Description = nil
+	err := unkeyed.ValidateForPublish()
+	require.ErrorIs(t, err, exerciseModel.ErrTaskDescriptionRequired.Err())
+	require.NotContains(t, publicContext(t, err), "task")
+	require.Equal(t, "Find the flag", publicContext(t, err)["task_name"])
 }

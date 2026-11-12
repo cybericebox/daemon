@@ -115,6 +115,9 @@ unresolved reference is an error naming the field (publish and test deploy).
 
 ## Behaviour that changed
 
+- **Public context of exercise errors: one rule.** `task` is always the task KEY (names repeat between tasks), `task_name` is its name
+  (a task of an old draft without a key has `task_name` only), `device` is the device name, `field` the place inside the task or
+  device (`description`, `hints[N].text`, `check.answer.values`, `access[N].port`, ...), `variant` the position (below).
 - **Validation errors name the variant.** An error about a task, a device, a connection or a variable inside a variant carries the
   public context key `variant`: the 1-based position of the variant in the version (the position in `Variants[]` of the
   request, `versions[n].variants[m]` of an archive; a number, not the `ID`, which a new variant does not have yet, and not

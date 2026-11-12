@@ -200,7 +200,7 @@ func validateLinkedFlags(variants []Variant) error {
 						continue
 					}
 					if previous, seen := owner[value]; seen && previous != variantIndex {
-						return ErrLinkedFlagsNotDistinct.WithContext("task", task.Name).Err()
+						return forTask(ErrLinkedFlagsNotDistinct, task).Err()
 					}
 					owner[value] = variantIndex
 				}
@@ -242,9 +242,7 @@ func validateLinkedVariant(number int, linked, base Variant) error {
 		}
 		own := linked.Tasks[taskIndex]
 		if len(baseTask.Attachments) > 0 && len(own.Attachments) == 0 {
-			return ErrLinkedAttachmentMissing.WithPublicContext("variant", number).
-				WithPublicContext("task", baseTask.Name).
-				Err()
+			return forTask(ErrLinkedAttachmentMissing.WithPublicContext("variant", number), baseTask).Err()
 		}
 		if len(own.Attachments) > 0 || !slices.Equal(own.Check.values(), baseTask.Check.values()) {
 			differs = true

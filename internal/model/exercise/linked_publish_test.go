@@ -51,7 +51,7 @@ func TestValidateForPublish_LinkedVariantsKeepFilesOfTheBase(t *testing.T) {
 
 	err := version.ValidateForPublish()
 	require.ErrorIs(t, err, exerciseModel.ErrLinkedAttachmentMissing.Err())
-	assert.Equal(t, map[string]any{"variant": 3, "task": "Find the flag"}, publicContext(t, err))
+	assert.Equal(t, map[string]any{"variant": 3, "task_name": "Find the flag"}, publicContext(t, err))
 
 	version.Variants[2].Tasks[0].Attachments = attachment("task.bin")
 	require.NoError(t, version.ValidateForPublish())
@@ -150,7 +150,7 @@ func TestValidateForPublish_KhctfShape(t *testing.T) {
 	if errors.Is(err, exerciseModel.ErrLinkedAttachmentMissing.Err()) {
 		assert.Equal(
 			t,
-			map[string]any{"variant": 2, "task": "Find the flag"},
+			map[string]any{"variant": 2, "task": "flag", "task_name": "Find the flag"},
 			publicContext(t, err),
 		)
 	} else {

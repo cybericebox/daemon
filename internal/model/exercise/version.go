@@ -149,16 +149,16 @@ func hasHintTextContent(text string) bool {
 // task: same count, IDs and levels at the same positions.
 func validateHints(task, canonical Task) error {
 	if len(task.Hints) > hintsMaxCount || len(task.Hints) != len(canonical.Hints) {
-		return ErrHintsInvalid.WithContext("task", task.Name).Err()
+		return forTask(ErrHintsInvalid, task).Err()
 	}
 	seen := make(map[uuid.UUID]struct{}, len(task.Hints))
 	for i, hint := range task.Hints {
 		if !hint.Level.Valid() || len(hint.Text) > hintTextMaxLen ||
 			hint.ID != canonical.Hints[i].ID || hint.Level != canonical.Hints[i].Level {
-			return ErrHintsInvalid.WithContext("task", task.Name).Err()
+			return forTask(ErrHintsInvalid, task).Err()
 		}
 		if _, duplicate := seen[hint.ID]; duplicate && hint.ID != uuid.Nil {
-			return ErrHintsInvalid.WithContext("task", task.Name).Err()
+			return forTask(ErrHintsInvalid, task).Err()
 		}
 		seen[hint.ID] = struct{}{}
 	}
@@ -302,17 +302,17 @@ func validateTaskShape(variantIndex int, task, canonical Task) error {
 	// for old all-nil snapshots position remains the only available key.
 	if (canonical.ID != uuid.Nil && task.ID != canonical.ID) ||
 		(canonical.ID == uuid.Nil && task.ID != uuid.Nil) {
-		return ErrTaskIdentityMismatch.WithContext("task", task.Name).Err()
+		return forTask(ErrTaskIdentityMismatch, task).Err()
 	}
 	if variantIndex > 0 && task.Difficulty != canonical.Difficulty {
-		return ErrTaskDifficultyMismatch.WithContext("task", task.Name).Err()
+		return forTask(ErrTaskDifficultyMismatch, task).Err()
 	}
 	name := strings.TrimSpace(task.Name)
 	if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
-		return ErrTaskNameInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "name").Err()
+		return forTask(ErrTaskNameInvalid, task).WithPublicContext("field", "name").Err()
 	}
 	if !task.Difficulty.Valid() {
-		return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
+		return forTask(ErrTaskDifficultyInvalid, task).Err()
 	}
 	if err := validateHints(task, canonical); err != nil {
 		return err
@@ -323,11 +323,21 @@ func validateTaskShape(variantIndex int, task, canonical Task) error {
 			continue
 		} // legacy draft; normalized on save
 		if _, duplicate := keys[placeholder.Key]; duplicate {
-			return ErrPlaceholderInvalid.WithContext("task", task.Name).Err()
+			return forTask(ErrPlaceholderInvalid, task).Err()
 		}
 		keys[placeholder.Key] = struct{}{}
 	}
 	return nil
+}
+
+// forTask names a task on an error: the public context key "task" is the task KEY (short, stable, and what the editor
+// addresses a task by; names repeat between tasks) and "task_name" is the name, for a message a person reads. The device is
+// "device" (its name) and the place inside the task or device is "field".
+func forTask(failure appErr.ErrorCreator, task Task) appErr.ErrorCreator {
+	if task.Key != "" { // an unkeyed task of an old draft has none yet: the name alone names it
+		failure = failure.WithPublicContext("task", task.Key)
+	}
+	return failure.WithPublicContext("task_name", task.Name)
 }
 
 // InVariantIfScoped is InVariant for the errors a deploy meets, which may be about the variant's content (an unsupported
@@ -385,11 +395,11 @@ func validateVariantForPublish(variant Variant) error {
 	delivered := variant.DeliveredTaskKeys()
 	for _, task := range variant.Tasks {
 		if !hasTaskDescriptionContent(task.Description) {
-			return ErrTaskDescriptionRequired.WithPublicContext("task", task.Name).WithPublicContext("field", "description").Err()
+			return forTask(ErrTaskDescriptionRequired, task).WithPublicContext("field", "description").Err()
 		}
 		for hintIndex, hint := range task.Hints {
 			if !hasHintTextContent(hint.Text) {
-				return ErrHintTextRequired.WithPublicContext("task", task.Name).
+				return forTask(ErrHintTextRequired, task).
 					WithPublicContext("field", fmt.Sprintf("hints[%d].text", hintIndex+1)).Err()
 			}
 		}
@@ -417,10 +427,10 @@ func requireSingleValueWithoutDelivery(task Task, delivered map[string]struct{})
 		return nil
 	}
 	if len(answer.Values) == 0 {
-		return ErrFlagSourceInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
+		return forTask(ErrFlagSourceInvalid, task).WithPublicContext("field", "check.answer.values").Err()
 	}
 	if len(answer.Values) != 1 || strings.HasPrefix(answer.Values[0], flagpattern.TemplatePrefix) {
-		return ErrFlagMultiNeedsDevice.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
+		return forTask(ErrFlagMultiNeedsDevice, task).WithPublicContext("field", "check.answer.values").Err()
 	}
 	return nil
 }
