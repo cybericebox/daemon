@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
-	"google.golang.org/protobuf/reflect/protoreflect"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
@@ -83,30 +82,22 @@ func (c *ProfileCell) Get(
 }
 
 // ProfilesOf reads the node profiles of a capacity report. An agent that sends none is an older one: the container
-// is available, nothing else is offered. The field is read by name, so this builds against a laboratory SDK older
-// than the field (it then reads as an older agent); with the pinned release that has it, use GetNodeProfiles.
+// is available, nothing else is offered.
 func ProfilesOf(capacity *labpb.CapacityResponse) map[exerciseModel.NodeProfile]ProfileCapacity {
 	out := map[exerciseModel.NodeProfile]ProfileCapacity{} //nolint:exhaustive // filled from the report
-	message := capacity.ProtoReflect()
-	if field := message.Descriptor().Fields().ByName("node_profiles"); field != nil {
-		list := message.Get(field).List()
-		for i := range list.Len() {
-			item := list.Get(i).Message()
-			fields := item.Descriptor().Fields()
-			get := func(name string) protoreflect.Value { return item.Get(fields.ByName(protoreflect.Name(name))) }
-			profile := exerciseModel.NodeProfile(get("profile").String())
-			if !profile.Valid() {
-				continue
-			}
-			out[profile] = ProfileCapacity{
-				AvailableNow:          get("available_now").Bool(),
-				ScaleUpKnown:          get("scale_up_known").Bool(),
-				AvailableAfterScaleUp: get("available_after_scale_up").Bool(),
-				Overhead: resourcesModel.Amount{
-					CPUMillicores: get("overhead_cpu_millicores").Int(),
-					MemoryBytes:   get("overhead_memory_bytes").Int(),
-				},
-			}
+	for _, item := range capacity.GetNodeProfiles() {
+		profile := exerciseModel.NodeProfile(item.GetProfile())
+		if !profile.Valid() {
+			continue
+		}
+		out[profile] = ProfileCapacity{
+			AvailableNow:          item.GetAvailableNow(),
+			ScaleUpKnown:          item.GetScaleUpKnown(),
+			AvailableAfterScaleUp: item.GetAvailableAfterScaleUp(),
+			Overhead: resourcesModel.Amount{
+				CPUMillicores: item.GetOverheadCpuMillicores(),
+				MemoryBytes:   item.GetOverheadMemoryBytes(),
+			},
 		}
 	}
 	if len(out) == 0 {
