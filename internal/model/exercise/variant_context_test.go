@@ -42,7 +42,7 @@ func TestValidationErrorsNameTheVariant(t *testing.T) {
 	}{
 		"task key (23501)": {func(v *exerciseModel.Variant) { v.Tasks[0].Key = "Bad-Key" }, exerciseModel.ErrTaskKeyInvalid, false, false},
 		"requires (23502)": {func(v *exerciseModel.Variant) { v.Tasks[0].Requires = []string{"ghost"} }, exerciseModel.ErrTaskRequiresInvalid, false, false},
-		"vpn option (23518)": {func(v *exerciseModel.Variant) {
+		"vpn option (23520)": {func(v *exerciseModel.Variant) {
 			v.Topology.VPN.ReverseConnections = true
 		}, exerciseModel.ErrVPNOptionInvalid, false, false},
 		"device type": {func(v *exerciseModel.Variant) {
