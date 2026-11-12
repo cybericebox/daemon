@@ -402,7 +402,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
 		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
-		Configs: imageRegistryRepo.NewImageConfigs(deps.Repo.Pool()),
+		Configs:         imageRegistryRepo.NewImageConfigs(deps.Repo.Pool()),
+		ExternalConfigs: imageRegistryRepo.NewExternalImageConfigs(deps.Repo.Pool()),
 	})
 	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
 	exerciseUC.SetImageAccess(imageRegistryUC)
