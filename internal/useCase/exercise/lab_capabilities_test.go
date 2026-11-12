@@ -13,6 +13,12 @@ import (
 type capabilityInfra struct {
 	fakeInfra
 	caps infraModel.LabCapabilities
+	// consoleHost and consoleDomain are what the laboratory reports for its console ("" = nothing reported).
+	consoleHost, consoleDomain string
+}
+
+func (c *capabilityInfra) ConsoleAddress(_ context.Context, _ string) (string, string, bool) {
+	return c.consoleHost, c.consoleDomain, c.consoleDomain != ""
 }
 
 func (c *capabilityInfra) LabCapabilities() infraModel.LabCapabilities { return c.caps }

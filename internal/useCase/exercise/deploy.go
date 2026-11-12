@@ -938,10 +938,10 @@ func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID,
 	if u.LabCapabilities(ctx).Access["terminal"] == infraModel.AvailabilityNone {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}
-	if !slices.ContainsFunc(status.Devices, func(d exerciseModel.LabDeployedDevice) bool { return d.Name == device }) || len(status.Access) == 0 {
+	if !slices.ContainsFunc(status.Devices, func(d exerciseModel.LabDeployedDevice) bool { return d.Name == device }) {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}
-	accessURL, next, err := labaccess.ConsoleSession(status.Access[0].URL, deploy.LabName, device)
+	accessURL, next, err := u.consoleSession(ctx, deploy, status, device)
 	if err != nil {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}
@@ -950,6 +950,25 @@ func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID,
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the test laboratory console link").Err()
 	}
 	return link, nil
+}
+
+// ConsoleAddresser is the optional port that tells where the console of the laboratory holding a group lives.
+type ConsoleAddresser interface {
+	ConsoleAddress(ctx context.Context, group string) (host, domain string, ok bool)
+}
+
+// consoleSession is where the console of a device opens: from what the laboratory reports (the console host and the base domain of
+// its endpoints); without that, from the base domain of a web address of the lab, with the default console host.
+func (u *ExerciseUseCase) consoleSession(ctx context.Context, deploy exerciseModel.TestDeploy, status exerciseModel.LabDeployStatus, device string) (accessURL, next string, err error) {
+	if addresser, ok := u.infra.(ConsoleAddresser); ok {
+		if host, domain, known := addresser.ConsoleAddress(ctx, deploy.GroupName); known {
+			return labaccess.ConsoleSessionAt(host, domain, deploy.LabName, device)
+		}
+	}
+	if len(status.Access) == 0 {
+		return "", "", exerciseModel.ErrTestDeployNoConsole.Err()
+	}
+	return labaccess.ConsoleSession(status.Access[0].URL, deploy.LabName, device)
 }
 
 // readyOwnedDeploy loads the author's own test deploy and its status, refusing one that is gone, expired or not ready.

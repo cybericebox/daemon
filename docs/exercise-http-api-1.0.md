@@ -477,8 +477,11 @@ saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without
   `GET /infrastructure/agents` keeps `TerminalEnabled` (now: the terminal is served).
 - Every observation is sent to the laboratory in its own message; expected values are resolved in the daemon and kept by the
   laboratory's checker. `custom.user` empty is `nobody` in the laboratory; the daemon writes no default. A `file` checksum is sent in lower case.
-- The console link uses the constant host `terminal` (`labaccess.TerminalHost`): the laboratory does not report its terminal host.
-  The console link is refused (33518) when no laboratory that is used serves a console.
+- The console link is built from what the laboratory holding the lab reports: `AccessFeature.terminal_host` (the first label of the
+  console host, the chart's `terminal.host`; `terminal` when the agent reports none) and `endpoints.labs_domain`, so a lab
+  with no web device has a console link too. Only if the base domain is not reported does the daemon take it from a web
+  address of the lab. The console link is refused (33518) when the laboratory does not serve a console (or nothing
+  tells where it is), and when no laboratory that is used serves one.
 - **Check time limit above the laboratory's ceiling** (chart `checks.maxTimeLimitSeconds`, reported as
   `ChecksFeature.max_time_limit_seconds`): the lab is refused at start with 73512, `options` =
   `checks.max_time_limit_seconds (at most N)`, and the public context names the `task` (key), the `field`

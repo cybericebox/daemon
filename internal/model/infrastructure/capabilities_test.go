@@ -65,3 +65,24 @@ func TestServesAccess(t *testing.T) {
 	require.True(t, (&ChecksFeature{Observations: []string{"file"}}).Offers("file.checksum"), "the file keys come with a listed file")
 	require.False(t, (&ChecksFeature{Observations: []string{"custom"}}).Offers("file.type"))
 }
+
+// The console address is the reported console host (the default when none) and the reported base domain; nothing while the
+// console is not served or the domain is unknown.
+func TestConsoleAddress(t *testing.T) {
+	served := AgentFeatures{Access: &AccessFeature{HTTP: true, Terminal: true}, Endpoints: EndpointsFeature{LabsDomain: "labs.example.com"}}
+	host, domain, ok := served.ConsoleAddress()
+	require.True(t, ok)
+	require.Equal(t, "terminal", host, "the default when the agent reports none")
+	require.Equal(t, "labs.example.com", domain)
+
+	served.Access.TerminalHost = "shell"
+	host, _, _ = served.ConsoleAddress()
+	require.Equal(t, "shell", host)
+
+	notServed := served
+	notServed.Access = &AccessFeature{HTTP: true, TerminalHost: "shell"}
+	_, _, ok = notServed.ConsoleAddress()
+	require.False(t, ok)
+	_, _, ok = (AgentFeatures{Access: &AccessFeature{Terminal: true}}).ConsoleAddress()
+	require.False(t, ok, "no base domain reported")
+}

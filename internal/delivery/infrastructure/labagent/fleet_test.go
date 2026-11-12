@@ -663,3 +663,22 @@ func TestServicePodMayExceedDevicePresetWithinProducerMaximum(t *testing.T) {
 		t.Fatal("an accepted service group is placed")
 	}
 }
+
+func TestFleetConsoleAddressFollowsTheReportOfTheAgentHoldingTheGroup(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	if err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := f.fleet.ConsoleAddress(ctx, "e-1-t-1"); ok {
+		t.Fatal("an agent that has not reported has no address")
+	}
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{
+		Access:    &infraModel.AccessFeature{HTTP: true, Terminal: true, TerminalHost: "shell"},
+		Endpoints: infraModel.EndpointsFeature{LabsDomain: "labs.example.test"},
+	})
+	host, domain, ok := f.fleet.ConsoleAddress(ctx, "e-1-t-1")
+	if !ok || host != "shell" || domain != "labs.example.test" {
+		t.Fatalf("host %q domain %q ok %v", host, domain, ok)
+	}
+}

@@ -133,7 +133,7 @@ func accessFeatureOf(a *labpb.AccessFeature) *infraModel.AccessFeature {
 	if a == nil {
 		return nil
 	}
-	return &infraModel.AccessFeature{HTTP: a.GetHttp(), Terminal: a.GetTerminal(), VNC: a.GetVnc(), RDP: a.GetRdp()}
+	return &infraModel.AccessFeature{HTTP: a.GetHttp(), Terminal: a.GetTerminal(), VNC: a.GetVnc(), RDP: a.GetRdp(), TerminalHost: a.GetTerminalHost()}
 }
 
 func bootstrapFeatureOf(b *labpb.BootstrapFeature) *infraModel.BootstrapFeature {

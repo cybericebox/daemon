@@ -140,6 +140,8 @@ type (
 		Terminal bool `json:"terminal"`
 		VNC      bool `json:"vnc"`
 		RDP      bool `json:"rdp"`
+		// TerminalHost is the first label of the console host (the chart's terminal.host); set only while the console is served.
+		TerminalHost string `json:"terminal_host,omitempty"`
 	}
 	BootstrapFeature struct {
 		MaxScriptBytes      int32 `json:"max_script_bytes"`
@@ -155,8 +157,9 @@ type (
 var legacyObservations = []string{"file", "custom"}
 
 // Offers reports whether the checker runs the observation kind. The checker lists its kinds; the file keys "file.type" and
-// "file.checksum" come with the list itself (a checker that lists its kinds reads them), so they are offered when "file" is
-// listed. A checker that lists none is the first generation: file and custom, nothing more.
+// "file.checksum" are not listed on their own: the laboratory added them in the same contract change as the list, so they are
+// offered when "file" is listed (this is the one place that assumes it). A checker that lists none is the first generation:
+// file and custom, nothing more.
 func (c ChecksFeature) Offers(kind string) bool {
 	if len(c.Observations) == 0 {
 		return slices.Contains(legacyObservations, kind)
@@ -180,6 +183,44 @@ func (c ChecksFeature) timeLimitRefusal(n exerciseModel.LabNeeds) (string, map[s
 		return text, nil
 	}
 	return text, map[string]any{"task": task, "field": "check.state.conditions[].timeout", "limit": ceiling}
+}
+
+// DefaultTerminalHost is the first label of the console host when an agent does not report one.
+const DefaultTerminalHost = "terminal"
+
+// ConsoleAddress is where the console of this laboratory lives: the first label of its host and the base domain of the
+// laboratory's web endpoints. ok is false when the console is not served or the base domain is not reported.
+func (f AgentFeatures) ConsoleAddress() (string, string, bool) {
+	if !f.ServesAccess("terminal") || f.Endpoints.LabsDomain == "" {
+		return "", "", false
+	}
+	host := DefaultTerminalHost
+	if f.Access != nil && f.Access.TerminalHost != "" {
+		host = f.Access.TerminalHost
+	}
+	return host, f.Endpoints.LabsDomain, true
+}
+
+// checksRefusals lists what in the checks of a lab the laboratory refuses: the option itself, a limit, an observation kind it does
+// not run. over records a size limit that is passed; the place of a time limit that is passed is returned.
+func (f AgentFeatures) checksRefusals(n exerciseModel.LabNeeds, over func(string, int, int32)) ([]string, map[string]any) {
+	if f.Checks == nil || !f.Checks.Enabled {
+		return []string{"checks"}, nil
+	}
+	var refused []string
+	var at map[string]any
+	over("checks.max_checks_per_lab", n.ChecksPerLab, f.Checks.MaxChecksPerLab)
+	over("checks.max_parts_per_check", n.MaxParts, f.Checks.MaxPartsPerCheck)
+	if text, place := f.Checks.timeLimitRefusal(n); text != "" {
+		refused, at = append(refused, text), place
+	}
+	over("checks.max_schedule_seconds", n.MaxCheckSchedule, f.Checks.MaxScheduleSeconds)
+	for _, kind := range n.Observations {
+		if !f.Checks.Offers(kind) {
+			refused = append(refused, "checks.observation."+kind)
+		}
+	}
+	return refused, at
 }
 
 // ServesAccess reports whether the laboratory serves a device access kind (http, terminal, vnc, rdp). An agent that reports no
@@ -223,20 +264,10 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 		}
 	}
 	if n.Checks {
-		if f.Checks == nil || !f.Checks.Enabled {
-			refused = append(refused, "checks")
-		} else {
-			over("checks.max_checks_per_lab", n.ChecksPerLab, f.Checks.MaxChecksPerLab)
-			over("checks.max_parts_per_check", n.MaxParts, f.Checks.MaxPartsPerCheck)
-			if text, at := f.Checks.timeLimitRefusal(n); text != "" {
-				refused, where = append(refused, text), at
-			}
-			over("checks.max_schedule_seconds", n.MaxCheckSchedule, f.Checks.MaxScheduleSeconds)
-			for _, kind := range n.Observations {
-				if !f.Checks.Offers(kind) {
-					refused = append(refused, "checks.observation."+kind)
-				}
-			}
+		checkRefusals, at := f.checksRefusals(n, over)
+		refused = append(refused, checkRefusals...)
+		if at != nil {
+			where = at
 		}
 	}
 	if n.Terminal && !f.ServesAccess("terminal") {

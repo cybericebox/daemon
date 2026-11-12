@@ -226,3 +226,16 @@ func TestConsoleSessionIsSignedForTheTerminalHost(t *testing.T) {
 		t.Fatal("a single-label host has no base domain")
 	}
 }
+
+// With the console host and the base domain the laboratory reports, no web device is needed.
+func TestConsoleSessionAtUsesWhatTheLabReports(t *testing.T) {
+	access, next, err := ConsoleSessionAt("shell", "labs.example.com", "l-1", "db")
+	if err != nil || access != "https://shell.labs.example.com/" || next != "/?device=db&lab=l-1" {
+		t.Fatalf("access %q next %q err %v", access, next, err)
+	}
+	for _, bad := range [][4]string{{"", "d", "l", "x"}, {"t", "", "l", "x"}, {"t", "d", "", "x"}, {"t/x", "d", "l", "x"}} {
+		if _, _, err = ConsoleSessionAt(bad[0], bad[1], bad[2], bad[3]); err == nil {
+			t.Fatalf("%v must be refused", bad)
+		}
+	}
+}

@@ -1671,3 +1671,27 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 		t.Fatalf("an unreadable bootstrap file: %v", err)
 	}
 }
+
+// When the laboratory reports where its console is, the link is built from that (the console host and the base domain of its
+// endpoints), also for a lab with no web device; without a report the base domain comes from a web address of the lab.
+func TestOpenTestDeployConsoleLink_UsesTheConsoleAddressTheLabReports(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), LabName: "l-one", CreatedBy: userID, ExpiresAt: time.Now().Add(time.Hour)}, nil).AnyTimes()
+	sessions := &fakeSessions{}
+	infra := &capabilityInfra{consoleHost: "shell", consoleDomain: "labs.example.com"}
+	infra.status = exerciseModel.LabDeployStatus{Ready: true, Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
+
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.got.AccessURL != "https://shell.labs.example.com/" || sessions.got.Next != "/?device=db&lab=l-one" {
+		t.Fatalf("session: %+v", sessions.got)
+	}
+	infra.consoleDomain = ""
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+		t.Fatalf("nothing reported and no web address: %v", err)
+	}
+}
