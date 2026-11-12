@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
@@ -56,14 +57,21 @@ type manifestEntry struct {
 	Platform  *struct {
 		OS           string `json:"os"`
 		Architecture string `json:"architecture"`
+		Variant      string `json:"variant"`
 	} `json:"platform"`
 }
 
 type imageManifestDoc struct {
-	MediaType string          `json:"mediaType"`
-	Config    *manifestEntry  `json:"config"`
-	Manifests []manifestEntry `json:"manifests"`
+	MediaType string           `json:"mediaType"`
+	Config    *manifestEntry   `json:"config"`
+	Manifests *[]manifestEntry `json:"manifests"`
 }
+
+var (
+	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	// tagPattern is the tag grammar of the distribution spec.
+	tagPattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$`)
+)
 
 func isIndexType(mediaType string) bool {
 	return mediaType == "application/vnd.oci.image.index.v1+json" ||
@@ -75,9 +83,35 @@ func isManifestType(mediaType string) bool {
 		mediaType == "application/vnd.docker.distribution.manifest.v2+json"
 }
 
-// getManifest reads one manifest (a tag or a digest), at most MaxManifestBytes. When the reference is a digest the body is
-// checked against it. It returns the body, its media type and its digest.
-func (c *Client) getManifest(ctx context.Context, reference string) (body []byte, mediaType, digest string, err error) {
+// validReference reports whether the reference is a tag or a sha256 digest by the distribution grammar, so it is safe in a URL path.
+func validReference(reference string) bool {
+	return digestPattern.MatchString(reference) || tagPattern.MatchString(reference)
+}
+
+// parseManifest decides what a manifest body is from the body itself: its mediaType must be present and, when the registry
+// states a Content-Type, equal to it. A document that mixes the shapes of a manifest and an index is refused.
+func parseManifest(body []byte, headerType string) (doc imageManifestDoc, isIndex bool, err error) {
+	if json.Unmarshal(body, &doc) != nil {
+		return doc, false, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
+	}
+	if doc.MediaType == "" || (headerType != "" && headerType != doc.MediaType) {
+		return doc, false, fmt.Errorf("get manifest: %w: media type missing or differs from the Content-Type", ErrUnsupportedManifest)
+	}
+	switch {
+	case isManifestType(doc.MediaType) && doc.Manifests == nil:
+		return doc, false, nil
+	case isIndexType(doc.MediaType) && doc.Config == nil:
+		return doc, true, nil
+	}
+	return doc, false, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
+}
+
+// getManifest reads one manifest (a tag or a digest), at most MaxManifestBytes. Its sha256 must equal expected when expected is
+// given, and always equals the reference when that is a digest. It returns the body, the Content-Type and its digest.
+func (c *Client) getManifest(ctx context.Context, reference, expected string) (body []byte, mediaType, digest string, err error) {
+	if !validReference(reference) {
+		return nil, "", "", fmt.Errorf("get manifest: %w: malformed reference", ErrUnsupportedManifest)
+	}
 	repo, err := c.repo()
 	if err != nil {
 		return nil, "", "", err
@@ -108,32 +142,49 @@ func (c *Client) getManifest(ctx context.Context, reference string) (body []byte
 	}
 	sum := sha256.Sum256(body)
 	digest = "sha256:" + hex.EncodeToString(sum[:])
-	if strings.HasPrefix(reference, "sha256:") && reference != digest {
+	if expected == "" && digestPattern.MatchString(reference) {
+		expected = reference
+	}
+	if expected != "" && expected != digest {
 		return nil, "", "", fmt.Errorf("get manifest: %w: content does not match its digest", ErrUnreachable)
 	}
 	mediaType, _, _ = strings.Cut(resp.Header.Get("Content-Type"), ";")
 	return body, strings.TrimSpace(mediaType), digest, nil
 }
 
+// wantedPlatform reports whether an index entry is a platform the laboratories run (linux/amd64, linux/arm64 with no variant or
+// v8) and which architecture it is.
+func wantedPlatform(e manifestEntry) (arch string, ok bool) {
+	p := e.Platform
+	if p == nil || p.OS != "linux" {
+		return "", false
+	}
+	switch {
+	case p.Architecture == "amd64" && p.Variant == "":
+		return "amd64", true
+	case p.Architecture == "arm64" && (p.Variant == "" || p.Variant == "v8"):
+		return "arm64", true
+	}
+	return "", false
+}
+
 // ImageConfigs reads the start configuration of an image without pulling a layer: the manifest of the reference, for an
 // index the manifests of linux/amd64 and linux/arm64 (the platforms the laboratories run), and the config blob of each.
-// Only those few small documents are read, each within its limit and verified against its digest. An image with neither
-// platform gives ErrNoLinuxPlatform; a manifest of another kind ErrUnsupportedManifest.
+// Only those few small documents are read, each within its limit and verified against its digest, and the kind of every
+// document is decided from its verified body. It fails closed: an entry for a wanted platform of an unsupported kind, a
+// platform listed twice or an index too long to read whole refuses the image. An image with neither platform gives
+// ErrNoLinuxPlatform; a manifest of another kind ErrUnsupportedManifest.
 func (c *Client) ImageConfigs(ctx context.Context, reference string) (ImageConfigs, error) {
-	body, mediaType, digest, err := c.getManifest(ctx, reference)
+	body, headerType, digest, err := c.getManifest(ctx, reference, "")
 	if err != nil {
 		return ImageConfigs{}, err
 	}
-	var doc imageManifestDoc
-	if json.Unmarshal(body, &doc) != nil {
-		return ImageConfigs{}, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
-	}
-	if mediaType == "" {
-		mediaType = doc.MediaType
+	doc, isIndex, err := parseManifest(body, headerType)
+	if err != nil {
+		return ImageConfigs{}, err
 	}
 	out := ImageConfigs{Digest: digest}
-	switch {
-	case isManifestType(mediaType):
+	if !isIndex {
 		// A single manifest has no platform of its own: the config says it.
 		platform, err := c.platformConfig(ctx, digest, doc)
 		if err != nil {
@@ -142,35 +193,38 @@ func (c *Client) ImageConfigs(ctx context.Context, reference string) (ImageConfi
 		if platform.OS == "linux" && (platform.Arch == "amd64" || platform.Arch == "arm64") {
 			out.Platforms = append(out.Platforms, platform)
 		}
-	case isIndexType(mediaType):
+	} else {
+		if len(*doc.Manifests) > maxIndexScan {
+			return ImageConfigs{}, fmt.Errorf("get manifest: %w: index too long", ErrUnsupportedManifest)
+		}
 		seen := map[string]bool{}
-		for i, entry := range doc.Manifests {
-			if i >= maxIndexScan {
-				break
-			}
-			if entry.Platform == nil || entry.Platform.OS != "linux" ||
-				(entry.Platform.Architecture != "amd64" && entry.Platform.Architecture != "arm64") ||
-				seen[entry.Platform.Architecture] || !isManifestType(entry.MediaType) {
+		for _, entry := range *doc.Manifests {
+			arch, ok := wantedPlatform(entry)
+			if !ok {
 				continue
 			}
-			seen[entry.Platform.Architecture] = true
-			childBody, _, childDigest, err := c.getManifest(ctx, entry.Digest)
+			if seen[arch] || !isManifestType(entry.MediaType) || !digestPattern.MatchString(entry.Digest) {
+				return ImageConfigs{}, fmt.Errorf("get manifest: %w: duplicate or unsupported entry for linux/%s", ErrUnsupportedManifest, arch)
+			}
+			seen[arch] = true
+			childBody, childType, childDigest, err := c.getManifest(ctx, entry.Digest, entry.Digest)
 			if err != nil {
 				return ImageConfigs{}, err
 			}
-			var child imageManifestDoc
-			if json.Unmarshal(childBody, &child) != nil {
-				return ImageConfigs{}, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
+			child, childIsIndex, err := parseManifest(childBody, childType)
+			if err != nil {
+				return ImageConfigs{}, err
+			}
+			if childIsIndex {
+				return ImageConfigs{}, fmt.Errorf("get manifest: %w: nested index", ErrUnsupportedManifest)
 			}
 			platform, err := c.platformConfig(ctx, childDigest, child)
 			if err != nil {
 				return ImageConfigs{}, err
 			}
-			platform.OS, platform.Arch = entry.Platform.OS, entry.Platform.Architecture
+			platform.OS, platform.Arch = "linux", arch
 			out.Platforms = append(out.Platforms, platform)
 		}
-	default:
-		return ImageConfigs{}, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
 	}
 	if len(out.Platforms) == 0 {
 		return ImageConfigs{}, fmt.Errorf("get manifest: %w", ErrNoLinuxPlatform)
@@ -180,7 +234,7 @@ func (c *Client) ImageConfigs(ctx context.Context, reference string) (ImageConfi
 
 // platformConfig reads the config blob an image manifest names and the platform its config states.
 func (c *Client) platformConfig(ctx context.Context, manifestDigest string, doc imageManifestDoc) (PlatformConfig, error) {
-	if doc.Config == nil || !strings.HasPrefix(doc.Config.Digest, "sha256:") {
+	if doc.Config == nil || !digestPattern.MatchString(doc.Config.Digest) {
 		return PlatformConfig{}, fmt.Errorf("get manifest: %w", ErrUnsupportedManifest)
 	}
 	if doc.Config.Size > MaxConfigBytes {

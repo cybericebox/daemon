@@ -224,3 +224,168 @@ func TestImageConfigsDoNotReachInternalAddresses(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNotFound)
 }
+
+// serve answers manifests and blobs from a map keyed by the request path suffix, with a chosen Content-Type per manifest.
+type fakeDoc struct {
+	contentType string
+	body        []byte
+}
+
+func fakeRegistry(t *testing.T, docs map[string]fakeDoc) *Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/" {
+			return
+		}
+		for suffix, d := range docs {
+			if strings.HasSuffix(r.URL.Path, suffix) {
+				if d.contentType != "" {
+					w.Header().Set("Content-Type", d.contentType)
+				}
+				_, _ = w.Write(d.body)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return newClient(srv, "", "")
+}
+
+func manifestBody(mediaType, configDigest string, size int) []byte {
+	return []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"config":{"digest":%q,"size":%d},"layers":[]}`, mediaType, configDigest, size))
+}
+
+func indexBody(entries ...string) []byte {
+	return []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"manifests":[%s]}`, ociIndex, strings.Join(entries, ",")))
+}
+
+// The kind of a document comes from its body: a Content-Type that disagrees, a missing mediaType, or a document with the
+// shape of both kinds is refused.
+func TestImageConfigsDecideTheKindFromTheBody(t *testing.T) {
+	config := configOf("linux", "amd64", "app")
+	cd := digestOf(config)
+	manifest := manifestBody(ociManifest, cd, len(config))
+	index := indexBody(entry(ociManifest, digestOf(manifest), "linux", "amd64"))
+	mixedManifest := []byte(fmt.Sprintf(`{"mediaType":%q,"config":{"digest":%q,"size":1},"manifests":[]}`, ociManifest, cd))
+	mixedIndex := []byte(fmt.Sprintf(`{"mediaType":%q,"config":{"digest":%q,"size":1},"manifests":[]}`, ociIndex, cd))
+	noType := []byte(fmt.Sprintf(`{"config":{"digest":%q,"size":1},"layers":[]}`, cd))
+	for name, d := range map[string]fakeDoc{
+		"index served as manifest":  {ociManifest, index},
+		"manifest served as index":  {ociIndex, manifest},
+		"no media type in the body": {ociManifest, noType},
+		"manifest with manifests":   {ociManifest, mixedManifest},
+		"index with config":         {ociIndex, mixedIndex},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := fakeRegistry(t, map[string]fakeDoc{"/manifests/t": d, "/blobs/" + cd: {"", config}})
+			_, err := c.ImageConfigs(context.Background(), "t")
+			require.ErrorIs(t, err, ErrUnsupportedManifest)
+		})
+	}
+}
+
+// Every digest is checked before it is fetched, and what is fetched is checked against it.
+func TestImageConfigsCheckDigests(t *testing.T) {
+	config := configOf("linux", "amd64", "app")
+	cd := digestOf(config)
+	child := manifestBody(ociManifest, cd, len(config))
+	childDigest := digestOf(child)
+	ctx := context.Background()
+
+	// A malformed digest in an index entry is refused without a request for it.
+	c := fakeRegistry(t, map[string]fakeDoc{"/manifests/t": {ociIndex, indexBody(entry(ociManifest, "sha256:../../x", "linux", "amd64"))}})
+	_, err := c.ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnsupportedManifest)
+
+	// A malformed config digest.
+	bad := manifestBody(ociManifest, "sha256:../blobs/x", 3)
+	c = fakeRegistry(t, map[string]fakeDoc{"/manifests/t": {ociManifest, bad}})
+	_, err = c.ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnsupportedManifest)
+
+	// A child manifest whose content is not what the index names (the reference is a tag, so only the index vouches for it).
+	tampered := manifestBody(ociManifest, cd, len(config)+1)
+	c = fakeRegistry(t, map[string]fakeDoc{
+		"/manifests/t":              {ociIndex, indexBody(entry(ociManifest, childDigest, "linux", "amd64"))},
+		"/manifests/" + childDigest: {ociManifest, tampered},
+		"/blobs/" + cd:              {"", config},
+	})
+	_, err = c.ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnreachable)
+
+	// A config blob that is not what the manifest names, behind a tag.
+	c = fakeRegistry(t, map[string]fakeDoc{
+		"/manifests/t": {ociManifest, child},
+		"/blobs/" + cd: {"", configOf("linux", "amd64", "root")},
+	})
+	_, err = c.ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnreachable)
+
+	// A reference that is not a tag or a digest never reaches a URL.
+	for _, ref := range []string{"../x", "a/b", "t?x=1", "sha256:abc", "", "-x", strings.Repeat("a", 129)} {
+		_, err = c.ImageConfigs(ctx, ref)
+		require.ErrorIs(t, err, ErrUnsupportedManifest, ref)
+	}
+}
+
+// The platform choice fails closed.
+func TestImageConfigsPlatformSelectionFailsClosed(t *testing.T) {
+	config := configOf("linux", "amd64", "app")
+	cd := digestOf(config)
+	child := manifestBody(ociManifest, cd, len(config))
+	childDigest := digestOf(child)
+	docs := func(index []byte) map[string]fakeDoc {
+		return map[string]fakeDoc{
+			"/manifests/t":              {ociIndex, index},
+			"/manifests/" + childDigest: {ociManifest, child},
+			"/blobs/" + cd:              {"", config},
+		}
+	}
+	ctx := context.Background()
+
+	// A duplicate entry for one platform.
+	dup := entry(ociManifest, childDigest, "linux", "amd64")
+	_, err := fakeRegistry(t, docs(indexBody(dup, dup))).ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnsupportedManifest)
+
+	// An entry for the wanted platform of a kind the daemon cannot read is not skipped.
+	_, err = fakeRegistry(t, docs(indexBody(entry(ociManifest, childDigest, "linux", "arm64"),
+		entry("application/vnd.oci.artifact.manifest.v1+json", childDigest, "linux", "amd64")))).ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnsupportedManifest)
+
+	// Another variant of the architecture is another platform, not the wanted one.
+	other := fmt.Sprintf(`{"mediaType":%q,"digest":%q,"size":1,"platform":{"os":"linux","architecture":"arm64","variant":"v7"}}`, ociManifest, childDigest)
+	got, err := fakeRegistry(t, docs(indexBody(entry(ociManifest, childDigest, "linux", "amd64"), other))).ImageConfigs(ctx, "t")
+	require.NoError(t, err)
+	require.Len(t, got.Platforms, 1)
+
+	// An index too long to read whole.
+	entries := make([]string, maxIndexScan+1)
+	for i := range entries {
+		entries[i] = entry(ociManifest, childDigest, "windows", "amd64")
+	}
+	_, err = fakeRegistry(t, docs(indexBody(entries...))).ImageConfigs(ctx, "t")
+	require.ErrorIs(t, err, ErrUnsupportedManifest)
+}
+
+// A hostile registry names a token realm on another host. The client library refuses a realm at a loopback, private or
+// link-local address (and checks every redirect of the token request the same way), and whatever it does ask goes through the
+// client's own transport, whose dialer is the address guard.
+func TestTokenRealmOnAnInternalHostIsRefused(t *testing.T) {
+	var realmAsked int
+	realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		realmAsked++
+		_, _ = w.Write([]byte(`{"token":"t"}`))
+	}))
+	defer realm.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Www-Authenticate", fmt.Sprintf(`Bearer realm="%s/token",service="fake"`, realm.URL))
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	c := New(Options{Host: hostOf(srv), Repository: "acme/platform", Insecure: true})
+	_, err := c.ImageConfigs(context.Background(), "latest")
+	require.Error(t, err)
+	require.Zero(t, realmAsked, "the realm on another internal host is never asked")
+}
