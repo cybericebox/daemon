@@ -264,6 +264,9 @@ type (
 		// SessionEncryptionKey seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of
 		// id:hex entries whose first key seals and every key opens (rotation without signing everyone out). Secret.
 		SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY"`
+		// SessionEncryptionKeyDir (SESSION_ENCRYPTION_KEY_DIR) is the same keyring read from a directory (one <id>.key
+		// file per key and a CURRENT file naming the sealing key); it wins over SESSION_ENCRYPTION_KEY.
+		SessionEncryptionKeyDir string `env:"SESSION_ENCRYPTION_KEY_DIR"`
 		// RenderSecret is shared with the event-frontend server, the only caller of /api/render/*. Secret.
 		RenderSecret string `env:"RENDER_SECRET"`
 		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
@@ -431,12 +434,16 @@ type (
 	// keys). Empty key disables VPN config storage; an invalid one is fatal.
 	VPNConfig struct {
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
+		// SecretsKeyDir (VPN_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
+		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
 	}
 
 	// PlatformConfig seals platform-level settings secrets (SMTP/mail passwords and
 	// the like). Empty key disables them; an invalid one is fatal.
 	PlatformConfig struct {
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
+		// SecretsKeyDir (PLATFORM_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
+		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
 	}
 
 	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is one of the preset sizes,
@@ -476,7 +483,9 @@ type (
 	// ExerciseConfig holds catalog secret handling and flag generation policy.
 	// Empty key disables exercise secret env vars (saving one yields a 409).
 	ExerciseConfig struct {
-		SecretsKey      string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
+		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
+		// SecretsKeyDir (EXERCISE_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
+		SecretsKeyDir   string `env:"SECRETS_KEY_DIR"`
 		FlagRandomBytes int    `env:"FLAG_RANDOM_BYTES" envDefault:"20"`
 		FlagWarningBits int    `env:"FLAG_WARNING_BITS" envDefault:"20"`
 		// MaxActiveTestDeploys is how many test labs one user may run at the same time.
@@ -1085,6 +1094,10 @@ func MustGetConfig() *Config {
 	eventModel.SetExtraReservedTags(instance.Auth.Hosts.ExtraReservedTags)
 	if addr, perr := mail.ParseAddress(instance.Auth.SupportEmail); perr != nil || addr.Address != instance.Auth.SupportEmail {
 		log.Fatal().Msg("Config: SUPPORT_EMAIL must be a bare email address")
+	}
+
+	if err = instance.ResolveKeyDirs(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid key directory")
 	}
 
 	instance.populateForAllConfig()

@@ -121,6 +121,32 @@ func (c *Cipher) Destroy() {
 // CurrentKeyID is the id of the key that encrypts.
 func (c *Cipher) CurrentKeyID() string { return c.keys[0].id }
 
+// KeyIDs lists the ids of the keys of the ring, the sealing key first.
+func (c *Cipher) KeyIDs() []string {
+	ids := make([]string, len(c.keys))
+	for i, k := range c.keys {
+		ids[i] = k.id
+	}
+	return ids
+}
+
+// HasKey reports whether the ring holds the key with this id.
+func (c *Cipher) HasKey(id string) bool {
+	for _, k := range c.keys {
+		if k.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+// KeyID reads which key sealed a stored ciphertext without opening it. legacy is true for the older form that names
+// no key (and for anything that is not a ciphertext of this package).
+func KeyID(encoded string) (id string, legacy bool) {
+	id, _, ok := splitCiphertext(encoded)
+	return id, !ok
+}
+
 // NeedsRotation reports whether a stored ciphertext was not sealed by the current key (an older key, or the
 // older form without a key id): it still opens, and sealing it again moves it to the current key.
 func (c *Cipher) NeedsRotation(encoded string) bool {
