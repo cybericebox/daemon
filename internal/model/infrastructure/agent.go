@@ -10,6 +10,8 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	labnames "github.com/cybericebox/laboratory/pkg/names"
+
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
@@ -284,17 +286,12 @@ type UnavailableReason struct {
 	NodesAsked  int    `json:"nodes_asked"`
 }
 
-// UnavailableCodes is the allow-list of codes the laboratory agent may report (agent API contract 1.4).
-var UnavailableCodes = []string{
-	"CONTAINERD_ROOT_MISSING", "SNAPSHOTTER_MISSING", "RUNTIME_SOCKET_UNAVAILABLE", "SNAPSHOT_REGISTRY_UNREACHABLE",
-	"CGROUP_V2_MISSING", "PERSISTENCE_DISABLED", "OBSERVATION_DISABLED", "NODE_UNCONFIRMED",
-}
-
-// ParseUnavailableReason reads the agent's `<CODE>:<n>/<m>`. Anything else (a free text, an unknown code, a count out
+// ParseUnavailableReason reads the agent's `<CODE>:<n>/<m>` (the codes are the laboratory's allow-list,
+// pkg/names.UnavailableReasonCodes). Anything else (a free text, an unknown code, a count out
 // of range) is dropped: what the agent says is never passed on as it is.
 func ParseUnavailableReason(raw string) *UnavailableReason {
 	code, counts, found := strings.Cut(raw, ":")
-	if !found || !slices.Contains(UnavailableCodes, code) {
+	if !found || !slices.Contains(labnames.UnavailableReasonCodes, code) {
 		return nil
 	}
 	failedText, askedText, found := strings.Cut(counts, "/")
