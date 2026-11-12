@@ -37,3 +37,19 @@ func (c *Config) ResolveKeyDirs() error {
 	}
 	return nil
 }
+
+// Secrets guard modes.
+const (
+	SecretsGuardWarn   = "warn"
+	SecretsGuardRefuse = "refuse"
+	SecretsGuardOff    = "off"
+)
+
+// Validate refuses an unknown SECRETS_GUARD mode.
+func (k KeysConfig) Validate() error {
+	switch k.SecretsGuard {
+	case SecretsGuardWarn, SecretsGuardRefuse, SecretsGuardOff:
+		return nil
+	}
+	return fmt.Errorf("SECRETS_GUARD must be %s, %s or %s", SecretsGuardWarn, SecretsGuardRefuse, SecretsGuardOff)
+}

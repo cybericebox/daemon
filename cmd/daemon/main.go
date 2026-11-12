@@ -9,7 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 )
 
-const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id>]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status]"
 
 func main() {
 	args := os.Args[1:]
@@ -39,6 +39,17 @@ func main() {
 		config.SetupLogger(cfg)
 		if err := app.RunEraseLabTelemetry(context.Background(), cfg, args[1], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "erase-lab-telemetry:", err)
+			os.Exit(1)
+		}
+	case len(args) == 2 && args[0] == "keys" && args[1] == "status":
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		problems, err := app.RunKeysStatus(context.Background(), cfg, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "keys status:", err)
+			os.Exit(2)
+		}
+		if problems > 0 {
 			os.Exit(1)
 		}
 	default:
