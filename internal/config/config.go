@@ -268,6 +268,9 @@ type (
 		// SessionEncryptionKeyDir (SESSION_ENCRYPTION_KEY_DIR) is the same keyring read from a directory (one <id>.key
 		// file per key and a CURRENT file naming the sealing key); it wins over SESSION_ENCRYPTION_KEY.
 		SessionEncryptionKeyDir string `env:"SESSION_ENCRYPTION_KEY_DIR"`
+		// SessionEncryptionSeal (SESSION_ENCRYPTION_SEAL) is "derived" (default with a master key: the key derived from
+		// SECRETS_MASTER_KEY seals, the explicit key above only opens) or "explicit" (the explicit key seals).
+		SessionEncryptionSeal string `env:"SESSION_ENCRYPTION_SEAL"`
 		// RenderSecret is shared with the event-frontend server, the only caller of /api/render/*. Secret.
 		RenderSecret string `env:"RENDER_SECRET"`
 		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
@@ -437,10 +440,20 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 		// SecretsKeyDir (VPN_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
 		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
+		// SecretsSeal (…_SECRETS_SEAL) is "derived" (default with a master key) or "explicit": see SessionEncryptionSeal.
+		SecretsSeal string `env:"SECRETS_SEAL"`
 	}
 
 	// KeysConfig is how the daemon treats the keys of the sealed data (see the key directories above).
 	KeysConfig struct {
+		// SecretsMasterKey (SECRETS_MASTER_KEY) is the one key of the platform: one 64-hex-char key, or a keyring of
+		// id:hex master versions whose first one is current. The key of each purpose (platform, vpn, exercise, session)
+		// is derived from it with HKDF-SHA256. The per-purpose variables stay as the way to load keys sealed before the
+		// master key existed, or to override one purpose. Secret.
+		SecretsMasterKey string `env:"SECRETS_MASTER_KEY"`
+		// SecretsMasterKeyDir (SECRETS_MASTER_KEY_DIR) is the master keyring read from a directory (one <id>.key file
+		// per master version and a CURRENT file); it wins over SECRETS_MASTER_KEY.
+		SecretsMasterKeyDir string `env:"SECRETS_MASTER_KEY_DIR"`
 		// SecretsGuard (SECRETS_GUARD) is what start-up does when stored ciphertext names a key that is not loaded, or
 		// belongs to a family with no key: "warn" logs an error and starts (default), "refuse" stops the start, "off"
 		// skips the check. A lost key is otherwise silent: a registry token reads as not set, an agent is skipped.
@@ -453,6 +466,8 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 		// SecretsKeyDir (PLATFORM_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
 		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
+		// SecretsSeal (…_SECRETS_SEAL) is "derived" (default with a master key) or "explicit": see SessionEncryptionSeal.
+		SecretsSeal string `env:"SECRETS_SEAL"`
 	}
 
 	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is one of the preset sizes,
@@ -494,7 +509,9 @@ type (
 	ExerciseConfig struct {
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 		// SecretsKeyDir (EXERCISE_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
-		SecretsKeyDir   string `env:"SECRETS_KEY_DIR"`
+		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
+		// SecretsSeal (EXERCISE_SECRETS_SEAL) is "derived" (default with a master key) or "explicit".
+		SecretsSeal     string `env:"SECRETS_SEAL"`
 		FlagRandomBytes int    `env:"FLAG_RANDOM_BYTES" envDefault:"20"`
 		FlagWarningBits int    `env:"FLAG_WARNING_BITS" envDefault:"20"`
 		// MaxActiveTestDeploys is how many test labs one user may run at the same time.
@@ -1105,8 +1122,8 @@ func MustGetConfig() *Config {
 		log.Fatal().Msg("Config: SUPPORT_EMAIL must be a bare email address")
 	}
 
-	if err = instance.ResolveKeyDirs(); err != nil {
-		log.Fatal().Err(err).Msg("Config: invalid key directory")
+	if err = instance.ResolveKeys(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid keys")
 	}
 	if err = instance.Keys.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid key settings")
