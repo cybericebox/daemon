@@ -49,6 +49,7 @@ type (
 		Tunables       TunablesConfig       `                                   envPrefix:""`
 		VPN            VPNConfig            `                                   envPrefix:"VPN_"`
 		Platform       PlatformConfig       `                                   envPrefix:"PLATFORM_"`
+		Keys           KeysConfig           `                                   envPrefix:""`
 		ErrorJournal   ErrorJournalConfig   `                                   envPrefix:"ERROR_JOURNAL_"`
 		Telegram       TelegramConfig       `                                   envPrefix:"TELEGRAM_"`
 	}
@@ -436,6 +437,14 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 		// SecretsKeyDir (VPN_SECRETS_KEY_DIR) is the keyring read from a directory instead; it wins over the key above.
 		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
+	}
+
+	// KeysConfig is how the daemon treats the keys of the sealed data (see the key directories above).
+	KeysConfig struct {
+		// SecretsGuard (SECRETS_GUARD) is what start-up does when stored ciphertext names a key that is not loaded, or
+		// belongs to a family with no key: "warn" logs an error and starts (default), "refuse" stops the start, "off"
+		// skips the check. A lost key is otherwise silent: a registry token reads as not set, an agent is skipped.
+		SecretsGuard string `env:"SECRETS_GUARD" envDefault:"warn"`
 	}
 
 	// PlatformConfig seals platform-level settings secrets (SMTP/mail passwords and
@@ -1098,6 +1107,9 @@ func MustGetConfig() *Config {
 
 	if err = instance.ResolveKeyDirs(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid key directory")
+	}
+	if err = instance.Keys.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid key settings")
 	}
 
 	instance.populateForAllConfig()

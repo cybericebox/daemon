@@ -48,3 +48,11 @@ func TestResolveKeyDirsNamesTheSettingOfABadDirectory(t *testing.T) {
 	c.Exercise.SecretsKeyDir = keyDir(t, "nope", map[string]string{"k1": dirKeyA})
 	require.ErrorContains(t, c.ResolveKeyDirs(), "EXERCISE_SECRETS_KEY_DIR")
 }
+
+func TestSecretsGuardModes(t *testing.T) {
+	for _, mode := range []string{"warn", "refuse", "off"} {
+		require.NoError(t, KeysConfig{SecretsGuard: mode}.Validate())
+	}
+	require.Error(t, KeysConfig{SecretsGuard: "maybe"}.Validate())
+	require.Error(t, KeysConfig{}.Validate())
+}

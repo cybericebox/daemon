@@ -39,6 +39,7 @@ import (
 	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/useCase"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
+	"github.com/cybericebox/daemon/internal/useCase/secretkeys"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/telegram"
@@ -68,6 +69,13 @@ func Run(cfg *config.Config) {
 
 	// ── clients ──
 	cls := setupClients(cfg)
+
+	// A key that was dropped while values sealed with it remain is otherwise silent: see SECRETS_GUARD.
+	if err := guardSecrets(ctx, cfg.Keys.SecretsGuard, newSecretKeys(repo, secretkeys.Ciphers{
+		Platform: cls.platformCipher, VPN: cls.vpnCipher, Exercise: cls.exerciseCipher,
+	})); err != nil {
+		log.Fatal().Err(err).Msg("Secrets guard: refusing to start")
+	}
 
 	// job worker client
 	// Every failed attempt, discard and panic of a job goes to the error journal. River runs on the job pool;
