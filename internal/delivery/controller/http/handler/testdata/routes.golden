@@ -434,6 +434,7 @@ POST   /api/exercises/:id/checkpoints | gate: self | layers: exercise.authorize.
 DELETE /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/draft/document | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func

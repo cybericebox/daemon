@@ -21105,6 +21105,53 @@
                 }
             }
         },
+        "/exercises/{id}/draft/document": {
+            "get": {
+                "description": "Same access as reading the draft. The working copy (the draft, else the published content, else an empty copy) written as the exercise document of the archive: schema cib-exercise/1.0, one version, the keys in the order of the specification, files as their archive paths (files/...). Secret env values are empty (secret: true stays); a reader who may not see flags gets no answer values and no conditions. Content-Type application/yaml; charset=utf-8, at most 8 MiB (413 above). It is a view: nothing is written. Not wrapped in the response envelope.",
+                "produces": [
+                    "application/yaml"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The working copy as the exercise document (YAML)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the document",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/elevation": {
             "get": {
                 "produces": [

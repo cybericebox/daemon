@@ -77,6 +77,8 @@ type fakeUC struct {
 	checkedImages         []string
 	services              []imageRegistryUseCase.ImageServiceInfo
 	consoleDevice         string
+	documentFlags         bool
+	capabilities          exerciseUseCase.LabCapabilitiesView
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
 	// access overrides what AuthorizeExercise grants (nil: full, flags included).
@@ -280,8 +282,15 @@ func (f *fakeUC) AbortUpload(context.Context, uuid.UUID, uuid.UUID) error { retu
 func (f *fakeUC) InfrastructureAvailable() bool                           { return f.laboratoriesAvailable }
 func (f *fakeUC) MaxActiveTestDeploys() int                               { return 2 }
 func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
-func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
-func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
+func (f *fakeUC) DraftDocument(_ context.Context, _ uuid.UUID, withFlags bool) ([]byte, error) {
+	f.documentFlags = withFlags
+	return []byte("schema: cib-exercise/1.0\n"), f.err
+}
+func (f *fakeUC) LabCapabilities(context.Context) exerciseUseCase.LabCapabilitiesView {
+	return f.capabilities
+}
+func (f *fakeUC) Policy() resourcesModel.Policy          { return resourcesModel.DefaultPolicy() }
+func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy { return f.flagPolicy }
 func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
 	f.deployLength = length
 	return f.deployHandle, f.err
@@ -2483,5 +2492,64 @@ func TestElevationCardCapacityHistoryAndPendingCount(t *testing.T) {
 	)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("only a platform admin sees the count: %d", rec.Code)
+	}
+}
+
+func TestCapabilities_CarryTheLabBlockWithoutNamingALab(t *testing.T) {
+	uc := &fakeUC{capabilities: exerciseUseCase.LabCapabilitiesView{
+		LabCapabilities: infraModel.CapabilitiesOf([]*infraModel.AgentFeatures{
+			{Checks: &infraModel.ChecksFeature{Enabled: true}, Terminal: &infraModel.TerminalFeature{Enabled: true}, Bootstrap: &infraModel.BootstrapFeature{}},
+			nil,
+		}),
+		Profiles: map[string]infraModel.Availability{"container": infraModel.AvailabilityAll, "microvm": infraModel.AvailabilityNone, "vm": infraModel.AvailabilityNone},
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/api/exercises/capabilities", nil)
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			LabCapabilities struct {
+				Known        bool
+				Observations map[string]string
+				Access       map[string]string
+				Profiles     map[string]string
+				Bootstrap    string
+				Checks       string
+				VPNReverse   string
+			}
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	c := body.Data.LabCapabilities
+	if !c.Known || c.Observations["file"] != "some" || c.Observations["directory"] != "unknown" || c.Access["terminal"] != "some" ||
+		c.Access["http"] != "some" || c.Profiles["container"] != "all" || c.Profiles["vm"] != "none" || c.Bootstrap != "some" || c.Checks != "some" ||
+		c.VPNReverse != "unknown" {
+		t.Fatalf("block: %+v", c)
+	}
+	if len(c.Observations) != 10 || len(c.Access) != 4 {
+		t.Fatalf("the key lists are fixed: %v %v", c.Observations, c.Access)
+	}
+}
+
+func TestGetDraftDocument_IsYAMLWithoutTheEnvelope(t *testing.T) {
+	uc := &fakeUC{}
+	req := httptest.NewRequest(http.MethodGet, "/api/exercises/"+uuid.Must(uuid.NewV7()).String()+"/draft/document", nil)
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/yaml; charset=utf-8" ||
+		w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		w.Body.String() != "schema: cib-exercise/1.0\n" {
+		t.Fatalf("status %d headers %v body %q", w.Code, w.Header(), w.Body.String())
+	}
+	uc.err = exerciseModel.ErrExerciseNotFound.Err()
+	w = httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+uuid.Must(uuid.NewV7()).String()+"/draft/document", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("a missing exercise: status %d", w.Code)
 	}
 }

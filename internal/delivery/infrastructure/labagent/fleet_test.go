@@ -356,6 +356,23 @@ func TestFleetPersistenceAvailableFollowsTheEnabledAgentsReports(t *testing.T) {
 	}
 }
 
+func TestFleetLabCapabilitiesAggregatesTheEnabledAgentsReports(t *testing.T) {
+	f := newFleetFixture(t)
+	if got := f.fleet.LabCapabilities(); got.Known || got.Checks != infraModel.AvailabilityUnknown {
+		t.Fatalf("an agent that has not reported is unknown, not false: %+v", got)
+	}
+	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{Enabled: true}})
+	got := f.fleet.LabCapabilities()
+	// The fixture has another enabled agent that has not reported: what the reporting one can is "some", what it cannot is "unknown".
+	if !got.Known || got.Checks != infraModel.AvailabilitySome || got.Observations["custom"] != infraModel.AvailabilitySome || got.Observations["directory"] != infraModel.AvailabilityUnknown {
+		t.Fatalf("reported: %+v", got)
+	}
+	f.bm.Enabled = false
+	if got = f.fleet.LabCapabilities(); got.Known {
+		t.Fatalf("a disabled agent is not used: %+v", got)
+	}
+}
+
 func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 	got := FeaturesOf(&labpb.FeaturesResponse{
 		StatePersistence: &labpb.StatePersistenceFeature{Available: true, DefaultDebounceMs: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},

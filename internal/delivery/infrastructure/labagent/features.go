@@ -201,6 +201,18 @@ func (f *Fleet) PersistenceAvailable() bool {
 	return false
 }
 
+// LabCapabilities is what the agents that are used can run, aggregated without naming any (see infraModel.CapabilitiesOf):
+// one entry per agent, nil for one that has not reported. It reads the cached reports, so it is cheap and makes no call; a
+// report is refreshed by the monitoring and again when an agent refuses (refreshOnRefusal).
+func (f *Fleet) LabCapabilities() infraModel.LabCapabilities {
+	members := f.eligible()
+	features := make([]*infraModel.AgentFeatures, 0, len(members))
+	for _, m := range members {
+		features = append(features, m.Features.Get())
+	}
+	return infraModel.CapabilitiesOf(features)
+}
+
 // fitOf is the first limit of the member that the need passes; nil when it fits or the agent has not
 // reported its limits (it refuses on its own if it must).
 func (f *Fleet) fitOf(m *Member, need infraModel.PlacementNeed) *infraModel.FitViolation {

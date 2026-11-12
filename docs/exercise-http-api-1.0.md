@@ -406,3 +406,49 @@ exactly one source, 22904 in-task import needs one item and its fixed target, 22
 replacement, 22908 an update needs the immutable source route, 72906 the source or target changed (preview again),
 20990 unsupported schema (expects `cib-exercise/1.0`). No new error codes: the report's `Issues` reuse the codes of the
 publish checks (23501 to 23513 and the older ones, see above).
+
+## What the laboratories can run: `GET /exercises/capabilities` -> `LabCapabilities`
+
+Readable by every catalog author. The editor uses it to disable an option with a reason instead of letting the author meet
+73512 or 73509 at the start of a test lab. It names no agent and carries no address, version or count (the daemon is a lab
+client: only what it can act on).
+
+```
+LabCapabilities: {
+  Known: true,
+  Observations: {file, directory, process, port, kernel_param, request, permission, custom, "file.type", "file.checksum"},
+  Access:       {http, terminal, vnc, rdp},
+  Profiles:     {container, microvm, vm},
+  Bootstrap: "all", Checks: "all", VPNReverse: "all"
+}      // every value is one of "all" | "some" | "none" | "unknown"
+```
+
+- **Aggregation rule.** Over the agents that are used (enabled, meeting the platform requirements, compatible), per option:
+  `all` every agent that has reported can; `none` no agent can; `some` otherwise (warn). An agent that has not reported yet
+  may be able to, so with one still pending `all` becomes `some` and `none` becomes `unknown`. Neither the union nor the
+  intersection alone: the three words carry both ("can this exercise start somewhere" is `some` or `all`; "everywhere" is `all`).
+- **Nothing reported yet** (or no infrastructure): `Known: false` and every value `unknown`, never `false`/`none`. The editor
+  neither warns nor disables on `unknown`.
+- **Meaning per key.** `Observations`: the kinds of a state check the checker runs, plus the two file keys; an agent that lists
+  none is a first-generation checker and runs `file` and `custom` only. `Access`: `http` is always served, `terminal` when the
+  terminal option is on, `vnc` and `rdp` are always `none` (accepted by the schema, not served). `Profiles`: the platform
+  setting «Профілі вузлів» (`all` when ticked, else `none`), the same for every laboratory. `Bootstrap`: device initialization
+  (files, script) and the service command. `Checks`: state checks are switched on. `VPNReverse`: `topology.vpn.reverse_connections`
+  can be enforced.
+- **Caching and refresh.** The block is computed on each request from the reports the daemon already keeps (no call to an agent,
+  so no cost and no stale copy of its own). A report is refreshed by the monitoring and again when an agent refuses a lab, so a
+  switched-on option shows up after the next refresh of that agent's report.
+
+## The working copy as a document: `GET /exercises/{id}/draft/document`
+
+Same access as `GET /exercises/{id}/draft`. Returns the working copy (the draft, else the published content, else an empty copy)
+as the exercise document of the archive: schema `cib-exercise/1.0`, one version, keys in the order of the specification, files
+as their archive paths (`files/...`, the same layout the export gives; no bytes), a platform image by its reference.
+
+- Response: `200`, `Content-Type: application/yaml; charset=utf-8`, the YAML itself (not wrapped in the `Data` envelope),
+  `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`. At most 8 MiB; a larger document answers `413`
+  (the archive-too-large error), never a cut one.
+- Secret env values are never in it (empty, `secret: true`). A reader who may not see flags gets no answer values and no
+  conditions, and no internal notes, as `GET .../draft` does.
+- It is a view: nothing is written. No `?variant=` (a linked variant cannot stand without its base): the whole document.
+- Errors as the draft read: `404` for an unknown exercise, `403` without read access.
