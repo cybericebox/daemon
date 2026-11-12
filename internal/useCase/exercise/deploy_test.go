@@ -24,6 +24,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
@@ -1602,7 +1603,7 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	r1, r2, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	variants, _ := json.Marshal([]exerciseModel.Variant{{
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: uuid.Must(uuid.NewV7())}, { // the variant under test is the second one
 		ID: variantID,
 		Tasks: []exerciseModel.Task{
 			{ID: uuid.Must(uuid.NewV7()), Key: "secret", Name: "Secret", Check: exerciseModel.FlagCheck("ICE{fixed}")},
@@ -1669,8 +1670,13 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	broken := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 	broken.SetFileReader(fileStore{})
-	if _, err := broken.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); !errors.Is(err, exerciseModel.ErrDeviceRuntimeInvalid.Err()) || !strings.Contains(err.Error(), "r1") {
+	_, err := broken.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
+	if !errors.Is(err, exerciseModel.ErrDeviceRuntimeInvalid.Err()) || !strings.Contains(err.Error(), "r1") {
 		t.Fatalf("an unreadable bootstrap file: %v", err)
+	}
+	var coded appErr.Error
+	if !errors.As(err, &coded) || coded.PublicContext()["variant"] != 2 {
+		t.Fatalf("the error must name the variant by its position in the version: %v", err)
 	}
 }
 

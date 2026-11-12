@@ -915,6 +915,7 @@ func (u *EventUseCase) tryDeployStandLab(ctx context.Context, e eventModel.Event
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
 	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, meta, topology); err != nil {
+		err = exerciseModel.InVariantIfScoped(err, int(lab.VariantIndex)+1)
 		return u.handleDeployError(ctx, lab, canonical, err, now)
 	}
 	if _, err := u.labBindings.MarkDeployed(ctx, lab.Binding, now); err != nil {
@@ -1128,8 +1129,9 @@ func (u *EventUseCase) withTeamBootstraps(
 	if err != nil {
 		return topology, nil, err
 	}
+	number := int(lab.VariantIndex) + 1 // the lab names its variant by position in the version
 	if err = variant.RequireLabSupported(); err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariant(err, number)
 	}
 	pinned := exerciseModel.PinnedValues{Tasks: map[string]string{}}
 	if len(variant.AnswerTasks()) > 0 {
@@ -1163,22 +1165,22 @@ func (u *EventUseCase) withTeamBootstraps(
 	}
 	variant = variant.WithoutEnvOfTasks(unpinned)
 	if pinned.Vars, err = u.pinStandVariables(ctx, lab, variant); err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariantIfScoped(err, number)
 	}
 	resolved, err := variant.ResolveInstance(pinned)
 	if err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariant(err, number)
 	}
 	resolvedTopology, err := variant.Topology.WithBootstraps(resolved.Bootstraps)
 	if err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariantIfScoped(err, number)
 	}
 	if resolvedTopology, err = resolvedTopology.WithBootstrapFiles(u.readBootstrapFile(ctx)); err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariantIfScoped(err, number)
 	}
 	checks, err := variant.BuildLabChecks(resolvedTopology, resolved.Conditions)
 	if err != nil {
-		return topology, nil, err
+		return topology, nil, exerciseModel.InVariant(err, number)
 	}
 	return resolvedTopology, checks, nil
 }

@@ -345,8 +345,8 @@ func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 }
 
 // withImportedPath adds the archive path to a publish-gate error as its public "field": the version, and the
-// device when the error names one variant's device. The variant id is dropped: the new task's ids mean nothing
-// to the author of the archive.
+// device when the error names one variant's device. The variant is the 1-based position in the version, which is the
+// position in the archive too, so it stays in the context.
 func withImportedPath(failure error, versionIndex int, variants []exerciseModel.Variant) error {
 	var creator appErr.ErrorCreator
 	if !errors.As(failure, &creator) {
@@ -356,31 +356,27 @@ func withImportedPath(failure error, versionIndex int, variants []exerciseModel.
 	field := fmt.Sprintf("versions[%d]", versionIndex+1)
 	if errors.As(failure, &withContext) {
 		public := withContext.PublicContext()
-		if variantID, ok := public["variant"].(string); ok {
-			field += variantPath(variants, variantID, public["device"])
-			creator = creator.WithPublicContext("variant", "")
+		if number, ok := public["variant"].(int); ok {
+			field += variantPath(variants, number, public["device"])
 		}
 	}
 	return creator.WithPublicContext("field", field).Err()
 }
 
-// variantPath is ".variants[i]" (and ".topology.devices[j]" for a named device) of the variant with that id.
-func variantPath(variants []exerciseModel.Variant, variantID string, device any) string {
-	for vi, variant := range variants {
-		if variant.ID.String() != variantID {
-			continue
-		}
-		path := fmt.Sprintf(".variants[%d]", vi+1)
-		if name, ok := device.(string); ok {
-			for di, d := range variant.Topology.Devices {
-				if d.Name == name {
-					return path + fmt.Sprintf(".topology.devices[%d]", di+1)
-				}
+// variantPath is ".variants[i]" (and ".topology.devices[j]" for a named device) of the variant at that 1-based position.
+func variantPath(variants []exerciseModel.Variant, number int, device any) string {
+	if number < 1 || number > len(variants) {
+		return ""
+	}
+	path := fmt.Sprintf(".variants[%d]", number)
+	if name, ok := device.(string); ok {
+		for di, d := range variants[number-1].Topology.Devices {
+			if d.Name == name {
+				return path + fmt.Sprintf(".topology.devices[%d]", di+1)
 			}
 		}
-		return path
 	}
-	return ""
+	return path
 }
 
 func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID) error {

@@ -76,3 +76,33 @@ func TestPublicContextIsOnlyWhatWasMarkedAndNeverShared(t *testing.T) {
 		t.Fatalf("both stay in the log line: %s", e.Error())
 	}
 }
+
+// AddPublicContext puts a public value on an error that was built earlier; the error keeps its code, a value that is
+// already there wins, and what is not an application error is returned as it is.
+func TestAddPublicContext(t *testing.T) {
+	publicOf := func(failure error) map[string]any {
+		var coded liberr.Error
+		if !errors.As(failure, &coded) {
+			t.Fatalf("not an application error: %v", failure)
+		}
+		return coded.PublicContext()
+	}
+	built := liberr.ErrInvalidData.WithObjectCode(10).WithDetailCode(7).WithPublicContext("task", "A").Err()
+	got := liberr.AddPublicContext(built, "variant", 2)
+	if !errors.Is(got, built) {
+		t.Fatal("the code must stay")
+	}
+	if public := publicOf(got); public["variant"] != 2 || public["task"] != "A" {
+		t.Fatalf("public context = %v", public)
+	}
+	if _, has := publicOf(built)["variant"]; has {
+		t.Fatal("the original error must not change")
+	}
+	if again := publicOf(liberr.AddPublicContext(got, "variant", 9)); again["variant"] != 2 {
+		t.Fatalf("an existing value must win: %v", again)
+	}
+	plain := errors.New("plain")
+	if !errors.Is(liberr.AddPublicContext(plain, "variant", 1), plain) || liberr.AddPublicContext(nil, "variant", 1) != nil {
+		t.Fatal("not an application error: returned as it is")
+	}
+}

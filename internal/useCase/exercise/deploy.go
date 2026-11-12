@@ -283,13 +283,13 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	exerciseID, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
+	exerciseID, variant, number, err := u.loadVersionVariant(ctx, versionID, variantID)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
 	// A task that asks for what the laboratory cannot apply yet is refused here, not started half-working.
 	if err = variant.RequireLabSupported(); err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
 	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
 	// no agent. An event preview always needs a laboratory.
@@ -310,7 +310,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	}
 
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
 	if len(variant.Topology.Devices) == 0 {
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployNoLab.Err()
@@ -328,20 +328,20 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		return exerciseModel.DeployHandle{}, err
 	}
 	if pinned.Vars, err = variant.PinVariables(rand.Reader); err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
 	resolveFrom := variant
 	resolveFrom.Topology = topo // the secrets are opened
 	resolved, err := resolveFrom.ResolveInstance(pinned)
 	if err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
 	if topo, err = topo.WithBootstraps(resolved.Bootstraps); err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariantIfScoped(err, number)
 	}
 	// A bootstrap file that names a file of the archive is read in: the laboratory gets its bytes.
 	if topo, err = topo.WithBootstrapFiles(u.readBootstrapFile(ctx)); err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariantIfScoped(err, number)
 	}
 	// Every image must be pullable before anything is created; the agent gets exactly the credentials they need.
 	topo, pullCredentials, err := u.prepareLabImages(ctx, eventID, exerciseID, topo)
@@ -351,7 +351,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	// The conditions of the state tasks become the checks of the lab, with this deploy's values in their expectations.
 	checks, err := variant.BuildLabChecks(topo, resolved.Conditions)
 	if err != nil {
-		return exerciseModel.DeployHandle{}, err
+		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
 
 	now := u.timeNow()
@@ -388,6 +388,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		}
 		first := len(existing) == 0
 		if err = u.provisionTestLab(ctx, deploy, topo, pullCredentials, checks, active, first); err != nil {
+			err = exerciseModel.InVariantIfScoped(err, number)
 			// The group or the lab may be half created. A canceled request must not prevent the cleanup;
 			// if it fails, the lease is kept so the periodic expiry pass can retry it.
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
@@ -1419,22 +1420,22 @@ func (u *ExerciseUseCase) ResolveVersionTopologies(ctx context.Context, versionI
 
 // loadVariant fetches one variant of a version by id.
 func (u *ExerciseUseCase) loadVariant(ctx context.Context, versionID, variantID uuid.UUID) (exerciseModel.Variant, error) {
-	_, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
+	_, variant, _, err := u.loadVersionVariant(ctx, versionID, variantID)
 	return variant, err
 }
 
-// loadVersionVariant is loadVariant with the exercise the version belongs to.
-func (u *ExerciseUseCase) loadVersionVariant(ctx context.Context, versionID, variantID uuid.UUID) (uuid.UUID, exerciseModel.Variant, error) {
+// loadVersionVariant is loadVariant with the exercise the version belongs to and the variant's 1-based position in the version.
+func (u *ExerciseUseCase) loadVersionVariant(ctx context.Context, versionID, variantID uuid.UUID) (uuid.UUID, exerciseModel.Variant, int, error) {
 	version, err := u.exercises.GetVersion(ctx, versionID)
 	if err != nil {
-		return uuid.Nil, exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+		return uuid.Nil, exerciseModel.Variant{}, 0, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
-	for _, v := range version.Variants {
+	for position, v := range version.Variants {
 		if v.ID == variantID {
-			return version.ExerciseID, v, nil
+			return version.ExerciseID, v, position + 1, nil
 		}
 	}
-	return uuid.Nil, exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+	return uuid.Nil, exerciseModel.Variant{}, 0, exerciseModel.ErrExerciseVersionNotFound.Err()
 }
 
 // redactedTopology is the shape of a topology without what a device is told to run: the bootstrap (env values,

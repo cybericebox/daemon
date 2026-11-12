@@ -172,10 +172,10 @@ func (u *ExerciseUseCase) versionResources(ctx context.Context, exerciseID uuid.
 // approved elevation. It needs no agent.
 func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseID uuid.UUID, variants []exerciseModel.Variant) error {
 	policy := u.Policy()
-	for _, v := range variants {
+	for position, v := range variants {
 		for _, d := range v.Topology.Devices {
 			if d.IsNode() && policy.InvalidPreset(d) {
-				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", v.ID.String()).
+				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", position+1).
 					WithPublicContext("device", d.Name).WithPublicContext("preset", d.ResourcePreset).Err()
 			}
 		}

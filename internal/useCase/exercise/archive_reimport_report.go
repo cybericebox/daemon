@@ -200,27 +200,22 @@ func issueFrom(
 	status := coded.StatusCode()
 	issue := exerciseModel.ImportIssue{Code: status.FullCode(), Message: status.Message()}
 	public := coded.PublicContext()
+	if variantPosition > 0 {
+		// A variant checked alone is always number 1 to the model: the position in the version is the truth.
+		if public == nil {
+			public = map[string]any{}
+		}
+		public["variant"] = variantPosition
+	}
 	if len(public) > 0 {
 		issue.Context = map[string]any{}
 		for key, value := range public {
-			if key != "variant" {
-				issue.Context[key] = value
-			}
+			issue.Context[key] = value
 		}
 	}
 	path := ""
-	if id, ok := public["variant"].(string); ok && id != "" {
-		path = variantPath(variants, id, public["device"])
-	} else if variantPosition > 0 {
-		path = fmt.Sprintf(".variants[%d]", variantPosition)
-		if name, named := public["device"].(string); named {
-			for di, device := range variants[variantPosition-1].Topology.Devices {
-				if device.Name == name {
-					path = fmt.Sprintf("%s.topology.devices[%d]", path, di+1)
-					break
-				}
-			}
-		}
+	if number, ok := public["variant"].(int); ok && number > 0 && number <= len(variants) {
+		path = variantPath(variants, number, public["device"])
 	}
 	issue.Path = strings.TrimPrefix(path, ".")
 	return issue, true

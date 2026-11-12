@@ -27,9 +27,9 @@ func (u *ExerciseUseCase) requireBootstrapSizes(ctx context.Context, variants []
 		sizes[ref.FileID] = file.SizeBytes
 		return file.SizeBytes, nil
 	}
-	for _, variant := range variants {
+	for position, variant := range variants {
 		if err := variant.ValidateBootstrapSizes(size); err != nil {
-			return err
+			return exerciseModel.InVariantIfScoped(err, position+1)
 		}
 	}
 	return nil

@@ -66,7 +66,7 @@ func (u *ExerciseUseCase) withTaskStates(ctx context.Context, status *exerciseMo
 	if deploy.VersionID == uuid.Nil {
 		return // a row without a version has no variant to read
 	}
-	_, variant, loadErr := u.loadVersionVariant(ctx, deploy.VersionID, deploy.VariantID)
+	_, variant, _, loadErr := u.loadVersionVariant(ctx, deploy.VersionID, deploy.VariantID)
 	if loadErr != nil {
 		return
 	}
@@ -102,7 +102,7 @@ func (u *ExerciseUseCase) RunTestDeployChecks(ctx context.Context, userID, deplo
 	if scopeErr := u.requireScopedPreviewActive(ctx, deploy); scopeErr != nil {
 		return scopeErr
 	}
-	_, variant, loadErr := u.loadVersionVariant(ctx, deploy.VersionID, deploy.VariantID)
+	_, variant, _, loadErr := u.loadVersionVariant(ctx, deploy.VersionID, deploy.VariantID)
 	if loadErr != nil {
 		return loadErr
 	}

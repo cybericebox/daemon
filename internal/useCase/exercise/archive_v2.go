@@ -642,7 +642,7 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 				if variant.LinkedTo != nil {
 					value, err = variant.toLinkedDomain(path, xi, version.Variants, values, ids, links)
 				} else {
-					value, err = variant.toDomain(path, ids[xi], links)
+					value, err = variant.toDomain(path, xi+1, ids[xi], links)
 				}
 				if err != nil {
 					return ParsedExerciseArchive{}, err
@@ -684,7 +684,8 @@ func checkArchiveWeight(path string, weight *int) error {
 	return nil
 }
 
-func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
+// toDomain maps one variant of the archive; number is its 1-based position in the version, named on the model errors.
+func (v archiveVariantV2) toDomain(path string, number int, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
 	if err := checkArchiveWeight(path, v.Weight); err != nil {
 		return exerciseModel.Variant{}, err
 	}
@@ -706,13 +707,13 @@ func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLink
 	variant.NormalizeTaskKeys()
 	// The document is strict: a generator learns here, with the path of the variant, what breaks the contract.
 	if err = variant.Topology.ValidateDeviceRuntime(); err != nil {
-		return exerciseModel.Variant{}, withArchivePath(err, path)
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
 	}
 	if err = variant.ValidateDocument(); err != nil {
-		return exerciseModel.Variant{}, withArchivePath(err, path)
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
 	}
 	if err = variant.ValidateBootstrapSizes(links.sourceSize); err != nil {
-		return exerciseModel.Variant{}, withArchivePath(err, path)
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
 	}
 	return variant, nil
 }

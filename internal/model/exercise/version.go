@@ -2,11 +2,13 @@ package exerciseModel
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
@@ -261,57 +263,99 @@ func (v *ExerciseVersion) ValidateStructure() error {
 		return err
 	}
 	canonicalTasks := v.Variants[0].Tasks
-	taskCount := len(canonicalTasks)
 	for variantIndex, variant := range v.Variants {
-		if len(variant.Tasks) != taskCount {
-			return ErrTaskCountMismatch.Err()
-		}
-		for taskIndex, task := range variant.Tasks {
-			// Legacy persisted snapshots may predate task IDs. New saves receive
-			// canonical non-nil IDs in normalizeContentIDs before arriving here;
-			// for old all-nil snapshots position remains the only available key.
-			if (canonicalTasks[taskIndex].ID != uuid.Nil && task.ID != canonicalTasks[taskIndex].ID) ||
-				(canonicalTasks[taskIndex].ID == uuid.Nil && task.ID != uuid.Nil) {
-				return ErrTaskIdentityMismatch.WithContext("task", task.Name).Err()
-			}
-			if variantIndex > 0 && task.Difficulty != canonicalTasks[taskIndex].Difficulty {
-				return ErrTaskDifficultyMismatch.WithContext("task", task.Name).Err()
-			}
-			name := strings.TrimSpace(task.Name)
-			if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
-				return ErrTaskNameInvalid.WithContext("task", task.Name).Err()
-			}
-			if !task.Difficulty.Valid() {
-				return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
-			}
-			if err := validateHints(task, canonicalTasks[taskIndex]); err != nil {
-				return err
-			}
-			keys := make(map[string]struct{}, len(task.Placeholders))
-			for _, placeholder := range task.Placeholders {
-				if placeholder.Key == "" {
-					continue
-				} // legacy draft; normalized on save
-				if _, duplicate := keys[placeholder.Key]; duplicate {
-					return ErrPlaceholderInvalid.WithContext("task", task.Name).Err()
-				}
-				keys[placeholder.Key] = struct{}{}
-			}
-		}
-		if err := variant.Topology.validateStructure(); err != nil {
-			return err
-		}
-		if err := validateImageOverrides(variantIndex, variant); err != nil {
-			return err
-		}
-		if err := variant.ValidateDocument(); err != nil {
-			return err
+		if err := validateVariantStructure(variantIndex, variant, canonicalTasks); err != nil {
+			return InVariant(err, variantIndex+1)
 		}
 	}
 	if err := validateChecksAcross(v.Variants); err != nil {
 		return err
 	}
 	return validateLinkedFlags(v.Variants)
+}
+
+// validateVariantStructure is the per-item shape check of one variant against the first one (its tasks line up with the
+// first variant's). The caller names the variant (InVariant) on the error.
+func validateVariantStructure(variantIndex int, variant Variant, canonicalTasks []Task) error {
+	if len(variant.Tasks) != len(canonicalTasks) {
+		return ErrTaskCountMismatch.Err()
+	}
+	for taskIndex, task := range variant.Tasks {
+		if err := validateTaskShape(variantIndex, task, canonicalTasks[taskIndex]); err != nil {
+			return err
+		}
+	}
+	if err := variant.Topology.validateStructure(); err != nil {
+		return err
+	}
+	if err := validateImageOverrides(variantIndex, variant); err != nil {
+		return err
+	}
+	return variant.ValidateDocument()
+}
+
+// validateTaskShape is the per-item shape check of one task against the task at its position in the first variant.
+func validateTaskShape(variantIndex int, task, canonical Task) error {
+	// Legacy persisted snapshots may predate task IDs. New saves receive
+	// canonical non-nil IDs in normalizeContentIDs before arriving here;
+	// for old all-nil snapshots position remains the only available key.
+	if (canonical.ID != uuid.Nil && task.ID != canonical.ID) ||
+		(canonical.ID == uuid.Nil && task.ID != uuid.Nil) {
+		return ErrTaskIdentityMismatch.WithContext("task", task.Name).Err()
+	}
+	if variantIndex > 0 && task.Difficulty != canonical.Difficulty {
+		return ErrTaskDifficultyMismatch.WithContext("task", task.Name).Err()
+	}
+	name := strings.TrimSpace(task.Name)
+	if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
+		return ErrTaskNameInvalid.WithContext("task", task.Name).Err()
+	}
+	if !task.Difficulty.Valid() {
+		return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
+	}
+	if err := validateHints(task, canonical); err != nil {
+		return err
+	}
+	keys := make(map[string]struct{}, len(task.Placeholders))
+	for _, placeholder := range task.Placeholders {
+		if placeholder.Key == "" {
+			continue
+		} // legacy draft; normalized on save
+		if _, duplicate := keys[placeholder.Key]; duplicate {
+			return ErrPlaceholderInvalid.WithContext("task", task.Name).Err()
+		}
+		keys[placeholder.Key] = struct{}{}
+	}
+	return nil
+}
+
+// InVariantIfScoped is InVariant for the errors a deploy meets, which may be about the variant's content (an unsupported
+// runtime key, a laboratory that lacks an option the variant needs, an unresolved variable or device, a state check) or
+// about the platform (no agent, no room): only the first kind gets the variant.
+func InVariantIfScoped(failure error, number int) error {
+	for _, scoped := range []interface {
+		Err(skip ...int) appErr.Error
+	}{
+		ErrRuntimeNotSupported, ErrLabOptionUnavailable, ErrServiceCommandUnknown, ErrRuntimeDeviceUnresolved,
+		ErrDeviceRuntimeInvalid, ErrVariableInvalid, ErrStateInvalid, ErrBootstrapTooLarge, ErrSubstitutionUnresolved,
+	} {
+		if errors.Is(failure, scoped.Err()) {
+			return InVariant(failure, number)
+		}
+	}
+	return failure
+}
+
+// InVariant names the variant on an error that is about something inside it (a task, a device, a connection, a variable):
+// the public context key "variant" is the 1-based position of the variant in the version, as the draft lists them
+// (Variants[]), the same number a request body, an archive and the import issues use. The Index of a variant is
+// decorative and its ID is absent before the first save, so neither addresses a variant in a request. An error that
+// already names a variant, and an error about the whole exercise (number < 1), are returned as they are.
+func InVariant(failure error, number int) error {
+	if failure == nil || number < 1 {
+		return failure
+	}
+	return appErr.AddPublicContext(failure, "variant", number)
 }
 
 // ValidateForPublish runs the full validation set: structure plus per-variant
@@ -321,35 +365,43 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 	if err := v.ValidateStructure(); err != nil {
 		return err
 	}
-	for _, variant := range v.Variants {
-		if err := variant.Topology.validateGraph(); err != nil {
-			return err
-		}
-		if err := variant.RequireChecks(); err != nil {
-			return err
-		}
-		delivered := variant.DeliveredTaskKeys()
-		for _, task := range variant.Tasks {
-			if !hasTaskDescriptionContent(task.Description) {
-				return ErrTaskDescriptionRequired.WithContext("task", task.Name).Err()
-			}
-			for _, hint := range task.Hints {
-				if !hasHintTextContent(hint.Text) {
-					return ErrHintTextRequired.WithContext("task", task.Name).Err()
-				}
-			}
-			if err := requireSingleValueWithoutDelivery(task, delivered); err != nil {
-				return err
-			}
-			if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
-				return err
-			}
-			if err := validateInlinePlaceholderRefs(task.Description, task.Placeholders); err != nil {
-				return err
-			}
+	for variantIndex, variant := range v.Variants {
+		if err := validateVariantForPublish(variant); err != nil {
+			return InVariant(err, variantIndex+1)
 		}
 	}
 	return validateLinkedContent(v.Variants)
+}
+
+// validateVariantForPublish is the publish check of one variant: its graph, its checks and the content of its tasks.
+func validateVariantForPublish(variant Variant) error {
+	if err := variant.Topology.validateGraph(); err != nil {
+		return err
+	}
+	if err := variant.RequireChecks(); err != nil {
+		return err
+	}
+	delivered := variant.DeliveredTaskKeys()
+	for _, task := range variant.Tasks {
+		if !hasTaskDescriptionContent(task.Description) {
+			return ErrTaskDescriptionRequired.WithContext("task", task.Name).Err()
+		}
+		for _, hint := range task.Hints {
+			if !hasHintTextContent(hint.Text) {
+				return ErrHintTextRequired.WithContext("task", task.Name).Err()
+			}
+		}
+		if err := requireSingleValueWithoutDelivery(task, delivered); err != nil {
+			return err
+		}
+		if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
+			return err
+		}
+		if err := validateInlinePlaceholderRefs(task.Description, task.Placeholders); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // requireSingleValueWithoutDelivery: a task whose value does not reach a lab (no bootstrap names its

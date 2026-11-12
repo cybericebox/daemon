@@ -261,7 +261,7 @@ func validateChecksAcross(variants []Variant) error {
 		return nil
 	}
 	canonical := variants[0].Tasks
-	for _, variant := range variants[1:] {
+	for variantIndex, variant := range variants[1:] {
 		for i, task := range variant.Tasks {
 			if i >= len(canonical) {
 				break
@@ -269,7 +269,7 @@ func validateChecksAcross(variants []Variant) error {
 			base := canonical[i].Check
 			if task.Check.Kind() != base.Kind() ||
 				(task.Check.Answer != nil && base.Answer != nil && task.Check.Answer.Type != base.Answer.Type) {
-				return ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err()
+				return InVariant(ErrTaskCheckInvalid.WithPublicContext("task", task.Name).Err(), variantIndex+2)
 			}
 		}
 	}

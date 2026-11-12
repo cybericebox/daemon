@@ -115,6 +115,13 @@ unresolved reference is an error naming the field (publish and test deploy).
 
 ## Behaviour that changed
 
+- **Validation errors name the variant.** An error about a task, a device, a connection or a variable inside a variant carries the
+  public context key `variant`: the 1-based position of the variant in the version (the position in `Variants[]` of the
+  request, `versions[n].variants[m]` of an archive; a number, not the `ID`, which a new variant does not have yet, and not
+  `Index`, which is decorative). It is set on the structure check, the publish check, the import, the bootstrap size gate
+  of a draft save, the resources gate, and the errors a test deploy or an event stand meets about the variant's content
+  (unsupported runtime keys, an option the laboratory lacks, unresolved variables). Import `Issues[].Context` keeps it too
+  (it used to be dropped). Errors about the whole exercise have no `variant`.
 - A **linked variant** keeps from its base everything except index, note, weight, device images and, per task,
   `Check.Answer.Values` and `Attachments`.
 - **Solutions are redacted** for readers who may not see them: `Check.Answer.Values` and `Check.State.Conditions` are
