@@ -419,6 +419,8 @@ func TestExportThenImport_VariantWeights(t *testing.T) {
 func TestToParsed_VariantWeightOutOfRange(t *testing.T) {
 	cases := map[string]struct{ variants, path string }{
 		"whole too big":   {`[{"weight":101,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"whole zero":      {`[{"weight":0,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"linked zero":     {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":0}]`, "versions[1].variants[2].weight"},
 		"whole negative":  {`[{"weight":-1,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
 		"linked too big":  {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":500}]`, "versions[1].variants[2].weight"},
 		"linked negative": {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":-2}]`, "versions[1].variants[2].weight"},

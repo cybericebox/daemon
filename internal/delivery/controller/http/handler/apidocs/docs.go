@@ -42124,7 +42124,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Variants": {
-                    "description": "Variants is the full snapshot; a variant Weight outside 0..100 is refused with 400.",
+                    "description": "Variants is the full snapshot; a variant Weight outside 1..100 (0 included) is refused with 400.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/exercise.variantDTO"
@@ -42422,10 +42422,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/exercise.topologyDTO"
                 },
                 "Weight": {
-                    "description": "Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.",
+                    "description": "Weight is how often the variant is given out relative to the others (2 = twice as often): 1 to 100, absent = 1.\n0 is refused with 400; to stop giving a variant out, delete it.",
                     "type": "integer",
                     "maximum": 100,
-                    "minimum": 0
+                    "minimum": 1
                 }
             }
         },

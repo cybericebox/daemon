@@ -125,7 +125,7 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 		return exerciseModel.Variant{}, err
 	}
 	variant := exerciseModel.Variant{
-		ID: ids[position], Index: v.Index, Note: v.Note, Weight: v.Weight,
+		ID: ids[position], Index: v.Index, Note: v.Note, Weight: weightValue(v.Weight),
 		LinkedTo: uuid.NullUUID{UUID: ids[target-1], Valid: true},
 	}
 	overrides, err := linkedDeviceImages(path, v.DeviceImages, parsed[target-1].Topology.Devices, links)
@@ -239,7 +239,7 @@ func exportLinkedVariantV2(variant exerciseModel.Variant, variants []exerciseMod
 		return archiveVariantV2{}, false
 	}
 	linkedTo := position + 1
-	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, LinkedTo: &linkedTo}
+	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: weightPointer(variant.Weight), LinkedTo: &linkedTo}
 	// An own image is written by the device's name, so that name must be the base's alone.
 	for _, override := range variant.ImageOverrides {
 		name, count := "", 0
@@ -285,7 +285,7 @@ type (
 		ID           string                    `json:"id,omitempty"`
 		Index        int32                     `json:"index,omitempty"`
 		Note         string                    `json:"note,omitempty"`
-		Weight       int                       `json:"weight,omitempty"`
+		Weight       *int                      `json:"weight,omitempty"`
 		LinkedTo     int                       `json:"linked_to"`
 		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
 		Tasks        []archiveLinkedTaskOutV2  `json:"tasks,omitempty"`

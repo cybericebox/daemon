@@ -459,3 +459,10 @@ as their archive paths (`files/...`, the same layout the export gives; no bytes)
 in a hint's `Text` are refused with 23519, public context `task` and `field` (`description` or `hints[N].text`): the participant
 reads these texts, so an answer or an infrastructure value would be shown to everyone. Only the task's own placeholders
 (`{{key}}`) belong there; `\{{` writes a literal `{{`. Checked on import and on publish, not on every autosave of the draft.
+
+## Variant weight: 1 to 100
+
+`Variants[].Weight` (and `weight` in the document) is a whole number from 1 to 100; absent means 1 and is never written into a
+document. `0` is refused: on a save with 400 (binding) and on import with the archive-invalid error whose reason names
+`versions[V].variants[N].weight`. To stop giving a variant out, delete it. Stored data from before the rule may hold 0 (a draft
+saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without `Weight`, so the editor saves it back without one. No data migration is needed.

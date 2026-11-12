@@ -593,8 +593,9 @@ type variantDTO struct {
 	// LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.
 	// The backend rewrites the inherited parts from the base on every save.
 	LinkedTo *uuid.UUID `json:"LinkedTo,omitempty"`
-	// Weight is how often the variant is given out relative to the others (2 = twice as often); absent or 0 = 1.
-	Weight int `json:"Weight,omitempty" binding:"min=0,max=100"`
+	// Weight is how often the variant is given out relative to the others (2 = twice as often): 1 to 100, absent = 1.
+	// 0 is refused with 400; to stop giving a variant out, delete it.
+	Weight *int `json:"Weight,omitempty" binding:"omitempty,min=1,max=100"`
 	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by the base
 	// device's ID; the device keeps the base's name and every other setting. Request: the whole list (absent or
 	// empty = none); an entry for a device the base does not have, a switch or hub, or with an empty Image is
@@ -867,7 +868,7 @@ type versionListItemResponse struct {
 
 type saveDraftRequest struct {
 	AdminNote string `json:"AdminNote"`
-	// Variants is the full snapshot; a variant Weight outside 0..100 is refused with 400.
+	// Variants is the full snapshot; a variant Weight outside 1..100 (0 included) is refused with 400.
 	Variants []variantDTO `json:"Variants" binding:"dive"`
 }
 
@@ -884,7 +885,7 @@ func (d variantDTO) toDomain() exerciseModel.Variant {
 	for _, t := range d.Tasks {
 		tasks = append(tasks, t.toDomain())
 	}
-	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Weight: d.Weight, Tasks: tasks, Topology: d.Topology.toDomain()}
+	out := exerciseModel.Variant{Index: d.Index, Note: d.Note, Weight: weightFromDTO(d.Weight), Tasks: tasks, Topology: d.Topology.toDomain()}
 	for _, override := range d.ImageOverrides {
 		out.ImageOverrides = append(out.ImageOverrides, exerciseModel.ImageOverride{DeviceID: override.DeviceID, Image: override.Image})
 	}
@@ -1222,8 +1223,23 @@ func variantsToDTO(vs []exerciseModel.Variant) []variantDTO {
 	return out
 }
 
+func weightFromDTO(weight *int) int {
+	if weight == nil {
+		return 0
+	}
+	return *weight
+}
+
+// weightToDTO shows a weight only when one is stored (a stored 0 and an absent weight both mean 1).
+func weightToDTO(weight int) *int {
+	if weight <= 0 {
+		return nil
+	}
+	return &weight
+}
+
 func variantToDTO(v exerciseModel.Variant) variantDTO {
-	d := variantDTO{Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topologyToDTO(v.Topology)}
+	d := variantDTO{Index: v.Index, Note: v.Note, Weight: weightToDTO(v.Weight), Topology: topologyToDTO(v.Topology)}
 	for _, override := range v.ImageOverrides {
 		d.ImageOverrides = append(d.ImageOverrides, imageOverrideDTO{DeviceID: override.DeviceID, Image: override.Image})
 	}

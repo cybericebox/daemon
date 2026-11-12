@@ -59,7 +59,7 @@ type (
 		// LinkedTo: the 1-based position of the base variant; the variant then holds only its own parts.
 		LinkedTo *int `json:"linked_to,omitempty"`
 		// Weight: how often the variant is given out relative to the others (absent = 1).
-		Weight int `json:"weight,omitempty"`
+		Weight *int `json:"weight,omitempty"`
 		// DeviceImages (a linked variant only): its own image for base devices, by device name.
 		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
 		Tasks        []archiveTaskV2           `json:"tasks,omitempty"`
@@ -659,9 +659,26 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 	return parsed, nil
 }
 
-// checkArchiveWeight refuses a variant weight outside 0..MaxVariantWeight (0 or absent means 1).
-func checkArchiveWeight(path string, weight int) error {
-	if weight < 0 || weight > exerciseModel.MaxVariantWeight {
+// checkArchiveWeight refuses a variant weight outside 1..MaxVariantWeight; an absent weight (nil) means 1 and is not
+// written into the document. Zero is refused: to stop giving a variant out, delete it.
+// weightValue is the weight a document names (0 when it names none).
+func weightValue(weight *int) int {
+	if weight == nil {
+		return 0
+	}
+	return *weight
+}
+
+// weightPointer is a stored weight as the document writes it: nothing for an unset one.
+func weightPointer(weight int) *int {
+	if weight == 0 {
+		return nil
+	}
+	return &weight
+}
+
+func checkArchiveWeight(path string, weight *int) error {
+	if weight != nil && (*weight < 1 || *weight > exerciseModel.MaxVariantWeight) {
 		return archiveInvalid(fmt.Sprintf("%s.weight must be a whole number from 1 to %d", path, exerciseModel.MaxVariantWeight))
 	}
 	return nil
@@ -678,7 +695,7 @@ func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLink
 	if err != nil {
 		return exerciseModel.Variant{}, err
 	}
-	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topology}
+	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Weight: weightValue(v.Weight), Topology: topology}
 	for ti, task := range v.Tasks {
 		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, links)
 		if taskErr != nil {
@@ -1099,7 +1116,7 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		}
 		topology.Connections = append(topology.Connections, out)
 	}
-	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, Topology: topology}
+	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: weightPointer(variant.Weight), Topology: topology}
 	for _, task := range variant.Tasks {
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}

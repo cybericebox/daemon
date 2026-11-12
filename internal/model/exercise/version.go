@@ -169,7 +169,7 @@ type Variant struct {
 	// LinkedTo is the base variant (same version) this one inherits its content from;
 	// only the answer values and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
-	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
+	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); a stored 0 (data older than the rule) is read as 1; new input refuses 0.
 	Weight int `json:"weight,omitempty"`
 	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by device id.
 	// The device keeps the base's name and everything else, so the descriptions' placeholders stay valid.
@@ -188,7 +188,8 @@ type ImageOverride struct {
 // MaxVariantWeight bounds a variant's weight.
 const MaxVariantWeight = 100
 
-// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset weight is 1).
+// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset or stored 0 weight is 1: tolerant of data saved
+// before 0 was refused).
 func (v Variant) EffectiveWeight() int {
 	return min(max(v.Weight, 1), MaxVariantWeight)
 }

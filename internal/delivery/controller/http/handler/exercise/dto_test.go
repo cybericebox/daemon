@@ -196,8 +196,9 @@ func TestVariantDTO_WeightBothWays(t *testing.T) {
 
 func TestSaveDraftRequest_WeightRange(t *testing.T) {
 	for raw, valid := range map[string]bool{
-		`{"Variants":[{"Weight":0}]}`:                true,
+		`{"Variants":[{"Weight":0}]}`:                false, // zero is refused, an absent weight is 1
 		`{"Variants":[{}]}`:                          true,
+		`{"Variants":[{"Weight":1}]}`:                true,
 		`{"Variants":[{"Weight":100}]}`:              true,
 		`{"Variants":[{"Weight":1},{"Weight":101}]}`: false,
 		`{"Variants":[{"Weight":-1}]}`:               false,
