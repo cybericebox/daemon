@@ -103,17 +103,26 @@ type (
 
 	// archiveConditionV2 names its device by name.
 	archiveConditionV2 struct {
-		Device  string                `json:"device"`
-		Timeout string                `json:"timeout,omitempty"`
-		File    *archiveFileCheckV2   `json:"file,omitempty"`
-		Custom  *archiveCustomCheckV2 `json:"custom,omitempty"`
+		Device  string `json:"device"`
+		Timeout string `json:"timeout,omitempty"`
+		// Exactly one observation. The keys of the built-in ones are the document's and the model's own.
+		File        *archiveFileCheckV2                   `json:"file,omitempty"`
+		Directory   *exerciseModel.DirectoryObservation   `json:"directory,omitempty"`
+		Process     *exerciseModel.ProcessObservation     `json:"process,omitempty"`
+		Port        *exerciseModel.PortObservation        `json:"port,omitempty"`
+		KernelParam *exerciseModel.KernelParamObservation `json:"kernel_param,omitempty"`
+		Request     *exerciseModel.RequestObservation     `json:"request,omitempty"`
+		Permission  *exerciseModel.PermissionObservation  `json:"permission,omitempty"`
+		Custom      *archiveCustomCheckV2                 `json:"custom,omitempty"`
 	}
 
 	archiveFileCheckV2 struct {
 		Path     string `json:"path"`
 		Exists   *bool  `json:"exists,omitempty"`
+		Type     string `json:"type,omitempty"`
 		Contains string `json:"contains,omitempty"`
 		Matches  string `json:"matches,omitempty"`
+		Checksum string `json:"checksum,omitempty"`
 		Mode     string `json:"mode,omitempty"`
 		Owner    string `json:"owner,omitempty"`
 		Group    string `json:"group,omitempty"`
@@ -812,13 +821,17 @@ func (s *archiveStateV2) toDomain(
 			condition.File = &exerciseModel.FileObservation{
 				Path:     f.Path,
 				Exists:   f.Exists,
+				Type:     f.Type,
 				Contains: f.Contains,
 				Matches:  f.Matches,
+				Checksum: f.Checksum,
 				Mode:     f.Mode,
 				Owner:    f.Owner,
 				Group:    f.Group,
 			}
 		}
+		condition.Directory, condition.Process, condition.Port = c.Directory, c.Process, c.Port
+		condition.KernelParam, condition.Request, condition.Permission = c.KernelParam, c.Request, c.Permission
 		if o := c.Custom; o != nil {
 			condition.Custom = &exerciseModel.CustomObservation{
 				Run:            o.Run,
@@ -828,8 +841,8 @@ func (s *archiveStateV2) toDomain(
 				OutputMatches:  o.OutputMatches,
 			}
 		}
-		if (condition.File == nil) == (condition.Custom == nil) {
-			return nil, archiveInvalid(conditionPath + " must hold exactly one of file and custom")
+		if len(condition.Kinds()) != 1 {
+			return nil, archiveInvalid(conditionPath + " must hold exactly one observation: file, directory, process, port, kernel_param, request, permission or custom")
 		}
 		state.Conditions = append(state.Conditions, condition)
 	}
@@ -1228,13 +1241,17 @@ func exportCheckV2(check exerciseModel.Check, refs deviceRefs) *archiveCheckV2 {
 				condition.File = &archiveFileCheckV2{
 					Path:     f.Path,
 					Exists:   f.Exists,
+					Type:     f.Type,
 					Contains: f.Contains,
 					Matches:  f.Matches,
+					Checksum: f.Checksum,
 					Mode:     f.Mode,
 					Owner:    f.Owner,
 					Group:    f.Group,
 				}
 			}
+			condition.Directory, condition.Process, condition.Port = c.Directory, c.Process, c.Port
+			condition.KernelParam, condition.Request, condition.Permission = c.KernelParam, c.Request, c.Permission
 			if o := c.Custom; o != nil {
 				condition.Custom = &archiveCustomCheckV2{
 					Run:            o.Run,

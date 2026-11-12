@@ -338,10 +338,18 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Equal(t, exerciseModel.StateModeOnce, state.Mode)
 	require.Equal(t, "30s", state.Interval)
 	require.True(t, state.Manual)
-	require.Len(t, state.Conditions, 2)
+	require.Len(t, state.Conditions, 8)
 	require.Equal(t, web.ID, state.Conditions[0].DeviceID, "a condition names its device")
 	require.NotNil(t, state.Conditions[0].File)
 	require.NotNil(t, state.Conditions[1].Custom)
+	require.NotNil(t, state.Conditions[2].Directory)
+	require.Equal(t, []string{"config.php", "uploads"}, state.Conditions[2].Directory.HasEntries)
+	require.NotNil(t, state.Conditions[3].Process)
+	require.NotNil(t, state.Conditions[4].Port)
+	require.NotNil(t, state.Conditions[5].KernelParam)
+	require.NotNil(t, state.Conditions[6].Request)
+	require.NotNil(t, state.Conditions[7].Permission)
+	require.Equal(t, "file", state.Conditions[0].File.Type)
 	require.Len(t, media.uploads, 3)
 }
 
@@ -389,11 +397,30 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].tasks[4].check.state":                                           "a task needs exactly one check",
 	"versions[1].variants[1].tasks[4].check.state.conditions":                                "the state check of the task is invalid",
 	"versions[1].variants[1].tasks[4].check.state.conditions[1].device":                      "conditions[1].device: required",
-	"versions[1].variants[1].tasks[4].check.state.conditions[1].file":                        "must hold exactly one of file and custom",
+	"versions[1].variants[1].tasks[4].check.state.conditions[1].file":                        "must hold exactly one observation",
 	"versions[1].variants[1].tasks[4].check.state.conditions[1].file.path":                   "the state check of the task is invalid",
 	"versions[1].variants[1].tasks[4].check.state.conditions[2].device":                      "conditions[2].device: required",
-	"versions[1].variants[1].tasks[4].check.state.conditions[2].custom":                      "must hold exactly one of file and custom",
+	"versions[1].variants[1].tasks[4].check.state.conditions[2].custom":                      "must hold exactly one observation",
 	"versions[1].variants[1].tasks[4].check.state.conditions[2].custom.run":                  "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].device":                      "conditions[3].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].directory":                   "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].directory.path":              "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[4].device":                      "conditions[4].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[4].process":                     "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].device":                      "conditions[5].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].port":                        "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].port.port":                   "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].device":                      "conditions[6].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].kernel_param":                "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].kernel_param.name":           "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].device":                      "conditions[7].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request":                     "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request.protocol":            "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request.port":                "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].device":                      "conditions[8].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission":                  "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission.user":             "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission.path":             "the state check of the task is invalid",
 	"versions[1].variants[1].topology.variables[1].name":                                     "a variable of the infrastructure is invalid",
 	"versions[1].variants[1].topology.variables[2].name":                                     "a variable of the infrastructure is invalid",
 	"versions[1].variants[1].topology.devices[1].bootstrap.env[1].name":                      "a runtime setting of the device is invalid",
@@ -551,9 +578,13 @@ func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 			"steps",
 			"near_solution",
 		},
-		"versions.variants.tasks.check.answer.type":          {"flag", "text"},
-		"versions.variants.topology.devices.access.kind":     {"http", "terminal", "vnc", "rdp"},
-		"versions.variants.topology.devices.access.protocol": {"http", "https"},
+		"versions.variants.tasks.check.answer.type":                       {"flag", "text"},
+		"versions.variants.topology.devices.access.kind":                  {"http", "terminal", "vnc", "rdp"},
+		"versions.variants.topology.devices.access.protocol":              {"http", "https"},
+		"versions.variants.tasks.check.state.conditions.file.type":        {"file", "directory", "symlink"},
+		"versions.variants.tasks.check.state.conditions.port.protocol":    {"tcp", "udp"},
+		"versions.variants.tasks.check.state.conditions.request.protocol": {"tcp", "http", "https"},
+		"versions.variants.tasks.check.state.conditions.request.method":   {"GET", "HEAD"},
 		"versions.variants.tasks.check.state.mode": {
 			"once",
 			"continuous",

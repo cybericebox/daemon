@@ -425,3 +425,32 @@ func TestToParsed_BootstrapSourceSize(t *testing.T) {
 	require.Equal(t, "bootstrap.files[1].source", ctx["field"])
 	require.Equal(t, "versions[1].variants[1]", ctx["path"])
 }
+
+// Every observation of a state check goes out as a document and comes back the same, with its keys.
+func TestStateObservationsSurviveExportAndParse(t *testing.T) {
+	yes, no := true, false
+	device := uuid.Must(uuid.NewV7())
+	conditions := []exerciseModel.Condition{
+		{DeviceID: device, Timeout: "10s", File: &exerciseModel.FileObservation{Path: "/a", Exists: &yes, Type: "file", Contains: "x", Matches: "y", Checksum: strings.Repeat("a", 64), Mode: "0640", Owner: "o", Group: "g"}},
+		{DeviceID: device, Directory: &exerciseModel.DirectoryObservation{Path: "/d", Exists: &yes, Mode: "0750", Owner: "o", Group: "g", HasEntries: []string{"a"}, LacksEntries: []string{"b"}}},
+		{DeviceID: device, Process: &exerciseModel.ProcessObservation{Name: "nginx", Matches: "m", User: "u", Running: &yes}},
+		{DeviceID: device, Port: &exerciseModel.PortObservation{Port: 80, Protocol: "udp", Listening: &yes, Address: "127.0.0.1", Process: "nginx"}},
+		{DeviceID: device, KernelParam: &exerciseModel.KernelParamObservation{Name: "net.ipv4.ip_forward", Equals: "1", Matches: "^1$"}},
+		{DeviceID: device, Request: &exerciseModel.RequestObservation{Protocol: "https", Host: "h", Port: 443, Method: "HEAD", Path: "/p", Status: 204, BodyContains: "b", BodyMatches: "m"}},
+		{DeviceID: device, Permission: &exerciseModel.PermissionObservation{User: "u", Path: "/p", Read: &no, Write: &no, Execute: &yes}},
+		{DeviceID: device, Custom: &exerciseModel.CustomObservation{Run: "true", Interpreter: "/bin/sh", OutputContains: "c", OutputMatches: "m"}},
+	}
+	refs := newDeviceRefs([]exerciseModel.Device{{ID: device, Name: "web"}})
+	exported := exportCheckV2(exerciseModel.Check{State: &exerciseModel.StateCheck{Mode: "once", Conditions: conditions}}, refs)
+	require.NotNil(t, exported)
+	raw, err := json.Marshal(exported.State)
+	require.NoError(t, err)
+	for _, key := range []string{`"directory"`, `"process"`, `"port"`, `"kernel_param"`, `"request"`, `"permission"`, `"has_entries"`, `"lacks_entries"`, `"body_matches"`, `"checksum"`} {
+		require.Contains(t, string(raw), key)
+	}
+	var state archiveStateV2
+	require.NoError(t, json.Unmarshal(raw, &state))
+	back, err := state.toDomain("check.state", map[string]uuid.UUID{"web": device})
+	require.NoError(t, err)
+	require.Equal(t, conditions, back.Conditions)
+}

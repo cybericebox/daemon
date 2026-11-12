@@ -201,22 +201,10 @@ func (v Variant) substitutionFields() []refField {
 		}
 		for i, c := range task.Check.State.Conditions {
 			prefix := fmt.Sprintf("task %s: check.state.conditions[%d].", task.Key, i+1)
-			if f := c.File; f != nil {
-				fields = append(fields,
-					refField{path: prefix + "file.contains", text: f.Contains},
-					refField{path: prefix + "file.matches", text: f.Matches, pattern: true})
-			}
-			if o := c.Custom; o != nil {
-				fields = append(
-					fields,
-					refField{path: prefix + "custom.output_contains", text: o.OutputContains},
-					refField{
-						path:    prefix + "custom.output_matches",
-						text:    o.OutputMatches,
-						pattern: true,
-					},
-				)
-			}
+			_, _ = c.MapTexts(func(place, text string, pattern bool) (string, error) {
+				fields = append(fields, refField{path: prefix + place, text: text, pattern: pattern})
+				return text, nil
+			})
 		}
 	}
 	return fields
@@ -390,33 +378,10 @@ func (v Variant) ResolveInstance(p PinnedValues) (ResolvedInstance, error) {
 			prefix := fmt.Sprintf("task %s: check.state.conditions[%d].", task.Key, i+1)
 			resolved.Conditions[i] = c
 			var err error
-			if f := c.File; f != nil {
-				file := *f
-				if file.Contains, err = sub(prefix+"file.contains", f.Contains, false); err != nil {
-					return ResolvedInstance{}, err
-				}
-				if file.Matches, err = sub(prefix+"file.matches", f.Matches, true); err != nil {
-					return ResolvedInstance{}, err
-				}
-				resolved.Conditions[i].File = &file
-			}
-			if o := c.Custom; o != nil {
-				custom := *o
-				if custom.OutputContains, err = sub(
-					prefix+"custom.output_contains",
-					o.OutputContains,
-					false,
-				); err != nil {
-					return ResolvedInstance{}, err
-				}
-				if custom.OutputMatches, err = sub(
-					prefix+"custom.output_matches",
-					o.OutputMatches,
-					true,
-				); err != nil {
-					return ResolvedInstance{}, err
-				}
-				resolved.Conditions[i].Custom = &custom
+			if resolved.Conditions[i], err = c.MapTexts(func(place, text string, pattern bool) (string, error) {
+				return sub(prefix+place, text, pattern)
+			}); err != nil {
+				return ResolvedInstance{}, err
 			}
 		}
 		out.Conditions = append(out.Conditions, resolved)

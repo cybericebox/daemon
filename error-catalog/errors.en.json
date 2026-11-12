@@ -70,7 +70,6 @@
   "20921": "A port may be used by at most one connection",
   "20925": "Description placeholder is malformed",
   "20926": "Description placeholder references a node absent from the topology",
-  "20927": "Device external access is invalid",
   "20928": "Connection must have exactly two endpoints",
   "20929": "VPN is not enabled in this variant's topology",
   "20930": "Internet is not enabled in this variant's topology",

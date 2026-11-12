@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -77,15 +78,15 @@ func contractFixture() (exerciseModel.Topology, []exerciseModel.LabCheck) {
 			ID: "ospf:1", TaskKey: "ospf", Device: "r1", Mode: exerciseModel.StateModeContinuous,
 			ScheduleSeconds: 30, TimeLimitSeconds: 20, Manual: true,
 			Parts: []exerciseModel.LabCheckPart{
-				{File: &exerciseModel.FileObservation{Path: "/etc/frr/frr.conf", Contains: "router ospf", Matches: `area 0`, Mode: "0640", Owner: "frr"}},
-				{Custom: &exerciseModel.CustomObservation{Run: "vtysh -c 'show ip ospf neighbor' | grep -q Full", Interpreter: "/bin/sh", User: "root", OutputMatches: "^Full$"}},
+				{Condition: exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/etc/frr/frr.conf", Contains: "router ospf", Matches: `area 0`, Mode: "0640", Owner: "frr"}}},
+				{Condition: exerciseModel.Condition{Custom: &exerciseModel.CustomObservation{Run: "vtysh -c 'show ip ospf neighbor' | grep -q Full", Interpreter: "/bin/sh", User: "root", OutputMatches: "^Full$"}}},
 			},
 		},
 		{
 			ID: "ospf:2", TaskKey: "ospf", Device: "srv", Mode: exerciseModel.StateModeOnce, TimeLimitSeconds: 30,
 			Parts: []exerciseModel.LabCheckPart{
-				{File: &exerciseModel.FileObservation{Path: "/tmp/gone", Exists: &absent}},
-				{File: &exerciseModel.FileObservation{Path: "/tmp/there"}},
+				{Condition: exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/tmp/gone", Exists: &absent}}},
+				{Condition: exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/tmp/there"}}},
 			},
 		},
 	}
@@ -139,4 +140,30 @@ func TestBuildLab_DoesNotPutSecretsInTheSpec(t *testing.T) {
 	for _, secret := range []string{"s3cret", "ICE{abc}", "router ospf", "Full"} {
 		require.NotContains(t, string(build.SpecJSON), secret)
 	}
+}
+
+// A condition the laboratory contract has no message for is an error that names it; a part is never left out silently.
+// The kinds are mapped in checks_parts.go when the contract carries them.
+func TestBuildLabChecks_RefusesWhatTheContractLacks(t *testing.T) {
+	check := func(c exerciseModel.Condition) []exerciseModel.LabCheck {
+		return []exerciseModel.LabCheck{{ID: "s:1", Device: "web", Parts: []exerciseModel.LabCheckPart{{Condition: c}}}}
+	}
+	for name, c := range map[string]exerciseModel.Condition{
+		"directory":     {Directory: &exerciseModel.DirectoryObservation{Path: "/srv"}},
+		"process":       {Process: &exerciseModel.ProcessObservation{Name: "nginx"}},
+		"port":          {Port: &exerciseModel.PortObservation{Port: 80}},
+		"kernel_param":  {KernelParam: &exerciseModel.KernelParamObservation{Name: "a.b", Equals: "1"}},
+		"request":       {Request: &exerciseModel.RequestObservation{Protocol: "tcp", Port: 80}},
+		"permission":    {Permission: &exerciseModel.PermissionObservation{User: "u", Path: "/p", Read: new(bool)}},
+		"file checksum": {File: &exerciseModel.FileObservation{Path: "/x", Checksum: strings.Repeat("a", 64)}},
+		"file type":     {File: &exerciseModel.FileObservation{Path: "/x", Type: "symlink"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := buildLabChecks(check(c))
+			require.ErrorIs(t, err, exerciseModel.ErrRuntimeNotSupported.Err())
+		})
+	}
+	out, err := buildLabChecks(check(exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/x", Contains: "a"}}))
+	require.NoError(t, err)
+	require.Len(t, out.Items[0].Parts, 1)
 }

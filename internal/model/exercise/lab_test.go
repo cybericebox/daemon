@@ -158,8 +158,8 @@ func TestBuildLabChecksGroupsPerTaskAndDevice(t *testing.T) {
 	require.Equal(t, exerciseModel.StateModeContinuous, first.Mode)
 	require.True(t, first.Manual)
 	require.Len(t, first.Parts, 2)
-	require.NotNil(t, first.Parts[0].File)
-	require.NotNil(t, first.Parts[1].Custom)
+	require.NotNil(t, first.Parts[0].Condition.File)
+	require.NotNil(t, first.Parts[1].Condition.Custom)
 	require.EqualValues(t, 20, first.TimeLimitSeconds)
 	require.EqualValues(t, 30, first.ScheduleSeconds)
 

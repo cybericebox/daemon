@@ -100,22 +100,30 @@ type (
 	}
 
 	// Condition is one observation on one device (always a node device of the variant); the state is reached when
-	// every condition holds. Exactly one of File and Custom is set.
+	// every condition holds. Exactly one of the observations is set (see ObservationKinds).
 	Condition struct {
 		// DeviceID is the observed device; the document names it.
 		DeviceID uuid.UUID `json:"device_id"`
 		// Timeout is a Go duration, MinConditionTimeout..MaxConditionTimeout; empty = the lab's default.
-		Timeout string             `json:"timeout,omitempty"`
-		File    *FileObservation   `json:"file,omitempty"`
-		Custom  *CustomObservation `json:"custom,omitempty"`
+		Timeout     string                  `json:"timeout,omitempty"`
+		File        *FileObservation        `json:"file,omitempty"`
+		Directory   *DirectoryObservation   `json:"directory,omitempty"`
+		Process     *ProcessObservation     `json:"process,omitempty"`
+		Port        *PortObservation        `json:"port,omitempty"`
+		KernelParam *KernelParamObservation `json:"kernel_param,omitempty"`
+		Request     *RequestObservation     `json:"request,omitempty"`
+		Permission  *PermissionObservation  `json:"permission,omitempty"`
+		Custom      *CustomObservation      `json:"custom,omitempty"`
 	}
 
 	// FileObservation looks at a file of the device. Exists is true unless set to false; false stands alone.
 	FileObservation struct {
 		Path     string `json:"path"`
 		Exists   *bool  `json:"exists,omitempty"`
+		Type     string `json:"type,omitempty"` // file | directory | symlink
 		Contains string `json:"contains,omitempty"`
 		Matches  string `json:"matches,omitempty"`
+		Checksum string `json:"checksum,omitempty"` // sha256 hex of the content
 		Mode     string `json:"mode,omitempty"`
 		Owner    string `json:"owner,omitempty"`
 		Group    string `json:"group,omitempty"`
@@ -302,13 +310,22 @@ func validConditionShape(c Condition) string {
 	if c.Timeout != "" && !validDurationIn(c.Timeout, MinConditionTimeout, MaxConditionTimeout) {
 		return "timeout"
 	}
-	if (c.File == nil) == (c.Custom == nil) {
+	if len(c.Kinds()) != 1 {
 		return "observation"
+	}
+	if c.File == nil && c.Custom == nil {
+		return validObservationShape(c)
 	}
 	if f := c.File; f != nil {
 		switch {
-		case !validAbsolutePath(f.Path):
+		case !validAbsolutePath(substitutionStandIn(f.Path)):
 			return "file.path"
+		case f.Type != "" && f.Type != "file" && f.Type != "directory" && f.Type != "symlink":
+			return "file.type"
+		case f.Checksum != "" && !hasSubstitution(f.Checksum) && !checksumRe.MatchString(f.Checksum):
+			return "file.checksum"
+		case f.Type != "" && f.Type != "file" && (f.Contains != "" || f.Matches != "" || f.Checksum != ""):
+			return "file.type"
 		case !validExpectationText(f.Contains):
 			return "file.contains"
 		case !validExpectationRegexp(f.Matches):
@@ -319,7 +336,7 @@ func validConditionShape(c Condition) string {
 			return "file.owner"
 		case f.Group != "" && !accountNameRe.MatchString(f.Group):
 			return "file.group"
-		case f.Exists != nil && !*f.Exists && (f.Contains != "" || f.Matches != "" || f.Mode != "" || f.Owner != "" || f.Group != ""):
+		case f.Exists != nil && !*f.Exists && (f.Type != "" || f.Contains != "" || f.Matches != "" || f.Checksum != "" || f.Mode != "" || f.Owner != "" || f.Group != ""):
 			return "file.exists"
 		}
 		return ""

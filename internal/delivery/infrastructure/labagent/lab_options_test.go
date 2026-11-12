@@ -39,7 +39,7 @@ func labNeedingEverything() (exerciseModel.Topology, infraModel.LabMeta) {
 	}}}
 	meta := infraModel.LabMeta{Checks: []exerciseModel.LabCheck{{
 		ID: "t:1", TaskKey: "t", Device: "r1", Mode: exerciseModel.StateModeOnce, TimeLimitSeconds: 30,
-		Parts: []exerciseModel.LabCheckPart{{File: &exerciseModel.FileObservation{Path: "/a"}}},
+		Parts: []exerciseModel.LabCheckPart{{Condition: exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/a"}}}},
 	}}}
 	return topology, meta
 }

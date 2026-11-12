@@ -1621,7 +1621,7 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 	if len(checks) != 2 || checks[0].ID != "ospf:1" || checks[1].ID != "ospf:2" || checks[0].Device != "r1" || checks[1].Device != "r2" {
 		t.Fatalf("checks = %+v", checks)
 	}
-	if checks[0].Parts[0].File.Contains != "admin:"+pw || checks[1].Parts[0].Custom.OutputContains != "ICE{fixed}" {
+	if checks[0].Parts[0].Condition.File.Contains != "admin:"+pw || checks[1].Parts[0].Condition.Custom.OutputContains != "ICE{fixed}" {
 		t.Fatalf("the expectations must hold this deploy's values: %+v", checks)
 	}
 	for _, c := range checks {

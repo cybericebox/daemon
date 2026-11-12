@@ -224,7 +224,10 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 		}
 		spec.Connections = append(spec.Connections, conn)
 	}
-	build.Checks = buildLabChecks(checks)
+	var checksErr error
+	if build.Checks, checksErr = buildLabChecks(checks); checksErr != nil {
+		return LabBuild{}, checksErr
+	}
 	build.VPNReverseSent = spec.VPN.ReverseConnections
 
 	specJSON, err := json.Marshal(spec)
@@ -414,10 +417,11 @@ func buildDeviceBootstrap(d exerciseModel.Device) *labpb.DeviceBootstrap {
 	return out
 }
 
-// buildLabChecks maps the checks of a lab; nil when there are none.
-func buildLabChecks(checks []exerciseModel.LabCheck) *labpb.LabChecks {
+// buildLabChecks maps the checks of a lab; nil when there are none. The observation of each part is mapped in
+// checks_parts.go; a kind the laboratory contract has no message for is an error, never a part left out.
+func buildLabChecks(checks []exerciseModel.LabCheck) (*labpb.LabChecks, error) {
 	if len(checks) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := &labpb.LabChecks{}
 	for _, c := range checks {
@@ -430,16 +434,15 @@ func buildLabChecks(checks []exerciseModel.LabCheck) *labpb.LabChecks {
 			TimeLimitSeconds: c.TimeLimitSeconds,
 		}
 		for _, part := range c.Parts {
-			switch {
-			case part.File != nil:
-				check.Parts = append(check.Parts, &labpb.CheckPart{Observation: &labpb.CheckPart_File{File: buildFileObservation(*part.File)}})
-			case part.Custom != nil:
-				check.Parts = append(check.Parts, &labpb.CheckPart{Observation: &labpb.CheckPart_Custom{Custom: buildCustomObservation(*part.Custom)}})
+			wire, err := buildCheckPart(c.Device, part.Condition)
+			if err != nil {
+				return nil, err
 			}
+			check.Parts = append(check.Parts, wire)
 		}
 		out.Items = append(out.Items, check)
 	}
-	return out
+	return out, nil
 }
 
 func wireCheckMode(mode exerciseModel.StateMode) labpb.CheckMode {
@@ -455,37 +458,4 @@ func optionalText(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-// buildFileObservation: exists is true unless the author said false (a file expectation implies it), every other
-// expectation is optional.
-func buildFileObservation(f exerciseModel.FileObservation) *labpb.FileObservation {
-	exists := true
-	if f.Exists != nil {
-		exists = *f.Exists
-	}
-	out := &labpb.FileObservation{
-		Path:            f.Path,
-		Exists:          &exists,
-		ContentContains: optionalText(f.Contains),
-		ContentMatches:  optionalText(f.Matches),
-		Owner:           optionalText(f.Owner),
-		Group:           optionalText(f.Group),
-	}
-	if mode, err := strconv.ParseUint(f.Mode, 8, 32); err == nil && f.Mode != "" {
-		bits := uint32(mode)
-		out.Mode = &bits
-	}
-	return out
-}
-
-// buildCustomObservation: the author's run is a script (a command line is a one-line script), run with the interpreter.
-func buildCustomObservation(o exerciseModel.CustomObservation) *labpb.CustomObservation {
-	return &labpb.CustomObservation{
-		Script:         o.Run,
-		Interpreter:    o.Interpreter,
-		User:           o.User,
-		OutputContains: optionalText(o.OutputContains),
-		OutputMatches:  optionalText(o.OutputMatches),
-	}
 }

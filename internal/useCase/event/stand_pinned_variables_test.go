@@ -110,7 +110,7 @@ func TestWithTeamBootstraps_PinsVariablesAcrossBuilds(t *testing.T) {
 		require.Equal(t, "mode=ctf", built.Devices[0].Bootstrap.Files[0].Content)
 		require.Len(t, checks, 1)
 		require.Equal(t, "configured:1", checks[0].ID)
-		require.Equal(t, "admin:"+m[1], checks[0].Parts[0].File.Contains, "the expectation holds the same value")
+		require.Equal(t, "admin:"+m[1], checks[0].Parts[0].Condition.File.Contains, "the expectation holds the same value")
 		return m[1]
 	}
 

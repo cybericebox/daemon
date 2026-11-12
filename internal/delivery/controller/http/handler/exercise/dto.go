@@ -342,19 +342,29 @@ type stateDTO struct {
 	Conditions []conditionDTO `json:"Conditions"`
 }
 
-// conditionDTO observes one node device; exactly one of File and Custom is set. Timeout is a duration from 1s to 1m.
+// conditionDTO observes one node device; exactly one observation is set: File, Directory, Process, Port, KernelParam,
+// Request, Permission or Custom. Timeout is a duration from 1s to 1m. A state task is not allowed on an event.
 type conditionDTO struct {
-	DeviceID uuid.UUID       `json:"DeviceID"`
-	Timeout  string          `json:"Timeout,omitempty"`
-	File     *fileCheckDTO   `json:"File,omitempty"`
-	Custom   *customCheckDTO `json:"Custom,omitempty"`
+	DeviceID    uuid.UUID            `json:"DeviceID"`
+	Timeout     string               `json:"Timeout,omitempty"`
+	File        *fileCheckDTO        `json:"File,omitempty"`
+	Directory   *directoryCheckDTO   `json:"Directory,omitempty"`
+	Process     *processCheckDTO     `json:"Process,omitempty"`
+	Port        *portCheckDTO        `json:"Port,omitempty"`
+	KernelParam *kernelParamCheckDTO `json:"KernelParam,omitempty"`
+	Request     *requestCheckDTO     `json:"Request,omitempty"`
+	Permission  *permissionCheckDTO  `json:"Permission,omitempty"`
+	// Custom runs a command of the author in the device; User empty = nobody (applied by the laboratory, not stored).
+	Custom *customCheckDTO `json:"Custom,omitempty"`
 }
 
 type fileCheckDTO struct {
 	Path     string `json:"Path"`
 	Exists   *bool  `json:"Exists,omitempty"`
+	Type     string `json:"Type,omitempty" enums:"file,directory,symlink"`
 	Contains string `json:"Contains,omitempty"`
 	Matches  string `json:"Matches,omitempty"`
+	Checksum string `json:"Checksum,omitempty"`
 	Mode     string `json:"Mode,omitempty"`
 	Owner    string `json:"Owner,omitempty"`
 	Group    string `json:"Group,omitempty"`
@@ -953,13 +963,16 @@ func (c checkDTO) toDomain() exerciseModel.Check {
 				mapped.File = &exerciseModel.FileObservation{
 					Path:     f.Path,
 					Exists:   f.Exists,
+					Type:     f.Type,
 					Contains: f.Contains,
 					Matches:  f.Matches,
+					Checksum: f.Checksum,
 					Mode:     f.Mode,
 					Owner:    f.Owner,
 					Group:    f.Group,
 				}
 			}
+			condition.builtInToDomain(&mapped)
 			if o := condition.Custom; o != nil {
 				mapped.Custom = &exerciseModel.CustomObservation{
 					Run:            o.Run,
@@ -1000,13 +1013,16 @@ func checkToDTO(c exerciseModel.Check) checkDTO {
 				mapped.File = &fileCheckDTO{
 					Path:     f.Path,
 					Exists:   f.Exists,
+					Type:     f.Type,
 					Contains: f.Contains,
 					Matches:  f.Matches,
+					Checksum: f.Checksum,
 					Mode:     f.Mode,
 					Owner:    f.Owner,
 					Group:    f.Group,
 				}
 			}
+			builtInToDTO(condition, &mapped)
 			if o := condition.Custom; o != nil {
 				mapped.Custom = &customCheckDTO{
 					Run:            o.Run,

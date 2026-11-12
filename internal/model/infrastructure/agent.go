@@ -129,6 +129,9 @@ type (
 		MaxTimeLimitSeconds int32 `json:"max_time_limit_seconds"`
 		MaxScheduleSeconds  int32 `json:"max_schedule_seconds"`
 		MaxDetailBytes      int32 `json:"max_detail_bytes"`
+		// Observations are the observation kinds the checker can run ("file", "directory", ..., and the file keys
+		// "file.type" and "file.checksum"). Empty: the agent reports none, which is a contract 1.5 agent: file and custom.
+		Observations []string `json:"observations,omitempty"`
 	}
 	TerminalFeature struct {
 		Enabled bool `json:"enabled"`
@@ -142,6 +145,18 @@ type (
 		MaxAttempts         int32 `json:"max_attempts"`
 	}
 )
+
+// legacyObservations are the observations of the first checker (contract 1.5), which does not list them.
+var legacyObservations = []string{"file", "custom"}
+
+// Offers reports whether the checker runs the observation kind.
+func (c ChecksFeature) Offers(kind string) bool {
+	list := c.Observations
+	if len(list) == 0 {
+		list = legacyObservations
+	}
+	return slices.Contains(list, kind)
+}
 
 // VPNFeature says the agent enforces the block of connections the lab starts to VPN clients and accepts spec.vpn.reverseConnections.
 type VPNFeature struct {
@@ -171,6 +186,11 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 			over("checks.max_parts_per_check", n.MaxParts, f.Checks.MaxPartsPerCheck)
 			over("checks.max_time_limit_seconds", n.MaxCheckTimeLimit, f.Checks.MaxTimeLimitSeconds)
 			over("checks.max_schedule_seconds", n.MaxCheckSchedule, f.Checks.MaxScheduleSeconds)
+			for _, kind := range n.Observations {
+				if !f.Checks.Offers(kind) {
+					refused = append(refused, "checks.observation."+kind)
+				}
+			}
 		}
 	}
 	if n.Terminal && (f.Terminal == nil || !f.Terminal.Enabled) {

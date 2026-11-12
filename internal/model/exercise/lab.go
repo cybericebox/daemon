@@ -3,7 +3,9 @@ package exerciseModel
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -114,8 +116,8 @@ func (d Device) LabService() (*LabService, error) {
 
 // LabCheckPart is one observation of a check with the substitutions made.
 type LabCheckPart struct {
-	File   *FileObservation
-	Custom *CustomObservation
+	// Condition holds the observation (exactly one of its kinds is set) with the substitutions made.
+	Condition Condition
 }
 
 // LabCheck is one check the laboratory runs: every condition of one state task on one device. The task is solved when all
@@ -209,7 +211,7 @@ func (v Variant) BuildLabChecks(topology Topology, resolved []ResolvedConditions
 				groups[name] = group
 				order = append(order, name)
 			}
-			group.Parts = append(group.Parts, LabCheckPart{File: c.File, Custom: c.Custom})
+			group.Parts = append(group.Parts, LabCheckPart{Condition: c})
 			if c.Timeout != "" {
 				if timeout, parseErr := time.ParseDuration(c.Timeout); parseErr == nil && timeout > limits[name] {
 					limits[name] = timeout
@@ -256,6 +258,9 @@ type LabNeeds struct {
 	// ChecksPerLab and MaxParts are the most checks of the lab and the most parts of one check.
 	ChecksPerLab int
 	MaxParts     int
+	// Observations are the observation kinds the checks use, sorted and without repeats; the file keys type and checksum
+	// are named "file.type" and "file.checksum". The laboratory must offer every one.
+	Observations []string
 	// MaxCheckTimeLimit and MaxCheckSchedule are the largest time limit and schedule, in seconds.
 	MaxCheckTimeLimit int
 	MaxCheckSchedule  int
@@ -297,6 +302,23 @@ func NeedsOf(t Topology, checks []LabCheck) LabNeeds {
 	}
 	n.Checks = len(checks) > 0
 	n.ChecksPerLab = len(checks)
+	kinds := map[string]struct{}{}
+	for _, c := range checks {
+		for _, part := range c.Parts {
+			for _, kind := range part.Condition.Kinds() {
+				kinds[string(kind)] = struct{}{}
+			}
+			if f := part.Condition.File; f != nil {
+				if f.Type != "" {
+					kinds["file.type"] = struct{}{}
+				}
+				if f.Checksum != "" {
+					kinds["file.checksum"] = struct{}{}
+				}
+			}
+		}
+	}
+	n.Observations = slices.Sorted(maps.Keys(kinds))
 	for _, c := range checks {
 		n.MaxParts = max(n.MaxParts, len(c.Parts))
 		n.MaxCheckTimeLimit = max(n.MaxCheckTimeLimit, int(c.TimeLimitSeconds))
