@@ -109,7 +109,7 @@ func DefaultClient(p imageRegistryModel.Provider, repository, username, password
 func DefaultExternalClient(host, repository, username, password string) *ociregistry.Client {
 	return ociregistry.New(ociregistry.Options{
 		Host: host, Repository: repository, Username: username, Password: password,
-		Transport: ociregistry.GuardedTransport(nil),
+		Transport: ociregistry.GuardedTransport(nil), RequireHTTPS: true,
 	})
 }
 

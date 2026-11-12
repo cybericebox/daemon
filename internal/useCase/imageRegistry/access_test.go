@@ -527,8 +527,8 @@ func TestEventImagesAvailability(t *testing.T) {
 	}
 }
 
-// The default client for image hosts dials through the guard: a loopback
-// registry is never reached.
+// The default client for image hosts is https only and dials through the guard: a loopback
+// registry (plain http for the client library) is refused before any request.
 func TestDefaultExternalClientRefusesInternalAddresses(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
@@ -536,7 +536,7 @@ func TestDefaultExternalClientRefusesInternalAddresses(t *testing.T) {
 	pub := newTestRegistry(t, "", "")
 	img := pub.host() + "/library/nginx:1"
 	av, err := uc.CheckImageAvailability(context.Background(), Scope{}, []string{img})
-	if err != nil || len(av) != 1 || av[0].Reason != imageRegistryModel.ReasonUnreachable {
+	if err != nil || len(av) != 1 || av[0].Reason != imageRegistryModel.ReasonInvalidReference {
 		t.Fatalf("got %v %v", av, err)
 	}
 	if n := pub.headCount(); n != 0 {
