@@ -74,3 +74,31 @@ func TestKeepServiceConfigIgnoresAnUnreadableBlob(t *testing.T) {
 	f.uc.keepServiceConfig(context.Background(), "sha256:x", []byte("not json"))
 	require.Empty(t, configs.rows)
 }
+
+// An image that declares nothing has a stored, empty configuration, and that is "known": the device runs as root, which is not
+// the same as an image whose configuration the platform has never read.
+func TestAnImageThatDeclaresNothingIsKnown(t *testing.T) {
+	configs := &memoryConfigs{}
+	f := newAccessFixture(t, true, func(d *Dependencies) { d.Configs = configs })
+	digest := "sha256:" + strings.Repeat("b", 64)
+	f.uc.keepServiceConfig(context.Background(), digest, []byte(`{"architecture":"amd64","os":"linux","config":{},"rootfs":{"type":"layers","diff_ids":[]}}`))
+	require.Contains(t, configs.rows, digest)
+
+	image := "platform:bare@" + digest
+	external := "docker.io/acme/app:1"
+	old := "platform:old@sha256:" + strings.Repeat("c", 64)
+	original := topo(image, external, old)
+	out := original
+	out.Devices = slices.Clone(original.Devices)
+	f.uc.fillImageServices(context.Background(), original, &out)
+	require.NotNil(t, out.Devices[0].ImageService, "stored and empty: known")
+	require.Equal(t, exerciseModel.ServiceUserRoot, out.Devices[0].ImageService.ServiceUser())
+	require.Nil(t, out.Devices[1].ImageService, "an external image is not read")
+	require.Nil(t, out.Devices[2].ImageService, "a platform image uploaded before configurations were kept is not known")
+
+	known := map[string]bool{}
+	for _, info := range f.uc.ImageServices(context.Background(), []string{image, external, old}) {
+		known[info.Image] = info.Known
+	}
+	require.Equal(t, map[string]bool{image: true, external: false, old: false}, known)
+}

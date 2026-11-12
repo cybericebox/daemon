@@ -38,8 +38,9 @@ func labNeedingEverything() (exerciseModel.Topology, infraModel.LabMeta) {
 	id := uuid.Must(uuid.NewV7())
 	topology := exerciseModel.Topology{Devices: []exerciseModel.Device{{
 		ID: id, Name: "r1", Type: exerciseModel.DeviceTypeNode, Image: "frr", Command: []string{"/start"},
-		Access:    []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}},
-		Bootstrap: exerciseModel.Bootstrap{Script: "true", Files: []exerciseModel.BootstrapFile{{Path: "/a", Content: "12345"}}},
+		ImageService: &exerciseModel.ImageService{User: "frr"},
+		Access:       []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}},
+		Bootstrap:    exerciseModel.Bootstrap{Script: "true", Files: []exerciseModel.BootstrapFile{{Path: "/a", Content: "12345"}}},
 	}}}
 	meta := infraModel.LabMeta{Checks: []exerciseModel.LabCheck{{
 		ID: "t:1", TaskKey: "t", Device: "r1", Mode: exerciseModel.StateModeOnce, TimeLimitSeconds: 30,

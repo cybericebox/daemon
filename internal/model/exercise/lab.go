@@ -55,6 +55,20 @@ func ParseImageService(body []byte) (ImageService, error) {
 	}, nil
 }
 
+// ServiceUserRoot is the user a service runs as when its image declares none: the account with id 0, written as a number
+// because the launcher resolves a number without /etc/passwd (an image built from scratch has none) while a name must be
+// in it.
+const ServiceUserRoot = "0"
+
+// ServiceUser is the user the service of the image runs as, in the form the image gives it ("app", "1000", "app:web",
+// "1000:1000": the launcher takes all of them); the root account when the image declares none.
+func (s ImageService) ServiceUser() string {
+	if s.User == "" {
+		return ServiceUserRoot
+	}
+	return s.User
+}
+
 // IsZero reports an image configuration that says nothing.
 func (s ImageService) IsZero() bool {
 	return len(s.Entrypoint) == 0 && len(s.Cmd) == 0 && s.User == "" && s.WorkingDir == ""
@@ -82,9 +96,11 @@ func (d Device) NeedsServiceCommand() bool {
 
 // LabService resolves the service command of the device: the author's command and args when set, else the values of the
 // image configuration. Docker's rules apply: an author command replaces the entrypoint and drops the image's cmd; args
-// alone replace the image's cmd. The user and the working directory are the image's. When the entrypoint is empty the
+// alone replace the image's cmd. The user and the working directory are the image's (a user is always sent: the root
+// account when the image declares none). When the entrypoint is empty the
 // command is the argument list (the image runs its cmd as the whole command). nil when the laboratory need not be told
-// (the image decides). An error names the device when a command is needed but nothing gives one.
+// (the image decides). An error names the device when a command is needed but nothing gives one, or when the image's
+// configuration is not known (ErrServiceUserUnknown).
 func (d Device) LabService() (*LabService, error) {
 	if !d.NeedsServiceCommand() {
 		return nil, nil
@@ -106,10 +122,15 @@ func (d Device) LabService() (*LabService, error) {
 	if len(command) == 0 {
 		return nil, ErrServiceCommandUnknown.WithPublicContext("device", d.Name).Err()
 	}
+	if d.ImageService == nil {
+		// The image's own user is what the service runs as; without its configuration the platform does not guess (an
+		// empty user would start the service as root even for an image that declares a non-root USER).
+		return nil, ErrServiceUserUnknown.WithPublicContext("device", d.Name).WithPublicContext("field", "image").Err()
+	}
 	return &LabService{
 		Command:    append([]string(nil), command...),
 		Args:       append([]string(nil), args...),
-		User:       image.User,
+		User:       image.ServiceUser(),
 		WorkingDir: image.WorkingDir,
 	}, nil
 }
