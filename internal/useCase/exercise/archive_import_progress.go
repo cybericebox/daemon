@@ -70,16 +70,6 @@ func (p *importProgress) imagePushed(ctx context.Context, size int64) {
 	p.report(ctx, next, false)
 }
 
-// taskCreated counts a created task.
-func (p *importProgress) taskCreated(ctx context.Context) {
-	if p == nil {
-		return
-	}
-	next := p.current()
-	next.TasksDone++
-	p.report(ctx, next, false)
-}
-
 // report keeps the progress in memory always and writes it when forced or when the interval has passed since the
 // last write. The first write of a count is never held back by an interval that never started.
 func (p *importProgress) report(ctx context.Context, next exerciseModel.ImportProgress, force bool) {

@@ -92,14 +92,6 @@ func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, b
 	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries, noEmail)
 }
 
-func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]struct{} {
-	seen := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		seen[userModel.NormalizeEmail(entry.Email)] = struct{}{}
-	}
-	return seen
-}
-
 func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
 	if len(entries) == 0 || len(entries) > 200 {
 		return nil, participantModel.ErrInvitationEmailInvalid.WithMessage("Provide 1 to 200 email addresses").Err()

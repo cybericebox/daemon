@@ -1388,14 +1388,6 @@ func (u *EventUseCase) publishAvailableChallenges(ctx context.Context, eventID u
 	return nil
 }
 
-// ensureEventTeamLabForAssignment repairs a legacy assignment in the caller's
-// transaction. Admission serializes creation; the canonical lab lock then
-// precedes question mutation. Existing objective membership is never replaced
-// by a visible board projection or a newly edited exercise.
-func ensureEventTeamLabForAssignment(ctx context.Context, repo IRepository, eventID, teamID, eventExerciseID uuid.UUID, now time.Time) (eventLabModel.Lab, error) {
-	return ensureEventTeamLabWithPreparation(ctx, repo, eventID, teamID, eventExerciseID, now, nil)
-}
-
 // A newly captured REQUIRED policy, including legacy repair, needs the same
 // producer preparation validation. Request paths lacking that capability
 // return retryable repair until the stand engine has initialized the identity.

@@ -224,12 +224,3 @@ func (j *Journal) sendEmail(ctx context.Context, to, text string) TestResult {
 	res.OK = true
 	return res
 }
-
-// recipients is the e-mail list plus, by default, the super admins; each address once.
-func (j *Journal) recipients(ctx context.Context, s errorJournal.Settings) []string {
-	out, err := j.recipientsEligible(ctx, s)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to check error notification recipients")
-	}
-	return out
-}

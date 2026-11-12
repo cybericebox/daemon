@@ -18,7 +18,6 @@ import (
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
-	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	"github.com/gofrs/uuid"
 	"strconv"
 	"time"
@@ -258,7 +257,4 @@ func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepositor
 		return eventLabModel.ErrManualLimit.Err()
 	}
 	return nil
-}
-func (u *EventUseCase) allocationBudget(ctx context.Context, id uuid.UUID) (calModel.Reservation, error) {
-	return eventLabAllocationRepo.New(u.repo).Budget(ctx, id)
 }
