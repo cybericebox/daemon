@@ -3,14 +3,13 @@ package exerciseModel_test
 import (
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"regexp"
 	"testing"
 
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	labnames "github.com/cybericebox/laboratory/pkg/names"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
@@ -204,7 +203,7 @@ func TestValidateDeviceNames_RefusesTheNamesOfPlatformEndpoints(t *testing.T) {
 		"a hub named vpn is only a display name",
 	)
 
-	for _, name := range exerciseModel.ReservedDeviceNames {
+	for _, name := range labnames.ReservedDeviceNames {
 		variant := exerciseModel.Variant{
 			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{node(name)}},
 		}
@@ -222,35 +221,4 @@ func TestValidateDeviceNames_RefusesTheNamesOfPlatformEndpoints(t *testing.T) {
 			"publish refuses it too",
 		)
 	}
-}
-
-// The list is the laboratory's: when its source is at hand (the repositories side by side) the two must agree.
-func TestReservedDeviceNamesMatchTheLaboratory(t *testing.T) {
-	dir, err := os.Getwd()
-	require.NoError(t, err)
-	for ; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		var raw []byte
-		var source string
-		for _, candidate := range []string{
-			filepath.Join(dir, "laboratory", "pkg", "names", "names.go"),
-			filepath.Join(dir, "laboratory", ".worktrees", "hardening", "pkg", "names", "names.go"),
-		} {
-			if content, readErr := os.ReadFile(candidate); readErr == nil {
-				raw, source = content, candidate
-				break
-			}
-		}
-		if raw == nil {
-			continue
-		}
-		match := regexp.MustCompile(`ReservedDeviceNames = \[\]string\{([^}]*)\}`).FindSubmatch(raw)
-		require.NotNil(t, match, "ReservedDeviceNames in "+source)
-		var names []string
-		for _, quoted := range regexp.MustCompile(`"([^"]+)"`).FindAllSubmatch(match[1], -1) {
-			names = append(names, string(quoted[1]))
-		}
-		assert.ElementsMatch(t, names, exerciseModel.ReservedDeviceNames)
-		return
-	}
-	t.Skip("the laboratory source is not next to the daemon")
 }

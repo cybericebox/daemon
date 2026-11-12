@@ -3,6 +3,8 @@ package exerciseModel
 import (
 	"strconv"
 	"strings"
+
+	labnames "github.com/cybericebox/laboratory/pkg/names"
 )
 
 // LabDeviceNames returns the name every device of the topology gets inside the lab, index-aligned
@@ -33,12 +35,6 @@ func LabDeviceNames(devices []Device) []string {
 	return names
 }
 
-// ReservedDeviceNames are the names of the endpoints the platform provides in every lab (the VPN, the internet
-// gateway); the laboratory refuses a device with one of them. Keep in sync with laboratory
-// pkg/names.ReservedDeviceNames (TestReservedDeviceNamesMatchTheLaboratory checks it when that source is at hand;
-// once the pinned laboratory release has the package, import it instead).
-var ReservedDeviceNames = []string{string(EndpointVPN), "gateway", string(EndpointInternet)}
-
 // ValidateDeviceNames refuses the first device of the variants named like a platform endpoint. A switch or a hub has
 // a display name only and is named in the lab by its id, so it is not checked.
 func ValidateDeviceNames(variants []Variant) error {
@@ -47,7 +43,7 @@ func ValidateDeviceNames(variants []Variant) error {
 			if !device.IsNode() {
 				continue
 			}
-			for _, reserved := range ReservedDeviceNames {
+			for _, reserved := range labnames.ReservedDeviceNames {
 				if strings.EqualFold(strings.TrimSpace(device.Name), reserved) {
 					return ErrDeviceNameReserved.WithPublicContext("variant", vi+1).
 						WithPublicContext("device", device.Name).
