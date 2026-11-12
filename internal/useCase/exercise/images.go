@@ -44,13 +44,19 @@ func (u *ExerciseUseCase) requireServiceUsersKnown(ctx context.Context, variants
 	if len(images) == 0 {
 		return nil
 	}
-	known := map[string]bool{}
+	configs := map[string]*exerciseModel.ImageService{}
 	for _, info := range reader.ImageServices(ctx, images) {
-		known[info.Image] = info.Known
+		if info.Known {
+			service := info.Service
+			configs[info.Image] = &service
+		}
 	}
 	for position, variant := range variants {
 		for _, device := range variant.Topology.Devices {
-			if device.NeedsServiceCommand() && device.Image != "" && !known[device.Image] {
+			if !device.NeedsServiceCommand() || device.Image == "" {
+				continue
+			}
+			if _, known := device.ResolveServiceUser(configs[device.Image]); !known {
 				return exerciseModel.ErrServiceUserUnknown.WithPublicContext("variant", position+1).
 					WithPublicContext("device", device.Name).WithPublicContext("field", "image").Err()
 			}

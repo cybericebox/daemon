@@ -122,17 +122,39 @@ func (d Device) LabService() (*LabService, error) {
 	if len(command) == 0 {
 		return nil, ErrServiceCommandUnknown.WithPublicContext("device", d.Name).Err()
 	}
-	if d.ImageService == nil {
-		// The image's own user is what the service runs as; without its configuration the platform does not guess (an
-		// empty user would start the service as root even for an image that declares a non-root USER).
+	user, known := d.ResolveServiceUser(d.ImageService)
+	if !known {
 		return nil, ErrServiceUserUnknown.WithPublicContext("device", d.Name).WithPublicContext("field", "image").Err()
 	}
 	return &LabService{
 		Command:    append([]string(nil), command...),
 		Args:       append([]string(nil), args...),
-		User:       image.ServiceUser(),
+		User:       user,
 		WorkingDir: image.WorkingDir,
 	}, nil
+}
+
+// ServiceUserOf is the one rule for the user a service runs as: the author's value when there is one, else the user the
+// image declares (the root account when it declares none), else unknown: with no image configuration the platform does not
+// guess, because an empty user would start the service as root even for an image that declares a non-root USER.
+func ServiceUserOf(author string, image *ImageService) (user string, known bool) {
+	if author != "" {
+		return author, true
+	}
+	if image == nil {
+		return "", false
+	}
+	return image.ServiceUser(), true
+}
+
+// authoredServiceUser is the service user the author wrote for the device. The schema has no such key yet: when it does,
+// this is the only place that changes (ServiceUserOf already lets it win over the image).
+func (d Device) authoredServiceUser() string { return "" }
+
+// ResolveServiceUser is ServiceUserOf for this device with the configuration of its image (nil: not known). The deploy and
+// the publish gate both ask it.
+func (d Device) ResolveServiceUser(image *ImageService) (user string, known bool) {
+	return ServiceUserOf(d.authoredServiceUser(), image)
 }
 
 // LabCheckPart is one observation of a check with the substitutions made.

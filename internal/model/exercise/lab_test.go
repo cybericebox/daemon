@@ -316,3 +316,30 @@ var errTest = &testError{}
 type testError struct{}
 
 func (*testError) Error() string { return "test" }
+
+// One rule for the service user: the author's value wins, then the image's configuration (root when it declares none), and
+// without either the user is unknown. Today the schema has no author value, so the device's own is always empty.
+func TestServiceUserOfPrecedence(t *testing.T) {
+	declared, bare := &exerciseModel.ImageService{User: "app"}, &exerciseModel.ImageService{}
+	for name, tc := range map[string]struct {
+		author string
+		image  *exerciseModel.ImageService
+		want   string
+		known  bool
+	}{
+		"author over image":      {"deploy", declared, "deploy", true},
+		"author without image":   {"deploy", nil, "deploy", true},
+		"image":                  {"", declared, "app", true},
+		"image declares nothing": {"", bare, exerciseModel.ServiceUserRoot, true},
+		"nothing":                {"", nil, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			user, known := exerciseModel.ServiceUserOf(tc.author, tc.image)
+			require.Equal(t, tc.want, user)
+			require.Equal(t, tc.known, known)
+		})
+	}
+	user, known := exerciseModel.Device{Name: "web"}.ResolveServiceUser(declared)
+	require.True(t, known)
+	require.Equal(t, "app", user, "the device has no author value yet")
+}
