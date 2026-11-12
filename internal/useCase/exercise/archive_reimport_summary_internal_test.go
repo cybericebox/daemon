@@ -90,7 +90,7 @@ func TestImportSummaryCanonicalizesGeneratedReferencesFilesAndOpenedSecrets(t *t
 	u := &ExerciseUseCase{exercises: exerciseRepo.New(q), cipher: cipher}
 	source, sourceFile := summaryVersion(t)
 	target, targetFile := summaryVersion(t)
-	ciphertext, err := cipher.EncryptWithContext([]byte("private value"), envSecretContext(target.Variants[0].ID, "web", "PASSWORD"))
+	ciphertext, err := cipher.EncryptWithContext([]byte("private value"), EnvSecretContext(target.Variants[0].ID, "web", "PASSWORD"))
 	require.NoError(t, err)
 	target.Variants[0].Topology.Devices[0].Bootstrap.Env[0].Value = ciphertext
 	q.EXPECT().

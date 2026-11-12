@@ -18,7 +18,7 @@ import (
 func sealedEventRow(t *testing.T, cipher *secret.Cipher, password string) postgres.MailSmtpConfig {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	ct, err := cipher.EncryptWithContext([]byte(password), passwordContext(id))
+	ct, err := cipher.EncryptWithContext([]byte(password), PasswordContext(id))
 	require.NoError(t, err)
 	return postgres.MailSmtpConfig{ID: id, Host: "smtp.uni.example", Port: 587, TlsMode: "starttls", Username: "mailer", PasswordCiphertext: ct}
 }

@@ -77,7 +77,7 @@ func (u *ImageRegistryUseCase) inspectManifest(ctx context.Context, tag string) 
 		return "", false, imageRegistryModel.ErrRegistryNotConfigured.Err()
 	}
 	type attempt struct{ name, token string }
-	pushToken := u.open(s.PushTokenCiphertext, pushContext)
+	pushToken := u.open(s.PushTokenCiphertext, PushContext)
 	attempts := []attempt{{pushTokenName, pushToken}}
 	if pullToken != pushToken {
 		// a pull token is set: it reads first, the push token is the fallback

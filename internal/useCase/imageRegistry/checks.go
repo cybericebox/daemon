@@ -135,7 +135,7 @@ func (u *ImageRegistryUseCase) checkPlatform(ctx context.Context, s imageRegistr
 	next := s
 	var pushT, pullT imageRegistryModel.Transition
 
-	if token := u.open(s.PushTokenCiphertext, pushContext); token == "" {
+	if token := u.open(s.PushTokenCiphertext, PushContext); token == "" {
 		pushT = next.PushCheck.Apply(imageRegistryModel.Inconclusive(imageRegistryModel.ReasonNotConfigured), now)
 	} else {
 		client := u.newClient(s.Provider, s.Repository, s.Account, token)
@@ -145,7 +145,7 @@ func (u *ImageRegistryUseCase) checkPlatform(ctx context.Context, s imageRegistr
 	next.PullCheck = imageRegistryModel.Check{}
 	if s.PullTokenCiphertext != "" {
 		next.PullCheck = s.PullCheck
-		if token := u.open(s.PullTokenCiphertext, pullContext); token == "" {
+		if token := u.open(s.PullTokenCiphertext, PullContext); token == "" {
 			pullT = next.PullCheck.Apply(imageRegistryModel.Inconclusive(imageRegistryModel.ReasonNotConfigured), now)
 		} else {
 			client := u.newClient(s.Provider, s.Repository, s.Account, token)
@@ -192,7 +192,7 @@ func (u *ImageRegistryUseCase) checkSecret(ctx context.Context, s imageRegistryM
 	now := u.now()
 	next := s
 	var t imageRegistryModel.Transition
-	if token := u.open(s.TokenCiphertext, eventSecretContext(s.ID)); token == "" {
+	if token := u.open(s.TokenCiphertext, EventSecretContext(s.ID)); token == "" {
 		t = next.Check.Apply(imageRegistryModel.Inconclusive(imageRegistryModel.ReasonNotConfigured), now)
 	} else {
 		client := u.external(s.Host, s.RepositoryPrefix, s.Username, token)

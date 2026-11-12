@@ -54,7 +54,7 @@ func (u *ExerciseUseCase) secretValueGroups(variants []exerciseModel.Variant) []
 				if env.Origin == "" {
 					key = "unknown:" + freshID().String()
 					if u.cipher != nil {
-						if plain, err := u.cipher.DecryptWithContext(env.Value, envSecretContext(variant.ID, device.Name, env.Name)); err == nil {
+						if plain, err := u.cipher.DecryptWithContext(env.Value, EnvSecretContext(variant.ID, device.Name, env.Name)); err == nil {
 							key = "legacy:" + string(plain)
 						}
 					}

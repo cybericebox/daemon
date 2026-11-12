@@ -186,7 +186,7 @@ func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, s
 				return err
 			}
 			if env.Value != "" && u.cipher != nil {
-				own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name))
+				own, openErr := u.cipher.DecryptWithContext(env.Value, EnvSecretContext(target.ID, device.Name, env.Name))
 				if openErr == nil && string(own) == plain {
 					env.Origin = sourceOrigin
 					continue
@@ -228,16 +228,16 @@ func (u *ExerciseUseCase) secretPlaintext(variantID uuid.UUID, deviceName, envNa
 	if u.cipher == nil {
 		return "", exerciseModel.ErrSecretsNotConfigured.Err()
 	}
-	plain, err := u.cipher.DecryptWithContext(value, envSecretContext(variantID, deviceName, envName))
+	plain, err := u.cipher.DecryptWithContext(value, EnvSecretContext(variantID, deviceName, envName))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt the secret env var of the source variant").Err()
 	}
 	return string(plain), nil
 }
 
-// envSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity
+// EnvSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity
 // the draft merge keeps a secret by): a value copied to another variable does not open there.
-func envSecretContext(variantID uuid.UUID, device, name string) []byte {
+func EnvSecretContext(variantID uuid.UUID, device, name string) []byte {
 	return []byte("exercise-env:" + variantID.String() + ":" + device + ":" + name)
 }
 
@@ -299,7 +299,7 @@ func (u *ExerciseUseCase) encryptSecrets(variants []exerciseModel.Variant, rawSu
 				if u.cipher == nil {
 					return exerciseModel.ErrSecretsNotConfigured.Err()
 				}
-				ct, err := u.cipher.EncryptWithContext([]byte(ev.Value), envSecretContext(variants[vi].ID, d.Name, ev.Name))
+				ct, err := u.cipher.EncryptWithContext([]byte(ev.Value), EnvSecretContext(variants[vi].ID, d.Name, ev.Name))
 				if err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt secret env var").Err()
 				}
@@ -331,7 +331,7 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 					if u.cipher == nil {
 						return exerciseModel.ErrSecretsNotConfigured.Err()
 					}
-					plain, err := u.cipher.DecryptWithContext(env.Value, envSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
+					plain, err := u.cipher.DecryptWithContext(env.Value, EnvSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
 					if err != nil {
 						return model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt secret env var for export").Err()
 					}
@@ -370,7 +370,7 @@ func (u *ExerciseUseCase) encryptImportedSecrets(versions []exerciseModel.Exerci
 						origin = freshID().String()
 						origins[env.Value] = origin
 					}
-					ciphertext, err := u.cipher.EncryptWithContext([]byte(env.Value), envSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
+					ciphertext, err := u.cipher.EncryptWithContext([]byte(env.Value), EnvSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
 					if err != nil {
 						return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt imported secret env var").Err()
 					}
