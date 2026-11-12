@@ -925,10 +925,9 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 	return link, nil
 }
 
-// OpenTestDeployConsoleLink is the same for the console of one device (the `terminal` access entry): the token is signed for
-// the terminal host and the handoff opens the console page of the device (labaccess.ConsoleSession). A lab that cannot say
-// its base domain (it has no web address at all) or a device the lab does not have answers ErrTestDeployNoConsole: the
-// console is then not available.
+// OpenTestDeployConsoleLink is the same for the console of one device (the `terminal` access entry): the link is the url of
+// the device's terminal entry in the lab status (the laboratory gives every device its own console host, so nothing is built
+// here). A lab that serves no console, a device the lab does not have, or an entry with no url yet answers ErrTestDeployNoConsole.
 func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID, deployID uuid.UUID, device string) (labaccess.Link, error) {
 	deploy, status, now, err := u.readyOwnedDeploy(ctx, userID, deployID)
 	if err != nil {
@@ -941,34 +940,15 @@ func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID,
 	if !slices.ContainsFunc(status.Devices, func(d exerciseModel.LabDeployedDevice) bool { return d.Name == device }) {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}
-	accessURL, next, err := u.consoleSession(ctx, deploy, status, device)
-	if err != nil {
+	accessURL, ok := status.EntryURL(device, exerciseModel.AccessTerminal, 0)
+	if !ok {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}
-	link, err := u.sessions.Issue(ctx, labaccess.Session{Group: deploy.GroupName, Client: testClientName(userID), AccessURL: accessURL, Next: next, ExpiresAt: deploy.ExpiresAt}, now)
+	link, err := u.sessions.Issue(ctx, labaccess.Session{Group: deploy.GroupName, Client: testClientName(userID), AccessURL: accessURL, ExpiresAt: deploy.ExpiresAt}, now)
 	if err != nil {
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the test laboratory console link").Err()
 	}
 	return link, nil
-}
-
-// ConsoleAddresser is the optional port that tells where the console of the laboratory holding a group lives.
-type ConsoleAddresser interface {
-	ConsoleAddress(ctx context.Context, group string) (host, domain string, ok bool)
-}
-
-// consoleSession is where the console of a device opens: from what the laboratory reports (the console host and the base domain of
-// its endpoints); without that, from the base domain of a web address of the lab, with the default console host.
-func (u *ExerciseUseCase) consoleSession(ctx context.Context, deploy exerciseModel.TestDeploy, status exerciseModel.LabDeployStatus, device string) (accessURL, next string, err error) {
-	if addresser, ok := u.infra.(ConsoleAddresser); ok {
-		if host, domain, known := addresser.ConsoleAddress(ctx, deploy.GroupName); known {
-			return labaccess.ConsoleSessionAt(host, domain, deploy.LabName, device)
-		}
-	}
-	if len(status.Access) == 0 {
-		return "", "", exerciseModel.ErrTestDeployNoConsole.Err()
-	}
-	return labaccess.ConsoleSession(status.Access[0].URL, deploy.LabName, device)
 }
 
 // readyOwnedDeploy loads the author's own test deploy and its status, refusing one that is gone, expired or not ready.

@@ -449,20 +449,6 @@ func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 	return m.Client.EnsureVPNGroupUnder(f.withSizes(ctx, m), group, part)
 }
 
-// ConsoleAddress is where the console of the laboratory that holds the group lives (see infraModel.AgentFeatures.ConsoleAddress):
-// ok is false while that laboratory has not reported, does not serve a console or does not report its base domain.
-func (f *Fleet) ConsoleAddress(ctx context.Context, group string) (host, domain string, ok bool) {
-	m, err := f.memberOf(ctx, group)
-	if err != nil {
-		return "", "", false
-	}
-	features := m.Features.Get()
-	if features == nil {
-		return "", "", false
-	}
-	return features.ConsoleAddress()
-}
-
 func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
 	m, err := f.memberOf(ctx, group)
 	if err != nil {

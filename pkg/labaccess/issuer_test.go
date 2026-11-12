@@ -189,53 +189,26 @@ func TestTheAgentsProxyLimitsCapTheLinkAndTheSession(t *testing.T) {
 	}
 }
 
-// The console link: the token is signed with the terminal host and the handoff carries the console page as `next`.
-func TestConsoleSessionIsSignedForTheTerminalHost(t *testing.T) {
+// The console link: the console has its own host per device (<device>-<code>--term.<base>); the token is signed with that
+// first label and the link carries no next.
+func TestConsoleLinkIsSignedForTheDeviceConsoleHost(t *testing.T) {
 	sk := testSigningKey(t)
 	issuer, err := New(Config{TokenTTL: 30 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	access, next, err := ConsoleSession(webURL, "t-0190-lab", "db-1")
-	if err != nil || access != "https://terminal.challenges.example.com/" || next != "/?device=db-1&lab=t-0190-lab" {
-		t.Fatalf("access = %q next = %q err = %v", access, next, err)
-	}
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	link, err := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: access, Next: next}, now)
+	link, err := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: "https://db-1-abc123--term.challenges.example.com"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	parsed, err := url.Parse(link.URL)
-	if err != nil || parsed.Host != "terminal.challenges.example.com" || parsed.Path != AuthPath || parsed.Query().Get("next") != next {
+	if err != nil || parsed.Host != "db-1-abc123--term.challenges.example.com" || parsed.Path != AuthPath || parsed.Query().Has("next") {
 		t.Fatalf("link = %s err = %v", link.URL, err)
 	}
 	var got claims
 	if _, err = jwt.ParseWithClaims(link.Token, &got, func(*jwt.Token) (any, error) { return sk.Key.Public(), nil },
-		jwt.WithTimeFunc(func() time.Time { return now })); err != nil || got.Host != TerminalHost {
+		jwt.WithTimeFunc(func() time.Time { return now })); err != nil || got.Host != "db-1-abc123--term" {
 		t.Fatalf("host claim = %q err = %v", got.Host, err)
-	}
-	// A web link has no next; a lab with no web address cannot say the base domain.
-	plain, _ := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: webURL}, now)
-	if u, _ := url.Parse(plain.URL); u.Query().Has("next") {
-		t.Fatalf("a web link must not carry next: %s", plain.URL)
-	}
-	if _, _, err = ConsoleSession("", "lab", "d"); err == nil {
-		t.Fatal("no base address must be an error")
-	}
-	if _, _, err = ConsoleSession("https://localhost/", "lab", "d"); err == nil {
-		t.Fatal("a single-label host has no base domain")
-	}
-}
-
-// With the console host and the base domain the laboratory reports, no web device is needed.
-func TestConsoleSessionAtUsesWhatTheLabReports(t *testing.T) {
-	access, next, err := ConsoleSessionAt("shell", "labs.example.com", "l-1", "db")
-	if err != nil || access != "https://shell.labs.example.com/" || next != "/?device=db&lab=l-1" {
-		t.Fatalf("access %q next %q err %v", access, next, err)
-	}
-	for _, bad := range [][4]string{{"", "d", "l", "x"}, {"t", "", "l", "x"}, {"t", "d", "", "x"}, {"t/x", "d", "l", "x"}} {
-		if _, _, err = ConsoleSessionAt(bad[0], bad[1], bad[2], bad[3]); err == nil {
-			t.Fatalf("%v must be refused", bad)
-		}
 	}
 }

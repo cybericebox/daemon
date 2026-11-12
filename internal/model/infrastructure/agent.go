@@ -140,8 +140,6 @@ type (
 		Terminal bool `json:"terminal"`
 		VNC      bool `json:"vnc"`
 		RDP      bool `json:"rdp"`
-		// TerminalHost is the first label of the console host (the chart's terminal.host); set only while the console is served.
-		TerminalHost string `json:"terminal_host,omitempty"`
 	}
 	BootstrapFeature struct {
 		MaxScriptBytes      int32 `json:"max_script_bytes"`
@@ -183,22 +181,6 @@ func (c ChecksFeature) timeLimitRefusal(n exerciseModel.LabNeeds) (string, map[s
 		return text, nil
 	}
 	return text, map[string]any{"task": task, "field": "check.state.conditions[].timeout", "limit": ceiling}
-}
-
-// DefaultTerminalHost is the first label of the console host when an agent does not report one.
-const DefaultTerminalHost = "terminal"
-
-// ConsoleAddress is where the console of this laboratory lives: the first label of its host and the base domain of the
-// laboratory's web endpoints. ok is false when the console is not served or the base domain is not reported.
-func (f AgentFeatures) ConsoleAddress() (string, string, bool) {
-	if !f.ServesAccess("terminal") || f.Endpoints.LabsDomain == "" {
-		return "", "", false
-	}
-	host := DefaultTerminalHost
-	if f.Access != nil && f.Access.TerminalHost != "" {
-		host = f.Access.TerminalHost
-	}
-	return host, f.Endpoints.LabsDomain, true
 }
 
 // checksRefusals lists what in the checks of a lab the laboratory refuses: the option itself, a limit, an observation kind it does

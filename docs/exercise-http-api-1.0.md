@@ -260,12 +260,13 @@ Access: [ {Kind: "http", Port: 8080, Protocol: "http"},        // Protocol http 
 - **A console is not meant for events.** Nothing bans it: `UsesConsole` (bool) is returned on the catalog card of an exercise
   (`ExerciseScope`), on the event's catalog choice (`publishedExerciseChoice`) and on the event's attached exercise, so the
   event side can show it. A ban would go next to `RequireNoStateTasks` in `loadAvailableVersion` (event_exercise.go).
-- **Console link of a test lab**: `POST /exercises/deploys/{deployID}/link` takes `Access` (`http` default, or `terminal`). With
-  `terminal` the link is `https://terminal.<base>/_auth?t=<token signed for the host "terminal">&next=/?lab=<lab>&device=<device>`
-  (the host is the constant `labaccess.TerminalHost`, the laboratory's chart value `terminal.host`; the base domain is taken from
-  the web address of any device of the lab). `Port` is ignored. 404 (33518) when the lab does not have the device or has no web
-  address to say its base domain: the console is then not available. 400 for any other `Access`. The same helper
-  (`labaccess.ConsoleSession`) is for the participant and moderator console links.
+- **Console link of a test lab**: `POST /exercises/deploys/{deployID}/link` takes `Access` (`http` default, or `terminal`). The
+  link of any access kind is the `url` of that kind's entry in the lab status (`LabAccessEntry`; http by `Port`, terminal by
+  protocol, one entry per device; vnc and rdp the same way later), signed into the same `/_auth?t=<token>` handoff on that
+  host. For a console the host is the device's own, `https://<device>-<code>--term.<labs domain>`; the daemon builds no address
+  and sends no `next`. `Port` is ignored for `terminal`. 404 (33518) when the lab does not have the device, its terminal entry
+  has no url yet, or no laboratory that is used serves a console. 400 for any other `Access`. The request and response shapes
+  are unchanged.
 - Stored versions: migration 0225 turns `external` and `terminal` into `access` (a terminal that was off leaves no entry).
 
 ## What an image itself runs: `POST /exercises/{id}/images/service`
@@ -477,11 +478,9 @@ saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without
   `GET /infrastructure/agents` keeps `TerminalEnabled` (now: the terminal is served).
 - Every observation is sent to the laboratory in its own message; expected values are resolved in the daemon and kept by the
   laboratory's checker. `custom.user` empty is `nobody` in the laboratory; the daemon writes no default. A `file` checksum is sent in lower case.
-- The console link is built from what the laboratory holding the lab reports: `AccessFeature.terminal_host` (the first label of the
-  console host, the chart's `terminal.host`; `terminal` when the agent reports none) and `endpoints.labs_domain`, so a lab
-  with no web device has a console link too. Only if the base domain is not reported does the daemon take it from a web
-  address of the lab. The console link is refused (33518) when the laboratory does not serve a console (or nothing
-  tells where it is), and when no laboratory that is used serves one.
+- The console link is the `url` of the device's `terminal` access entry (the laboratory gives every device its own console host,
+  `<device>-<code>--term.<labs domain>`; `AccessFeature.terminal_host` is gone). The console link is refused (33518) when the entry
+  has no url, and when no laboratory that is used serves a console.
 - **Check time limit above the laboratory's ceiling** (chart `checks.maxTimeLimitSeconds`, reported as
   `ChecksFeature.max_time_limit_seconds`): the lab is refused at start with 73512, `options` =
   `checks.max_time_limit_seconds (at most N)`, and the public context names the `task` (key), the `field`

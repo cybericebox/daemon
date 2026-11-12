@@ -122,11 +122,11 @@ func TestFleetRefusesALabThatNeedsAnOptionTheAgentLacks(t *testing.T) {
 func TestFeaturesOfReadsTheOptionsOfContract15(t *testing.T) {
 	got := FeaturesOf(&labpb.FeaturesResponse{
 		Checks:    &labpb.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048, Observations: []string{"file", "custom", "directory"}},
-		Access:    &labpb.AccessFeature{Http: true, Terminal: true, TerminalHost: "shell"},
+		Access:    &labpb.AccessFeature{Http: true, Terminal: true},
 		Bootstrap: &labpb.BootstrapFeature{MaxScriptBytes: 1, MaxFiles: 2, MaxFileBytes: 3, MaxTotalBytes: 4, MaxTimeLimitSeconds: 5, MaxAttempts: 6},
 	})
 	require.Equal(t, &infraModel.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048, Observations: []string{"file", "custom", "directory"}}, got.Checks)
-	require.Equal(t, &infraModel.AccessFeature{HTTP: true, Terminal: true, TerminalHost: "shell"}, got.Access)
+	require.Equal(t, &infraModel.AccessFeature{HTTP: true, Terminal: true}, got.Access)
 	require.Equal(t, &infraModel.BootstrapFeature{MaxScriptBytes: 1, MaxFiles: 2, MaxFileBytes: 3, MaxTotalBytes: 4, MaxTimeLimitSeconds: 5, MaxAttempts: 6}, got.Bootstrap)
 
 	old := FeaturesOf(&labpb.FeaturesResponse{})

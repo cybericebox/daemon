@@ -40240,7 +40240,7 @@ const docTemplate = `{
             ],
             "properties": {
                 "Access": {
-                    "description": "Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link is signed for\nthe terminal host and opens the console page of the device. 404 (33518) when the lab cannot give a console link.",
+                    "description": "Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link opens the\ndevice's own console host (the url of its terminal access entry). 404 (33518) when the lab cannot give a console link.",
                     "type": "string",
                     "enum": [
                         "http",

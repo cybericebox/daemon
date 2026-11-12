@@ -57,3 +57,35 @@ func TestLabDeployedDeviceLimitNotice(t *testing.T) {
 		t.Fatalf("51%% = %q, want %q", got, DeviceLimitCPU)
 	}
 }
+
+// One lookup for every access kind: http by its port, the other kinds by their protocol; an entry with no url yet is not an address.
+func TestLabDeployStatusEntryURL(t *testing.T) {
+	status := LabDeployStatus{Access: []LabAccess{
+		{Device: "web", Port: 80, Protocol: "http", URL: "https://web-a1.labs.test"},
+		{Device: "web", Port: 8443, Protocol: "https", URL: "https://web-a1-8443.labs.test"},
+		{Device: "web", Protocol: "terminal", URL: "https://web-a1--term.labs.test"},
+		{Device: "db", Protocol: "terminal"},
+	}}
+	for name, tc := range map[string]struct {
+		device string
+		kind   AccessKind
+		port   int32
+		want   string
+	}{
+		"http port":       {"web", AccessHTTP, 80, "https://web-a1.labs.test"},
+		"https port":      {"web", AccessHTTP, 8443, "https://web-a1-8443.labs.test"},
+		"unknown port":    {"web", AccessHTTP, 81, ""},
+		"terminal":        {"web", AccessTerminal, 0, "https://web-a1--term.labs.test"},
+		"terminal no url": {"db", AccessTerminal, 0, ""},
+		"vnc not served":  {"web", AccessVNC, 0, ""},
+		"other device":    {"x", AccessTerminal, 0, ""},
+	} {
+		got, ok := status.EntryURL(tc.device, tc.kind, tc.port)
+		if got != tc.want || ok != (tc.want != "") {
+			t.Fatalf("%s: %q %v", name, got, ok)
+		}
+	}
+	if got, ok := status.WebURL("web", 80); !ok || got != "https://web-a1.labs.test" {
+		t.Fatalf("WebURL: %q %v", got, ok)
+	}
+}

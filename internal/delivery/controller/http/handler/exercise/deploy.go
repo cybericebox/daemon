@@ -487,8 +487,8 @@ type deployLinkRequest struct {
 	Device string `json:"Device" binding:"required"`
 	// Port is the web port from the deploy status (access http).
 	Port int32 `json:"Port"`
-	// Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link is signed for
-	// the terminal host and opens the console page of the device. 404 (33518) when the lab cannot give a console link.
+	// Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link opens the
+	// device's own console host (the url of its terminal access entry). 404 (33518) when the lab cannot give a console link.
 	Access string `json:"Access,omitempty" enums:"http,terminal"`
 }
 

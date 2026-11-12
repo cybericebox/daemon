@@ -1,6 +1,7 @@
 package exerciseModel
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -304,7 +305,8 @@ func (s *LabDeployStatus) FillQueueDetails() {
 				q.RetryAt = p.RetryAfter
 			}
 		case QueueReasonNodeStarting:
-			if p.State == PodStateStarting && !p.DispatchedAt.IsZero() && (q.WaitingSince.IsZero() || p.DispatchedAt.Before(q.WaitingSince)) {
+			if p.State == PodStateStarting && !p.DispatchedAt.IsZero() &&
+				(q.WaitingSince.IsZero() || p.DispatchedAt.Before(q.WaitingSince)) {
 				q.WaitingSince = p.DispatchedAt
 			}
 		}
@@ -321,8 +323,24 @@ type LabAccess struct {
 
 // WebURL is the web address of one device port, if it has one.
 func (s LabDeployStatus) WebURL(device string, port int32) (string, bool) {
+	return s.EntryURL(device, AccessHTTP, port)
+}
+
+// EntryURL is the address of one kind of access to a device: the url the laboratory put in the entry of that kind. An http
+// entry is told by its port (and a protocol of http or https); every other kind (terminal now, vnc and rdp later) has one
+// entry per device and is told by its protocol alone. No entry, or one with no url yet, gives false.
+func (s LabDeployStatus) EntryURL(device string, kind AccessKind, port int32) (string, bool) {
 	for _, a := range s.Access {
-		if a.Device == device && a.Port == port && a.URL != "" {
+		if a.Device != device || a.URL == "" {
+			continue
+		}
+		if kind == AccessHTTP {
+			if a.Port == port && (a.Protocol == "" || strings.HasPrefix(a.Protocol, string(AccessHTTP))) {
+				return a.URL, true
+			}
+			continue
+		}
+		if a.Protocol == string(kind) {
 			return a.URL, true
 		}
 	}

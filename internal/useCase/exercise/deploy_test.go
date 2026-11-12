@@ -726,7 +726,7 @@ func TestOpenTestDeployLink_IssuesTheAuthorsLinkUntilTheLeaseEnds(t *testing.T) 
 	}
 }
 
-// The console link is signed for the terminal host and carries the console page as next; a device the lab does not have has none.
+// The console link is the url of the device's terminal entry (its own console host); a device the lab does not have has none.
 func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) {
 	expires := time.Now().Add(90 * time.Minute)
 	ctrl := gomock.NewController(t)
@@ -736,13 +736,15 @@ func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) 
 	sessions := &fakeSessions{}
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: true,
 		Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}},
-		Access:  []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"}}}}
+		Access: []exerciseModel.LabAccess{
+			{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"},
+			{Device: "db", Protocol: "terminal", URL: "https://db-def456--term.challenges.example.com"}}}}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
 
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.got.AccessURL != "https://terminal.challenges.example.com/" || sessions.got.Next != "/?device=db&lab=l-one" ||
+	if sessions.got.AccessURL != "https://db-def456--term.challenges.example.com" || sessions.got.Next != "" ||
 		sessions.got.Group != "t-"+deployID.String() || !sessions.got.ExpiresAt.Equal(expires) {
 		t.Fatalf("session: %+v", sessions.got)
 	}
@@ -751,7 +753,7 @@ func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) 
 	}
 	infra.status.Access = nil
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
-		t.Fatalf("a lab with no web address cannot say its base domain: %v", err)
+		t.Fatalf("a device with no terminal entry has no console: %v", err)
 	}
 	infra.status.Ready = false
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNotReady.Err()) {
@@ -1672,26 +1674,37 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 	}
 }
 
-// When the laboratory reports where its console is, the link is built from that (the console host and the base domain of its
-// endpoints), also for a lab with no web device; without a report the base domain comes from a web address of the lab.
-func TestOpenTestDeployConsoleLink_UsesTheConsoleAddressTheLabReports(t *testing.T) {
+// The console link is the url of the device's terminal entry in the lab status, as it is; no entry, no url yet, another device's
+// entry, or an unknown device is "console not available". The link carries no next.
+func TestOpenTestDeployConsoleLink_UsesTheTerminalEntryURL(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), LabName: "l-one", CreatedBy: userID, ExpiresAt: time.Now().Add(time.Hour)}, nil).AnyTimes()
 	sessions := &fakeSessions{}
-	infra := &capabilityInfra{consoleHost: "shell", consoleDomain: "labs.example.com"}
-	infra.status = exerciseModel.LabDeployStatus{Ready: true, Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}}}
+	infra := &capabilityInfra{}
+	devices := []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}}
+	infra.status = exerciseModel.LabDeployStatus{Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{
+		{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.labs.example.com"},
+		{Device: "db", Protocol: "terminal", URL: "https://db-abc123--term.labs.example.com"},
+	}}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
 
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.got.AccessURL != "https://shell.labs.example.com/" || sessions.got.Next != "/?device=db&lab=l-one" {
+	if sessions.got.AccessURL != "https://db-abc123--term.labs.example.com" || sessions.got.Next != "" {
 		t.Fatalf("session: %+v", sessions.got)
 	}
-	infra.consoleDomain = ""
-	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
-		t.Fatalf("nothing reported and no web address: %v", err)
+	for name, status := range map[string]exerciseModel.LabDeployStatus{
+		"no entry":           {Ready: true, Devices: devices},
+		"no url yet":         {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Protocol: "terminal"}}},
+		"entry of a device":  {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "web", Protocol: "terminal", URL: "https://web-abc123--term.labs.example.com"}}},
+		"http is no console": {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Port: 80, Protocol: "http", URL: "https://db-abc123.labs.example.com"}}},
+	} {
+		infra.status = status
+		if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
