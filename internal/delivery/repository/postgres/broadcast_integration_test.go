@@ -174,7 +174,7 @@ func TestBroadcast_DispatchesLinkAndCounters(t *testing.T) {
 	if err != nil || !queued[a] || !queued[b] {
 		t.Fatalf("queued = %v err %v", queued, err)
 	}
-	deliveries, err := repo.Deliveries(ctx, bc.ID, 10, 0)
+	deliveries, err := repo.Deliveries(ctx, bc.ID, "", 10, 0)
 	if err != nil || len(deliveries) != 2 || deliveries[0].TargetStatus != "error" || deliveries[0].Error != "mailbox full" {
 		t.Fatalf("deliveries = %+v err %v (failures must come first)", deliveries, err)
 	}
@@ -286,4 +286,127 @@ func TestBroadcastMigrations_DownThenUp(t *testing.T) {
 	}
 	run("0129_notification_broadcasts.up.sql")
 	run("0130_site_banners.up.sql")
+}
+
+// The history in the page-number mode: search, status, sort, offset and the matching total.
+func TestBroadcast_HistoryPageNumberMode(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := broadcastRepo.New(db.Queries)
+	create := func(subject string, recipients int32) uuid.UUID {
+		bc := broadcastModel.Broadcast{
+			ID: uuid.Must(uuid.NewV7()),
+			Content: broadcastModel.Content{
+				Channels: []notificationTypes.NotificationChannel{
+					notificationTypes.NotificationChannelEmail,
+				},
+				Subject:   subject,
+				EmailBody: json.RawMessage(`[{"type":"paragraph"}]`),
+			},
+			Audience:       broadcastModel.Audience{Kind: broadcastModel.KindAll},
+			RecipientCount: recipients,
+		}
+		if err := repo.Create(ctx, bc); err != nil {
+			t.Fatal(err)
+		}
+		return bc.ID
+	}
+	alpha, beta := create("Alpha news", 5), create("Beta news", 20)
+	create("Gamma", 1)
+	if err := repo.Finish(ctx, beta, broadcastModel.StatusDone, 20); err != nil {
+		t.Fatal(err)
+	}
+	if canceled, err := repo.Cancel(ctx, alpha); err != nil || !canceled {
+		t.Fatalf("cancel: %v %v", canceled, err)
+	}
+
+	// Beta reached one person, Gamma failed for another: delivered and failed order the history.
+	reached := mustSeedUser(t, db, "bc-page-reached@test.test")
+	missed := mustSeedUser(t, db, "bc-page-missed@test.test")
+	dispatches := dispatchRepo.New(db.Queries)
+	reachedDispatch, missedDispatch := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var gamma uuid.UUID
+	items, err := repo.List(ctx, broadcastModel.ListFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range items {
+		if b.Content.Subject == "Gamma" {
+			gamma = b.ID
+		}
+	}
+	if err = dispatches.CreateForBroadcast(ctx, reachedDispatch, "broadcast", reached, nil, &beta); err != nil {
+		t.Fatal(err)
+	}
+	if err = dispatches.CreateForBroadcast(ctx, missedDispatch, "broadcast", missed, nil, &gamma); err != nil {
+		t.Fatal(err)
+	}
+	rtExec(t, db, `UPDATE notification_dispatches SET status = 'done' WHERE id = ANY($1)`, []uuid.UUID{reachedDispatch, missedDispatch})
+	rtExec(t, db, `INSERT INTO notification_dispatch_targets (dispatch_id, channel, status) VALUES ($1, 'email', 'done'), ($2, 'email', 'error')`, reachedDispatch, missedDispatch)
+
+	subjects := func(f broadcastModel.ListFilter) []string {
+		t.Helper()
+		f.Scope, f.Limit = "", 10
+		items, err := repo.List(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(items))
+		for _, b := range items {
+			out = append(out, b.Content.Subject)
+		}
+		return out
+	}
+	count := func(f broadcastModel.ListFilter) int64 {
+		t.Helper()
+		n, err := repo.Count(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if got := subjects(broadcastModel.ListFilter{SortBy: "delivered", SortDir: "desc"}); len(got) != 3 || got[0] != "Beta news" {
+		t.Fatalf("delivered desc puts the broadcast that reached someone first: %v", got)
+	}
+	if got := subjects(broadcastModel.ListFilter{SortBy: "failed", SortDir: "desc"}); len(got) != 3 || got[0] != "Gamma" {
+		t.Fatalf("failed desc puts the broadcast with a failure first: %v", got)
+	}
+	for _, column := range []string{"channels", "audience", "author"} {
+		if got := subjects(broadcastModel.ListFilter{SortBy: column, SortDir: "desc"}); len(got) != 3 {
+			t.Fatalf("%s desc: %v", column, got)
+		}
+	}
+	if got := subjects(
+		broadcastModel.ListFilter{SortBy: "recipients", SortDir: "desc"},
+	); len(got) != 3 || got[0] != "Beta news" ||
+		got[2] != "Gamma" {
+		t.Fatalf("recipients desc: %v", got)
+	}
+	if got := subjects(
+		broadcastModel.ListFilter{SortBy: "subject", SortDir: "asc", Offset: 1},
+	); len(got) != 2 ||
+		got[0] != "Beta news" {
+		t.Fatalf("subject asc, second page row: %v", got)
+	}
+	if got := subjects(
+		broadcastModel.ListFilter{Search: "NEWS", SortBy: "subject", SortDir: "desc"},
+	); len(got) != 2 ||
+		got[0] != "Beta news" {
+		t.Fatalf("search is case-insensitive: %v", got)
+	}
+	if got := subjects(
+		broadcastModel.ListFilter{Status: "canceled"},
+	); len(got) != 1 ||
+		got[0] != "Alpha news" {
+		t.Fatalf("status filter: %v", got)
+	}
+	if n := count(broadcastModel.ListFilter{Search: "news"}); n != 2 {
+		t.Fatalf("count follows the search: %d", n)
+	}
+	if n := count(broadcastModel.ListFilter{Status: "sending"}); n != 1 {
+		t.Fatalf("count follows the status: %d", n)
+	}
+	if n := count(broadcastModel.ListFilter{Scope: "platform"}); n != 3 {
+		t.Fatalf("count follows the scope: %d", n)
+	}
 }

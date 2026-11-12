@@ -25,7 +25,7 @@ type labLinkFake struct {
 func (f *labLinkFake) OpenOwnLabLink(_ context.Context, eventID, userID, challengeID uuid.UUID, device string, port int32) (labaccess.Link, error) {
 	f.calls = append(f.calls, [3]uuid.UUID{eventID, userID, challengeID})
 	f.devices = append(f.devices, device)
-	return labaccess.Link{URL: "https://web-abc123.challenges.example.com/_auth?t=jwt", Token: "jwt", ExpiresAt: time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)}, nil
+	return labaccess.Link{URL: "https://web-abc123w.challenges.example.com/_auth?t=jwt", Token: "jwt", ExpiresAt: time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)}, nil
 }
 
 func linkContext(eventID, userID, challengeID uuid.UUID, body string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -52,7 +52,7 @@ func TestOpenLabLinkReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	if len(fake.calls) != 1 || fake.calls[0] != [3]uuid.UUID{eventID, userID, challengeID} || fake.devices[0] != "web" {
 		t.Fatalf("calls = %v %v", fake.calls, fake.devices)
 	}
-	if !strings.Contains(w.Body.String(), `"URL":"https://web-abc123.challenges.example.com/_auth?t=jwt"`) || !strings.Contains(w.Body.String(), `"ExpiresAt"`) {
+	if !strings.Contains(w.Body.String(), `"URL":"https://web-abc123w.challenges.example.com/_auth?t=jwt"`) || !strings.Contains(w.Body.String(), `"ExpiresAt"`) {
 		t.Fatalf("body = %s", w.Body.String())
 	}
 	if len(w.Result().Cookies()) != 0 || w.Header().Get("Set-Cookie") != "" {

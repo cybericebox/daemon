@@ -7,8 +7,10 @@ package postgres
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countEditableImportTargets = `-- name: CountEditableImportTargets :one
@@ -33,6 +35,27 @@ func (q *Queries) CountEditableImportTargets(ctx context.Context, arg CountEdita
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countLeasedExerciseTestDeploys = `-- name: CountLeasedExerciseTestDeploys :one
+SELECT count(*)::int
+FROM exercise_test_deployments d
+JOIN exercise_versions v ON v.id = d.version_id
+WHERE v.exercise_id = $1
+  AND d.expires_at > $2::timestamptz
+`
+
+type CountLeasedExerciseTestDeploysParams struct {
+	ExerciseID uuid.UUID `json:"exercise_id"`
+	Now        time.Time `json:"now"`
+}
+
+// The test labs of an exercise that are leased now, any author.
+func (q *Queries) CountLeasedExerciseTestDeploys(ctx context.Context, arg CountLeasedExerciseTestDeploysParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countLeasedExerciseTestDeploys, arg.ExerciseID, arg.Now)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getImportTargetContext = `-- name: GetImportTargetContext :one
@@ -116,6 +139,118 @@ func (q *Queries) ListEditableImportTargets(ctx context.Context, arg ListEditabl
 			&i.OwnerEventName,
 			&i.OwnerEventTag,
 			&i.HasDraft,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExerciseActiveAttachments = `-- name: ListExerciseActiveAttachments :many
+SELECT ee.id AS event_exercise_id,
+       ee.event_id,
+       COALESCE(NULLIF(ev.internal_name, ''), ev.name)::text AS event_name,
+       (ev.archive_at IS NOT NULL AND ev.archive_at <= $1::timestamptz)::boolean AS archived,
+       ee.exercise_version_id,
+       ee.variant_mode,
+       ee.fixed_variant_index,
+       (SELECT count(*) FROM event_team_labs lab
+        WHERE lab.event_exercise_id = ee.id AND lab.desired_state = 'Running')::int AS running_labs
+FROM event_exercises ee
+JOIN events ev ON ev.id = ee.event_id
+WHERE ee.exercise_id = $2
+  AND ee.status = 0
+ORDER BY lower(COALESCE(NULLIF(ev.internal_name, ''), ev.name)), ee.id
+`
+
+type ListExerciseActiveAttachmentsParams struct {
+	Now        time.Time `json:"now"`
+	ExerciseID uuid.UUID `json:"exercise_id"`
+}
+
+type ListExerciseActiveAttachmentsRow struct {
+	EventExerciseID   uuid.UUID   `json:"event_exercise_id"`
+	EventID           uuid.UUID   `json:"event_id"`
+	EventName         string      `json:"event_name"`
+	Archived          bool        `json:"archived"`
+	ExerciseVersionID uuid.UUID   `json:"exercise_version_id"`
+	VariantMode       int16       `json:"variant_mode"`
+	FixedVariantIndex pgtype.Int4 `json:"fixed_variant_index"`
+	RunningLabs       int32       `json:"running_labs"`
+}
+
+// The active attachments (status 0: neither superseded nor detached) of an exercise in events, with what each runs
+// now: its pinned version and how many team laboratories of it are running. Read by the import warning.
+func (q *Queries) ListExerciseActiveAttachments(ctx context.Context, arg ListExerciseActiveAttachmentsParams) ([]ListExerciseActiveAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listExerciseActiveAttachments, arg.Now, arg.ExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExerciseActiveAttachmentsRow{}
+	for rows.Next() {
+		var i ListExerciseActiveAttachmentsRow
+		if err := rows.Scan(
+			&i.EventExerciseID,
+			&i.EventID,
+			&i.EventName,
+			&i.Archived,
+			&i.ExerciseVersionID,
+			&i.VariantMode,
+			&i.FixedVariantIndex,
+			&i.RunningLabs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExerciseChallengeAnswerCounts = `-- name: ListExerciseChallengeAnswerCounts :many
+SELECT ch.event_exercise_id,
+       ch.task_id,
+       count(a.id)::int AS attempts,
+       count(DISTINCT tc.id) FILTER (WHERE a.correct AND NOT a.practice)::int AS solves
+FROM event_challenges ch
+JOIN event_exercises ee ON ee.id = ch.event_exercise_id
+LEFT JOIN team_challenges tc ON tc.event_challenge_id = ch.id
+LEFT JOIN challenge_attempts a ON a.team_challenge_id = tc.id
+WHERE ee.exercise_id = $1
+  AND ee.status = 0
+GROUP BY ch.event_exercise_id, ch.task_id
+`
+
+type ListExerciseChallengeAnswerCountsRow struct {
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	TaskID          uuid.UUID `json:"task_id"`
+	Attempts        int32     `json:"attempts"`
+	Solves          int32     `json:"solves"`
+}
+
+// Recorded answers per board challenge of the active attachments of an exercise: every attempt, and the teams that
+// solved it (a correct attempt that is not practice).
+func (q *Queries) ListExerciseChallengeAnswerCounts(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseChallengeAnswerCountsRow, error) {
+	rows, err := q.db.Query(ctx, listExerciseChallengeAnswerCounts, exerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExerciseChallengeAnswerCountsRow{}
+	for rows.Next() {
+		var i ListExerciseChallengeAnswerCountsRow
+		if err := rows.Scan(
+			&i.EventExerciseID,
+			&i.TaskID,
+			&i.Attempts,
+			&i.Solves,
 		); err != nil {
 			return nil, err
 		}

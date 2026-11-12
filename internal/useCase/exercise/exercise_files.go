@@ -88,14 +88,11 @@ func (u *ExerciseUseCase) adoptFiles(ctx context.Context, exerciseID uuid.UUID, 
 		canonical[id] = stored
 	}
 	for v := range variants {
-		for t := range variants[v].Tasks {
-			for a := range variants[v].Tasks[t].Attachments {
-				attachment := &variants[v].Tasks[t].Attachments[a]
-				if stored, ok := canonical[attachment.FileID]; ok {
-					attachment.FileID = stored
-				}
+		variants[v].EachFileRef(func(attachment *exerciseModel.AttachmentRef) {
+			if stored, ok := canonical[attachment.FileID]; ok {
+				attachment.FileID = stored
 			}
-		}
+		})
 	}
 	return nil
 }

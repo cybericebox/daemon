@@ -2,6 +2,7 @@ package exerciseModel
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -18,7 +19,7 @@ func (v Variant) IsLinked() bool { return v.LinkedTo.Valid }
 // variant that is not in the version is dropped (the content stays as an
 // independent variant); a link to itself or to a linked variant is an error.
 // A linked variant keeps only its ID, Index, Note, Weight, link, image overrides
-// and, per task, its own Flag and Attachments (matched by task ID, else by
+// and, per task, its own answer values and Attachments (matched by task ID, else by
 // position); everything else is a deep copy of the base, with the overridden
 // device images written in. An independent variant has no image overrides.
 // Idempotent.
@@ -56,10 +57,19 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 			return err
 		}
 		for taskIndex := range rebuilt.Tasks {
-			rebuilt.Tasks[taskIndex].Flag = nil
 			rebuilt.Tasks[taskIndex].Attachments = nil
-			if own, ok := matchLinkedTask(linked.Tasks, rebuilt.Tasks[taskIndex].ID, taskIndex); ok {
-				rebuilt.Tasks[taskIndex].Flag = own.Flag
+			if answer := rebuilt.Tasks[taskIndex].Check.Answer; answer != nil {
+				answer.Values = nil
+			}
+			if own, ok := matchLinkedTask(
+				linked.Tasks,
+				rebuilt.Tasks[taskIndex].ID,
+				taskIndex,
+			); ok {
+				if answer := rebuilt.Tasks[taskIndex].Check.Answer; answer != nil &&
+					own.Check.Answer != nil {
+					answer.Values = own.Check.Answer.Values
+				}
 				rebuilt.Tasks[taskIndex].Attachments = own.Attachments
 			}
 		}
@@ -87,7 +97,7 @@ func applyImageOverrides(topology *Topology, overrides []ImageOverride) []ImageO
 	for di := range topology.Devices {
 		device := &topology.Devices[di]
 		image, ok := images[device.ID]
-		if !ok || device.Type != DeviceTypeContainer {
+		if !ok || !device.IsNode() {
 			continue
 		}
 		delete(images, device.ID) // a repeated device id takes the override once
@@ -164,7 +174,7 @@ func matchLinkedTask(tasks []Task, baseID uuid.UUID, position int) (Task, bool) 
 	return Task{}, false
 }
 
-// validateLinkedFlags: within a base and its linked variants, a fixed flag
+// validateLinkedFlags: within a base and its linked variants, a fixed answer
 // value of one task position must not repeat across variants (templates may).
 func validateLinkedFlags(variants []Variant) error {
 	groups := make(map[uuid.UUID][]Variant, len(variants))
@@ -185,17 +195,61 @@ func validateLinkedFlags(variants []Variant) error {
 				if taskIndex >= len(member.Tasks) {
 					continue
 				}
-				for _, value := range member.Tasks[taskIndex].Flag {
+				for _, value := range member.Tasks[taskIndex].Check.values() {
 					if strings.HasPrefix(value, flagpattern.TemplatePrefix) {
 						continue
 					}
 					if previous, seen := owner[value]; seen && previous != variantIndex {
-						return ErrLinkedFlagsNotDistinct.WithContext("task", task.Name).Err()
+						return forTask(ErrLinkedFlagsNotDistinct, task).Err()
 					}
 					owner[value] = variantIndex
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// validateLinkedContent is the publish gate for linked variants (variants are already rebuilt from their bases, so
+// the subtasks line up by position): a linked variant has files for every subtask whose base has files, and it
+// differs from its base in an answer value, files or an image.
+func validateLinkedContent(variants []Variant) error {
+	positions := make(map[uuid.UUID]int, len(variants))
+	for i, variant := range variants {
+		if _, seen := positions[variant.ID]; !seen {
+			positions[variant.ID] = i
+		}
+	}
+	for i, variant := range variants {
+		if !variant.LinkedTo.Valid {
+			continue
+		}
+		if basePosition, ok := positions[variant.LinkedTo.UUID]; ok {
+			if err := validateLinkedVariant(i+1, variant, variants[basePosition]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateLinkedVariant checks one linked variant against its base; number is its 1-based position in the version.
+func validateLinkedVariant(number int, linked, base Variant) error {
+	differs := len(linked.ImageOverrides) > 0
+	for taskIndex, baseTask := range base.Tasks {
+		if taskIndex >= len(linked.Tasks) {
+			break
+		}
+		own := linked.Tasks[taskIndex]
+		if len(baseTask.Attachments) > 0 && len(own.Attachments) == 0 {
+			return forTask(ErrLinkedAttachmentMissing.WithPublicContext("variant", number), baseTask).Err()
+		}
+		if len(own.Attachments) > 0 || !slices.Equal(own.Check.values(), baseTask.Check.values()) {
+			differs = true
+		}
+	}
+	if !differs {
+		return ErrLinkedVariantIdentical.WithPublicContext("variant", number).Err()
 	}
 	return nil
 }

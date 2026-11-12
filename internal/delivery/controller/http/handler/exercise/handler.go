@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
@@ -44,6 +46,8 @@ type (
 		InfrastructureAvailable() bool
 		MaxActiveTestDeploys() int
 		DevicePersistenceAllowed() bool
+		LabCapabilities(ctx context.Context) exerciseUseCase.LabCapabilitiesView
+		DraftDocument(ctx context.Context, exerciseID uuid.UUID, withFlags bool) ([]byte, error)
 		// Policy is the platform's device resources settings (presets, frame, ceiling).
 		Policy() resourcesModel.Policy
 		FlagPolicy() exerciseUseCase.FlagPolicy
@@ -82,7 +86,9 @@ type (
 		ListTestDeploys(ctx context.Context, userID, exerciseID uuid.UUID) ([]exerciseModel.TestDeploy, error)
 		ExtendTestDeploy(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, error)
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
+		RunTestDeployChecks(ctx context.Context, userID, deployID, taskID uuid.UUID) error
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
+		OpenTestDeployConsoleLink(ctx context.Context, userID, deployID uuid.UUID, device string) (labaccess.Link, error)
 		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
 		CommitArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
 		ImportRawArchive(context.Context, exerciseUseCase.Actor, exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ArchiveImportStart, error)
@@ -95,6 +101,7 @@ type (
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
 		RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error)
+		DismissArchiveImport(ctx context.Context, id, user uuid.UUID) error
 		// background export of tasks «з образами»
 		StartArchiveExport(ctx context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error)
 		ArchiveExportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error)
@@ -142,7 +149,13 @@ type (
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
 		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
 		GetElevation(ctx context.Context, id uuid.UUID) (exerciseUseCase.ElevationView, error)
-		ListElevations(ctx context.Context, status string) ([]exerciseUseCase.ElevationView, error)
+		ListElevations(
+			ctx context.Context,
+			status string,
+			author uuid.UUID,
+		) ([]exerciseUseCase.ElevationView, error)
+		CountPendingElevations(ctx context.Context) (int64, error)
+		ClusterFreeCapacity(ctx context.Context) (calendarUseCase.FreeCapacityView, error)
 		DecideElevation(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error)
 		ProposeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
 		ListProposals(ctx context.Context, status string) ([]exerciseUseCase.ProposalView, error)
@@ -151,6 +164,7 @@ type (
 		// image availability (the editor's check); scope is the owner event of an event-owned exercise
 		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
+		ImageServices(ctx context.Context, images []string) []imageRegistryUseCase.ImageServiceInfo
 		// image upload through the site (the platform registry)
 		RequireImageUploads(ctx context.Context) error
 		MissingBlobs(ctx context.Context, digests []string) ([]string, error)
@@ -209,6 +223,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// the background import's state, for the user who started it only (the use case scopes it to them)
 		ex.GET("import/jobs", self, h.runningImportJobs)
 		ex.GET("import/jobs/:jobID", self, h.importJob)
+		ex.DELETE("import/jobs/:jobID", self, h.dismissImportJob)
 		// the built-in example archive: for whoever may import somewhere
 		ex.GET("import/example", self, h.importExample)
 		ex.GET("import/example/document", self, h.importExampleDocument)
@@ -226,10 +241,31 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("proposals/:proposalID/reject", h.prot.RequirePermission(rbac.PermExercisesPublish), h.rejectProposal)
 
 		// resource elevations: a platform admin lists and decides the requests to take devices above the frame
-		ex.GET("elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
-		ex.GET("elevations/:elevationID", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.getElevation)
-		ex.POST("elevations/:elevationID/approve", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.approveElevation)
-		ex.POST("elevations/:elevationID/reject", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.rejectElevation)
+		ex.GET(
+			"elevations",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.listElevations,
+		)
+		ex.GET(
+			"elevations/pending-count",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.pendingElevationCount,
+		)
+		ex.GET(
+			"elevations/:elevationID",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsRead),
+			h.getElevation,
+		)
+		ex.POST(
+			"elevations/:elevationID/approve",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsWrite),
+			h.approveElevation,
+		)
+		ex.POST(
+			"elevations/:elevationID/reject",
+			h.prot.RequirePermission(rbac.PermExercisesElevationsWrite),
+			h.rejectElevation,
+		)
 
 		// deploy routes: "deploys" is a static segment sibling to ":id" and, like
 		// "files", must be registered before the ":id" param routes. Status,
@@ -241,6 +277,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("deploys/:deployID/extend", self, h.extendDeploy)
 		ex.POST("deploys/:deployID/link", self, h.deployLink)
 		ex.POST("deploys/:deployID/check", self, h.checkDeploy)
+		ex.POST("deploys/:deployID/tasks/:taskID/run-checks", self, h.runDeployChecks)
 		ex.POST("deploys/:deployID/devices/:device/reset", self, h.resetDeployDevice)
 		ex.POST("deploys/:deployID/devices/:device/rescue", self, h.rescueDeployDevice)
 		ex.DELETE("deploys/:deployID", self, h.destroyDeploy)
@@ -273,8 +310,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		ex.GET(":id/draft", self, h.authorize(exerciseUseCase.ActionRead), h.getDraft)
 		ex.PUT(":id/draft", self, h.authorize(exerciseUseCase.ActionWrite), h.saveDraft)
+		// the working copy as the exercise document in YAML: the same access as reading the draft
+		ex.GET(":id/draft/document", self, h.authorize(exerciseUseCase.ActionRead), h.getDraftDocument)
 		// image availability: the same access as saving the draft
 		ex.POST(":id/images/check", self, h.authorize(exerciseUseCase.ActionWrite), h.checkImages)
+		// the image's own start configuration (entrypoint, cmd, user, working dir): the same access as saving the draft
+		ex.POST(":id/images/service", self, h.authorize(exerciseUseCase.ActionWrite), h.imageServices)
 		// image upload through the site: the same access as saving the draft
 		ex.POST(":id/images/blobs/missing", self, h.authorize(exerciseUseCase.ActionWrite), h.missingImageBlobs)
 		ex.POST(":id/images/blobs", self, h.authorize(exerciseUseCase.ActionWrite), h.pushImageBlob)
@@ -375,9 +416,12 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 		// Resources is the platform's device resources settings: the presets, the default, the frame a device may
 		// use without approval and the ceiling an approved elevation may reach.
 		Resources resourceSettingsResponse `json:"Resources"`
+		// LabCapabilities is what the laboratories that are used can run, without naming any: see labCapabilitiesResponse.
+		LabCapabilities labCapabilitiesResponse `json:"LabCapabilities"`
 	}{
 		Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(),
 		DevicePersistence: h.useCase.DevicePersistenceAllowed(), Resources: toResourceSettings(h.useCase.Policy()),
+		LabCapabilities: toLabCapabilities(h.useCase.LabCapabilities(ctx)),
 	})
 }
 
@@ -755,6 +799,33 @@ func (h *Handler) getVersion(ctx *gin.Context) {
 		}
 	}
 	response.AbortWithData(ctx, versionToResponse(v))
+}
+
+// getDraftDocument godoc
+// @Summary  The working copy as the exercise document (YAML)
+// @Description Same access as reading the draft. The working copy (the draft, else the published content, else an empty copy) written as the exercise document of the archive: schema cib-exercise/1.0, one version, the keys in the order of the specification, files as their archive paths (files/...). Secret env values are empty (secret: true stays); a reader who may not see flags gets no answer values and no conditions. Content-Type application/yaml; charset=utf-8, at most 8 MiB (413 above). It is a view: nothing is written. Not wrapped in the response envelope.
+// @Tags     exercises
+// @Produce  application/yaml
+// @Param    id  path  string  true  "exercise ID"
+// @Success  200  {string}  string  "the document"
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  413  {object}  response.Response
+// @Router   /exercises/{id}/draft/document [get]
+func (h *Handler) getDraftDocument(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	document, err := h.useCase.DraftDocument(ctx, id, accessFrom(ctx).Flags)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	ctx.Data(http.StatusOK, "application/yaml; charset=utf-8", document)
+	ctx.Abort()
 }
 
 // getDraft godoc

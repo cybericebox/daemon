@@ -1,11 +1,13 @@
 package mailModel
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// MailObjectCode — next free detail code: 10
+// MailObjectCode — next free detail code: 11.
 var (
 	ErrSMTPSettingsInvalid = err.ErrInvalidData.WithObjectCode(model.MailObjectCode).
 				WithMessage("SMTP settings are invalid").WithDetailCode(1)
@@ -27,4 +29,9 @@ var (
 	// reused: it would be sent to the new destination. Enter the password again (or clear it).
 	ErrSMTPPasswordRequired = err.ErrInvalidData.WithObjectCode(model.MailObjectCode).
 				WithMessage("The SMTP connection changed: enter the password again").WithDetailCode(9)
+	// ErrTestMailTooSoon: an administrator asked for another test email within the cooldown (HTTP 429);
+	// the status detail carries the seconds to wait.
+	ErrTestMailTooSoon = err.ErrConflict.WithObjectCode(model.MailObjectCode).
+				WithMessage("A test email was just sent, wait a moment").WithDetailCode(10).
+				WithHTTPCode(http.StatusTooManyRequests)
 )

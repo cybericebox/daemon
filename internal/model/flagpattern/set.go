@@ -27,9 +27,22 @@ type Set struct {
 // ParseSet parses candidates in author order. An empty list is a valid set of
 // size 0 (the full random mode).
 func ParseSet(candidates []string) (Set, error) {
-	set := Set{candidates: append([]string(nil), candidates...), patterns: make([]Pattern, 0, len(candidates)), total: big.NewInt(0)}
+	return parseSet(candidates, Parse)
+}
+
+// ParseTextSet is ParseSet for the values of a text answer (see ParseText).
+func ParseTextSet(candidates []string) (Set, error) {
+	return parseSet(candidates, ParseText)
+}
+
+func parseSet(candidates []string, parse func(string) (Pattern, error)) (Set, error) {
+	set := Set{
+		candidates: append([]string(nil), candidates...),
+		patterns:   make([]Pattern, 0, len(candidates)),
+		total:      big.NewInt(0),
+	}
 	for _, candidate := range candidates {
-		p, err := Parse(candidate)
+		p, err := parse(candidate)
 		if err != nil {
 			return Set{}, err
 		}
@@ -79,7 +92,9 @@ func (p Pattern) At(o *big.Int) (string, error) {
 		}
 	}
 	out := make([]byte, 0, len("ICE{}")+len(p.segments))
-	out = append(out, "ICE{"...)
+	if !p.bare {
+		out = append(out, "ICE{"...)
+	}
 	for i, part := range p.segments {
 		if len(part.choices) == 0 {
 			out = append(out, part.literal...)
@@ -87,7 +102,9 @@ func (p Pattern) At(o *big.Int) (string, error) {
 		}
 		out = append(out, part.choices[digits[i]])
 	}
-	out = append(out, '}')
+	if !p.bare {
+		out = append(out, '}')
+	}
 	return string(out), nil
 }
 
@@ -114,10 +131,13 @@ func (p Pattern) Offset(v string) (*big.Int, bool) {
 		}
 		return nil, false
 	}
-	if !strings.HasPrefix(v, "ICE{") || !strings.HasSuffix(v, "}") || len(v) < len("ICE{}") {
-		return nil, false
+	body := v
+	if !p.bare {
+		if !strings.HasPrefix(v, "ICE{") || !strings.HasSuffix(v, "}") || len(v) < len("ICE{}") {
+			return nil, false
+		}
+		body = v[len("ICE{") : len(v)-1]
 	}
-	body := v[len("ICE{") : len(v)-1]
 	offset := new(big.Int)
 	for _, part := range p.segments {
 		if len(part.choices) == 0 {

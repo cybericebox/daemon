@@ -48,12 +48,6 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	h.initMail(router)
 }
 
-// staff gates the aggregate routes: super_admin and any role that holds
-// analytics.read.
-func (h *Handler) staff() gin.HandlerFunc {
-	return h.prot.RequirePermission(rbac.PermAnalyticsRead)
-}
-
 type periodResponse struct {
 	From time.Time `json:"From"`
 	To   time.Time `json:"To"`

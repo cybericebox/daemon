@@ -95,9 +95,9 @@ func TestSourceReimportAtomicallyUpdatesDraftAndCreatesNewFamily(t *testing.T) {
 			_, err = db.Queries.CreateEventExercise(ctx, postgres.CreateEventExerciseParams{ID: pin, EventID: event.ID, ExerciseID: entity.ID, ExerciseVersionID: published.ID, Revision: 1, CreatedAt: importJobT0})
 			require.NoError(t, err)
 			archive, err := exercise.BuildArchiveV1(map[string][]byte{
-				"a/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Imported working rename","description":"new authored description","tags":["crypto"]},"versions":[{"status":"draft","admin_note":"imported draft","variants":[{"tasks":[{"name":"Imported subtask","attachments":[{"file":"files/new.txt"}]}]}]}]}`),
+				"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported working rename","description":"new authored description","tags":["crypto"]},"versions":[{"status":"draft","admin_note":"imported draft","variants":[{"tasks":[{"name":"Imported subtask","attachments":[{"file":"files/new.txt"}]}]}]}]}`),
 				"a/files/new.txt": []byte("imported file content"),
-				"b/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"New sibling task"},"versions":[{"status":"draft","variants":[]}]}`),
+				"b/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"New sibling task"},"versions":[{"status":"draft","variants":[]}]}`),
 			})
 			require.NoError(t, err)
 			sources := newPostgresSources(t, db)
@@ -413,7 +413,7 @@ func TestConcurrentReimportsWithReversedChoicesSerializeWithoutDeadlock(t *testi
 		_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "original"}, importJobT0, uuid.NullUUID{})
 		require.NoError(t, err)
 	}
-	archive, err := exercise.BuildArchiveV1(map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Imported first"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Imported second"},"versions":[{"status":"draft","variants":[]}]}`)})
+	archive, err := exercise.BuildArchiveV1(map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported first"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported second"},"versions":[{"status":"draft","variants":[]}]}`)})
 	require.NoError(t, err)
 	sources := newPostgresSources(t, db)
 	firstSource, secondSource := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())

@@ -118,9 +118,6 @@ func (u *ExerciseUseCase) confirmImportTargets(ctx context.Context, actor Actor,
 			if err := u.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
 				return importItemError(err, task.ItemKey, "target")
 			}
-			if err := u.requireImportedPublishable(ctx, task.Versions, in.OwnerEventID); err != nil {
-				return importItemError(err, task.ItemKey, "")
-			}
 			continue
 		}
 		e, v, err := u.previewTarget(ctx, actor, choice.ExerciseID)
@@ -155,16 +152,8 @@ func (u *ExerciseUseCase) prepareArchiveCommit(ctx context.Context, actor Actor,
 		return nil, err
 	}
 	for i := range tasks {
-		if err = u.validateImportContent(&tasks[i], read.protected); err != nil {
+		if err = u.validateImportContent(ctx, &tasks[i], read.protected); err != nil {
 			return nil, importItemError(err, tasks[i].ItemKey, "")
-		}
-		for vi := range tasks[i].Versions {
-			v := &tasks[i].Versions[vi]
-			if v.Status.IsPublished() {
-				if err = v.ValidateForPublish(); err != nil {
-					return nil, importItemError(withImportedPath(err, vi, v.Variants), tasks[i].ItemKey, "")
-				}
-			}
 		}
 	}
 	choices, err := previewChoices(tasks, in.PreviewArchiveInput)
@@ -176,6 +165,23 @@ func (u *ExerciseUseCase) prepareArchiveCommit(ctx context.Context, actor Actor,
 		// Suggestions are never promoted into an implicit UPDATE at commit.
 		for _, task := range tasks {
 			choices[task.ItemKey] = ImportTarget{ItemKey: task.ItemKey, Mode: "new"}
+		}
+	}
+	// An update keeps the identity of what is stored: the prepared copies are matched like the preview's.
+	for i := range tasks {
+		choice := choices[tasks[i].ItemKey]
+		if choice.Mode != "update" {
+			continue
+		}
+		_, stored, loadErr := u.previewTarget(ctx, actor, choice.ExerciseID)
+		if loadErr != nil {
+			return nil, importItemError(loadErr, tasks[i].ItemKey, "target")
+		}
+		if selected := workingImportVersion(tasks[i].Versions); selected >= 0 {
+			if _, _, err = importIdentity(&tasks[i].Versions[selected], stored); err != nil {
+				failure := model.ErrPlatform.WithError(err).WithMessage("Failed to match the import with the exercise").Err()
+				return nil, importItemError(failure, tasks[i].ItemKey, "")
+			}
 		}
 	}
 	_, hashes, err := u.inspectImportImages(ctx, tasks)
@@ -208,14 +214,32 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
+	reports := make(map[string]exerciseModel.ImportReport, len(staged))
 	for i := range staged {
-		if err = u.validateImportContent(&staged[i], read.protected); err != nil {
+		if err = u.validateImportContent(ctx, &staged[i], read.protected); err != nil {
 			return ArchiveImportStart{}, err
 		}
-		if choices[staged[i].ItemKey].Mode == "update" {
+		choice := choices[staged[i].ItemKey]
+		var report exerciseModel.ImportReport
+		if choice.Mode == "update" {
 			selected := workingImportVersion(staged[i].Versions)
 			staged[i].Versions = []exerciseModel.ExerciseVersion{staged[i].Versions[selected]}
+			target, stored, loadErr := u.previewTarget(ctx, actor, choice.ExerciseID)
+			if loadErr != nil {
+				return ArchiveImportStart{}, importItemError(loadErr, staged[i].ItemKey, "target")
+			}
+			diff, warnings, matchErr := importIdentity(&staged[i].Versions[0], stored)
+			if matchErr != nil {
+				failure := model.ErrPlatform.WithError(matchErr).WithMessage("Failed to match the import with the exercise").Err()
+				return ArchiveImportStart{}, importItemError(failure, staged[i].ItemKey, "")
+			}
+			if report, err = u.importReport(ctx, &target, staged[i].Versions[0], diff, warnings, false); err != nil {
+				return ArchiveImportStart{}, importItemError(err, staged[i].ItemKey, "")
+			}
+		} else if report, err = u.importReport(ctx, nil, staged[i].Versions[0], newImportDiff(staged[i].Versions[0]), nil, staged[i].SourceExerciseID == uuid.Nil); err != nil {
+			return ArchiveImportStart{}, importItemError(err, staged[i].ItemKey, "")
 		}
+		reports[staged[i].ItemKey] = report
 		if err = u.encryptImportedSecrets(staged[i].Versions); err != nil {
 			return ArchiveImportStart{}, err
 		}
@@ -298,7 +322,8 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 			return ArchiveImportStart{}, importItemError(err, parsed.ItemKey, "")
 		}
 		result.Exercises = append(result.Exercises, view)
-		result.Results = append(result.Results, exerciseModel.ImportResult{ItemKey: parsed.ItemKey, Mode: mode, ExerciseID: view.ID})
+		report := reports[parsed.ItemKey]
+		result.Results = append(result.Results, exerciseModel.ImportResult{ItemKey: parsed.ItemKey, Mode: mode, ExerciseID: view.ID, Report: &report})
 	}
 	if job != nil {
 		done := *job
@@ -309,7 +334,7 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 		}
 		done.Finish(ids, u.timeNow())
 		if progress != nil {
-			done.Progress = progress.job.Progress
+			done.Progress = progress.current()
 			done.Finish(ids, u.timeNow())
 		}
 		n, saveErr := session.exercises.SaveImportJob(ctx, done)
@@ -360,13 +385,8 @@ func (u *ExerciseUseCase) storeStagedUpdate(ctx context.Context, id uuid.UUID, s
 
 func (u *ExerciseUseCase) storeStagedNewImport(ctx context.Context, q CatalogRepository, parsed *ParsedExerciseArchive, by uuid.UUID, eventID *uuid.UUID, refresh bool) (ExerciseView, error) {
 	source := parsed.Exercise
+	// The parser leaves exactly one version, the draft.
 	selected := workingImportVersion(parsed.Versions)
-	for i := range parsed.Versions {
-		if parsed.Versions[i].Status.IsPublished() {
-			selected = i
-			break
-		}
-	}
 	if selected >= 0 {
 		source = source.WithVersionMetadata(parsed.Versions[selected])
 	}

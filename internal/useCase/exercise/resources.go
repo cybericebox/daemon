@@ -172,10 +172,10 @@ func (u *ExerciseUseCase) versionResources(ctx context.Context, exerciseID uuid.
 // approved elevation. It needs no agent.
 func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseID uuid.UUID, variants []exerciseModel.Variant) error {
 	policy := u.Policy()
-	for _, v := range variants {
+	for position, v := range variants {
 		for _, d := range v.Topology.Devices {
-			if d.Type == exerciseModel.DeviceTypeContainer && policy.InvalidPreset(d) {
-				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", v.ID.String()).
+			if d.IsNode() && policy.InvalidPreset(d) {
+				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", position+1).
 					WithPublicContext("device", d.Name).WithPublicContext("preset", d.ResourcePreset).Err()
 			}
 		}
@@ -226,6 +226,7 @@ type visibleResource struct {
 	Range          ResourceRange
 	Heavy          bool
 	Infrastructure bool
+	Console        bool
 }
 
 // visibleResources reads the same working/public snapshot as the catalog metadata and statistics.
@@ -242,7 +243,7 @@ func (u *ExerciseUseCase) visibleResources(ctx context.Context, actor Actor, ids
 	out := make(map[uuid.UUID]visibleResource, len(variants))
 	var needApprovals []uuid.UUID
 	for id, vs := range variants {
-		out[id] = visibleResource{Range: rangeOf(policy.VariantRange(vs)), Infrastructure: exerciseModel.HasInfrastructure(vs)}
+		out[id] = visibleResource{Range: rangeOf(policy.VariantRange(vs)), Infrastructure: exerciseModel.HasInfrastructure(vs), Console: exerciseModel.UsesConsole(vs)}
 		if len(policy.OutsideFrame(vs)) > 0 {
 			needApprovals = append(needApprovals, id)
 		}

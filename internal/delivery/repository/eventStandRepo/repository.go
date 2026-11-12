@@ -74,6 +74,14 @@ type Lab struct {
 	ChallengeName string
 	Readiness     labBindingModel.Readiness
 	FailureReason string
+	// WaitReason is the machine code of what a pending Lab waits for, WaitSince since when; RetryAttempts counts
+	// the automatic retries after failures, FailedAt is the last failure.
+	WaitReason    string
+	WaitSince     *time.Time
+	RetryAttempts int32
+	FailedAt      *time.Time
+	// WaitDetail is what the waiting Lab needs and what the reservation has left, nil when none was recorded.
+	WaitDetail *eventStandModel.WaitDetail
 }
 
 // Assignment is one (team, active exercise) pair still to be prepared.
@@ -147,12 +155,13 @@ func (r *Repository) ListMissingAssignments(ctx context.Context, eventID uuid.UU
 }
 
 // ListTeams lists the stand candidates with their lab counters; notDue are the sets whose labs are not due yet
-// (a later stage), which the counters skip.
-func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID, notDue []uuid.UUID) ([]Team, error) {
+// (a later stage), which the counters skip. A lab that has waited for something since before stuckBefore counts
+// as stuck.
+func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID, notDue []uuid.UUID, stuckBefore time.Time) ([]Team, error) {
 	if notDue == nil {
 		notDue = []uuid.UUID{}
 	}
-	rows, err := r.q.ListStandTeams(ctx, postgres.ListStandTeamsParams{EventID: eventID, NotDueExerciseIds: notDue})
+	rows, err := r.q.ListStandTeams(ctx, postgres.ListStandTeamsParams{EventID: eventID, NotDueExerciseIds: notDue, StuckBefore: stuckBefore})
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +173,7 @@ func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID, notDue []
 			Counters: eventStandModel.LabCounters{
 				PendingLabs: row.PendingLabs, FailedLabs: row.FailedLabs,
 				FailureReason: row.FailureReason, MissingAssignments: row.MissingAssignments,
+				StuckLabs: row.StuckLabs, StuckReason: row.StuckReason, StuckDetail: row.StuckDetail,
 			},
 			LabGeneration: row.LabGeneration,
 		}
@@ -220,8 +230,12 @@ func (r *Repository) ListLabs(ctx context.Context, eventID uuid.UUID) ([]Lab, er
 	}
 	out := make([]Lab, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Lab{TeamID: row.EventTeamID, ChallengeID: row.EventChallengeID, ChallengeName: row.ChallengeName,
-			Readiness: labBindingModel.Readiness(row.Readiness), FailureReason: row.FailureReason.String})
+		lab := Lab{TeamID: row.EventTeamID, ChallengeID: row.EventChallengeID, ChallengeName: row.ChallengeName,
+			Readiness: labBindingModel.Readiness(row.Readiness), FailureReason: row.FailureReason.String,
+			WaitReason: row.WaitReason, RetryAttempts: row.RetryAttempts}
+		lab.WaitSince, lab.FailedAt = timePtr(row.WaitSince), timePtr(row.FailedAt)
+		lab.WaitDetail = eventStandModel.ParseWaitDetail(row.WaitDetail)
+		out = append(out, lab)
 	}
 	return out, nil
 }

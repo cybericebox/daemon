@@ -13,9 +13,57 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAdminAuditLog = `-- name: CountAdminAuditLog :one
+SELECT count(*)
+FROM admin_audit_log
+WHERE ($1::uuid IS NULL OR actor_id = $1::uuid)
+  AND ($2::text IS NULL OR permission = $2::text)
+  AND ($3::text IS NULL OR strpos(route, $3::text) > 0)
+  AND ($4::text IS NULL OR method = $4::text)
+  AND ($5::int IS NULL OR response_status >= $5::int)
+  AND ($6::int IS NULL OR response_status <= $6::int)
+  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR created_at <= $8::timestamptz)
+  AND ($9::text IS NULL
+       OR strpos(' ' || target, ' ' || $9::text || ':') > 0)
+  AND ($10::text IS NULL OR strpos(target, $10::text) > 0)
+`
+
+type CountAdminAuditLogParams struct {
+	ActorID    uuid.NullUUID      `json:"actor_id"`
+	Permission pgtype.Text        `json:"permission"`
+	Route      pgtype.Text        `json:"route"`
+	Method     pgtype.Text        `json:"method"`
+	StatusMin  pgtype.Int4        `json:"status_min"`
+	StatusMax  pgtype.Int4        `json:"status_max"`
+	FromAt     pgtype.Timestamptz `json:"from_at"`
+	ToAt       pgtype.Timestamptz `json:"to_at"`
+	TargetKind pgtype.Text        `json:"target_kind"`
+	TargetID   pgtype.Text        `json:"target_id"`
+}
+
+// How many journal rows the filters match (no cursor, no limit).
+func (q *Queries) CountAdminAuditLog(ctx context.Context, arg CountAdminAuditLogParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAdminAuditLog,
+		arg.ActorID,
+		arg.Permission,
+		arg.Route,
+		arg.Method,
+		arg.StatusMin,
+		arg.StatusMax,
+		arg.FromAt,
+		arg.ToAt,
+		arg.TargetKind,
+		arg.TargetID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAdminAuditLog = `-- name: CreateAdminAuditLog :exec
-INSERT INTO admin_audit_log (id, actor_id, permission, method, route, response_status, created_at, target)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO admin_audit_log (id, actor_id, permission, method, route, response_status, created_at, target, changes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type CreateAdminAuditLogParams struct {
@@ -27,6 +75,7 @@ type CreateAdminAuditLogParams struct {
 	ResponseStatus int32     `json:"response_status"`
 	CreatedAt      time.Time `json:"created_at"`
 	Target         string    `json:"target"`
+	Changes        []byte    `json:"changes"`
 }
 
 func (q *Queries) CreateAdminAuditLog(ctx context.Context, arg CreateAdminAuditLogParams) error {
@@ -39,12 +88,13 @@ func (q *Queries) CreateAdminAuditLog(ctx context.Context, arg CreateAdminAuditL
 		arg.ResponseStatus,
 		arg.CreatedAt,
 		arg.Target,
+		arg.Changes,
 	)
 	return err
 }
 
 const listAdminAuditLog = `-- name: ListAdminAuditLog :many
-SELECT id, actor_id, permission, method, route, response_status, created_at, target
+SELECT id, actor_id, permission, method, route, response_status, created_at, target, changes
 FROM admin_audit_log
 WHERE ($1::uuid IS NULL OR actor_id = $1::uuid)
   AND ($2::text IS NULL OR permission = $2::text)
@@ -117,6 +167,7 @@ func (q *Queries) ListAdminAuditLog(ctx context.Context, arg ListAdminAuditLogPa
 			&i.ResponseStatus,
 			&i.CreatedAt,
 			&i.Target,
+			&i.Changes,
 		); err != nil {
 			return nil, err
 		}

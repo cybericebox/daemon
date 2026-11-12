@@ -8,9 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
@@ -29,7 +31,27 @@ type (
 			role rbac.Role,
 			emails []string,
 		) ([]authUseCase.InviteResult, error)
-		InviteEntries(ctx context.Context, entries []authUseCase.InviteEntry) ([]authUseCase.InviteEntryResult, error)
+		InviteEntries(
+			ctx context.Context,
+			entries []authUseCase.InviteEntry,
+		) ([]authUseCase.InviteEntryResult, error)
+		ListUserParticipations(
+			ctx context.Context,
+			userID uuid.UUID,
+		) ([]authUseCase.UserParticipationView, error)
+		EndUserSessions(ctx context.Context, userID uuid.UUID) error
+		ResendUserInvitation(ctx context.Context, userID uuid.UUID) error
+		BulkUserAction(
+			ctx context.Context,
+			action string,
+			ids []uuid.UUID,
+		) ([]authUseCase.BulkUserResult, error)
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
+		UserFacets(
+			ctx context.Context,
+			field string,
+			f authUseCase.UsersFilter,
+		) (map[string]int64, error)
 	}
 
 	IProtection interface {
@@ -79,10 +101,13 @@ type (
 		FirstName      string               `json:"FirstName"`
 		LastName       string               `json:"LastName"`
 		Email          string               `json:"Email"`
+		Picture        string               `json:"Picture"`
 		Role           rbac.Role            `json:"Role"`
 		Status         userModel.UserStatus `json:"Status"`
 		LastSeen       time.Time            `json:"LastSeen"`
 		CreatedAt      time.Time            `json:"CreatedAt"`
+		// SignInMethods: email (a password) and the linked providers; filled in the offset (page) list.
+		SignInMethods []string `json:"SignInMethods"`
 	}
 
 	roleCountResponse struct {
@@ -125,6 +150,7 @@ func NewUserAPIHandler(useCase IUseCase, prot IProtection) *Handler {
 func (h *Handler) Init(router *gin.RouterGroup) {
 	usersAPI := router.Group("users")
 	usersAPI.GET("", h.prot.RequirePermission(rbac.PermUsersRead), h.listUsers)
+	usersAPI.GET("facets", h.prot.RequirePermission(rbac.PermUsersRead), h.facets)
 	usersAPI.GET("stats", h.prot.RequirePermission(rbac.PermUsersRead), h.getUserStats)
 	usersAPI.GET(":userID", h.prot.RequirePermission(rbac.PermUsersRead), h.getUser)
 	usersAPI.PATCH(":userID/role", h.prot.RequirePermission(rbac.PermUsersRoleWrite), h.updateRole)
@@ -136,6 +162,38 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	usersAPI.DELETE(":userID", h.prot.RequirePermission(rbac.PermUsersDelete), h.deleteUser)
 	// Each request can mail up to 200 addresses: bound the requests per admin.
 	usersAPI.POST("invite", h.prot.RequirePermission(rbac.PermUsersInvite), h.invite)
+	usersAPI.GET(
+		":userID/participations",
+		h.prot.RequirePermission(rbac.PermUsersRead),
+		h.listParticipations,
+	)
+	usersAPI.POST(
+		":userID/sessions/end",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.endSessions,
+	)
+	usersAPI.POST(
+		":userID/invitation/resend",
+		h.prot.RequirePermission(rbac.PermUsersInvite),
+		h.resendInvitation,
+	)
+	// One route per action: each is gated by the permission of its single counterpart.
+	usersAPI.POST(
+		"bulk/resend-invitation",
+		h.prot.RequirePermission(rbac.PermUsersInvite),
+		h.bulkResend,
+	)
+	usersAPI.POST("bulk/block", h.prot.RequirePermission(rbac.PermUsersStatusWrite), h.bulkBlock)
+	usersAPI.POST(
+		"bulk/unblock",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.bulkUnblock,
+	)
+	usersAPI.POST(
+		"bulk/end-sessions",
+		h.prot.RequirePermission(rbac.PermUsersStatusWrite),
+		h.bulkEndSessions,
+	)
 }
 
 // listUsers godoc
@@ -156,10 +214,16 @@ func (h *Handler) listUsers(ctx *gin.Context) {
 			response.AbortWithBadRequest(ctx, err)
 			return
 		}
+		emailConfirmed, signIn, inactiveDays, err := parseUserFilters(ctx)
+		if err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
 		res, err := h.useCase.ListUsers(ctx, authUseCase.UsersFilter{
 			Search: ctx.Query("search"), Roles: rbac.RolesFromStrings(ctx.QueryArray("role")),
 			Status: userModel.UserStatus(ctx.Query("status")), Page: page.Page,
 			PageSize: page.PageSize, SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
+			EmailConfirmed: emailConfirmed, SignIn: signIn, InactiveDays: inactiveDays,
 		})
 		if err != nil {
 			response.AbortWithError(ctx, err)
@@ -167,8 +231,22 @@ func (h *Handler) listUsers(ctx *gin.Context) {
 		}
 		items := make([]userResponse, 0, len(res.Users))
 		for _, x := range res.Users {
-			items = append(items, userResponse{ID: x.ID, FirstName: x.FirstName, LastName: x.LastName,
-				Email: x.Email, EmailConfirmed: x.EmailConfirmed, Role: x.Role, Status: x.Status, LastSeen: x.LastSeen, CreatedAt: x.CreatedAt})
+			items = append(
+				items,
+				userResponse{
+					ID:             x.ID,
+					FirstName:      x.FirstName,
+					LastName:       x.LastName,
+					Email:          x.Email,
+					Picture:        x.Picture,
+					EmailConfirmed: x.EmailConfirmed,
+					Role:           x.Role,
+					Status:         x.Status,
+					LastSeen:       x.LastSeen,
+					CreatedAt:      x.CreatedAt,
+					SignInMethods:  x.SignInMethods,
+				},
+			)
 		}
 		response.AbortWithData(ctx, pagination.NewOffsetPage(items, res.Total, page.Page, page.PageSize))
 		return
@@ -293,9 +371,20 @@ func (h *Handler) updateRole(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetUser(ctx.Request.Context(), targetID) // only to record the old role
 	if err := h.useCase.UpdateUserRole(ctx.Request.Context(), targetID, req.Role); err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if before != nil {
+		audit.SetChanges(
+			ctx,
+			adminAuditUseCase.Diff(
+				map[string]any{"Role": before.Role},
+				map[string]any{"Role": req.Role},
+				"Role",
+			),
+		)
 	}
 	response.AbortWithSuccess(ctx)
 }
@@ -322,9 +411,20 @@ func (h *Handler) updateStatus(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetUser(ctx.Request.Context(), targetID) // only to record the old status
 	if err := h.useCase.UpdateUserStatus(ctx.Request.Context(), targetID, req.Status); err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	if before != nil {
+		audit.SetChanges(
+			ctx,
+			adminAuditUseCase.Diff(
+				map[string]any{"Status": before.Status},
+				map[string]any{"Status": req.Status},
+				"Status",
+			),
+		)
 	}
 	response.AbortWithSuccess(ctx)
 }

@@ -312,6 +312,102 @@ func (q *Queries) ListEventNotificationDispatchStats(ctx context.Context, arg Li
 	return items, nil
 }
 
+const listEventParticipantSubmissions = `-- name: ListEventParticipantSubmissions :many
+WITH first_correct AS (
+    SELECT DISTINCT ON (a.team_challenge_id) a.team_challenge_id, a.user_id, a.received_at
+    FROM effective_challenge_attempts a
+    WHERE a.event_id = $1
+      AND a.effective_correct
+    ORDER BY a.team_challenge_id, a.received_at, a.id
+)
+SELECT fc.team_challenge_id,
+       tc.event_team_id                                                              AS team_id,
+       event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)::text  AS team_name,
+       tc.event_challenge_id                                                         AS challenge_id,
+       COALESCE(c.snapshot ->> 'name', '')::text                                     AS challenge_name,
+       fc.user_id,
+       COALESCE(person.first_name, '')::text                                         AS first_name,
+       COALESCE(person.last_name, '')::text                                          AS last_name,
+       COALESCE(person.email, '')::text                                              AS email,
+       fc.received_at                                                                AS submitted_at,
+       e.start_at                                                                    AS event_start_at,
+       COALESCE((SELECT min(o.at)
+                 FROM event_activity o
+                 WHERE o.event_id = tc.event_id AND o.kind = 'task_opened'
+                   AND o.subject_id = tc.event_challenge_id AND o.team_id = tc.event_team_id),
+                'epoch'::timestamptz)::timestamptz                                   AS first_open_at,
+       (SELECT count(*) FROM effective_challenge_attempts w
+        WHERE w.team_challenge_id = fc.team_challenge_id AND NOT w.effective_correct
+          AND w.received_at < fc.received_at AND w.user_id = fc.user_id)::bigint     AS participant_wrong,
+       (SELECT count(*) FROM effective_challenge_attempts w
+        WHERE w.team_challenge_id = fc.team_challenge_id AND NOT w.effective_correct
+          AND w.received_at < fc.received_at)::bigint                                AS team_wrong
+FROM first_correct fc
+JOIN team_challenges tc ON tc.id = fc.team_challenge_id
+JOIN events e ON e.id = tc.event_id
+JOIN event_teams t ON t.id = tc.event_team_id
+    AND event_team_visible(t.hidden, t.moderators, t.event_id, t.individual, t.admitted_manually, t.admission_locked, t.member_count)
+LEFT JOIN event_challenges c ON c.id = tc.event_challenge_id
+LEFT JOIN users person ON person.id = fc.user_id
+ORDER BY fc.received_at, fc.team_challenge_id
+`
+
+type ListEventParticipantSubmissionsRow struct {
+	TeamChallengeID  uuid.UUID `json:"team_challenge_id"`
+	TeamID           uuid.UUID `json:"team_id"`
+	TeamName         string    `json:"team_name"`
+	ChallengeID      uuid.UUID `json:"challenge_id"`
+	ChallengeName    string    `json:"challenge_name"`
+	UserID           uuid.UUID `json:"user_id"`
+	FirstName        string    `json:"first_name"`
+	LastName         string    `json:"last_name"`
+	Email            string    `json:"email"`
+	SubmittedAt      time.Time `json:"submitted_at"`
+	EventStartAt     time.Time `json:"event_start_at"`
+	FirstOpenAt      time.Time `json:"first_open_at"`
+	ParticipantWrong int64     `json:"participant_wrong"`
+	TeamWrong        int64     `json:"team_wrong"`
+}
+
+// One row per solved task of a visible team: the participant whose submission was the first correct one (the
+// flag was SUBMITTED by them; teammates may have found it), when, the minutes from the event start and from the
+// team's first open of the task, and the wrong attempts before it by that participant and by the whole team.
+// No IP or user agent exists in the data (§9.3).
+func (q *Queries) ListEventParticipantSubmissions(ctx context.Context, eventID uuid.UUID) ([]ListEventParticipantSubmissionsRow, error) {
+	rows, err := q.db.Query(ctx, listEventParticipantSubmissions, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventParticipantSubmissionsRow{}
+	for rows.Next() {
+		var i ListEventParticipantSubmissionsRow
+		if err := rows.Scan(
+			&i.TeamChallengeID,
+			&i.TeamID,
+			&i.TeamName,
+			&i.ChallengeID,
+			&i.ChallengeName,
+			&i.UserID,
+			&i.FirstName,
+			&i.LastName,
+			&i.Email,
+			&i.SubmittedAt,
+			&i.EventStartAt,
+			&i.FirstOpenAt,
+			&i.ParticipantWrong,
+			&i.TeamWrong,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventRegistrationAnswers = `-- name: ListEventRegistrationAnswers :many
 SELECT DISTINCT ON (a.user_id) a.form_version_id, a.answers
 FROM event_form_answers a

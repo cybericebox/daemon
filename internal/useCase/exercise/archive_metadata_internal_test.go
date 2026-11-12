@@ -33,7 +33,7 @@ func TestArchiveVersionMetadataRoundTripAndSourceIdentity(t *testing.T) {
 
 func TestArchiveLegacyMetadataFallsBackForEveryVersion(t *testing.T) {
 	var document archiveDocV2
-	require.NoError(t, json.Unmarshal([]byte(`{"schema":"cib-exercise/1","exercise":{"name":"Known baseline","description":"Known description","tags":["web"]},"versions":[{"status":"draft","variants":[]},{"status":"published","variants":[]}]}`), &document))
+	require.NoError(t, json.Unmarshal([]byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Known baseline","description":"Known description","tags":["web"]},"versions":[{"status":"draft","variants":[]},{"status":"published","variants":[]}]}`), &document))
 	parsed, err := document.toParsed(nil)
 	require.NoError(t, err)
 	for _, version := range parsed.Versions {

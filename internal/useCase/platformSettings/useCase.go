@@ -22,6 +22,7 @@ type (
 		retentionDefaults retentionModel.Policy
 		testRunDefaults   exerciseModel.TestRunLeases
 		maxUploadBytes    int64
+		profiles          IProfileAvailability
 		// warnedRows is the stored row version last warned about, per key (warnStored).
 		warnedRows sync.Map
 		now        func() time.Time
@@ -36,6 +37,9 @@ type (
 		// MaxUploadBytes is the limit of one stored file (MEDIA_MAX_UPLOAD_BYTES): one archive entry may not be larger.
 		// Zero: no such bound.
 		MaxUploadBytes int64
+		// Profiles says which node profiles a connected laboratory agent can run now. Nil: unknown, nothing is
+		// reported as runnable.
+		Profiles IProfileAvailability
 		// Now is the clock; nil: time.Now.
 		Now func() time.Time
 	}
@@ -58,11 +62,13 @@ func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
 		retentionDefaults: deps.RetentionDefaults,
 		testRunDefaults:   testRuns,
 		maxUploadBytes:    deps.MaxUploadBytes,
+		profiles:          deps.Profiles,
 		now:               now,
 	}
 	warnDefaultsOutOfRange(u.retentionSetting())
 	warnDefaultsOutOfRange(u.archiveLimitSetting())
 	warnDefaultsOutOfRange(u.testRunSetting())
+	warnDefaultsOutOfRange(u.nodeProfileSetting())
 	return u
 }
 

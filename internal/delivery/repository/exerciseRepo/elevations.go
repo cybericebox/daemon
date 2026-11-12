@@ -81,11 +81,17 @@ func (r *Repository) DecideElevation(ctx context.Context, e resourcesModel.Eleva
 	})
 }
 
-// ListElevations lists requests newest first with the exercise name; status and exercise narrow it.
-func (r *Repository) ListElevations(ctx context.Context, status *resourcesModel.ElevationStatus, exerciseID uuid.NullUUID) ([]resourcesModel.ElevationListed, error) {
-	params := postgres.ListExerciseResourceElevationsParams{ExerciseID: exerciseID}
-	if status != nil {
-		params.Status = pgtype.Int2{Int16: int16(*status), Valid: true}
+// ListElevations lists requests newest first with the exercise name; status, exercise and author narrow it.
+func (r *Repository) ListElevations(
+	ctx context.Context,
+	f resourcesModel.ElevationFilter,
+) ([]resourcesModel.ElevationListed, error) {
+	params := postgres.ListExerciseResourceElevationsParams{
+		ExerciseID:  f.ExerciseID,
+		RequestedBy: f.RequestedBy,
+	}
+	if f.Status != nil {
+		params.Status = pgtype.Int2{Int16: int16(*f.Status), Valid: true}
 	}
 	rows, err := r.q.ListExerciseResourceElevations(ctx, params)
 	if err != nil {
@@ -143,4 +149,9 @@ func nonNilApprovals(in []resourcesModel.Approval) []resourcesModel.Approval {
 		return []resourcesModel.Approval{}
 	}
 	return in
+}
+
+// CountPendingElevations is how many requests wait for a decision.
+func (r *Repository) CountPendingElevations(ctx context.Context) (int64, error) {
+	return r.q.CountPendingExerciseResourceElevations(ctx)
 }

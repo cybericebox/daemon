@@ -157,12 +157,18 @@ func (h *Handler) mail(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	view, err := h.useCase.GetMail(ctx.Request.Context(), from, to, channel, transport, kind, includeTests)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, toMailResponse(view))
+	answer(ctx, from, to, func(from, to *time.Time) (mailResponse, error) {
+		view, err := h.useCase.GetMail(
+			ctx.Request.Context(),
+			from,
+			to,
+			channel,
+			transport,
+			kind,
+			includeTests,
+		)
+		return toMailResponse(view), err
+	})
 }
 
 // exportMail godoc

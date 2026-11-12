@@ -22,6 +22,8 @@ const (
 	StatusSending Status = "sending"
 	StatusDone    Status = "done"
 	StatusFailed  Status = "failed"
+	// StatusCanceled means an admin stopped the sender; recipients already queued are still delivered.
+	StatusCanceled Status = "canceled"
 )
 
 // AudienceKind selects who receives a broadcast.
@@ -196,4 +198,25 @@ type ListFilter struct {
 	Scope  string
 	Cursor string
 	Limit  int32
+	// The page-number mode: Search looks in the subject, the in-app title and the event name, Status keeps one
+	// status, SortBy is subject, status, recipients or created ("": newest first), SortDir asc or desc.
+	Search, Status  string
+	SortBy, SortDir string
+	Offset          int32
+}
+
+// Delivery status filters of a broadcast's recipient list.
+const (
+	DeliveryError   = "error"
+	DeliveryDone    = "done"
+	DeliveryWaiting = "waiting"
+)
+
+// ValidDeliveryStatus reports whether s is a delivery filter value ("" is no filter).
+func ValidDeliveryStatus(s string) bool {
+	switch s {
+	case "", DeliveryError, DeliveryDone, DeliveryWaiting:
+		return true
+	}
+	return false
 }

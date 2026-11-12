@@ -32,6 +32,73 @@ func (q *Queries) CountPlatformTestLabs(ctx context.Context, now time.Time) (Cou
 	return i, err
 }
 
+const facetPlatformTestLabs = `-- name: FacetPlatformTestLabs :many
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE $1::text
+                 WHEN 'status' THEN CASE WHEN d.expires_at > $2::timestamptz THEN 'active' ELSE 'expired' END
+                 WHEN 'author' THEN d.created_by::text
+                 WHEN 'exercise' THEN v.exercise_id::text
+             END AS key
+      FROM exercise_test_deployments d
+               JOIN exercise_versions v ON v.id = d.version_id
+               JOIN users u ON u.id = d.created_by
+      WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
+        AND ($3::text = ''
+          OR v.name ILIKE '%' || $3::text || '%'
+          OR u.email ILIKE '%' || $3::text || '%'
+          OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $3::text || '%')
+        AND ($1::text = 'status' OR $4::text = ''
+          OR ($4::text = 'active' AND d.expires_at > $2::timestamptz)
+          OR ($4::text = 'expired' AND d.expires_at <= $2::timestamptz))
+        AND ($1::text = 'author' OR $5::uuid IS NULL OR d.created_by = $5::uuid)
+        AND ($1::text = 'exercise' OR $6::uuid IS NULL OR v.exercise_id = $6::uuid)) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key
+`
+
+type FacetPlatformTestLabsParams struct {
+	Field      string        `json:"field"`
+	Now        time.Time     `json:"now"`
+	Search     string        `json:"search"`
+	Status     string        `json:"status"`
+	AuthorID   uuid.NullUUID `json:"author_id"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+}
+
+type FacetPlatformTestLabsRow struct {
+	Key   string `json:"key"`
+	Count int64  `json:"count"`
+}
+
+// Counts of the test lab table per value of one field (status, author or exercise) under the other filters: the
+// filter of the field itself is ignored.
+func (q *Queries) FacetPlatformTestLabs(ctx context.Context, arg FacetPlatformTestLabsParams) ([]FacetPlatformTestLabsRow, error) {
+	rows, err := q.db.Query(ctx, facetPlatformTestLabs,
+		arg.Field,
+		arg.Now,
+		arg.Search,
+		arg.Status,
+		arg.AuthorID,
+		arg.ExerciseID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FacetPlatformTestLabsRow{}
+	for rows.Next() {
+		var i FacetPlatformTestLabsRow
+		if err := rows.Scan(&i.Key, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPlatformTestLab = `-- name: GetPlatformTestLab :one
 SELECT d.id, d.group_name, d.lab_name, d.created_by,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', device.value -> 'id', 'name', device.value -> 'name', 'type', device.value -> 'type') ORDER BY device.ord)
@@ -85,14 +152,38 @@ WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
     OR v.name ILIKE '%' || $1::text || '%'
     OR u.email ILIKE '%' || $1::text || '%'
     OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $1::text || '%')
-ORDER BY d.created_at DESC, d.id
-LIMIT $3 OFFSET $2
+  AND ($2::text = ''
+    OR ($2::text = 'active' AND d.expires_at > $3::timestamptz)
+    OR ($2::text = 'expired' AND d.expires_at <= $3::timestamptz))
+  AND ($4::uuid IS NULL OR d.created_by = $4::uuid)
+  AND ($5::uuid IS NULL OR v.exercise_id = $5::uuid)
+ORDER BY
+  CASE WHEN $6::text = 'exercise' AND $7::text = 'asc' THEN lower(v.name) END ASC,
+  CASE WHEN $6::text = 'exercise' AND $7::text = 'desc' THEN lower(v.name) END DESC,
+  CASE WHEN $6::text = 'author' AND $7::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END ASC,
+  CASE WHEN $6::text = 'author' AND $7::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END DESC,
+  CASE WHEN $6::text = 'variant' AND $7::text = 'asc' THEN d.variant_id END ASC,
+  CASE WHEN $6::text = 'variant' AND $7::text = 'desc' THEN d.variant_id END DESC,
+  CASE WHEN $6::text = 'status' AND $7::text = 'asc' THEN (d.expires_at <= $3::timestamptz) END ASC,
+  CASE WHEN $6::text = 'status' AND $7::text = 'desc' THEN (d.expires_at <= $3::timestamptz) END DESC,
+  CASE WHEN $6::text = 'createdAt' AND $7::text = 'asc' THEN d.created_at END ASC,
+  CASE WHEN $6::text = 'createdAt' AND $7::text = 'desc' THEN d.created_at END DESC,
+  CASE WHEN $6::text = 'expiresAt' AND $7::text = 'asc' THEN d.expires_at END ASC,
+  CASE WHEN $6::text = 'expiresAt' AND $7::text = 'desc' THEN d.expires_at END DESC,
+  d.created_at DESC, d.id
+LIMIT $9 OFFSET $8
 `
 
 type ListPlatformTestLabsParams struct {
-	Search    string `json:"search"`
-	OffsetVal int32  `json:"offset_val"`
-	LimitVal  int32  `json:"limit_val"`
+	Search     string        `json:"search"`
+	Status     string        `json:"status"`
+	Now        time.Time     `json:"now"`
+	AuthorID   uuid.NullUUID `json:"author_id"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+	SortBy     string        `json:"sort_by"`
+	SortDir    string        `json:"sort_dir"`
+	OffsetVal  int32         `json:"offset_val"`
+	LimitVal   int32         `json:"limit_val"`
 }
 
 type ListPlatformTestLabsRow struct {
@@ -118,7 +209,17 @@ type ListPlatformTestLabsRow struct {
 // when the lab is stopped or its expired lease is cleaned up.
 // A static test (no group, no lab name, no event) is not a laboratory and never appears here.
 func (q *Queries) ListPlatformTestLabs(ctx context.Context, arg ListPlatformTestLabsParams) ([]ListPlatformTestLabsRow, error) {
-	rows, err := q.db.Query(ctx, listPlatformTestLabs, arg.Search, arg.OffsetVal, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listPlatformTestLabs,
+		arg.Search,
+		arg.Status,
+		arg.Now,
+		arg.AuthorID,
+		arg.ExerciseID,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}

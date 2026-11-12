@@ -39,7 +39,7 @@ func (*clientInfra) DeployLab(context.Context, string, string, infraModel.LabMet
 	return nil
 }
 func (*clientInfra) LabStatus(context.Context, string, string) (exerciseModel.LabDeployStatus, error) {
-	return exerciseModel.LabDeployStatus{Ready: true, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"}}}, nil
+	return exerciseModel.LabDeployStatus{Ready: true, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.challenges.example.com"}}}, nil
 }
 func (*clientInfra) EnsureVPNGroup(context.Context, string) error { return nil }
 func (i *clientInfra) EnsureLabClient(_ context.Context, group, client string) (string, error) {
@@ -116,7 +116,7 @@ func TestIssueLabLinkUsesTheDeviceAddressGroupAndClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(issuer.got) != 1 || issuer.got[0].Group != "e-x-t-y" || issuer.got[0].Client != labBindingModel.ParticipantClientName(userID) || issuer.got[0].AccessURL != "https://web-abc123.challenges.example.com" || link.Token != "x" {
+	if len(issuer.got) != 1 || issuer.got[0].Group != "e-x-t-y" || issuer.got[0].Client != labBindingModel.ParticipantClientName(userID) || issuer.got[0].AccessURL != "https://web-abc123w.challenges.example.com" || link.Token != "x" {
 		t.Fatalf("session = %+v", issuer.got)
 	}
 	if _, err = uc.issueLabLink(context.Background(), eventID, userID, binding, "db", 5432); !errors.Is(err, eventStandModel.ErrStandLabNoWebDevice.Err()) {

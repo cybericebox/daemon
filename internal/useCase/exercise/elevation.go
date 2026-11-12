@@ -22,8 +22,13 @@ type IElevations interface {
 	GetElevation(ctx context.Context, id uuid.UUID) (resourcesModel.Elevation, error)
 	// DecideElevation writes the decision of a pending request; 0 rows: it was decided meanwhile.
 	DecideElevation(ctx context.Context, e resourcesModel.Elevation) (int64, error)
-	// ListElevations lists requests newest first; status and exercise narrow it.
-	ListElevations(ctx context.Context, status *resourcesModel.ElevationStatus, exerciseID uuid.NullUUID) ([]resourcesModel.ElevationListed, error)
+	// ListElevations lists requests newest first; status, exercise and author narrow it.
+	ListElevations(
+		ctx context.Context,
+		f resourcesModel.ElevationFilter,
+	) ([]resourcesModel.ElevationListed, error)
+	// CountPendingElevations is how many requests wait for a decision.
+	CountPendingElevations(ctx context.Context) (int64, error)
 	// LatestElevation is the open request of the exercise, else its latest decided one.
 	LatestElevation(ctx context.Context, exerciseID uuid.UUID) (resourcesModel.Elevation, error)
 	// ApprovedFor is the approved values of every approved elevation, per exercise.
@@ -204,8 +209,12 @@ func (u *ExerciseUseCase) GetElevation(ctx context.Context, id uuid.UUID) (Eleva
 }
 
 // ListElevations is the platform admin's list of requests; status is pending, approved, rejected or empty for
-// all. Route gate: exercises.elevations.read.
-func (u *ExerciseUseCase) ListElevations(ctx context.Context, status string) ([]ElevationView, error) {
+// all, author (when not nil) keeps the requests one person made. Route gate: exercises.elevations.read.
+func (u *ExerciseUseCase) ListElevations(
+	ctx context.Context,
+	status string,
+	author uuid.UUID,
+) ([]ElevationView, error) {
 	if u.elevations == nil {
 		return []ElevationView{}, nil
 	}
@@ -216,7 +225,13 @@ func (u *ExerciseUseCase) ListElevations(ctx context.Context, status string) ([]
 			filter = &s
 		}
 	}
-	rows, err := u.elevations.ListElevations(ctx, filter, uuid.NullUUID{})
+	rows, err := u.elevations.ListElevations(
+		ctx,
+		resourcesModel.ElevationFilter{
+			Status:      filter,
+			RequestedBy: uuid.NullUUID{UUID: author, Valid: author != uuid.Nil},
+		},
+	)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the resource elevation requests").Err()
 	}
@@ -230,6 +245,21 @@ func (u *ExerciseUseCase) ListElevations(ctx context.Context, status string) ([]
 		rows = kept
 	}
 	return u.elevationViews(ctx, rows), nil
+}
+
+// CountPendingElevations is how many requests wait for a decision, for the menu badge.
+// Route gate: exercises.elevations.read.
+func (u *ExerciseUseCase) CountPendingElevations(ctx context.Context) (int64, error) {
+	if u.elevations == nil {
+		return 0, nil
+	}
+	n, err := u.elevations.CountPendingElevations(ctx)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to count the pending resource elevation requests").
+			Err()
+	}
+	return n, nil
 }
 
 func (u *ExerciseUseCase) elevationViews(ctx context.Context, rows []resourcesModel.ElevationListed) []ElevationView {
@@ -344,7 +374,13 @@ func (u *ExerciseUseCase) pendingElevations(ctx context.Context, exerciseID uuid
 		return nil
 	}
 	pending := resourcesModel.ElevationPending
-	rows, err := u.elevations.ListElevations(ctx, &pending, uuid.NullUUID{UUID: exerciseID, Valid: true})
+	rows, err := u.elevations.ListElevations(
+		ctx,
+		resourcesModel.ElevationFilter{
+			Status:     &pending,
+			ExerciseID: uuid.NullUUID{UUID: exerciseID, Valid: true},
+		},
+	)
 	if err != nil {
 		log.Warn().Err(err).Str("exercise_id", exerciseID.String()).Msg("Failed to list the pending resource elevations")
 		return nil

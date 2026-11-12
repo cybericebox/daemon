@@ -17,7 +17,10 @@ import (
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	tablePrefsModel "github.com/cybericebox/daemon/internal/model/tablePrefs"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -44,6 +47,12 @@ type fakeUC struct {
 	capturedMeta      authModel.SessionMetadata
 	loginHint         string
 	setupStartToken   string
+	passkeyErr        error
+	exportErr         error
+	tablePrefs        *tablePrefsModel.Prefs
+	tableKey          string
+	passkeys          []passkeyModel.Passkey
+	sessionEmailErr   error
 }
 
 func (f *fakeUC) SignIn(
@@ -125,6 +134,23 @@ func (f *fakeUC) BeginGoogleRegistration(
 	}
 	return authUseCase.GoogleRegistrationResult{SetupToken: "setuptok"}, nil
 }
+func (f *fakeUC) GoogleLinkPendingOf(context.Context, string) (authUseCase.GoogleLinkPending, error) {
+	return authUseCase.GoogleLinkPending{}, nil
+}
+func (f *fakeUC) SendGoogleLinkCode(context.Context, string) (authUseCase.GoogleLinkCodeSent, error) {
+	return authUseCase.GoogleLinkCodeSent{}, nil
+}
+func (f *fakeUC) ConfirmGoogleLink(context.Context, string, string, string, authModel.SessionMetadata) (string, string, error) {
+	return "", "", nil
+}
+func (f *fakeUC) SessionEmail(context.Context, string) (string, error) {
+	if f.sessionEmailErr != nil {
+		return "", f.sessionEmailErr
+	}
+	return "me@example.org", nil
+}
+func (f *fakeUC) CancelGoogleLink(context.Context, string) error { return nil }
+
 func (f *fakeUC) LinkGoogleToSetupFromOAuth(_ context.Context, _, _, _ string) (string, error) {
 	return f.linkSetupReturnTo, f.linkSetupErr
 }
@@ -204,6 +230,66 @@ func (f *fakeUC) UploadAvatar(
 func (f *fakeUC) RemoveAvatar(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeUC) GetAvatar(_ context.Context, _ uuid.UUID) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader(f.avatarBody)), f.avatarType, nil
+}
+
+func (f *fakeUC) GetTablePrefs(_ context.Context, _ uuid.UUID, key string) (*tablePrefsModel.Prefs, error) {
+	f.tableKey = key
+	return f.tablePrefs, f.passkeyErr
+}
+func (f *fakeUC) SaveTablePrefs(_ context.Context, _ uuid.UUID, key string, p tablePrefsModel.Prefs) (tablePrefsModel.Prefs, error) {
+	f.tableKey = key
+	return p, f.passkeyErr
+}
+func (f *fakeUC) ResetTablePrefs(_ context.Context, _ uuid.UUID, key string) error {
+	f.tableKey = key
+	return f.passkeyErr
+}
+
+func (f *fakeUC) ExportMyData(_ context.Context, _ uuid.UUID) (*userModel.DataExport, error) {
+	if f.exportErr != nil {
+		return nil, f.exportErr
+	}
+	return &userModel.DataExport{ExportedAt: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}, nil
+}
+
+func (f *fakeUC) BeginPasskeySignIn(_ context.Context) (authUseCase.PasskeyCeremony, error) {
+	options := json.RawMessage(`{"publicKey":{"challenge":"c"}}`)
+	return authUseCase.PasskeyCeremony{CeremonyID: "cer", Options: options}, nil
+}
+func (f *fakeUC) PasskeySignIn(
+	_ context.Context,
+	_, redirect string,
+	_ []byte,
+	meta authModel.SessionMetadata,
+) (string, string, error) {
+	f.capturedRedirect = redirect
+	f.capturedMeta = meta
+	return f.cookie, f.redirect, f.passkeyErr
+}
+func (f *fakeUC) BeginPasskeyRegistration(
+	_ context.Context,
+	_ uuid.UUID,
+	password string,
+) (authUseCase.PasskeyCeremony, error) {
+	f.reauthPassword = password
+	options := json.RawMessage(`{"publicKey":{}}`)
+	return authUseCase.PasskeyCeremony{CeremonyID: "cer", Options: options}, f.passkeyErr
+}
+func (f *fakeUC) FinishPasskeyRegistration(
+	_ context.Context,
+	userID uuid.UUID,
+	_, name string,
+	_ []byte,
+) (passkeyModel.Passkey, error) {
+	created := passkeyModel.Passkey{ID: uuid.Must(uuid.NewV7()), UserID: userID, Name: name}
+	return created, f.passkeyErr
+}
+func (f *fakeUC) ListPasskeys(_ context.Context, _ uuid.UUID) ([]passkeyModel.Passkey, error) {
+	return f.passkeys, nil
+}
+func (f *fakeUC) RemovePasskey(_ context.Context, _, _ uuid.UUID, password string) error {
+	f.reauthPassword = password
+	return f.passkeyErr
 }
 
 type fakeProt struct {

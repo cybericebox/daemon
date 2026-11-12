@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -43,6 +44,12 @@ const (
 	ReasonReservationFull     = "RESERVATION_FULL"
 	ReasonReservationMismatch = "RESERVATION_MISMATCH"
 	ReasonOverQuota           = "OVER_QUOTA"
+	// ReasonProfileUnsupported: the agent does not offer the profile of a node (or it is vm).
+	ReasonProfileUnsupported = "PROFILE_UNSUPPORTED"
+	// ReasonProfileUnavailable: the profile is offered but no node can run it now.
+	ReasonProfileUnavailable = "PROFILE_UNAVAILABLE"
+	// ReasonPersistenceUnavailable: a lab asks for state persistence and the lab nodes cannot keep state.
+	ReasonPersistenceUnavailable = "PERSISTENCE_UNAVAILABLE"
 )
 
 // The agent's refusals of an item, by reason.
@@ -74,6 +81,10 @@ func ReasonError(reason string) error {
 		return ErrReservationMismatch
 	case ReasonOverQuota:
 		return ErrReservationOverQuota
+	case ReasonPersistenceUnavailable:
+		return ErrDevicePersistenceUnavailable.Err()
+	case ReasonProfileUnsupported, ReasonProfileUnavailable:
+		return exerciseModel.ErrNodeProfileUnavailable.Err()
 	}
 	return nil
 }

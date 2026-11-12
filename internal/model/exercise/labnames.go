@@ -3,6 +3,8 @@ package exerciseModel
 import (
 	"strconv"
 	"strings"
+
+	labnames "github.com/cybericebox/laboratory/pkg/names"
 )
 
 // LabDeviceNames returns the name every device of the topology gets inside the lab, index-aligned
@@ -31,4 +33,24 @@ func LabDeviceNames(devices []Device) []string {
 		names[i] = name
 	}
 	return names
+}
+
+// ValidateDeviceNames refuses the first device of the variants named like a platform endpoint. A switch or a hub has
+// a display name only and is named in the lab by its id, so it is not checked.
+func ValidateDeviceNames(variants []Variant) error {
+	for vi, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if !device.IsNode() {
+				continue
+			}
+			for _, reserved := range labnames.ReservedDeviceNames {
+				if strings.EqualFold(strings.TrimSpace(device.Name), reserved) {
+					return ErrDeviceNameReserved.WithPublicContext("variant", vi+1).
+						WithPublicContext("device", device.Name).
+						Err()
+				}
+			}
+		}
+	}
+	return nil
 }

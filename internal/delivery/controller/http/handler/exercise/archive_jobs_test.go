@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,7 +35,10 @@ type archiveImportCalls struct {
 	job      exerciseUseCase.ImportJobView
 	jobAsked [2]uuid.UUID
 	running  []exerciseUseCase.ImportJobView
-	jobErr   error
+	// dismissed is the [job, user] of the last close; dismissErr what it fails with.
+	dismissed  [2]uuid.UUID
+	dismissErr error
+	jobErr     error
 	// noRegistry is what RequireImageUploads answers; required counts the asks.
 	noRegistry error
 	required   int
@@ -86,6 +90,11 @@ func (f *fakeUC) RunningArchiveImports(_ context.Context, user uuid.UUID) ([]exe
 	return f.archiveImport.running, f.archiveImport.jobErr
 }
 
+func (f *fakeUC) DismissArchiveImport(_ context.Context, id, user uuid.UUID) error {
+	f.archiveImport.dismissed = [2]uuid.UUID{id, user}
+	return f.archiveImport.dismissErr
+}
+
 var (
 	jobCaller = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa")
 	jobID     = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000c1")
@@ -95,7 +104,7 @@ var (
 func imageArchive(t *testing.T) []byte {
 	t.Helper()
 	b, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json":  []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Images"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`),
+		"exercise.json":  []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Images"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`),
 		"images/web.tar": []byte("tar bytes"),
 	})
 	if err != nil {
@@ -415,5 +424,29 @@ func TestRunningImportJobs(t *testing.T) {
 	uc.archiveImport.running = nil
 	if w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs", ""); !strings.Contains(w.Body.String(), `"data":[]`) && !strings.Contains(w.Body.String(), `"Data":[]`) {
 		t.Fatalf("empty list should be []: %s", w.Body.String())
+	}
+}
+
+// GET /exercises/import/jobs lists a failed import with the reason; DELETE closes it.
+func TestFailedImportJobListedAndDismissed(t *testing.T) {
+	failure := exerciseModel.ErrArchiveImportInterrupted.Err().StatusCode()
+	uc := &fakeUC{archiveImport: archiveImportCalls{running: []exerciseUseCase.ImportJobView{{
+		ID: jobID, State: exerciseModel.ImportJobFailed, Stage: exerciseModel.ImportStageFailed,
+		Error: &exerciseModel.ImportJobError{Code: failure.FullCode(), Message: failure.Message()},
+	}}}}
+	r := newEngine(uc, jobCaller)
+	w := jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs", "")
+	for _, want := range []string{`"State":"failed"`, `"Error":{"Code":` + strconv.Itoa(failure.FullCode())} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("lacks %s: %s", want, w.Body.String())
+		}
+	}
+	w = jsonRequest(r, http.MethodDelete, "/api/exercises/import/jobs/"+jobID.String(), "")
+	if w.Code != http.StatusOK || uc.archiveImport.dismissed != [2]uuid.UUID{jobID, jobCaller} {
+		t.Fatalf("dismiss: %d %v", w.Code, uc.archiveImport.dismissed)
+	}
+	uc.archiveImport.dismissErr = exerciseModel.ErrImportJobNotFound.Err()
+	if w = jsonRequest(r, http.MethodDelete, "/api/exercises/import/jobs/"+jobID.String(), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("another user's job: %d", w.Code)
 	}
 }

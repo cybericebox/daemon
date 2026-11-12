@@ -3,6 +3,7 @@ package labagent
 import (
 	"context"
 	"sync"
+	"time"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
@@ -19,6 +20,8 @@ type FeatureCell struct {
 	v  *infraModel.AgentFeatures
 	// incompatible: the agent answered UNIMPLEMENTED on the reservation API, so it gets no new groups.
 	incompatible bool
+	// refusalRefreshed is when a refusal last forced a new read of the features.
+	refusalRefreshed time.Time
 }
 
 // MarkIncompatible records an agent without the reservation API; true the first time.
@@ -97,7 +100,49 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Proxy: infraModel.ProxyFeature{
 			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
-		Reservations: infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
+		Reservations:           infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
+		PersistenceUnavailable: infraModel.ParseUnavailableReason(p.GetUnavailableReason()),
+		LifecycleUnavailable:   infraModel.ParseUnavailableReason(life.GetUnavailableReason()),
+		Checks:                 checksFeatureOf(r.GetChecks()),
+		Access:                 accessFeatureOf(r.GetAccess()),
+		Bootstrap:              bootstrapFeatureOf(r.GetBootstrap()),
+		VPN:                    vpnFeatureOf(r.GetVpn()),
+	}
+}
+
+// The optional parts of contract 1.5 are nil when the report lacks them (an agent older than the fields).
+func checksFeatureOf(c *labpb.ChecksFeature) *infraModel.ChecksFeature {
+	if c == nil {
+		return nil
+	}
+	return &infraModel.ChecksFeature{
+		Enabled: c.GetEnabled(), MaxChecksPerLab: c.GetMaxChecksPerLab(), MaxPartsPerCheck: c.GetMaxPartsPerCheck(),
+		MaxTimeLimitSeconds: c.GetMaxTimeLimitSeconds(), MaxScheduleSeconds: c.GetMaxScheduleSeconds(), MaxDetailBytes: c.GetMaxDetailBytes(),
+		Observations: append([]string(nil), c.GetObservations()...),
+	}
+}
+
+func vpnFeatureOf(v *labpb.VPNFeature) *infraModel.VPNFeature {
+	if v == nil {
+		return nil
+	}
+	return &infraModel.VPNFeature{ReverseConnections: v.GetReverseConnections()}
+}
+
+func accessFeatureOf(a *labpb.AccessFeature) *infraModel.AccessFeature {
+	if a == nil {
+		return nil
+	}
+	return &infraModel.AccessFeature{HTTP: a.GetHttp(), Terminal: a.GetTerminal(), VNC: a.GetVnc(), RDP: a.GetRdp()}
+}
+
+func bootstrapFeatureOf(b *labpb.BootstrapFeature) *infraModel.BootstrapFeature {
+	if b == nil {
+		return nil
+	}
+	return &infraModel.BootstrapFeature{
+		MaxScriptBytes: b.GetMaxScriptBytes(), MaxFiles: b.GetMaxFiles(), MaxFileBytes: b.GetMaxFileBytes(),
+		MaxTotalBytes: b.GetMaxTotalBytes(), MaxTimeLimitSeconds: b.GetMaxTimeLimitSeconds(), MaxAttempts: b.GetMaxAttempts(),
 	}
 }
 
@@ -155,6 +200,18 @@ func (f *Fleet) PersistenceAvailable() bool {
 		}
 	}
 	return false
+}
+
+// LabCapabilities is what the agents that are used can run, aggregated without naming any (see infraModel.CapabilitiesOf):
+// one entry per agent, nil for one that has not reported. It reads the cached reports, so it is cheap and makes no call; a
+// report is refreshed by the monitoring and again when an agent refuses (refreshOnRefusal).
+func (f *Fleet) LabCapabilities() infraModel.LabCapabilities {
+	members := f.eligible()
+	features := make([]*infraModel.AgentFeatures, 0, len(members))
+	for _, m := range members {
+		features = append(features, m.Features.Get())
+	}
+	return infraModel.CapabilitiesOf(features)
 }
 
 // fitOf is the first limit of the member that the need passes; nil when it fits or the agent has not

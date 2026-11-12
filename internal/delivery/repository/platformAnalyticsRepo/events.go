@@ -11,10 +11,26 @@ import (
 
 // EventsQueries are the sqlc statements of the events section.
 type EventsQueries interface {
-	ListPlatformAnalyticsEventSeries(context.Context, postgres.ListPlatformAnalyticsEventSeriesParams) ([]postgres.ListPlatformAnalyticsEventSeriesRow, error)
-	ListPlatformAnalyticsEventStatuses(context.Context, postgres.ListPlatformAnalyticsEventStatusesParams) ([]postgres.ListPlatformAnalyticsEventStatusesRow, error)
-	ListPlatformAnalyticsEvents(context.Context, postgres.ListPlatformAnalyticsEventsParams) ([]postgres.ListPlatformAnalyticsEventsRow, error)
-	ListPlatformAnalyticsUpcomingEvents(context.Context, postgres.ListPlatformAnalyticsUpcomingEventsParams) ([]postgres.ListPlatformAnalyticsUpcomingEventsRow, error)
+	ListPlatformAnalyticsEventSeries(
+		context.Context,
+		postgres.ListPlatformAnalyticsEventSeriesParams,
+	) ([]postgres.ListPlatformAnalyticsEventSeriesRow, error)
+	ListPlatformAnalyticsEventStatuses(
+		context.Context,
+		postgres.ListPlatformAnalyticsEventStatusesParams,
+	) ([]postgres.ListPlatformAnalyticsEventStatusesRow, error)
+	ListPlatformAnalyticsEvents(
+		context.Context,
+		postgres.ListPlatformAnalyticsEventsParams,
+	) ([]postgres.ListPlatformAnalyticsEventsRow, error)
+	ListPlatformAnalyticsEventsPage(
+		context.Context,
+		postgres.ListPlatformAnalyticsEventsPageParams,
+	) ([]postgres.ListPlatformAnalyticsEventsPageRow, error)
+	ListPlatformAnalyticsUpcomingEvents(
+		context.Context,
+		postgres.ListPlatformAnalyticsUpcomingEventsParams,
+	) ([]postgres.ListPlatformAnalyticsUpcomingEventsRow, error)
 }
 
 type (
@@ -120,4 +136,54 @@ func eventFinishOrNil(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
+}
+
+// TableQuery is a search, a sort and a page of an analytics table.
+type TableQuery struct {
+	Search, SortBy, SortDir string
+	Limit, Offset           int32
+}
+
+// EventsPage reads one page of the events of the period: filtered by the search, sorted, with the size of the
+// filtered scope.
+func (r *Repository) EventsPage(
+	ctx context.Context,
+	from, to, asOf time.Time,
+	q TableQuery,
+) ([]EventRow, int64, error) {
+	list, err := r.q.ListPlatformAnalyticsEventsPage(
+		ctx,
+		postgres.ListPlatformAnalyticsEventsPageParams{
+			FromAt:    from,
+			ToAt:      to,
+			AsOf:      asOf,
+			Search:    q.Search,
+			SortBy:    q.SortBy,
+			SortDir:   q.SortDir,
+			LimitVal:  q.Limit,
+			OffsetVal: q.Offset,
+		},
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows := make([]EventRow, 0, len(list))
+	var total int64
+	for _, row := range list {
+		total = row.Total
+		rows = append(rows, EventRow{
+			ID:           row.EventID,
+			Tag:          row.Tag,
+			Name:         row.Name,
+			Status:       row.Status,
+			Configured:   row.Configured,
+			StartAt:      row.StartAt,
+			FinishAt:     eventFinishOrNil(row.FinishAt),
+			Participants: row.Participants,
+			Teams:        row.Teams,
+			Solves:       row.Solves,
+			TeamsSolved:  row.TeamsSolved,
+		})
+	}
+	return rows, total, nil
 }

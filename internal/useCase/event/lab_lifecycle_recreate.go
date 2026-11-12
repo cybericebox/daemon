@@ -36,6 +36,7 @@ func (u *EventUseCase) recreateRetainedTeamStand(ctx context.Context, eventID, t
 	}
 	seen := map[uuid.UUID]bool{}
 	terminal := map[uuid.UUID]bool{}
+	reset := map[uuid.UUID]bool{}
 	for _, b := range bindings {
 		if !b.LabID.Valid || seen[b.LabID.UUID] {
 			continue
@@ -48,6 +49,17 @@ func (u *EventUseCase) recreateRetainedTeamStand(ctx context.Context, eventID, t
 		if l.CloseReason == "solved" {
 			terminal[l.ID] = true
 			continue
+		}
+		// A Lab that never reached the agent has nothing to keep: it is reset in place, not archived as a closed generation.
+		if b.DeployedAt == nil && b.Readiness != labBindingModel.ReadinessReady && l.Unborn() {
+			dropped, dropErr := eventLabRepo.New(q).DropUnborn(txCtx, l.ID)
+			if dropErr != nil {
+				return StandTeamView{}, dropErr
+			}
+			if dropped {
+				reset[l.ID] = true
+				continue
+			}
 		}
 		expected := l.Revision
 		if l.DesiredState == "Running" {
@@ -65,10 +77,13 @@ func (u *EventUseCase) recreateRetainedTeamStand(ctx context.Context, eventID, t
 
 	}
 	for _, b := range bindings {
-		if b.LabID.Valid && terminal[b.LabID.UUID] {
+		if b.LabID.Valid && (terminal[b.LabID.UUID] || reset[b.LabID.UUID]) {
 			continue
 		}
-		next := b.Generation + 1
+		next, genErr := eventLabRepo.New(q).NextGeneration(txCtx, b.EventTeamID, b.EventChallengeID, b.Generation)
+		if genErr != nil {
+			return StandTeamView{}, genErr
+		}
 		if _, err = labBindingRepo.New(q).Recreate(txCtx, b, labBindingModel.NextLabName(b.LabName, next), next); err != nil {
 			return StandTeamView{}, err
 		}

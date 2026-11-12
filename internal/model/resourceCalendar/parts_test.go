@@ -182,3 +182,17 @@ func TestSplitAddsNothingAfterTheWindow(t *testing.T) {
 		t.Fatal("a part is created for a window that has passed")
 	}
 }
+
+func TestTeamOfUnitReadsOnlyTeamUnits(t *testing.T) {
+	team := uuid.Must(uuid.NewV7())
+	got, ok := TeamOfUnit(TeamUnit(team))
+	if !ok || got != team {
+		t.Fatalf("team unit = %v, %v", got, ok)
+	}
+	if _, ok = TeamOfUnit(PreviewUnit(team)); ok {
+		t.Fatal("a preview unit is not a team")
+	}
+	if _, ok = TeamOfUnit("team:not-a-uuid"); ok {
+		t.Fatal("a malformed key is not a team")
+	}
+}

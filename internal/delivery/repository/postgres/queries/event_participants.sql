@@ -60,6 +60,16 @@ WHERE event_id = sqlc.arg(event_id)
   AND team_id = sqlc.arg(team_id)
   AND team_role = 1;
 
+-- name: MoveEventParticipantTeam :execrows
+-- A moderator moves a non-captain member from the exact current team to another one.
+UPDATE event_participants
+SET team_id = sqlc.arg(to_team_id)
+WHERE event_id = sqlc.arg(event_id)
+  AND user_id = sqlc.arg(user_id)
+  AND team_id = sqlc.arg(from_team_id)
+  AND team_role = 1
+  AND status = 2;
+
 -- name: SetEventParticipantTeamRole :execrows
 UPDATE event_participants
 SET team_role = sqlc.arg(team_role)
@@ -365,3 +375,9 @@ WHERE participant.event_id = sqlc.arg(event_id)::uuid
         AND (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || sqlc.arg(search)::text || '%')
   AND event_answers_match_all(listed.doc, sqlc.arg(filters)::jsonb);
+
+-- name: CountEventParticipantRowsOfUser :one
+-- Every event row of the user (any status): an unclaimed account left without any is an orphan.
+SELECT count(*)
+FROM event_participants
+WHERE user_id = sqlc.arg(user_id);

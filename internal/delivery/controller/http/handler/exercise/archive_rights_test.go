@@ -112,7 +112,7 @@ func TestImportMultipart_TargetAndRefusal(t *testing.T) {
 // refuses the whole selection before anything is exported; a plain user nothing.
 func TestExport_PerRole(t *testing.T) {
 	own, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,9 +196,23 @@ func TestList_TableFilters(t *testing.T) {
 // may see flags (owner/manager, exercises.read) gets them.
 func TestViewerReadsVersionsWithoutFlags(t *testing.T) {
 	exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	version := exerciseUseCase.VersionView{ID: versionID, ExerciseID: exerciseID, Status: "published", Variants: []exerciseModel.Variant{{
-		Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Find it", Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{secret}"}, DeviceFlagVar: "SECRET_FLAG_VAR"}},
-	}}}
+	version := exerciseUseCase.VersionView{
+		ID:         versionID,
+		ExerciseID: exerciseID,
+		Status:     "published",
+		Variants: []exerciseModel.Variant{
+			{
+				Tasks: []exerciseModel.Task{
+					{
+						ID:         uuid.Must(uuid.NewV7()),
+						Name:       "Find it",
+						Difficulty: exerciseModel.DifficultyEasy,
+						Check:      exerciseModel.FlagCheck("ICE{secret}"),
+					},
+				},
+			},
+		},
+	}
 	for _, tc := range []struct {
 		name   string
 		access exerciseUseCase.Access
@@ -216,13 +230,10 @@ func TestViewerReadsVersionsWithoutFlags(t *testing.T) {
 				if w.Code != http.StatusOK {
 					t.Fatalf("%s: status %d body %s", path, w.Code, w.Body.String())
 				}
-				if got := strings.Contains(w.Body.String(), "SECRET_FLAG_VAR"); got != tc.flags {
-					t.Fatalf("%s: flag env var shown=%t, want %t", path, got, tc.flags)
-				}
 				if got := strings.Contains(w.Body.String(), "ICE{secret}"); got != tc.flags {
 					t.Fatalf("%s: flag shown=%t, want %t: %s", path, got, tc.flags, w.Body.String())
 				}
-				if version.Variants[0].Tasks[0].Flag == nil {
+				if version.Variants[0].Tasks[0].Check.AnswerValues() == nil {
 					t.Fatal("the redaction changed the use case's view")
 				}
 			}

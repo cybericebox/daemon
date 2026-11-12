@@ -163,7 +163,7 @@ func (q *Queries) ListTaskVariantIssuedFlags(ctx context.Context, arg ListTaskVa
 const listVersionTaskFlags = `-- name: ListVersionTaskFlags :many
 SELECT version.id AS version_id,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
-                           'tasks', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', task -> 'id', 'flag', task -> 'flag'))
+                           'tasks', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', task -> 'id', 'answer', task #> '{check,answer}'))
                                               FROM jsonb_array_elements(CASE WHEN jsonb_typeof(variant -> 'tasks') = 'array' THEN variant -> 'tasks' ELSE '[]'::jsonb END) AS task),
                                              '[]'::jsonb)) ORDER BY position)
                  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(version.variants) = 'array' THEN version.variants ELSE '[]'::jsonb END) WITH ORDINALITY AS v(variant, position)),
@@ -177,7 +177,7 @@ type ListVersionTaskFlagsRow struct {
 	Variants  []byte    `json:"variants"`
 }
 
-// The flag candidates of every task of pinned versions, by variant position.
+// The answer (type and values) of every task of pinned versions, by variant position.
 func (q *Queries) ListVersionTaskFlags(ctx context.Context, ids []uuid.UUID) ([]ListVersionTaskFlagsRow, error) {
 	rows, err := q.db.Query(ctx, listVersionTaskFlags, ids)
 	if err != nil {

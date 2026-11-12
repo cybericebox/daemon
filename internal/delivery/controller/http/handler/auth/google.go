@@ -9,9 +9,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
 // The OAuth cookies carry the __Host- prefix: the browser then accepts them only from this exact host
@@ -22,9 +24,23 @@ const (
 	oauthSetupTokenCookie  = "__Host-cib_oauth_setup_token"
 	oauthStateCookie       = "__Host-cib_oauth_state"
 	oauthLinkSessionCookie = "__Host-cib_oauth_link_sid"
+	// googleLinkTicketCookie holds the opaque ticket of a Google link waiting for the owner's confirmation.
+	googleLinkTicketCookie = "__Host-cib_google_link"
 	// oauthCookiePath is "/" because __Host- requires it.
 	oauthCookiePath = "/"
 )
+
+// loginHint is the address Google's chooser preselects: the one in the query, else the last sign-in address this
+// browser remembers (the cookie), else none.
+func (h *Handler) loginHint(ctx *gin.Context) string {
+	if hint := ctx.Query("login_hint"); hint != "" {
+		return hint
+	}
+	if !protection.HasFunctionalConsent(ctx) {
+		return ""
+	}
+	return lastEmail(ctx)
+}
 
 // redirectFromQuery validates the ?return_to= query param against the platform
 // domain, returning "" for missing/untrusted input — GetGoogleLoginURL then
@@ -49,7 +65,7 @@ func (h *Handler) redirectFromQuery(ctx *gin.Context) string {
 func (h *Handler) googleRedirect(ctx *gin.Context) {
 	url, state, err := h.useCase.GetGoogleLoginURL(
 		h.redirectFromQuery(ctx),
-		ctx.Query("login_hint"),
+		h.loginHint(ctx),
 	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -72,7 +88,7 @@ func (h *Handler) googleRedirect(ctx *gin.Context) {
 func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
 	url, state, err := h.useCase.GetGoogleLoginURL(
 		h.redirectFromQuery(ctx),
-		ctx.Query("login_hint"),
+		h.loginHint(ctx),
 	)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -176,7 +192,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		}
 		if res.SessionCookie != "" {
 			// Google already linked to a finished account: plain sign-in.
-			h.prot.Authenticate(ctx, res.SessionCookie)
+			h.startSession(ctx, res.SessionCookie)
 			response.TemporaryRedirect(ctx, res.Redirect)
 			return
 		}
@@ -244,6 +260,18 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	default: // sign-in
 		cookie, redirect, err := h.useCase.GoogleAuth(ctx.Request.Context(), code, state, meta)
 		if err != nil {
+			var confirm *authUseCase.GoogleLinkConfirmError
+			if errors.As(err, &confirm) {
+				// The owner confirms first: the ticket goes to the browser in a cookie, never in the URL.
+				ctx.SetSameSite(http.SameSiteLaxMode)
+				ctx.SetCookie(googleLinkTicketCookie, confirm.Ticket, googleLinkTicketMaxAge, oauthCookiePath, "", true, true)
+				target := "/google-link/"
+				if confirm.ReturnTo != "" {
+					target += "?return_to=" + url.QueryEscape(confirm.ReturnTo)
+				}
+				response.TemporaryRedirect(ctx, h.hosts.IDURL(target))
+				return
+			}
 			switch {
 			case errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()):
 				h.googleErrorRedirect(ctx, "/sign-up/", "not_registered", redirect)
@@ -254,7 +282,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 			}
 			return
 		}
-		h.prot.Authenticate(ctx, cookie)
+		h.startSession(ctx, cookie)
 		response.TemporaryRedirect(ctx, redirect)
 	}
 }

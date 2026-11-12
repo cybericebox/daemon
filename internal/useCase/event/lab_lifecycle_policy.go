@@ -3,14 +3,12 @@ package event
 import (
 	"context"
 	"errors"
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
-	"github.com/gofrs/uuid"
 	"time"
 )
 
@@ -21,12 +19,6 @@ func (u *EventUseCase) SetLifecycleControls(enabled bool) {
 	} else {
 		u.teamChallenges = teamChallengeRepo.New(u.repo)
 	}
-}
-func CanManual(mode eventConfigModel.TaskRevealMode, lab eventLabModel.Lab, reachable, retained bool) (stop, restart bool) {
-	if !retained {
-		return false, false
-	}
-	return lab.ManualCapabilities(mode == eventConfigModel.RevealAsReady, reachable, time.Now().UTC())
 }
 func (u *EventUseCase) labCaps(ctx context.Context, group string) (infraModel.LifecycleCapabilities, bool) {
 	p, ok := u.infra.(interface {
@@ -131,8 +123,4 @@ func (u *EventUseCase) participantLabCapabilities(ctx context.Context, lab event
 		out.CanRestart = u.checkLabCandidateBudget(ctx, u.repo, candidate, cfg, time.Now().UTC()) == nil
 	}
 	return out, nil
-}
-
-func (u *EventUseCase) labsForBudget(ctx context.Context, eventID uuid.UUID) ([]eventLabModel.Lab, error) {
-	return eventLabAllocationRepo.New(u.repo).Labs(ctx, eventID)
 }

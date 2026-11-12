@@ -2,6 +2,8 @@ package stats
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -13,16 +15,63 @@ import (
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 )
 
+// MaxBulkResend is the most dispatches one resend request takes.
+const MaxBulkResend = 200
+
+// Resender queues the failed channels of one dispatch again (the dispatcher).
+type Resender interface {
+	ResendDispatch(ctx context.Context, dispatchID uuid.UUID) error
+}
+
 type Dependencies struct {
-	Repo dispatchRepo.Queries
+	Repo     dispatchRepo.Queries
+	Resender Resender
 }
 
 type NotificationStatsUseCase struct {
 	dispatches *dispatchRepo.Repository
+	resender   Resender
 }
 
 func NewNotificationStatsUseCase(deps Dependencies) *NotificationStatsUseCase {
-	return &NotificationStatsUseCase{dispatches: dispatchRepo.New(deps.Repo)}
+	return &NotificationStatsUseCase{
+		dispatches: dispatchRepo.New(deps.Repo),
+		resender:   deps.Resender,
+	}
+}
+
+// ResendResult is the outcome of resending one dispatch; Err is nil when it was queued again.
+type ResendResult struct {
+	DispatchID uuid.UUID
+	Err        error
+}
+
+// ResendDispatches sends the failed channels of each dispatch again. One result per distinct id in request
+// order; a dispatch that cannot be resent never stops the others.
+func (u *NotificationStatsUseCase) ResendDispatches(
+	ctx context.Context,
+	ids []uuid.UUID,
+) []ResendResult {
+	out := make([]ResendResult, 0, len(ids))
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		if u.resender == nil {
+			out = append(
+				out,
+				ResendResult{
+					DispatchID: id,
+					Err:        model.ErrPlatform.WithMessage("Resending is not configured").Err(),
+				},
+			)
+			continue
+		}
+		out = append(out, ResendResult{DispatchID: id, Err: u.resender.ResendDispatch(ctx, id)})
+	}
+	return out
 }
 
 func (u *NotificationStatsUseCase) ListDispatches(ctx context.Context, f dispatchModel.ListDispatchesFilter) ([]dispatchModel.DispatchDetail, int64, error) {
@@ -71,4 +120,25 @@ func (u *NotificationStatsUseCase) GetStats(ctx context.Context, since time.Time
 		s.Total += r.Count
 	}
 	return s, nil
+}
+
+// ErrUnknownFacetField is returned when the dispatch log has no facet for the asked field.
+var ErrUnknownFacetField = errors.New("unknown facet field")
+
+// DispatchFacets counts the dispatches per value of one field under the other filters of the log.
+func (u *NotificationStatsUseCase) DispatchFacets(
+	ctx context.Context,
+	field string,
+	f dispatchModel.ListDispatchesFilter,
+) (map[string]int64, error) {
+	if !slices.Contains(dispatchRepo.FacetFields(), field) {
+		return nil, ErrUnknownFacetField
+	}
+	counts, err := u.dispatches.Facet(ctx, field, f)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).
+			WithMessage("Failed to count the dispatches").
+			Err()
+	}
+	return counts, nil
 }

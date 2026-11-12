@@ -92,6 +92,20 @@ func (q *Queries) CountEventParticipantKinds(ctx context.Context, eventID uuid.U
 	return i, err
 }
 
+const countEventParticipantRowsOfUser = `-- name: CountEventParticipantRowsOfUser :one
+SELECT count(*)
+FROM event_participants
+WHERE user_id = $1
+`
+
+// Every event row of the user (any status): an unclaimed account left without any is an orphan.
+func (q *Queries) CountEventParticipantRowsOfUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countEventParticipantRowsOfUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countEventParticipants = `-- name: CountEventParticipants :one
 SELECT count(*)
 FROM event_participants participant
@@ -894,6 +908,37 @@ type MarkEventParticipantInvitationSentParams struct {
 
 func (q *Queries) MarkEventParticipantInvitationSent(ctx context.Context, arg MarkEventParticipantInvitationSentParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markEventParticipantInvitationSent, arg.SentAt, arg.EventID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const moveEventParticipantTeam = `-- name: MoveEventParticipantTeam :execrows
+UPDATE event_participants
+SET team_id = $1
+WHERE event_id = $2
+  AND user_id = $3
+  AND team_id = $4
+  AND team_role = 1
+  AND status = 2
+`
+
+type MoveEventParticipantTeamParams struct {
+	ToTeamID   uuid.NullUUID `json:"to_team_id"`
+	EventID    uuid.UUID     `json:"event_id"`
+	UserID     uuid.UUID     `json:"user_id"`
+	FromTeamID uuid.NullUUID `json:"from_team_id"`
+}
+
+// A moderator moves a non-captain member from the exact current team to another one.
+func (q *Queries) MoveEventParticipantTeam(ctx context.Context, arg MoveEventParticipantTeamParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveEventParticipantTeam,
+		arg.ToTeamID,
+		arg.EventID,
+		arg.UserID,
+		arg.FromTeamID,
+	)
 	if err != nil {
 		return 0, err
 	}

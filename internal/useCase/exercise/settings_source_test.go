@@ -26,6 +26,7 @@ type fakeSettings struct {
 	leases       exerciseModel.TestRunLeases
 	err          error
 	archiveReads int
+	profiles     exerciseModel.SupportedProfiles
 }
 
 func (f *fakeSettings) ArchiveLimits(context.Context) (exerciseModel.ArchiveLimits, error) {
@@ -35,6 +36,10 @@ func (f *fakeSettings) ArchiveLimits(context.Context) (exerciseModel.ArchiveLimi
 
 func (f *fakeSettings) TestRunLeases(context.Context) (exerciseModel.TestRunLeases, error) {
 	return f.leases, f.err
+}
+
+func (f *fakeSettings) NodeProfiles(context.Context) (exerciseModel.SupportedProfiles, error) {
+	return f.profiles, f.err
 }
 
 func captureLog(t *testing.T) *bytes.Buffer {

@@ -38,6 +38,8 @@ type ImportResult struct {
 	ItemKey    string    `json:"ItemKey"`
 	Mode       string    `json:"Mode"`
 	ExerciseID uuid.UUID `json:"ExerciseID"`
+	// Report is what the item did to the exercise; set for an import into an existing exercise and for a new one alike.
+	Report *ImportReport `json:"Report,omitempty"`
 }
 
 // ImportSource is where the archive lies: a chunked upload (purpose exercise-archive) or a stored file.
@@ -52,8 +54,10 @@ type ImportJobState string
 
 const (
 	ImportJobRunning ImportJobState = "running"
-	ImportJobDone    ImportJobState = "done"
-	ImportJobFailed  ImportJobState = "failed"
+	// ImportJobQueued is how a running import that no worker has started yet is shown; it is never stored.
+	ImportJobQueued ImportJobState = "queued"
+	ImportJobDone   ImportJobState = "done"
+	ImportJobFailed ImportJobState = "failed"
 )
 
 // ImportJobError is the public part of the error a failed import ended with: the API code, message and public
@@ -68,6 +72,7 @@ type ImportJobError struct {
 type ImportStage string
 
 const (
+	ImportStageQueued    ImportStage = "queued"
 	ImportStageUnpacking ImportStage = "unpacking"
 	ImportStageImages    ImportStage = "images"
 	ImportStageTasks     ImportStage = "tasks"
@@ -90,14 +95,20 @@ type ImportProgress struct {
 const (
 	// ImportJobTimeout bounds one run of the import job: up to 10 GiB of images pushed at a slow uplink.
 	ImportJobTimeout = 6 * time.Hour
-	// ImportJobStaleAfter: a running import silent for longer than its job may run has stopped (a restart); it
-	// reads as failed and may run again.
-	ImportJobStaleAfter = ImportJobTimeout + 30*time.Minute
+	// ImportHeartbeatEvery is how often a running import writes its heartbeat (the job's updated_at), even when no
+	// count moves (one large image push).
+	ImportHeartbeatEvery = 30 * time.Second
+	// ImportJobStaleAfter: a running import without a heartbeat for longer than this has stopped (a crash, a lost
+	// worker); it reads as failed (interrupted) and may run again. Four missed heartbeats.
+	ImportJobStaleAfter = 4 * ImportHeartbeatEvery
+	// ImportQueuedStaleAfter: an import that no worker has picked up (queued) is not interrupted for waiting; only after
+	// this long, when the queue has certainly lost it, it reads as failed.
+	ImportQueuedStaleAfter = ImportJobTimeout
 )
 
 // NewImportJob starts an import of the source.
 func NewImportJob(id, createdBy, sourceID uuid.UUID, source ImportSource, ownerEventID uuid.NullUUID, now time.Time) ImportJob {
-	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, OwnerEventID: ownerEventID, Generation: 1, Options: []byte("{}"), State: ImportJobRunning, CreatedAt: now, UpdatedAt: now}
+	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, OwnerEventID: ownerEventID, Generation: 1, Options: []byte("{}"), State: ImportJobRunning, Progress: ImportProgress{Stage: ImportStageQueued}, CreatedAt: now, UpdatedAt: now}
 }
 
 // OwnedBy tells whether user started the import.
@@ -106,11 +117,32 @@ func (j *ImportJob) OwnedBy(user uuid.UUID) bool { return user != uuid.Nil && j.
 // Current is the state as the user sees it now: a running import past ImportJobStaleAfter is failed
 // (ErrArchiveImportInterrupted).
 func (j *ImportJob) Current(now time.Time) (ImportJobState, *ImportJobError) {
-	if j.State == ImportJobRunning && now.Sub(j.UpdatedAt) > ImportJobStaleAfter {
+	if j.State == ImportJobRunning && now.Sub(j.UpdatedAt) > j.staleAfter() {
 		e := ErrArchiveImportInterrupted.Err().StatusCode()
 		return ImportJobFailed, &ImportJobError{Code: e.FullCode(), Message: e.Message()}
 	}
 	return j.State, j.Error
+}
+
+// Queued tells whether the import waits for a worker: it has not started, so it has no heartbeat to miss.
+func (j *ImportJob) Queued() bool {
+	return j.State == ImportJobRunning && j.Progress.Stage == ImportStageQueued
+}
+
+func (j *ImportJob) staleAfter() time.Duration {
+	if j.Queued() {
+		return ImportQueuedStaleAfter
+	}
+	return ImportJobStaleAfter
+}
+
+// ShownState is the state as the user reads it: a queued import is queued, not running.
+func (j *ImportJob) ShownState(now time.Time) ImportJobState {
+	state, _ := j.Current(now)
+	if state == ImportJobRunning && j.Queued() {
+		return ImportJobQueued
+	}
+	return state
 }
 
 // Restart runs a failed (or interrupted) import again, into ownerEventID (the target of the new request); false when
@@ -122,7 +154,7 @@ func (j *ImportJob) Restart(ownerEventID uuid.NullUUID, now time.Time) bool {
 	j.OwnerEventID = ownerEventID
 	j.Generation++
 	j.Results = nil
-	j.State, j.Error, j.ExerciseIDs, j.Progress, j.UpdatedAt = ImportJobRunning, nil, nil, ImportProgress{Stage: ImportStageUnpacking}, now
+	j.State, j.Error, j.ExerciseIDs, j.Progress, j.UpdatedAt = ImportJobRunning, nil, nil, ImportProgress{Stage: ImportStageQueued}, now
 	return true
 }
 

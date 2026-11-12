@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	platformSettingsUseCase "github.com/cybericebox/daemon/internal/useCase/platformSettings"
 )
 
@@ -62,6 +64,36 @@ func (f *fakeUseCase) ResetTestRunSettings(context.Context) (platformSettingsUse
 	return f.typed("reset test runs", nil)
 }
 
+func (f *fakeUseCase) nodeProfiles(
+	call string,
+	in platformSettingsModel.Values,
+) (platformSettingsUseCase.NodeProfilesView, error) {
+	view, err := f.typed(call, in)
+	return platformSettingsUseCase.NodeProfilesView{
+		TypedView:   view,
+		RunnableNow: map[string]bool{"Container": true, "MicroVM": false, "VM": false},
+	}, err
+}
+
+func (f *fakeUseCase) GetNodeProfileSettings(
+	context.Context,
+) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("get node profiles", nil)
+}
+
+func (f *fakeUseCase) SaveNodeProfileSettings(
+	_ context.Context,
+	in platformSettingsModel.Values,
+) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("save node profiles", in)
+}
+
+func (f *fakeUseCase) ResetNodeProfileSettings(
+	context.Context,
+) (platformSettingsUseCase.NodeProfilesView, error) {
+	return f.nodeProfiles("reset node profiles", nil)
+}
+
 // grantProt grants one permission and refuses the rest with 403.
 type grantProt struct{ granted rbac.Permission }
 
@@ -98,6 +130,9 @@ func TestTypedRoutes_Gated(t *testing.T) {
 		{http.MethodGet, "/api/settings/test-runs", "", "get test runs", rbac.PermPlatformSettingsRead},
 		{http.MethodPut, "/api/settings/test-runs", body, "save test runs", rbac.PermPlatformSettingsWrite},
 		{http.MethodDelete, "/api/settings/test-runs", "", "reset test runs", rbac.PermPlatformSettingsWrite},
+		{http.MethodGet, "/api/settings/node-profiles", "", "get node profiles", rbac.PermPlatformSettingsRead},
+		{http.MethodPut, "/api/settings/node-profiles", body, "save node profiles", rbac.PermPlatformSettingsWrite},
+		{http.MethodDelete, "/api/settings/node-profiles", "", "reset node profiles", rbac.PermPlatformSettingsWrite},
 	}
 	for _, r := range routes {
 		denied := rbac.PermPlatformSettingsRead
@@ -111,8 +146,12 @@ func TestTypedRoutes_Gated(t *testing.T) {
 		if w := serve(newEngine(uc, grantProt{granted: r.perm}), r.method, r.path, r.body); w.Code != http.StatusOK {
 			t.Errorf("%s %s with %s: %d %s", r.method, r.path, r.perm, w.Code, w.Body)
 		}
-		if len(uc.typedCalls) != 1 || uc.typedCalls[0] != r.call {
-			t.Errorf("%s %s reached %v, want %q", r.method, r.path, uc.typedCalls, r.call)
+		// A write reads the setting first, to record what it changed.
+		if n := len(
+			uc.typedCalls,
+		); n == 0 || uc.typedCalls[n-1] != r.call ||
+			(r.method == http.MethodGet && n != 1) {
+			t.Errorf("%s %s reached %v, want %q last", r.method, r.path, uc.typedCalls, r.call)
 		}
 	}
 }
@@ -164,4 +203,129 @@ func TestTypedPut_DomainRefusalKeepsTheField(t *testing.T) {
 	var got response.Response
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, "LeaseMax", got.Status.Context["field"])
+}
+
+// The node profile setting answers like a typed one plus, per profile, whether an agent can run it now.
+func TestNodeProfilesGet_SaysWhichProfileRunsNow(t *testing.T) {
+	w := serve(
+		newEngine(&fakeUseCase{}, &fakeProt{allow: true}),
+		http.MethodGet,
+		"/api/settings/node-profiles",
+		"",
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+	var got struct {
+		Data map[string]any `json:"Data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(
+		t,
+		map[string]any{"Container": true, "MicroVM": false, "VM": false},
+		got.Data["RunnableNow"],
+	)
+	assert.Len(t, got.Data["Fields"], 1)
+}
+
+// auditedUseCase answers a typed save with a changed value and a changed generic setting.
+type auditedUseCase struct {
+	*fakeUseCase
+
+	before, after int64
+}
+
+func (a *auditedUseCase) view(v int64) platformSettingsUseCase.TypedView {
+	return platformSettingsUseCase.TypedView{
+		Fields: []platformSettingsUseCase.FieldView{{Key: "LabTelemetry", Value: v}},
+	}
+}
+
+func (a *auditedUseCase) GetRetentionSettings(
+	context.Context,
+) (platformSettingsUseCase.TypedView, error) {
+	return a.view(a.before), nil
+}
+
+func (a *auditedUseCase) SaveRetentionSettings(
+	context.Context,
+	platformSettingsModel.Values,
+) (platformSettingsUseCase.TypedView, error) {
+	return a.view(a.after), nil
+}
+
+func (a *auditedUseCase) GetPlatformSetting(
+	context.Context,
+	string,
+) (*platformSettingsModel.PlatformSetting, error) {
+	return &platformSettingsModel.PlatformSetting{
+		Key:   "theme",
+		Value: json.RawMessage(`{"color":"red","apiToken":"old-token"}`),
+	}, nil
+}
+
+func (a *auditedUseCase) UpsertPlatformSetting(
+	_ context.Context,
+	in platformSettingsUseCase.UpsertInput,
+) (*platformSettingsModel.PlatformSetting, error) {
+	return &platformSettingsModel.PlatformSetting{Key: in.Key, Value: in.Value}, nil
+}
+
+func serveCapturing(
+	uc IUseCase,
+	method, path, body string,
+) (*httptest.ResponseRecorder, []adminAuditUseCase.Change) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(response.WithErrorHandler)
+	var changes []adminAuditUseCase.Change
+	engine.Use(func(ctx *gin.Context) {
+		ctx.Next()
+		changes = audit.Changes(ctx)
+	})
+	NewSettingAPIHandler(uc, &fakeProt{allow: true}).Init(engine.Group("api"))
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+	return w, changes
+}
+
+func TestSavingASettingRecordsWhichFieldChangedButNotTheValues(t *testing.T) {
+	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 30, after: 90}
+	w, changes := serveCapturing(
+		uc,
+		http.MethodPut,
+		"/api/settings/retention",
+		`{"Values":{"LabTelemetry":90}}`,
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, changes, 1)
+	assert.Equal(t, "LabTelemetry", changes[0].Field)
+	assert.True(t, changes[0].Redacted)
+	assert.Nil(t, changes[0].Before)
+	assert.Nil(t, changes[0].After)
+
+	_, changes = serveCapturing(
+		&auditedUseCase{fakeUseCase: &fakeUseCase{}, before: 90, after: 90},
+		http.MethodPut,
+		"/api/settings/retention",
+		`{"Values":{"LabTelemetry":90}}`,
+	)
+	assert.Empty(t, changes, "saving the same values changes nothing")
+}
+
+// A setting whose read permission the audit reader may lack never has its value in the audit, whatever it holds.
+func TestUpsertingAGenericSettingRecordsNoValues(t *testing.T) {
+	uc := &auditedUseCase{fakeUseCase: &fakeUseCase{}}
+	w, changes := serveCapturing(
+		uc,
+		http.MethodPut,
+		"/api/settings/theme",
+		`{"Value":{"color":"blue","apiToken":"new-token","list":["a","b"]}}`,
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotEmpty(t, changes)
+	raw, err := json.Marshal(changes)
+	require.NoError(t, err)
+	for _, leaked := range []string{"blue", "red", "new-token", "old-token", `"a"`} {
+		assert.NotContains(t, string(raw), leaked)
+	}
+	assert.Contains(t, string(raw), `"Value.color"`, "the name of the changed field is kept")
 }

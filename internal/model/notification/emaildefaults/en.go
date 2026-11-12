@@ -59,6 +59,15 @@ func enTemplates() []Template {
 				rich(para("If this was not you, reset your password now with the button above."))),
 		},
 		{
+			Type: "google_link_code", Subject: "Code to link Google", Preheader: "Confirm linking your Google account",
+			Body: blocks(logo(),
+				rich(heading("Confirm linking Google"),
+					para("Hello, ", variable("Name"), "! Someone signed in with a Google account that has the address of your Cyber ICE Box account. To link it, enter the code:"),
+					para(variable("Code")),
+					para("The code is valid for ", variable("Minutes"), " min.")),
+				rich(para("If this was not you, do nothing and tell nobody the code: Google will not be linked."))),
+		},
+		{
 			Type: "account_inactivity_warning", Subject: "Your Cyber ICE Box account will be deleted", Preheader: "Sign in to keep your account",
 			Body: blocks(logo(),
 				rich(heading("Your account will be deleted"),

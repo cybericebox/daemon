@@ -65,6 +65,10 @@ type reservationDTO struct {
 
 	Placement []shareDTO `json:"Placement"`
 	Unplaced  int        `json:"Unplaced"`
+	// PlacedTeams is the number of teams that have an agent; UnplacedReason says why the others have none
+	// (no_agents, device_too_large, no_capacity); empty when every team is placed.
+	PlacedTeams    int    `json:"PlacedTeams"`
+	UnplacedReason string `json:"UnplacedReason"`
 	// Covered: every team has an agent and no slot of the window is over capacity.
 	Covered bool `json:"Covered"`
 	// Used is what the event's running objects request now.
@@ -102,7 +106,7 @@ func reservation(v calUseCase.ReservationView) reservationDTO {
 		PerTeamSnapshotQuotaBytes: v.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: v.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: v.SizeSnapshotQuotaBytes, ID: v.ID, Kind: string(v.Kind), EventID: v.EventID, EventName: v.EventName, EventTag: v.EventTag, OwnerID: v.OwnerID,
 		From: v.From, To: v.To, Teams: v.Teams, PerTeam: amount(v.PerTeam), LargestDevice: amount(v.LargestDevice), BufferPercent: v.BufferPercent,
 		Dynamic: amount(v.Dynamic), TailGapMinutes: int(v.TailGap / time.Minute), StartLeadMinutes: int(v.StartLead / time.Minute), Size: amount(v.Size), Placement: make([]shareDTO, 0, len(v.Placement)),
-		Unplaced: v.Unplaced, Covered: v.Covered, Used: amount(v.Used), Alarms: make([]alarmDTO, 0, len(v.Alarms)),
+		Unplaced: v.Unplaced, PlacedTeams: v.PlacedTeams, UnplacedReason: v.UnplacedReason, Covered: v.Covered, Used: amount(v.Used), Alarms: make([]alarmDTO, 0, len(v.Alarms)),
 	}
 	for _, s := range v.Placement {
 		out.Placement = append(out.Placement, shareDTO{AgentID: s.AgentID, AgentName: s.AgentName, Units: s.Units})
@@ -468,12 +472,29 @@ type eventResourcesDTO struct {
 	// Covered: the reservation is placed in full. False means the platform admin has been alerted.
 	Covered bool                 `json:"Covered"`
 	Changes []organizerChangeDTO `json:"Changes"`
+	// Unplaced counts the units no agent could take; Units has the state of every team that has a place (no
+	// laboratory is named): Ended after its labs were deleted, EndsAt while the ending notice runs.
+	Unplaced int                `json:"Unplaced"`
+	Units    []organizerUnitDTO `json:"Units"`
+}
+
+type organizerUnitDTO struct {
+	TeamID uuid.UUID  `json:"TeamID"`
+	EndsAt *time.Time `json:"EndsAt"`
+	Ended  bool       `json:"Ended"`
 }
 
 func eventResources(v calUseCase.OrganizerReservationView) eventResourcesDTO {
 	out := eventResourcesDTO{
 		Observation: v.Observation, Reserved: v.Reserved, From: v.From, To: v.To, Teams: v.Teams, Allocated: amount(v.Allocated), InUse: amount(v.InUse), Free: amount(v.Free),
 		BufferPercent: v.BufferPercent, Dynamic: amount(v.Dynamic), Covered: v.Covered, Changes: make([]organizerChangeDTO, 0, len(v.Changes)),
+		Unplaced: v.Unplaced, Units: make([]organizerUnitDTO, 0, len(v.Units)),
+	}
+	for _, unit := range v.Units {
+		out.Units = append(
+			out.Units,
+			organizerUnitDTO{TeamID: unit.TeamID, EndsAt: unit.EndsAt, Ended: unit.Ended},
+		)
 	}
 	for _, c := range v.Changes {
 		out.Changes = append(out.Changes, organizerChange(c))

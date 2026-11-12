@@ -37,9 +37,9 @@ func (r *Repository) GetImportJob(ctx context.Context, id uuid.UUID) (exerciseMo
 	return importJobFromRow(row), nil
 }
 
-// ListRunningImportJobs loads the imports of a user that still run (not silent since staleBefore).
-func (r *Repository) ListRunningImportJobs(ctx context.Context, user uuid.UUID, staleBefore time.Time) ([]exerciseModel.ImportJob, error) {
-	rows, err := r.q.ListRunningExerciseImportJobs(ctx, postgres.ListRunningExerciseImportJobsParams{CreatedBy: user, StaleBefore: staleBefore})
+// ListOpenImportJobs loads the imports of a user that are running or failed and not closed by the user.
+func (r *Repository) ListOpenImportJobs(ctx context.Context, user uuid.UUID) ([]exerciseModel.ImportJob, error) {
+	rows, err := r.q.ListOpenExerciseImportJobs(ctx, user)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +48,12 @@ func (r *Repository) ListRunningImportJobs(ctx context.Context, user uuid.UUID, 
 		jobs[i] = importJobFromRow(row)
 	}
 	return jobs, nil
+}
+
+// DismissImportJob closes the row of a failed import for its user; a later change of the job shows it again. It
+// reports how many rows were written: 0 when the job is not the user's.
+func (r *Repository) DismissImportJob(ctx context.Context, id, user uuid.UUID, at time.Time) (int64, error) {
+	return r.q.DismissExerciseImportJob(ctx, postgres.DismissExerciseImportJobParams{JobID: id, CreatedBy: user, DismissedAt: at})
 }
 
 // SaveImportJob writes the whole job (state, created tasks, error); it reports how many rows changed.
@@ -92,7 +98,7 @@ func importGeneration(g int64) int64 {
 
 // RestartImportJob compares the observed generation and the failed/stale state.
 func (r *Repository) RestartImportJob(ctx context.Context, j exerciseModel.ImportJob, expectedGeneration int64, now time.Time) (exerciseModel.ImportJob, error) {
-	row, err := r.q.RestartExerciseImportJob(ctx, postgres.RestartExerciseImportJobParams{ID: j.ID, ExpectedGeneration: importGeneration(expectedGeneration), OwnerEventID: j.OwnerEventID, Options: j.Options, PlanHash: j.PlanHash, UpdatedAt: now, StaleBefore: now.Add(-exerciseModel.ImportJobStaleAfter)})
+	row, err := r.q.RestartExerciseImportJob(ctx, postgres.RestartExerciseImportJobParams{ID: j.ID, ExpectedGeneration: importGeneration(expectedGeneration), OwnerEventID: j.OwnerEventID, Options: j.Options, PlanHash: j.PlanHash, UpdatedAt: now, StaleBefore: now.Add(-exerciseModel.ImportJobStaleAfter), QueuedStaleBefore: now.Add(-exerciseModel.ImportQueuedStaleAfter)})
 	if err != nil {
 		return exerciseModel.ImportJob{}, err
 	}

@@ -37,6 +37,7 @@ WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
   AND (sqlc.narg(from_at)::timestamptz IS NULL OR last_seen_at >= sqlc.narg(from_at)::timestamptz)
   AND (sqlc.narg(to_at)::timestamptz IS NULL OR last_seen_at <= sqlc.narg(to_at)::timestamptz)
+  AND (sqlc.narg(new_since)::timestamptz IS NULL OR first_seen_at >= sqlc.narg(new_since)::timestamptz)
   AND (sqlc.arg(query)::text = '' OR title ILIKE '%' || sqlc.arg(query)::text || '%'
     OR source ILIKE '%' || sqlc.arg(query)::text || '%')
   AND (sqlc.arg(request)::text = '' OR EXISTS (SELECT 1
@@ -53,6 +54,7 @@ WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
   AND (sqlc.narg(from_at)::timestamptz IS NULL OR last_seen_at >= sqlc.narg(from_at)::timestamptz)
   AND (sqlc.narg(to_at)::timestamptz IS NULL OR last_seen_at <= sqlc.narg(to_at)::timestamptz)
+  AND (sqlc.narg(new_since)::timestamptz IS NULL OR first_seen_at >= sqlc.narg(new_since)::timestamptz)
   AND (sqlc.arg(query)::text = '' OR title ILIKE '%' || sqlc.arg(query)::text || '%'
     OR source ILIKE '%' || sqlc.arg(query)::text || '%')
   AND (sqlc.arg(request)::text = '' OR EXISTS (SELECT 1

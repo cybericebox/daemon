@@ -1,12 +1,16 @@
 package exercise
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 )
 
 // requestElevation godoc
@@ -68,10 +72,20 @@ func (h *Handler) exerciseElevation(ctx *gin.Context) {
 // @Tags     exercises
 // @Produce  json
 // @Param    status  query  string  false  "pending | decided (approved or rejected) | approved | rejected; empty lists all"
+// @Param    author  query  string  false  "user ID: only the requests this person made (their history)"
 // @Success  200  {object}  response.Response{data=[]elevationResponse}
 // @Router   /exercises/elevations [get]
 func (h *Handler) listElevations(ctx *gin.Context) {
-	items, err := h.useCase.ListElevations(ctx, ctx.Query("status"))
+	var author uuid.UUID
+	if raw := ctx.Query("author"); raw != "" {
+		parsed, err := uuid.FromString(raw)
+		if err != nil {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid author: %w", err))
+			return
+		}
+		author = parsed
+	}
+	items, err := h.useCase.ListElevations(ctx, ctx.Query("status"), author)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -80,8 +94,8 @@ func (h *Handler) listElevations(ctx *gin.Context) {
 }
 
 // getElevation godoc
-// @Summary  One resource elevation request (platform admin)
-// @Description  Requires exercises.elevations.read (super_admin only).
+// @Summary  One resource elevation request with the free cluster capacity beside it (platform admin)
+// @Description  Requires exercises.elevations.read (super_admin only). Capacity is null when it cannot be read.
 // @Tags     exercises
 // @Produce  json
 // @Param    elevationID  path  string  true  "request ID"
@@ -98,7 +112,53 @@ func (h *Handler) getElevation(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, elevationToResponse(e))
+	out := elevationToResponse(e)
+	if free, freeErr := h.useCase.ClusterFreeCapacity(ctx); freeErr == nil {
+		out.Capacity = capacityHint(e, free)
+	} else {
+		log.Warn().Err(freeErr).Msg("Cluster capacity unavailable for the elevation card")
+	}
+	response.AbortWithData(ctx, out)
+}
+
+// pendingElevationCount godoc
+// @Summary  How many resource elevation requests wait for a decision (the menu badge)
+// @Tags     exercises
+// @Produce  json
+// @Success  200  {object}  response.Response{data=pendingElevationCountResponse}
+// @Router   /exercises/elevations/pending-count [get]
+func (h *Handler) pendingElevationCount(ctx *gin.Context) {
+	n, err := h.useCase.CountPendingElevations(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, pendingElevationCountResponse{Pending: n})
+}
+
+// capacityHint compares what the request asks with the room the cluster has now. The asked amount is the sum of
+// the requested devices; Fits says the free room covers it (an unlimited resource always does).
+func capacityHint(
+	e exerciseUseCase.ElevationView,
+	free calendarUseCase.FreeCapacityView,
+) *elevationCapacityResponse {
+	var asked calendarUseCase.Amount
+	for _, d := range e.Requested {
+		asked.CPUMillicores += d.CPUMillicores
+		asked.MemoryBytes += d.MemoryBytes
+	}
+	return &elevationCapacityResponse{
+		CapacityCPUMillicores: free.Capacity.CPUMillicores,
+		CapacityMemoryBytes:   free.Capacity.MemoryBytes,
+		FreeCPUMillicores:     free.Free.CPUMillicores,
+		FreeMemoryBytes:       free.Free.MemoryBytes,
+		CPUUnlimited:          free.CPUUnlimited,
+		MemoryUnlimited:       free.MemoryUnlimited,
+		AskedCPUMillicores:    asked.CPUMillicores,
+		AskedMemoryBytes:      asked.MemoryBytes,
+		Fits: (free.CPUUnlimited || asked.CPUMillicores <= free.Free.CPUMillicores) &&
+			(free.MemoryUnlimited || asked.MemoryBytes <= free.Free.MemoryBytes),
+	}
 }
 
 // approveElevation godoc

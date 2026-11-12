@@ -54,7 +54,7 @@ func mergeKeptSecrets(incoming, current []exerciseModel.Variant) {
 	kept := map[string]exerciseModel.EnvVar{}
 	for vi, v := range current {
 		for _, d := range v.Topology.Devices {
-			for _, ev := range d.EnvVars {
+			for _, ev := range d.Bootstrap.Env {
 				if !ev.Secret || ev.Value == "" {
 					continue
 				}
@@ -69,8 +69,8 @@ func mergeKeptSecrets(incoming, current []exerciseModel.Variant) {
 	for vi := range incoming {
 		for di := range incoming[vi].Topology.Devices {
 			d := &incoming[vi].Topology.Devices[di]
-			for ei := range d.EnvVars {
-				ev := &d.EnvVars[ei]
+			for ei := range d.Bootstrap.Env {
+				ev := &d.Bootstrap.Env[ei]
 				if !ev.Secret || ev.Value != "" {
 					continue
 				}
@@ -95,7 +95,7 @@ func submittedSecretKeys(variants []exerciseModel.Variant) map[string]bool {
 	out := map[string]bool{}
 	for _, v := range variants {
 		for _, d := range v.Topology.Devices {
-			for _, ev := range d.EnvVars {
+			for _, ev := range d.Bootstrap.Env {
 				if ev.Secret && ev.Value != "" {
 					out[secretKey(v.ID, d.Name, ev.Name)] = true
 				}
@@ -165,8 +165,8 @@ func (u *ExerciseUseCase) inheritSecrets(variants []exerciseModel.Variant, sourc
 func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, source exerciseModel.Variant, linked bool, submitted map[string]bool) error {
 	for di := range target.Topology.Devices {
 		device := &target.Topology.Devices[di]
-		for ei := range device.EnvVars {
-			env := &device.EnvVars[ei]
+		for ei := range device.Bootstrap.Env {
+			env := &device.Bootstrap.Env[ei]
 			if !env.Secret {
 				continue
 			}
@@ -210,7 +210,7 @@ func sourceSecret(source exerciseModel.Variant, deviceName, envName string) (str
 		if device.Name != deviceName {
 			continue
 		}
-		for _, env := range device.EnvVars {
+		for _, env := range device.Bootstrap.Env {
 			if env.Secret && env.Name == envName {
 				return env.Value, env.Origin
 			}
@@ -248,9 +248,10 @@ func originTypedSecrets(variants []exerciseModel.Variant, submitted map[string]b
 	for vi := range variants {
 		for di := range variants[vi].Topology.Devices {
 			d := &variants[vi].Topology.Devices[di]
-			for ei := range d.EnvVars {
-				ev := &d.EnvVars[ei]
-				if ev.Secret && ev.Value != "" && submitted[secretKey(variants[vi].ID, d.Name, ev.Name)] {
+			for ei := range d.Bootstrap.Env {
+				ev := &d.Bootstrap.Env[ei]
+				if ev.Secret && ev.Value != "" &&
+					submitted[secretKey(variants[vi].ID, d.Name, ev.Name)] {
 					ev.Origin = freshID().String()
 				} else if !ev.Secret {
 					ev.Origin = ""
@@ -271,8 +272,8 @@ func originTypedSecrets(variants []exerciseModel.Variant, submitted map[string]b
 		}
 		for di := range variants[vi].Topology.Devices {
 			d := &variants[vi].Topology.Devices[di]
-			for ei := range d.EnvVars {
-				if ev := &d.EnvVars[ei]; ev.Secret && ev.Value != "" {
+			for ei := range d.Bootstrap.Env {
+				if ev := &d.Bootstrap.Env[ei]; ev.Secret && ev.Value != "" {
 					if _, origin := sourceSecret(variants[base], d.Name, ev.Name); origin != "" {
 						ev.Origin = origin
 					}
@@ -289,9 +290,10 @@ func (u *ExerciseUseCase) encryptSecrets(variants []exerciseModel.Variant, rawSu
 	for vi := range variants {
 		for di := range variants[vi].Topology.Devices {
 			d := &variants[vi].Topology.Devices[di]
-			for ei := range d.EnvVars {
-				ev := &d.EnvVars[ei]
-				if !ev.Secret || ev.Value == "" || !rawSubmitted[secretKey(variants[vi].ID, d.Name, ev.Name)] {
+			for ei := range d.Bootstrap.Env {
+				ev := &d.Bootstrap.Env[ei]
+				if !ev.Secret || ev.Value == "" ||
+					!rawSubmitted[secretKey(variants[vi].ID, d.Name, ev.Name)] {
 					continue
 				}
 				if u.cipher == nil {
@@ -321,8 +323,8 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 		for variantIndex := range versions[vi].Variants {
 			for deviceIndex := range versions[vi].Variants[variantIndex].Topology.Devices {
 				device := &versions[vi].Variants[variantIndex].Topology.Devices[deviceIndex]
-				for envIndex := range device.EnvVars {
-					env := &device.EnvVars[envIndex]
+				for envIndex := range device.Bootstrap.Env {
+					env := &device.Bootstrap.Env[envIndex]
 					if !env.Secret || env.Value == "" {
 						continue
 					}
@@ -335,8 +337,8 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 					}
 					env.Value = string(plain)
 				}
-				for envIndex := range device.EnvVars {
-					device.EnvVars[envIndex].Origin = "" // server-side only: never in an archive
+				for envIndex := range device.Bootstrap.Env {
+					device.Bootstrap.Env[envIndex].Origin = "" // server-side only: never in an archive
 				}
 			}
 		}
@@ -355,8 +357,8 @@ func (u *ExerciseUseCase) encryptImportedSecrets(versions []exerciseModel.Exerci
 		for variantIndex := range versions[vi].Variants {
 			for deviceIndex := range versions[vi].Variants[variantIndex].Topology.Devices {
 				device := &versions[vi].Variants[variantIndex].Topology.Devices[deviceIndex]
-				for envIndex := range device.EnvVars {
-					env := &device.EnvVars[envIndex]
+				for envIndex := range device.Bootstrap.Env {
+					env := &device.Bootstrap.Env[envIndex]
 					if !env.Secret || env.Value == "" {
 						continue
 					}
@@ -390,15 +392,15 @@ func maskSecrets(variants []exerciseModel.Variant) []exerciseModel.Variant {
 		devices := make([]exerciseModel.Device, len(out[vi].Topology.Devices))
 		copy(devices, out[vi].Topology.Devices)
 		for di := range devices {
-			envs := make([]exerciseModel.EnvVar, len(devices[di].EnvVars))
-			copy(envs, devices[di].EnvVars)
+			envs := make([]exerciseModel.EnvVar, len(devices[di].Bootstrap.Env))
+			copy(envs, devices[di].Bootstrap.Env)
 			for ei := range envs {
 				if envs[ei].Secret {
 					envs[ei].Value = ""
 				}
 				envs[ei].Origin = "" // server-side only
 			}
-			devices[di].EnvVars = envs
+			devices[di].Bootstrap.Env = envs
 		}
 		out[vi].Topology.Devices = devices
 	}

@@ -2,6 +2,7 @@ package platformSettingsModel_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	appErr "github.com/cybericebox/daemon/pkg/err"
@@ -99,5 +100,20 @@ func TestOverlay(t *testing.T) {
 	}
 	if got := platformSettingsModel.Overlay(base, nil, specs); got["A"] != 50 || got["B"] != 3 {
 		t.Fatalf("nothing stored keeps the base: %v", got)
+	}
+}
+
+func TestEveryTypedKeyHasADescriptionInBothLanguages(t *testing.T) {
+	for _, key := range []string{platformSettingsModel.RetentionKey, platformSettingsModel.ArchiveLimitsKey, platformSettingsModel.TestRunsKey, platformSettingsModel.NodeProfilesKey} {
+		d, ok := platformSettingsModel.DescribeKey(key)
+		if !ok || d.Uk == "" || d.En == "" {
+			t.Fatalf("%s has no description in both languages: %+v", key, d)
+		}
+		if strings.Contains(d.Uk, "'") {
+			t.Fatalf("%s: Ukrainian text uses the U+02BC apostrophe, not a straight one", key)
+		}
+	}
+	if _, ok := platformSettingsModel.DescribeKey("theme"); ok {
+		t.Fatal("an unknown key has no description")
 	}
 }

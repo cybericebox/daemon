@@ -13,11 +13,19 @@ import (
 
 // A linked variant of the archive carries linked_to (the 1-based position of its base in the version) and only
 // its own parts: note (with optional id, index and weight), device_images (its own image for base devices, by
-// device name) and, per task, flag and attachments (with an optional id).
+// device name) and, per task, check.answer.values and attachments (with an optional id).
 // Everything else is the base's: SyncLinkedVariants fills it in on import.
 var (
-	linkedVariantKeys = map[string]bool{"linked_to": true, "id": true, "index": true, "note": true, "weight": true, "device_images": true, "tasks": true}
-	linkedTaskKeys    = map[string]bool{"id": true, "flag": true, "attachments": true}
+	linkedVariantKeys = map[string]bool{
+		"linked_to":     true,
+		"id":            true,
+		"index":         true,
+		"note":          true,
+		"weight":        true,
+		"device_images": true,
+		"tasks":         true,
+	}
+	linkedTaskKeys = map[string]bool{"id": true, "check": true, "attachments": true}
 )
 
 // archiveLinkedVariantField is the one place ErrArchiveLinkedVariantField is raised; field is the 1-based path.
@@ -58,10 +66,34 @@ func checkLinkedVariantKeys(payload []byte) error {
 				if key := firstForeignKey(task, linkedTaskKeys); key != "" {
 					return archiveLinkedVariantField(fmt.Sprintf("%s.tasks[%d].%s", path, ti+1, key))
 				}
+				if key := foreignCheckKey(task["check"]); key != "" {
+					return archiveLinkedVariantField(
+						fmt.Sprintf("%s.tasks[%d].check.%s", path, ti+1, key),
+					)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// foreignCheckKey is the first key of a linked task's check that is not answer.values ("answer.type", "state"), or "".
+func foreignCheckKey(raw json.RawMessage) string {
+	var check map[string]json.RawMessage
+	if json.Unmarshal(raw, &check) != nil {
+		return ""
+	}
+	if key := firstForeignKey(check, map[string]bool{"answer": true}); key != "" {
+		return key
+	}
+	var answer map[string]json.RawMessage
+	if json.Unmarshal(check["answer"], &answer) != nil {
+		return ""
+	}
+	if key := firstForeignKey(answer, map[string]bool{"values": true}); key != "" {
+		return "answer." + key
+	}
+	return ""
 }
 
 // firstForeignKey is the alphabetically first key of object not in allowed, "" when none.
@@ -93,7 +125,7 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 		return exerciseModel.Variant{}, err
 	}
 	variant := exerciseModel.Variant{
-		ID: ids[position], Index: v.Index, Note: v.Note, Weight: v.Weight,
+		ID: ids[position], Index: v.Index, Note: v.Note, Weight: weightValue(v.Weight),
 		LinkedTo: uuid.NullUUID{UUID: ids[target-1], Valid: true},
 	}
 	overrides, err := linkedDeviceImages(path, v.DeviceImages, parsed[target-1].Topology.Devices, links)
@@ -124,7 +156,12 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 				return exerciseModel.Variant{}, archiveLinkedVariantField(taskPath + ".id")
 			}
 		}
-		mapped := exerciseModel.Task{ID: id, Flag: task.Flag}
+		mapped := exerciseModel.Task{ID: id}
+		if task.Check != nil && task.Check.Answer != nil {
+			mapped.Check = exerciseModel.Check{
+				Answer: &exerciseModel.AnswerCheck{Values: task.Check.Answer.Values},
+			}
+		}
 		for ai, attachment := range task.Attachments {
 			ref, linkErr := links.attachment(fmt.Sprintf("%s.attachments[%d]", taskPath, ai+1), attachment)
 			if linkErr != nil {
@@ -202,7 +239,7 @@ func exportLinkedVariantV2(variant exerciseModel.Variant, variants []exerciseMod
 		return archiveVariantV2{}, false
 	}
 	linkedTo := position + 1
-	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, LinkedTo: &linkedTo}
+	out := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: weightPointer(variant.Weight), LinkedTo: &linkedTo}
 	// An own image is written by the device's name, so that name must be the base's alone.
 	for _, override := range variant.ImageOverrides {
 		name, count := "", 0
@@ -228,7 +265,16 @@ func exportLinkedVariantV2(variant exerciseModel.Variant, variants []exerciseMod
 		if task.ID != uuid.Nil && task.ID != base.Tasks[ti].ID {
 			return archiveVariantV2{}, false
 		}
-		out.Tasks = append(out.Tasks, archiveTaskV2{ID: optionalID(task.ID), Flag: task.Flag, Attachments: exportAttachmentRefsV2(task.Attachments, paths)})
+		linkedTask := archiveTaskV2{
+			ID:          optionalID(task.ID),
+			Attachments: exportAttachmentRefsV2(task.Attachments, paths),
+		}
+		if task.Check.Answer != nil {
+			linkedTask.Check = &archiveCheckV2{
+				Answer: &archiveAnswerV2{Values: task.Check.Answer.Values},
+			}
+		}
+		out.Tasks = append(out.Tasks, linkedTask)
 	}
 	return out, true
 }
@@ -239,15 +285,21 @@ type (
 		ID           string                    `json:"id,omitempty"`
 		Index        int32                     `json:"index,omitempty"`
 		Note         string                    `json:"note,omitempty"`
-		Weight       int                       `json:"weight,omitempty"`
+		Weight       *int                      `json:"weight,omitempty"`
 		LinkedTo     int                       `json:"linked_to"`
 		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
 		Tasks        []archiveLinkedTaskOutV2  `json:"tasks,omitempty"`
 	}
 	archiveLinkedTaskOutV2 struct {
-		ID          string                `json:"id,omitempty"`
-		Flag        []string              `json:"flag,omitempty"`
-		Attachments []archiveAttachmentV2 `json:"attachments,omitempty"`
+		ID          string                 `json:"id,omitempty"`
+		Check       *archiveLinkedCheckOut `json:"check,omitempty"`
+		Attachments []archiveAttachmentV2  `json:"attachments,omitempty"`
+	}
+	archiveLinkedCheckOut struct {
+		Answer archiveLinkedAnswerOut `json:"answer"`
+	}
+	archiveLinkedAnswerOut struct {
+		Values []string `json:"values,omitempty"`
 	}
 )
 
@@ -259,7 +311,13 @@ func (v archiveVariantV2) MarshalJSON() ([]byte, error) {
 	if v.LinkedTo != nil {
 		out := archiveLinkedVariantOutV2{ID: v.ID, Index: v.Index, Note: v.Note, Weight: v.Weight, LinkedTo: *v.LinkedTo, DeviceImages: v.DeviceImages}
 		for _, task := range v.Tasks {
-			out.Tasks = append(out.Tasks, archiveLinkedTaskOutV2{ID: task.ID, Flag: task.Flag, Attachments: task.Attachments})
+			linkedTask := archiveLinkedTaskOutV2{ID: task.ID, Attachments: task.Attachments}
+			if task.Check != nil && task.Check.Answer != nil {
+				linkedTask.Check = &archiveLinkedCheckOut{
+					Answer: archiveLinkedAnswerOut{Values: task.Check.Answer.Values},
+				}
+			}
+			out.Tasks = append(out.Tasks, linkedTask)
 		}
 		value = out
 	}

@@ -27,12 +27,14 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
-	reimport previewCalls
+	runChecks string
+	reimport  previewCalls
 	// deployLength is the run length the last deploy asked for.
 	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
@@ -44,6 +46,8 @@ type fakeUC struct {
 	archiveExport         archiveExportCalls
 	elevation             exerciseUseCase.ElevationView
 	elevationReason       string
+	elevationAuthor       uuid.UUID
+	freeCapacity          calendarUseCase.FreeCapacityView
 	elevationStatus       string
 	elevationDecision     exerciseUseCase.DecideElevationInput
 	deviceCall            string
@@ -71,6 +75,10 @@ type fakeUC struct {
 	checked               string
 	imageScope            imageRegistryUseCase.Scope
 	checkedImages         []string
+	services              []imageRegistryUseCase.ImageServiceInfo
+	consoleDevice         string
+	documentFlags         bool
+	capabilities          exerciseUseCase.LabCapabilitiesView
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
 	// access overrides what AuthorizeExercise grants (nil: full, flags included).
@@ -274,8 +282,15 @@ func (f *fakeUC) AbortUpload(context.Context, uuid.UUID, uuid.UUID) error { retu
 func (f *fakeUC) InfrastructureAvailable() bool                           { return f.laboratoriesAvailable }
 func (f *fakeUC) MaxActiveTestDeploys() int                               { return 2 }
 func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
-func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
-func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
+func (f *fakeUC) DraftDocument(_ context.Context, _ uuid.UUID, withFlags bool) ([]byte, error) {
+	f.documentFlags = withFlags
+	return []byte("schema: cib-exercise/1.0\n"), f.err
+}
+func (f *fakeUC) LabCapabilities(context.Context) exerciseUseCase.LabCapabilitiesView {
+	return f.capabilities
+}
+func (f *fakeUC) Policy() resourcesModel.Policy          { return resourcesModel.DefaultPolicy() }
+func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy { return f.flagPolicy }
 func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
 	f.deployLength = length
 	return f.deployHandle, f.err
@@ -304,7 +319,15 @@ func (f *fakeUC) CheckTestFlag(_ context.Context, _, _, taskID uuid.UUID, flag s
 	f.checked = flag
 	return flag == "ICE{ok}" && taskID != uuid.Nil, f.err
 }
+func (f *fakeUC) RunTestDeployChecks(_ context.Context, _, deployID, taskID uuid.UUID) error {
+	f.runChecks = deployID.String() + "/" + taskID.String()
+	return f.err
+}
 func (f *fakeUC) OpenTestDeployLink(_ context.Context, _, _ uuid.UUID, _ string, _ int32) (labaccess.Link, error) {
+	return f.sessionLink, f.err
+}
+func (f *fakeUC) OpenTestDeployConsoleLink(_ context.Context, _, _ uuid.UUID, device string) (labaccess.Link, error) {
+	f.consoleDevice = device
 	return f.sessionLink, f.err
 }
 func (f *fakeUC) ArchiveLimits(context.Context) exerciseModel.ArchiveLimits {
@@ -747,7 +770,7 @@ func TestExportOneExercise_UsesStandardPlatformZipName(t *testing.T) {
 func TestExport_ReturnsStoredFile(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	id := uuid.Must(uuid.NewV7())
-	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`)})
 	if err != nil {
 		t.Fatalf("build archive: %v", err)
 	}
@@ -795,7 +818,7 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	uid := uuid.Must(uuid.NewV7())
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 		"files/a.txt":   []byte("attachment"),
 	})
 	if err != nil {
@@ -950,7 +973,16 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 			{
 				"Index": 0,
 				"Tasks": []map[string]any{
-					{"Name": "find the flag", "Difficulty": "easy", "Flag": []string{"FLAG{one}", "FLAG{two}"}},
+					{
+						"Name":       "find the flag",
+						"Difficulty": "easy",
+						"Check": map[string]any{
+							"Answer": map[string]any{
+								"Type":   "flag",
+								"Values": []string{"FLAG{one}", "FLAG{two}"},
+							},
+						},
+					},
 				},
 				"Topology": map[string]any{
 					"VPN":      map[string]any{"Enabled": false, "DHCP": false},
@@ -971,9 +1003,9 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 	if len(uc.savedVariants) != 1 || len(uc.savedVariants[0].Tasks) != 1 {
 		t.Fatalf("unexpected saved variants: %+v", uc.savedVariants)
 	}
-	gotFlag := uc.savedVariants[0].Tasks[0].Flag
+	gotFlag := uc.savedVariants[0].Tasks[0].Check.AnswerValues()
 	if len(gotFlag) != 2 || gotFlag[0] != "FLAG{one}" || gotFlag[1] != "FLAG{two}" {
-		t.Fatalf("Flag not mapped as plain []string: %+v", gotFlag)
+		t.Fatalf("Check.Answer.Values not mapped as plain []string: %+v", gotFlag)
 	}
 }
 
@@ -1967,9 +1999,19 @@ func (f *fakeUC) LatestElevation(_ context.Context, _ uuid.UUID) (*exerciseUseCa
 func (f *fakeUC) GetElevation(_ context.Context, _ uuid.UUID) (exerciseUseCase.ElevationView, error) {
 	return f.elevation, f.err
 }
-func (f *fakeUC) ListElevations(_ context.Context, status string) ([]exerciseUseCase.ElevationView, error) {
+
+func (f *fakeUC) ListElevations(
+	_ context.Context,
+	status string,
+	author uuid.UUID,
+) ([]exerciseUseCase.ElevationView, error) {
 	f.elevationStatus = status
+	f.elevationAuthor = author
 	return []exerciseUseCase.ElevationView{f.elevation}, f.err
+}
+func (f *fakeUC) CountPendingElevations(context.Context) (int64, error) { return 3, f.err }
+func (f *fakeUC) ClusterFreeCapacity(context.Context) (calendarUseCase.FreeCapacityView, error) {
+	return f.freeCapacity, f.err
 }
 func (f *fakeUC) DecideElevation(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error) {
 	f.elevationDecision = in
@@ -2007,7 +2049,7 @@ func TestSetExerciseAccess_NoneLevel(t *testing.T) {
 func TestDeployLink_ReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://web-abc123.challenges.example.com/_auth?t=signed", Token: "signed", ExpiresAt: expires}}
+	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://web-abc123w.challenges.example.com/_auth?t=signed", Token: "signed", ExpiresAt: expires}}
 	r := newEngine(uc, uid)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String()+"/link", strings.NewReader(`{"Device":"web","Port":80}`))
@@ -2029,6 +2071,24 @@ func TestDeployLink_ReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil || !env.Data.ExpiresAt.Equal(expires) || env.Data.URL != uc.sessionLink.URL {
 		t.Fatalf("body: %s err=%v", w.Body.String(), err)
+	}
+}
+
+func TestDeployLink_AccessTerminalOpensTheConsole(t *testing.T) {
+	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://terminal.challenges.example.com/_auth?t=signed", Token: "signed"}}
+	r := newEngine(uc, uuid.Must(uuid.NewV7()))
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String()+"/link", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := post(`{"Device":"db","Access":"terminal"}`); code != http.StatusOK || uc.consoleDevice != "db" {
+		t.Fatalf("terminal: status %d device %q", code, uc.consoleDevice)
+	}
+	if code := post(`{"Device":"db","Access":"vnc"}`); code != http.StatusBadRequest {
+		t.Fatalf("an access kind with no link: status %d", code)
 	}
 }
 
@@ -2336,5 +2396,160 @@ func TestLookupFile_Route(t *testing.T) {
 				t.Fatalf("got %d body=%s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+// The elevation card shows the cluster's free room beside the request, the menu gets a pending count, and an
+// author's history is the same list narrowed by author.
+func TestElevationCardCapacityHistoryAndPendingCount(t *testing.T) {
+	elevationID, exID, author := uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(
+		uuid.NewV7(),
+	)
+	uc := &fakeUC{
+		elevation: exerciseUseCase.ElevationView{
+			ID:         elevationID,
+			ExerciseID: exID,
+			Status:     "pending",
+			Requested: []exerciseUseCase.ElevationDevice{
+				{Name: "db", CPUMillicores: 4000, MemoryBytes: 8 << 30},
+				{Name: "web", CPUMillicores: 1000, MemoryBytes: 1 << 30},
+			},
+		},
+		freeCapacity: calendarUseCase.FreeCapacityView{
+			Capacity: calendarUseCase.Amount{CPUMillicores: 20000, MemoryBytes: 64 << 30},
+			Free:     calendarUseCase.Amount{CPUMillicores: 6000, MemoryBytes: 8 << 30},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleSuperAdmin}).
+		Init(r.Group("api"))
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+
+	var card struct {
+		Data struct {
+			Capacity *struct {
+				FreeCPUMillicores  int64 `json:"FreeCPUMillicores"`
+				AskedCPUMillicores int64 `json:"AskedCPUMillicores"`
+				AskedMemoryBytes   int64 `json:"AskedMemoryBytes"`
+				Fits               bool  `json:"Fits"`
+			} `json:"Capacity"`
+		} `json:"Data"`
+	}
+	w := get("/api/exercises/elevations/" + elevationID.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &card); err != nil || card.Data.Capacity == nil {
+		t.Fatalf("card: %d %s", w.Code, w.Body.String())
+	}
+	if c := card.Data.Capacity; c.FreeCPUMillicores != 6000 || c.AskedCPUMillicores != 5000 ||
+		c.AskedMemoryBytes != 9<<30 ||
+		c.Fits {
+		t.Fatalf("5 CPU fit into 6 free, but 9 GiB of memory does not fit into 8: %+v", c)
+	}
+	uc.freeCapacity.Free.MemoryBytes = 16 << 30
+	_ = json.Unmarshal(get("/api/exercises/elevations/"+elevationID.String()).Body.Bytes(), &card)
+	if !card.Data.Capacity.Fits {
+		t.Fatalf("it fits when both resources have room: %+v", card.Data.Capacity)
+	}
+	uc.freeCapacity = calendarUseCase.FreeCapacityView{CPUUnlimited: true, MemoryUnlimited: true}
+	_ = json.Unmarshal(get("/api/exercises/elevations/"+elevationID.String()).Body.Bytes(), &card)
+	if !card.Data.Capacity.Fits {
+		t.Fatal("an unlimited cluster always fits")
+	}
+
+	if w = get(
+		"/api/exercises/elevations?author=" + author.String(),
+	); w.Code != http.StatusOK ||
+		uc.elevationAuthor != author {
+		t.Fatalf("history: %d author=%s", w.Code, uc.elevationAuthor)
+	}
+	if w = get("/api/exercises/elevations?author=nope"); w.Code != http.StatusBadRequest {
+		t.Fatalf("a bad author id is refused: %d", w.Code)
+	}
+	if w = get(
+		"/api/exercises/elevations/pending-count",
+	); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), `"Pending":3`) {
+		t.Fatalf("pending count: %d %s", w.Code, w.Body.String())
+	}
+	// the badge route must not be swallowed by the single-request route
+	admin := gin.New()
+	admin.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleAdmin}).
+		Init(admin.Group("api"))
+	rec := httptest.NewRecorder()
+	admin.ServeHTTP(
+		rec,
+		httptest.NewRequest(http.MethodGet, "/api/exercises/elevations/pending-count", nil),
+	)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("only a platform admin sees the count: %d", rec.Code)
+	}
+}
+
+func TestCapabilities_CarryTheLabBlockWithoutNamingALab(t *testing.T) {
+	uc := &fakeUC{capabilities: exerciseUseCase.LabCapabilitiesView{
+		LabCapabilities: infraModel.CapabilitiesOf([]*infraModel.AgentFeatures{
+			{Checks: &infraModel.ChecksFeature{Enabled: true}, Access: &infraModel.AccessFeature{HTTP: true, Terminal: true}, Bootstrap: &infraModel.BootstrapFeature{}},
+			nil,
+		}),
+		Profiles: map[string]infraModel.Availability{"container": infraModel.AvailabilityAll, "microvm": infraModel.AvailabilityNone, "vm": infraModel.AvailabilityNone},
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/api/exercises/capabilities", nil)
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			LabCapabilities struct {
+				Known        bool
+				Observations map[string]string
+				Access       map[string]string
+				Profiles     map[string]string
+				Bootstrap    string
+				Checks       string
+				VPNReverse   string
+			}
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	c := body.Data.LabCapabilities
+	if !c.Known || c.Observations["file"] != "some" || c.Observations["directory"] != "unknown" || c.Access["terminal"] != "some" ||
+		c.Access["http"] != "some" || c.Profiles["container"] != "all" || c.Profiles["vm"] != "none" || c.Bootstrap != "some" || c.Checks != "some" ||
+		c.VPNReverse != "unknown" {
+		t.Fatalf("block: %+v", c)
+	}
+	if len(c.Observations) != 10 || len(c.Access) != 4 {
+		t.Fatalf("the key lists are fixed: %v %v", c.Observations, c.Access)
+	}
+}
+
+func TestGetDraftDocument_IsYAMLWithoutTheEnvelope(t *testing.T) {
+	uc := &fakeUC{}
+	req := httptest.NewRequest(http.MethodGet, "/api/exercises/"+uuid.Must(uuid.NewV7()).String()+"/draft/document", nil)
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/yaml; charset=utf-8" ||
+		w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		w.Body.String() != "schema: cib-exercise/1.0\n" {
+		t.Fatalf("status %d headers %v body %q", w.Code, w.Header(), w.Body.String())
+	}
+	uc.err = exerciseModel.ErrExerciseNotFound.Err()
+	w = httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+uuid.Must(uuid.NewV7()).String()+"/draft/document", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("a missing exercise: status %d", w.Code)
 	}
 }

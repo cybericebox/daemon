@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/limits"
 	errorJournalModel "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 )
 
@@ -42,6 +43,7 @@ type (
 		SaveErrorJournalSettings(ctx context.Context, in errorJournalUseCase.SettingsInput) (errorJournalUseCase.SettingsView, error)
 		SendErrorJournalTest(ctx context.Context) ([]errorJournalUseCase.TestResult, error)
 		ErrorJournalStream() (<-chan errorJournalUseCase.StreamEvent, func())
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
 
 	Handler struct {
@@ -64,6 +66,9 @@ func (h *Handler) Init(r *gin.RouterGroup) {
 	g.POST("settings/test", write, h.sendTest)
 	g.GET(":groupID", read, h.get)
 	g.PATCH(":groupID/status", write, h.setStatus)
+	g.POST("bulk/resolve", write, h.bulkSetStatus(errorJournalModel.StatusResolved))
+	g.POST("bulk/ignore", write, h.bulkSetStatus(errorJournalModel.StatusIgnored))
+	g.POST("bulk/reopen", write, h.bulkSetStatus(errorJournalModel.StatusOpen))
 }
 
 // ── DTOs ────────────────────────────────────────────────────────────────
@@ -96,6 +101,9 @@ type (
 		Permission string            `json:"Permission"`
 		Limiter    string            `json:"Limiter"`
 		Details    map[string]string `json:"Details"`
+		// DispatchID is the notification dispatch behind a mail failure (GET /notifications/dispatches/{id}); null
+		// when the occurrence has none.
+		DispatchID *uuid.UUID `json:"DispatchID"`
 	}
 
 	listResponse struct {
@@ -227,8 +235,13 @@ func sampleOf(s errorJournalModel.Sample) sampleResponse {
 	if details == nil {
 		details = map[string]string{}
 	}
+	var dispatchID *uuid.UUID
+	if id, err := uuid.FromString(details["dispatch_id"]); err == nil {
+		dispatchID = &id
+	}
 	return sampleResponse{
-		ID: s.ID, OccurredAt: s.OccurredAt, Message: s.Message, Stack: s.Stack, Method: s.Method, Route: s.Route,
+		DispatchID: dispatchID,
+		ID:         s.ID, OccurredAt: s.OccurredAt, Message: s.Message, Stack: s.Stack, Method: s.Method, Route: s.Route,
 		HTTPStatus: s.HTTPStatus, RequestID: s.RequestID, UserID: s.UserID, Role: s.Role, Permission: s.Permission,
 		Limiter: s.Limiter, Details: details,
 	}
@@ -261,6 +274,7 @@ func settingsOf(v errorJournalUseCase.SettingsView) settingsResponse {
 // @Param    status  query  string    false  "open, resolved or ignored"
 // @Param    from    query  string    false  "last seen at or after (RFC 3339)"
 // @Param    to      query  string    false  "last seen at or before (RFC 3339)"
+// @Param    newSince query string    false  "only groups first seen at or after this time (RFC 3339); with limit=1 the Total is the new-items counter"
 // @Param    q       query  string    false  "text in the title or source"
 // @Param    request query  string    false  "request id or its first 8+ hex characters (case-insensitive): only the groups that have a sample of that request; 400 when shorter or not hex"
 // @Param    limit   query  int       false  "page size, 1-200 (default 50)"
@@ -282,6 +296,9 @@ func (h *Handler) list(c *gin.Context) {
 		return
 	}
 	if f.To, ok = timeParam(c, "to"); !ok {
+		return
+	}
+	if f.NewSince, ok = timeParam(c, "newSince"); !ok {
 		return
 	}
 	if f.Limit, ok = intParam(c, "limit"); !ok {

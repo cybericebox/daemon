@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,8 +21,10 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
@@ -193,13 +196,20 @@ func TestDeployVariantTest_DecryptsSecretsAndDeploys(t *testing.T) {
 	variants := []exerciseModel.Variant{{
 		ID: variantID,
 		Topology: exerciseModel.Topology{
-			Devices: []exerciseModel.Device{{
-				ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx",
-				EnvVars: []exerciseModel.EnvVar{
-					{Name: "FLAG", Value: ct, Secret: true},
-					{Name: "MODE", Value: "prod"},
+			Devices: []exerciseModel.Device{
+				{
+					ID: uuid.Must(
+						uuid.NewV7(),
+					),
+					Name:  "web",
+					Type:  exerciseModel.DeviceTypeContainer,
+					Image: "nginx",
+					Bootstrap: exerciseModel.Bootstrap{Env: []exerciseModel.EnvVar{
+						{Name: "FLAG", Value: ct, Secret: true},
+						{Name: "MODE", Value: "prod"},
+					}},
 				},
-			}},
+			},
 		},
 	}}
 	vb, _ := json.Marshal(variants)
@@ -223,7 +233,7 @@ func TestDeployVariantTest_DecryptsSecretsAndDeploys(t *testing.T) {
 	if infra.meta.Labels[infraModel.LabelKind] != infraModel.KindTest || infra.meta.Labels[infraModel.LabelVersion] != versionID.String() || infra.meta.DeployGroup != "" {
 		t.Errorf("test lab meta = %+v", infra.meta)
 	}
-	env := infra.deployedTopo.Devices[0].EnvVars
+	env := infra.deployedTopo.Devices[0].Bootstrap.Env
 	if env[0].Value != "FLAG{plain}" {
 		t.Errorf("secret env not decrypted for the agent: %q", env[0].Value)
 	}
@@ -331,14 +341,37 @@ func TestResolveDeployedTopology_UsesThePositionNotTheArchiveIndexAndDecryptsSec
 		t.Fatal(err)
 	}
 	versionID := uuid.Must(uuid.NewV7())
-	variants, err := json.Marshal([]exerciseModel.Variant{{ID: variantID, Index: 1, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}, {Index: 2, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "second"}}}}})
+	variants, err := json.Marshal(
+		[]exerciseModel.Variant{
+			{
+				ID:    variantID,
+				Index: 1,
+				Topology: exerciseModel.Topology{
+					Devices: []exerciseModel.Device{
+						{
+							Name: "web",
+							Bootstrap: exerciseModel.Bootstrap{
+								Env: []exerciseModel.EnvVar{
+									{Name: "FLAG", Value: ct, Secret: true},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				Index:    2,
+				Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "second"}}},
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).Times(3)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
 	topo, err := uc.ResolveDeployedTopology(context.Background(), versionID, 0)
-	if err != nil || topo.Devices[0].EnvVars[0].Value != "FLAG{pinned}" {
+	if err != nil || topo.Devices[0].Bootstrap.Env[0].Value != "FLAG{pinned}" {
 		t.Fatalf("position 0: topology=%+v err=%v", topo, err)
 	}
 	if topo, err = uc.ResolveDeployedTopology(context.Background(), versionID, 1); err != nil || topo.Devices[0].Name != "second" {
@@ -678,7 +711,7 @@ func openSessionFixture(t *testing.T, ready bool, expires time.Time) (*exercise.
 	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), CreatedBy: userID, ExpiresAt: expires}, nil)
 	sessions := &fakeSessions{}
-	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: ready, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"}}}}
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: ready, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.challenges.example.com"}}}}
 	return exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions}), sessions, userID, deployID
 }
 
@@ -689,8 +722,43 @@ func TestOpenTestDeployLink_IssuesTheAuthorsLinkUntilTheLeaseEnds(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !link.ExpiresAt.Equal(expires) || sessions.got.Client != labBindingModel.ParticipantClientName(userID) || sessions.got.Group != "t-"+deployID.String() || sessions.got.AccessURL != "https://web-abc123.challenges.example.com" {
+	if !link.ExpiresAt.Equal(expires) || sessions.got.Client != labBindingModel.ParticipantClientName(userID) || sessions.got.Group != "t-"+deployID.String() || sessions.got.AccessURL != "https://web-abc123w.challenges.example.com" {
 		t.Fatalf("link: %+v session: %+v", link, sessions.got)
+	}
+}
+
+// The console link is the url of the device's terminal entry (its own console host); a device the lab does not have has none.
+func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) {
+	expires := time.Now().Add(90 * time.Minute)
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), LabName: "l-one", CreatedBy: userID, ExpiresAt: expires}, nil).AnyTimes()
+	sessions := &fakeSessions{}
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: true,
+		Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}},
+		Access: []exerciseModel.LabAccess{
+			{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.challenges.example.com"},
+			{Device: "db", Protocol: "terminal", URL: "https://db-def456t.challenges.example.com"}}}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
+
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.got.AccessURL != "https://db-def456t.challenges.example.com" || sessions.got.Next != "" ||
+		sessions.got.Group != "t-"+deployID.String() || !sessions.got.ExpiresAt.Equal(expires) {
+		t.Fatalf("session: %+v", sessions.got)
+	}
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "ghost"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+		t.Fatalf("want no console, got %v", err)
+	}
+	infra.status.Access = nil
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+		t.Fatalf("a device with no terminal entry has no console: %v", err)
+	}
+	infra.status.Ready = false
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNotReady.Err()) {
+		t.Fatalf("want not ready, got %v", err)
 	}
 }
 
@@ -722,23 +790,61 @@ func TestOpenTestDeployLink_WithoutIssuerIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestDeployVariantTest_InjectsResolvedTaskFlagsIntoLinkedDevices(t *testing.T) {
+func TestDeployVariantTest_ResolvesTaskValuesAndVariablesIntoDeviceBootstraps(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	deviceID := uuid.Must(uuid.NewV7())
-	link := uuid.NullUUID{UUID: deviceID, Valid: true}
-	variants, _ := json.Marshal([]exerciseModel.Variant{{
-		ID: variantID,
-		Tasks: []exerciseModel.Task{
-			{ID: uuid.Must(uuid.NewV7()), Name: "fixed", Flag: []string{"ICE{fixed}"}, LinkedDeviceID: link, DeviceFlagVar: "FLAG_FIXED"},
-			{ID: uuid.Must(uuid.NewV7()), Name: "random", LinkedDeviceID: link, DeviceFlagVar: "FLAG_RANDOM"},
-			{ID: uuid.Must(uuid.NewV7()), Name: "template", Flag: []string{"template:ICE{room-[A-C]\\d}"}, LinkedDeviceID: link, DeviceFlagVar: "FLAG_TEMPLATE"},
-			{ID: uuid.Must(uuid.NewV7()), Name: "unlinked", Flag: []string{"ICE{other}"}},
+	variants, _ := json.Marshal([]exerciseModel.Variant{
+		{
+			ID: variantID,
+			Tasks: []exerciseModel.Task{
+				{
+					ID:    uuid.Must(uuid.NewV7()),
+					Key:   "fixed",
+					Name:  "fixed",
+					Check: exerciseModel.FlagCheck("ICE{fixed}"),
+				},
+				{
+					ID:    uuid.Must(uuid.NewV7()),
+					Key:   "random",
+					Name:  "random",
+					Check: exerciseModel.FlagCheck(),
+				},
+				{
+					ID:    uuid.Must(uuid.NewV7()),
+					Key:   "template",
+					Name:  "template",
+					Check: exerciseModel.FlagCheck("template:ICE{room-[A-C]\\d}"),
+				},
+				{
+					ID:    uuid.Must(uuid.NewV7()),
+					Key:   "unlinked",
+					Name:  "unlinked",
+					Check: exerciseModel.FlagCheck("ICE{other}"),
+				},
+			},
+			Topology: exerciseModel.Topology{
+				Variables: []exerciseModel.Variable{{Name: "pass", Template: "[a-z]{12}"}},
+				Devices: []exerciseModel.Device{
+					{
+						ID:    deviceID,
+						Name:  "web",
+						Type:  exerciseModel.DeviceTypeContainer,
+						Image: "nginx",
+						Bootstrap: exerciseModel.Bootstrap{Env: []exerciseModel.EnvVar{
+							{Name: "MODE", Value: "prod"},
+							{Name: "FLAG_FIXED", Value: "{{task.fixed}}"},
+							{Name: "FLAG_RANDOM", Value: "{{task.random}}"},
+							{Name: "FLAG_TEMPLATE", Value: "{{task.template}}"},
+							{Name: "PASS", Value: "{{var.pass}}"},
+						}},
+					},
+				},
+			},
 		},
-		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: deviceID, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx", EnvVars: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}}}}},
-	}})
+	})
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	var storedFlags []byte
 	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
@@ -755,11 +861,11 @@ func TestDeployVariantTest_InjectsResolvedTaskFlagsIntoLinkedDevices(t *testing.
 	if !strings.Contains(string(storedFlags), "ICE{fixed}") {
 		t.Errorf("the flags must be stored with the deploy so a reopened one shows them: %s", storedFlags)
 	}
-	if len(handle.Flags) != 3 {
-		t.Fatalf("flags = %+v, want one per linked task", handle.Flags)
+	if len(handle.Flags) != 4 {
+		t.Fatalf("flags = %+v, want one per answer task", handle.Flags)
 	}
 	env := map[string]string{}
-	for _, e := range infra.deployedTopo.Devices[0].EnvVars {
+	for _, e := range infra.deployedTopo.Devices[0].Bootstrap.Env {
 		env[e.Name] = e.Value
 	}
 	if env["MODE"] != "prod" || env["FLAG_FIXED"] != "ICE{fixed}" {
@@ -768,7 +874,15 @@ func TestDeployVariantTest_InjectsResolvedTaskFlagsIntoLinkedDevices(t *testing.
 	if !strings.HasPrefix(env["FLAG_RANDOM"], "ICE{") || !strings.HasPrefix(env["FLAG_TEMPLATE"], "ICE{room-") {
 		t.Fatalf("random or template flag wrong: %v", env)
 	}
-	want := map[string]string{"fixed": env["FLAG_FIXED"], "random": env["FLAG_RANDOM"], "template": env["FLAG_TEMPLATE"]}
+	if len(env["PASS"]) != 12 || strings.Contains(env["PASS"], "{") {
+		t.Fatalf("the variable of the infrastructure was not drawn: %v", env)
+	}
+	want := map[string]string{
+		"fixed":    env["FLAG_FIXED"],
+		"random":   env["FLAG_RANDOM"],
+		"template": env["FLAG_TEMPLATE"],
+		"unlinked": "ICE{other}",
+	}
 	for _, f := range handle.Flags {
 		if want[f.Name] != f.Flag {
 			t.Errorf("reported flag of %q = %q, injected %q", f.Name, f.Flag, want[f.Name])
@@ -1013,8 +1127,29 @@ func TestResolveDeployedTopology_ASecretSealedForAnotherVariantDoesNotOpen(t *te
 	ct, _ := cipher.EncryptWithContext([]byte("FLAG{moved}"), exercise.EnvSecretContext(sealedFor, "web", "FLAG"))
 	versionID := uuid.Must(uuid.NewV7())
 	otherVariant := uuid.Must(uuid.NewV7())
-	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: otherVariant, Index: 3, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
-	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	variants, _ := json.Marshal(
+		[]exerciseModel.Variant{
+			{
+				ID:    otherVariant,
+				Index: 3,
+				Topology: exerciseModel.Topology{
+					Devices: []exerciseModel.Device{
+						{
+							Name: "web",
+							Bootstrap: exerciseModel.Bootstrap{
+								Env: []exerciseModel.EnvVar{
+									{Name: "FLAG", Value: ct, Secret: true},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+	q.EXPECT().
+		GetExerciseVersionByID(gomock.Any(), versionID).
+		Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
 	if _, err := uc.ResolveDeployedTopology(context.Background(), versionID, 0); err == nil {
 		t.Fatal("a secret copied under another variant must not decrypt")
@@ -1276,5 +1411,306 @@ func TestEndExpiredTestDeploy_WaitingLabGetsAFreshLease(t *testing.T) {
 	}
 	if !extended.After(now) {
 		t.Fatalf("lease extended to %v, want after %v", extended, now)
+	}
+}
+
+// policyRefusingInfra refuses a group policy that names a Lab the agent does not have (the prod refusal
+// «lab ... does not belong to group»).
+type policyRefusingInfra struct {
+	*fakeInfra
+	have map[string]bool
+}
+
+func (p *policyRefusingInfra) ReconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy) error {
+	for _, pol := range policies {
+		for _, lab := range pol.AllowedLabs {
+			if !p.have[lab] {
+				return errors.New("replace lab group access policy: lab \"" + lab + "\" does not belong to group \"" + group + "\"")
+			}
+		}
+	}
+	return p.fakeInfra.ReconcileLabGroupAccess(ctx, group, policies)
+}
+func (p *policyRefusingInfra) LabGroupExists(context.Context, string) (bool, error) { return true, nil }
+func (p *policyRefusingInfra) LabExists(_ context.Context, _, lab string) (bool, error) {
+	return p.have[lab], nil
+}
+
+// Production 2026-10-21: the author's other lease still ran but its Lab was gone from the agent, so the policy
+// built for the remaining Labs was refused and the destroy answered 500.
+func TestDestroyDeployTest_StaleLabInThePolicyDoesNotFailTheDestroy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID, staleID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	future := time.Now().Add(time.Hour)
+	row := postgres.ExerciseTestDeployment{ID: deployID, GroupName: "tu-group", LabName: "l-one", CreatedBy: userID, ExpiresAt: future}
+	stale := postgres.ExerciseTestDeployment{ID: staleID, GroupName: "tu-group", LabName: "l-stale", CreatedBy: userID, ExpiresAt: future}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row, stale}, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+	infra := &policyRefusingInfra{fakeInfra: &fakeInfra{}, have: map[string]bool{"l-one": true}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	if err := uc.DestroyDeployTest(context.Background(), userID, deployID); err != nil {
+		t.Fatalf("destroy must not fail on a stale lab: %v", err)
+	}
+	if len(infra.deletedLabs) != 1 || infra.deletedLabs[0] != "tu-group/l-one" {
+		t.Fatalf("the lab is deleted: %v", infra.deletedLabs)
+	}
+	if len(infra.policies) != 1 || len(infra.policies[0].AllowedLabs) != 0 {
+		t.Fatalf("the policy is rebuilt from the labs the agent has: %+v", infra.policies)
+	}
+}
+
+// A text answer is compared under its options: ignore_case folds the case, trim (on unless switched off) drops the
+// spaces at the edges. A flag answer stays exact. The deploys stored before the options are flags.
+func TestCheckTestFlag_TextAnswerOptions(t *testing.T) {
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	taskID := uuid.Must(uuid.NewV7())
+	for _, tc := range []struct {
+		name  string
+		flags string
+		typed string
+		want  bool
+	}{
+		{"text exact", `{"type":"text","flag":"OSPF"}`, "OSPF", true},
+		{"text case differs", `{"type":"text","flag":"OSPF"}`, "ospf", false},
+		{"text ignore case", `{"type":"text","ignore_case":true,"flag":"OSPF"}`, "ospf", true},
+		{"text trims by default", `{"type":"text","flag":"OSPF"}`, "  OSPF\n", true},
+		{"text kept spaces", `{"type":"text","no_trim":true,"flag":"OSPF"}`, " OSPF", false},
+		{"text kept spaces, equal", `{"type":"text","no_trim":true,"flag":" OSPF"}`, " OSPF", true},
+		{"flag stays exact", `{"flag":"ICE{ok}"}`, "ice{ok}", false},
+		{"flag, trimmed as before", `{"flag":"ICE{ok}"}`, " ICE{ok} ", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl)
+			flags := []byte(
+				`[` + strings.Replace(
+					tc.flags,
+					`{`,
+					`{"task_id":"`+taskID.String()+`","name":"Q",`,
+					1,
+				) + `]`,
+			)
+			q.EXPECT().
+				GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).
+				Return(postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, Flags: flags, Solved: []byte(`[]`), ExpiresAt: time.Now().Add(time.Hour)}, nil)
+			q.EXPECT().
+				MarkExerciseTestDeploySolved(gomock.Any(), gomock.Any()).
+				Return(postgres.ExerciseTestDeployment{}, nil).
+				AnyTimes()
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+			got, err := uc.CheckTestFlag(context.Background(), userID, deployID, taskID, tc.typed)
+			if err != nil || got != tc.want {
+				t.Fatalf("got %v err %v", got, err)
+			}
+		})
+	}
+}
+
+// What needs a guest agent (the vm profile) is refused at start, before anything is reserved or created: the container and the
+// micro-VM apply bootstrap, command, terminal and state checks.
+func TestDeployVariantTest_RefusesWhatNeedsAGuestAgent(t *testing.T) {
+	for name, mutate := range map[string]func(*exerciseModel.Variant){
+		"bootstrap script": func(v *exerciseModel.Variant) { v.Topology.Devices[0].Bootstrap.Script = "true" },
+		"bootstrap files": func(v *exerciseModel.Variant) {
+			v.Topology.Devices[0].Bootstrap.Files = []exerciseModel.BootstrapFile{{Path: "/a", Content: "c"}}
+		},
+		"command": func(v *exerciseModel.Variant) { v.Topology.Devices[0].Command = []string{"nginx"} },
+		"terminal": func(v *exerciseModel.Variant) {
+			v.Topology.Devices[0].Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}}
+		},
+		"state task": func(v *exerciseModel.Variant) {
+			v.Tasks = append(v.Tasks, exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Key: "state", Name: "State", Check: exerciseModel.Check{State: &exerciseModel.StateCheck{
+				Conditions: []exerciseModel.Condition{{DeviceID: v.Topology.Devices[0].ID, Custom: &exerciseModel.CustomObservation{Run: "true"}}}}}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl) // strict: no test deploy row may be created
+			q.EXPECT().
+				ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).
+				Return(nil, nil).
+				AnyTimes()
+			variantID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			deviceID := uuid.Must(uuid.NewV7())
+			variant := exerciseModel.Variant{
+				ID: variantID,
+				Tasks: []exerciseModel.Task{
+					{
+						ID:    uuid.Must(uuid.NewV7()),
+						Key:   "flag",
+						Name:  "Flag",
+						Check: exerciseModel.FlagCheck("ICE{x}"),
+					},
+				},
+				Topology: exerciseModel.Topology{
+					Devices: []exerciseModel.Device{
+						{
+							ID:      deviceID,
+							Name:    "web",
+							Type:    exerciseModel.DeviceTypeNode,
+							Profile: exerciseModel.NodeProfileVM,
+							Image:   "nginx",
+						},
+					},
+				},
+			}
+			mutate(&variant)
+			variants, _ := json.Marshal([]exerciseModel.Variant{variant})
+			q.EXPECT().
+				GetExerciseVersionByID(gomock.Any(), versionID).
+				Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+			_, err := uc.DeployVariantTest(
+				context.Background(),
+				uuid.Must(uuid.NewV7()),
+				versionID,
+				variantID,
+				0,
+			)
+			if !errors.Is(err, exerciseModel.ErrRuntimeNotSupported.Err()) {
+				t.Fatalf("got %v, want ErrRuntimeNotSupported", err)
+			}
+		})
+	}
+}
+
+type fileStore map[uuid.UUID]string
+
+func (f fileStore) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error) {
+	body, ok := f[id]
+	if !ok {
+		return nil, mediaModel.File{}, errors.New("no such file")
+	}
+	return io.NopCloser(strings.NewReader(body)), mediaModel.File{ID: id}, nil
+}
+
+func (f fileStore) GetFile(_ context.Context, id uuid.UUID) (mediaModel.File, error) {
+	body, ok := f[id]
+	if !ok {
+		return mediaModel.File{}, errors.New("no such file")
+	}
+	return mediaModel.File{ID: id, SizeBytes: int64(len(body))}, nil
+}
+
+// The runtime of the document reaches the laboratory: the bootstrap with the values of the deploy and the files read from
+// the store, the command, the terminal, and the conditions of a state task as checks that map back to the task.
+func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	r1, r2, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: uuid.Must(uuid.NewV7())}, { // the variant under test is the second one
+		ID: variantID,
+		Tasks: []exerciseModel.Task{
+			{ID: uuid.Must(uuid.NewV7()), Key: "secret", Name: "Secret", Check: exerciseModel.FlagCheck("ICE{fixed}")},
+			{ID: uuid.Must(uuid.NewV7()), Key: "ospf", Name: "OSPF", Requires: []string{"secret"}, Check: exerciseModel.Check{State: &exerciseModel.StateCheck{
+				Interval: "30s", Manual: true, Mode: exerciseModel.StateModeContinuous,
+				Conditions: []exerciseModel.Condition{
+					{DeviceID: r1, File: &exerciseModel.FileObservation{Path: "/etc/users", Contains: "admin:{{var.pw}}"}},
+					{DeviceID: r2, Custom: &exerciseModel.CustomObservation{Run: "true", OutputContains: "{{task.secret}}"}},
+				},
+			}}},
+		},
+		Topology: exerciseModel.Topology{
+			Variables: []exerciseModel.Variable{{Name: "pw", Template: "[a-z]{12}"}},
+			Devices: []exerciseModel.Device{
+				{
+					ID: r1, Name: "r1", Type: exerciseModel.DeviceTypeNode, Image: "frr",
+					Command: []string{"/usr/lib/frr/start"},
+					Access:  []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, User: "root"}},
+					Bootstrap: exerciseModel.Bootstrap{
+						Script: "echo admin:{{var.pw}} > /etc/users",
+						Files: []exerciseModel.BootstrapFile{
+							{Path: "/root/flag.txt", Content: "{{task.secret}}", Mode: "0400"},
+							{Path: "/etc/frr.conf", Source: &exerciseModel.AttachmentRef{FileID: fileID, Name: "frr.conf"}},
+						},
+					},
+				},
+				{ID: r2, Name: "r2", Type: exerciseModel.DeviceTypeNode, Image: "frr"},
+			},
+		},
+	}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, CreatedBy: p.CreatedBy}, nil
+	})
+	infra := &fakeInfra{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	uc.SetFileReader(fileStore{fileID: "router ospf\n"})
+
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	web := infra.deployedTopo.Devices[0]
+	if web.Bootstrap.Files[0].Content != "ICE{fixed}" || web.Bootstrap.Files[1].Content != "router ospf\n" || web.Bootstrap.Files[1].Source != nil {
+		t.Fatalf("files not resolved: %+v", web.Bootstrap.Files)
+	}
+	pw := strings.TrimSuffix(strings.TrimPrefix(web.Bootstrap.Script, "echo admin:"), " > /etc/users")
+	if len(pw) != 12 || strings.Contains(pw, "{") || !web.HasAccess(exerciseModel.AccessTerminal) || web.Command[0] != "/usr/lib/frr/start" {
+		t.Fatalf("script or runtime keys wrong: %+v", web)
+	}
+	checks := infra.meta.Checks
+	if len(checks) != 2 || checks[0].ID != "ospf:1" || checks[1].ID != "ospf:2" || checks[0].Device != "r1" || checks[1].Device != "r2" {
+		t.Fatalf("checks = %+v", checks)
+	}
+	if checks[0].Parts[0].Condition.File.Contains != "admin:"+pw || checks[1].Parts[0].Condition.Custom.OutputContains != "ICE{fixed}" {
+		t.Fatalf("the expectations must hold this deploy's values: %+v", checks)
+	}
+	for _, c := range checks {
+		if key, ok := exerciseModel.TaskKeyOfCheck(c.ID); !ok || key != "ospf" || !c.Manual || c.Mode != exerciseModel.StateModeContinuous {
+			t.Fatalf("check %+v does not map back to its task", c)
+		}
+	}
+
+	// A file that cannot be read refuses the deploy, naming the device.
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	broken := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	broken.SetFileReader(fileStore{})
+	_, err := broken.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
+	if !errors.Is(err, exerciseModel.ErrDeviceRuntimeInvalid.Err()) || !strings.Contains(err.Error(), "r1") {
+		t.Fatalf("an unreadable bootstrap file: %v", err)
+	}
+	var coded appErr.Error
+	if !errors.As(err, &coded) || coded.PublicContext()["variant"] != 2 {
+		t.Fatalf("the error must name the variant by its position in the version: %v", err)
+	}
+}
+
+// The console link is the url of the device's terminal entry in the lab status, as it is; no entry, no url yet, another device's
+// entry, or an unknown device is "console not available". The link carries no next.
+func TestOpenTestDeployConsoleLink_UsesTheTerminalEntryURL(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), LabName: "l-one", CreatedBy: userID, ExpiresAt: time.Now().Add(time.Hour)}, nil).AnyTimes()
+	sessions := &fakeSessions{}
+	infra := &capabilityInfra{}
+	devices := []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}}
+	infra.status = exerciseModel.LabDeployStatus{Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{
+		{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.labs.example.com"},
+		{Device: "db", Protocol: "terminal", URL: "https://db-abc123t.labs.example.com"},
+	}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
+
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.got.AccessURL != "https://db-abc123t.labs.example.com" || sessions.got.Next != "" {
+		t.Fatalf("session: %+v", sessions.got)
+	}
+	for name, status := range map[string]exerciseModel.LabDeployStatus{
+		"no entry":           {Ready: true, Devices: devices},
+		"no url yet":         {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Protocol: "terminal"}}},
+		"entry of a device":  {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "web", Protocol: "terminal", URL: "https://web-abc123t.labs.example.com"}}},
+		"http is no console": {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Port: 80, Protocol: "http", URL: "https://db-abc123.labs.example.com"}}},
+	} {
+		infra.status = status
+		if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }

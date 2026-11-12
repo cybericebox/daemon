@@ -77,11 +77,19 @@ func (f *teamFlags) teamCapacity(ctx context.Context) (int, error) {
 }
 
 // issue is a team's expected flag for one task of a variant.
-func (f *teamFlags) issue(ctx context.Context, variantIndex int32, task exerciseModel.Task) (string, error) {
-	if len(task.Flag) == 0 {
+func (f *teamFlags) issue(
+	ctx context.Context,
+	variantIndex int32,
+	task exerciseModel.Task,
+) (string, error) {
+	answer := task.Check.Answer
+	if answer == nil {
+		return "", nil // a state task has nothing to issue
+	}
+	if len(answer.Values) == 0 {
 		return flagpattern.Resolve(nil, f.randomBytes, f.source)
 	}
-	set, err := flagpattern.ParseSet(task.Flag)
+	set, err := answer.Set()
 	if err != nil {
 		return "", err
 	}
@@ -185,13 +193,17 @@ func (u *EventUseCase) rebuildEventFlagFilters(ctx context.Context, repo IReposi
 	capacity := flagfilter.Capacity(maxTeams)
 	for _, attachment := range attachments {
 		for variant, tasks := range candidates[attachment.ExerciseVersionID] {
-			for taskID, flags := range tasks {
-				key := flagFilterRepo.Key{EventExerciseID: attachment.ID, VariantIndex: int32(variant), TaskID: taskID}
+			for taskID, answer := range tasks {
+				key := flagFilterRepo.Key{
+					EventExerciseID: attachment.ID,
+					VariantIndex:    int32(variant),
+					TaskID:          taskID,
+				}
 				resets, has := existing[key]
-				if len(flags) == 0 || (!has && len(issued[key]) == 0) {
+				if len(answer.Values) == 0 || (!has && len(issued[key]) == 0) {
 					continue
 				}
-				set, parseErr := flagpattern.ParseSet(flags)
+				set, parseErr := answer.Set()
 				if parseErr != nil {
 					log.Warn().Err(parseErr).Stringer("eventExerciseID", attachment.ID).Msg("Skipped the flag filter of an invalid candidate list")
 					continue
@@ -267,14 +279,19 @@ type flagTeams struct {
 
 // flagsRepeat reports the smallest flag pool of a set that is used up or smaller than the teams, or nil
 // when no team can repeat a flag. A used-up pool wins over a merely small one.
-func flagsRepeat(eventExerciseID uuid.UUID, variants []map[uuid.UUID][]string, teams flagTeams, resets map[flagFilterRepo.Key]int) *FlagsRepeatView {
+func flagsRepeat(
+	eventExerciseID uuid.UUID,
+	variants []map[uuid.UUID]exerciseModel.AnswerCheck,
+	teams flagTeams,
+	resets map[flagFilterRepo.Key]int,
+) *FlagsRepeatView {
 	var out *FlagsRepeatView
 	for variant, tasks := range variants {
-		for taskID, flags := range tasks {
-			if len(flags) == 0 {
+		for taskID, answer := range tasks {
+			if len(answer.Values) == 0 {
 				continue
 			}
-			set, err := flagpattern.ParseSet(flags)
+			set, err := answer.Set()
 			if err != nil {
 				continue
 			}

@@ -23,7 +23,25 @@ WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
     OR v.name ILIKE '%' || sqlc.arg(search)::text || '%'
     OR u.email ILIKE '%' || sqlc.arg(search)::text || '%'
     OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
-ORDER BY d.created_at DESC, d.id
+  AND (sqlc.arg(status)::text = ''
+    OR (sqlc.arg(status)::text = 'active' AND d.expires_at > sqlc.arg(now)::timestamptz)
+    OR (sqlc.arg(status)::text = 'expired' AND d.expires_at <= sqlc.arg(now)::timestamptz))
+  AND (sqlc.narg(author_id)::uuid IS NULL OR d.created_by = sqlc.narg(author_id)::uuid)
+  AND (sqlc.narg(exercise_id)::uuid IS NULL OR v.exercise_id = sqlc.narg(exercise_id)::uuid)
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'exercise' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(v.name) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'exercise' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(v.name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'variant' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.variant_id END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'variant' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.variant_id END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN (d.expires_at <= sqlc.arg(now)::timestamptz) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN (d.expires_at <= sqlc.arg(now)::timestamptz) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'createdAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.created_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'createdAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.created_at END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'expiresAt' AND sqlc.arg(sort_dir)::text = 'asc' THEN d.expires_at END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'expiresAt' AND sqlc.arg(sort_dir)::text = 'desc' THEN d.expires_at END DESC,
+  d.created_at DESC, d.id
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
 -- name: GetPlatformTestLab :one
@@ -43,3 +61,28 @@ SELECT count(*) FILTER (WHERE expires_at > sqlc.arg(now))::bigint  AS active,
        count(*) FILTER (WHERE expires_at <= sqlc.arg(now))::bigint AS expired
 FROM exercise_test_deployments
 WHERE NOT (group_name = '' AND lab_name = '' AND event_id IS NULL);
+
+-- name: FacetPlatformTestLabs :many
+-- Counts of the test lab table per value of one field (status, author or exercise) under the other filters: the
+-- filter of the field itself is ignored.
+SELECT x.key::text AS key, count(*)::bigint AS count
+FROM (SELECT CASE sqlc.arg(field)::text
+                 WHEN 'status' THEN CASE WHEN d.expires_at > sqlc.arg(now)::timestamptz THEN 'active' ELSE 'expired' END
+                 WHEN 'author' THEN d.created_by::text
+                 WHEN 'exercise' THEN v.exercise_id::text
+             END AS key
+      FROM exercise_test_deployments d
+               JOIN exercise_versions v ON v.id = d.version_id
+               JOIN users u ON u.id = d.created_by
+      WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
+        AND (sqlc.arg(search)::text = ''
+          OR v.name ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR u.email ILIKE '%' || sqlc.arg(search)::text || '%'
+          OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
+        AND (sqlc.arg(field)::text = 'status' OR sqlc.arg(status)::text = ''
+          OR (sqlc.arg(status)::text = 'active' AND d.expires_at > sqlc.arg(now)::timestamptz)
+          OR (sqlc.arg(status)::text = 'expired' AND d.expires_at <= sqlc.arg(now)::timestamptz))
+        AND (sqlc.arg(field)::text = 'author' OR sqlc.narg(author_id)::uuid IS NULL OR d.created_by = sqlc.narg(author_id)::uuid)
+        AND (sqlc.arg(field)::text = 'exercise' OR sqlc.narg(exercise_id)::uuid IS NULL OR v.exercise_id = sqlc.narg(exercise_id)::uuid)) x
+WHERE x.key IS NOT NULL
+GROUP BY x.key;

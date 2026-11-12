@@ -83,9 +83,14 @@ type mediaArchiveWriter interface {
 	UploadFile(context.Context, string, string, io.Reader, uuid.UUID) (mediaModel.File, error)
 }
 
+// ParseExerciseArchive reads the document with all its versions as written. An import reduces them to one draft
+// (keepOneVersionAsDraft); parse alone does not.
 func ParseExerciseArchive(data []byte, password string, lim exerciseModel.ArchiveLimits) (ParsedExerciseArchive, error) {
-	parsed, _, err := parseExerciseArchive(data, password, lim)
-	return parsed, err
+	all, _, err := readExerciseArchive(data, password, lim)
+	if err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	return parseTaskFiles(all)
 }
 
 // parseExerciseArchive also tells whether the archive was password-protected (a typed password alone does not count).
@@ -95,6 +100,11 @@ func parseExerciseArchive(data []byte, password string, lim exerciseModel.Archiv
 		return ParsedExerciseArchive{}, false, err
 	}
 	parsed, err := parseTaskFiles(all)
+	if err != nil {
+		return ParsedExerciseArchive{}, protected, err
+	}
+	// Every version was checked while parsing; the import brings one of them, as a draft.
+	parsed.keepOneVersionAsDraft()
 	return parsed, protected, err
 }
 
@@ -190,19 +200,17 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.prepareImport(ctx, &parsed, protected, in.OwnerEventID); err != nil {
+	if err = u.prepareImport(ctx, &parsed, protected); err != nil {
 		return ExerciseView{}, err
 	}
 	return u.storeImport(ctx, &parsed, in.CreatedBy, in.OwnerEventID)
 }
 
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
-// statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
-func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
-	if err := u.validateImportContent(parsed, protected); err != nil {
-		return err
-	}
-	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
+// secrets only in a protected archive, final ids, secrets sealed. An import is never published, so there is no
+// publish gate here.
+func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
+	if err := u.validateImportContent(ctx, parsed, protected); err != nil {
 		return err
 	}
 	return u.encryptImportedSecrets(parsed.Versions)
@@ -210,13 +218,28 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 
 // validateImportContent is the write-free parse/content preparation shared by
 // preview and commit. Destination policy and random secret encryption follow it.
-func (u *ExerciseUseCase) validateImportContent(parsed *ParsedExerciseArchive, protected bool) error {
+func (u *ExerciseUseCase) validateImportContent(
+	ctx context.Context,
+	parsed *ParsedExerciseArchive,
+	protected bool,
+) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
 	}
 	if err := validateImportedVersions(parsed.Versions); err != nil {
 		return err
+	}
+	for i := range parsed.Versions {
+		if err := exerciseModel.ValidateDeviceNames(parsed.Versions[i].Variants); err != nil {
+			return withImportedPath(err, i, parsed.Versions[i].Variants)
+		}
+	}
+	// Every version, drafts and history included, may carry only the profiles the platform supports.
+	for i := range parsed.Versions {
+		if err := u.requireProfilesSupported(ctx, parsed.Versions[i].Variants); err != nil {
+			return withImportedPath(err, i, parsed.Versions[i].Variants)
+		}
 	}
 	// Every authored snapshot is validated, including history that an update
 	// would not select. Never create a first task before discovering invalid
@@ -294,9 +317,15 @@ func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
 	for vi, version := range versions {
 		for xi, variant := range version.Variants {
 			for di, device := range variant.Topology.Devices {
-				for ei, env := range device.EnvVars {
+				for ei, env := range device.Bootstrap.Env {
 					if env.Secret && env.Value != "" {
-						return fmt.Sprintf("versions[%d].variants[%d].topology.devices[%d].env_vars[%d]", vi+1, xi+1, di+1, ei+1)
+						return fmt.Sprintf(
+							"versions[%d].variants[%d].topology.devices[%d].bootstrap.env[%d]",
+							vi+1,
+							xi+1,
+							di+1,
+							ei+1,
+						)
 					}
 				}
 			}
@@ -305,56 +334,19 @@ func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
 	return ""
 }
 
-// validateImportedVersions checks the statuses: at least one version, at most one draft and one published.
-// Drafts and checkpoints may be incomplete and historical rows load as-is; the published one passes the publish
-// gate later (requireImportedPublishable), once its ids are final.
+// validateImportedVersions checks that the archive brought a version. The parser already reduced the versions to the
+// one that is imported (as a draft), so statuses decide nothing here; a draft may be incomplete and is checked when
+// it is published, not on import.
 func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 	if len(versions) == 0 {
 		return archiveInvalid("versions: at least one version is required")
-	}
-	// Status first, so a second draft or published version is named before any publish check runs.
-	drafts, published := 0, 0
-	for index := range versions {
-		status := versions[index].Status
-		path := fmt.Sprintf("versions[%d].status", index+1)
-		switch {
-		case !status.Valid():
-			return unknownEnum(path, string(status))
-		case status.IsDraft():
-			drafts++
-		case status.IsPublished():
-			published++
-		}
-		if drafts > 1 || published > 1 {
-			return archiveInvalid(fmt.Sprintf("%s: only one %s version is allowed", path, status))
-		}
-	}
-	return nil
-}
-
-// requireImportedPublishable runs the publish gate (requirePublishable, the one PublishDraft runs) on every
-// version imported as published. The import creates a new task (no approved elevation yet): a catalog task, or one
-// of ownerEventID, whose infrastructure permission then applies. A refusal keeps its error and gains the archive
-// path it is about.
-func (u *ExerciseUseCase) requireImportedPublishable(ctx context.Context, versions []exerciseModel.ExerciseVersion, ownerEventID *uuid.UUID) error {
-	newTask := exerciseModel.Exercise{Scope: exerciseModel.ScopeCatalog}
-	if ownerEventID != nil {
-		newTask = exerciseModel.Exercise{Scope: exerciseModel.ScopeEvent, OwnerEventID: uuid.NullUUID{UUID: *ownerEventID, Valid: true}}
-	}
-	for index := range versions {
-		if !versions[index].Status.IsPublished() {
-			continue
-		}
-		if err := u.requirePublishable(ctx, newTask, &versions[index]); err != nil {
-			return withImportedPath(err, index, versions[index].Variants)
-		}
 	}
 	return nil
 }
 
 // withImportedPath adds the archive path to a publish-gate error as its public "field": the version, and the
-// device when the error names one variant's device. The variant id is dropped: the new task's ids mean nothing
-// to the author of the archive.
+// device when the error names one variant's device. The variant is the 1-based position in the version, which is the
+// position in the archive too, so it stays in the context.
 func withImportedPath(failure error, versionIndex int, variants []exerciseModel.Variant) error {
 	var creator appErr.ErrorCreator
 	if !errors.As(failure, &creator) {
@@ -364,31 +356,27 @@ func withImportedPath(failure error, versionIndex int, variants []exerciseModel.
 	field := fmt.Sprintf("versions[%d]", versionIndex+1)
 	if errors.As(failure, &withContext) {
 		public := withContext.PublicContext()
-		if variantID, ok := public["variant"].(string); ok {
-			field += variantPath(variants, variantID, public["device"])
-			creator = creator.WithPublicContext("variant", "")
+		if number, ok := public["variant"].(int); ok {
+			field += variantPath(variants, number, public["device"])
 		}
 	}
 	return creator.WithPublicContext("field", field).Err()
 }
 
-// variantPath is ".variants[i]" (and ".topology.devices[j]" for a named device) of the variant with that id.
-func variantPath(variants []exerciseModel.Variant, variantID string, device any) string {
-	for vi, variant := range variants {
-		if variant.ID.String() != variantID {
-			continue
-		}
-		path := fmt.Sprintf(".variants[%d]", vi+1)
-		if name, ok := device.(string); ok {
-			for di, d := range variant.Topology.Devices {
-				if d.Name == name {
-					return path + fmt.Sprintf(".topology.devices[%d]", di+1)
-				}
+// variantPath is ".variants[i]" (and ".topology.devices[j]" for a named device) of the variant at that 1-based position.
+func variantPath(variants []exerciseModel.Variant, number int, device any) string {
+	if number < 1 || number > len(variants) {
+		return ""
+	}
+	path := fmt.Sprintf(".variants[%d]", number)
+	if name, ok := device.(string); ok {
+		for di, d := range variants[number-1].Topology.Devices {
+			if d.Name == name {
+				return path + fmt.Sprintf(".topology.devices[%d]", di+1)
 			}
 		}
-		return path
 	}
-	return ""
+	return path
 }
 
 func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID) error {
@@ -441,13 +429,11 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	}
 	for versionIndex := range parsed.Versions {
 		for variantIndex := range parsed.Versions[versionIndex].Variants {
-			for taskIndex := range parsed.Versions[versionIndex].Variants[variantIndex].Tasks {
-				attachments := parsed.Versions[versionIndex].Variants[variantIndex].Tasks[taskIndex].Attachments
-				for attachmentIndex := range attachments {
-					attachments[attachmentIndex].FileID = mapped[attachments[attachmentIndex].FileID]
-				}
-				parsed.Versions[versionIndex].Variants[variantIndex].Tasks[taskIndex].Attachments = attachments
-			}
+			parsed.Versions[versionIndex].Variants[variantIndex].EachFileRef(
+				func(ref *exerciseModel.AttachmentRef) {
+					ref.FileID = mapped[ref.FileID]
+				},
+			)
 		}
 	}
 	return nil
@@ -525,7 +511,7 @@ type mediaArchiveReader interface {
 	StreamFile(context.Context, uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 }
 
-// ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1), every attachment
+// ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1.0), every attachment
 // once per content (SHA-256) at the path assignExportPaths gives it under files/, and manifest.json. With
 // secrets the archive is AES-protected and secret values are written in plain text only inside it. lim are the
 // archive limits of the whole export (several tasks of one request share one set).
@@ -635,6 +621,43 @@ func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exer
 						ref.Name = mediaNames[ref.FileID]
 					}
 					uses = append(uses, fileUse{Hash: hashOf[ref.FileID], Name: ref.Name, Version: vi + 1, Variant: xi + 1, Task: ti + 1, Attachment: ai + 1})
+				}
+			}
+			// The source files of the device bootstraps sit with their variant, like a device image.
+			for di := range versions[vi].Variants[xi].Topology.Devices {
+				files := versions[vi].Variants[xi].Topology.Devices[di].Bootstrap.Files
+				for fi := range files {
+					ref := files[fi].Source
+					if ref == nil {
+						continue
+					}
+					if _, done := hashOf[ref.FileID]; !done {
+						hash, body, name, err := u.streamExportedFile(ctx, ref.FileID)
+						if err != nil {
+							return nil, nil, err
+						}
+						hashOf[ref.FileID], mediaNames[ref.FileID] = hash, name
+						if _, seen := bodies[hash]; !seen {
+							if err = budget.add(len(body)); err != nil {
+								return nil, nil, err
+							}
+						}
+						bodies[hash] = body
+					}
+					if ref.Name == "" {
+						ref.Name = mediaNames[ref.FileID]
+					}
+					uses = append(
+						uses,
+						fileUse{
+							Hash:       hashOf[ref.FileID],
+							Name:       ref.Name,
+							Version:    vi + 1,
+							Variant:    xi + 1,
+							Device:     di + 1,
+							Attachment: fi + 1,
+						},
+					)
 				}
 			}
 		}

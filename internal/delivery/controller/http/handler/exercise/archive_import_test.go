@@ -49,7 +49,7 @@ func postArchiveTo(t *testing.T, uc *fakeUC, archive []byte) (*httptest.Response
 
 func TestImportArchive_StrayFileKeepsCodeAndContext(t *testing.T) {
 	archive, err := exerciseUseCase.BuildArchiveNoManifest(map[string][]byte{
-		"a/exercise.yaml": []byte("schema: cib-exercise/1\n"),
+		"a/exercise.yaml": []byte("schema: cib-exercise/1.0\n"),
 		"readme.md":       []byte("r"),
 	})
 	if err != nil {
@@ -72,24 +72,26 @@ func TestImportArchive_BrokenZipStaysBadRequest(t *testing.T) {
 	}
 }
 
-// A hand-written mistake the import finds (here a version without status) is the author's 400, not a 500.
-func TestImportArchive_MissingStatusIsArchiveInvalid(t *testing.T) {
+// A hand-written mistake the import finds (here a status that is none) is the author's 400, not a 500.
+func TestImportArchive_UnknownStatusIsArchiveInvalid(t *testing.T) {
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"no status"},"versions":[{"variants":[{}]}]}`),
+		"exercise.json": []byte(
+			`{"schema":"cib-exercise/1.0","exercise":{"name":"no status"},"versions":[{"status":"bogus","variants":[{}]}]}`,
+		),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, importErr := exerciseUseCase.ParseExerciseArchive(archive, "", exerciseModel.DefaultArchiveLimits())
 	if importErr == nil {
-		t.Fatal("a version without status must not parse")
+		t.Fatal("a version with an unknown status must not parse")
 	}
 	w, out := postArchiveTo(t, &fakeUC{err: importErr}, archive)
 	want := exerciseModel.ErrArchiveInvalid.Err().StatusCode()
 	if w.Code != http.StatusBadRequest || out.Status.Code != want.FullCode() || want.FullCode() != 20980 {
 		t.Fatalf("status %d code %d, want 400 / 20980: %s", w.Code, out.Status.Code, w.Body.String())
 	}
-	if out.Status.Context["reason"] != "versions[1].status: required" {
+	if out.Status.Context["reason"] != `versions[1].status: unknown value "bogus"` {
 		t.Fatalf("context = %v", out.Status.Context)
 	}
 }

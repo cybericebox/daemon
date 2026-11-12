@@ -1,6 +1,7 @@
 package exerciseModel
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -64,19 +65,35 @@ type DeployHandle struct {
 	Group     string
 	Lab       string
 	Namespace string
-	// Flags are the values injected into the linked devices of a test deploy,
-	// one per flag-linked task, so the author can compare them.
+	// Flags are the values pinned for the answer tasks of a test deploy, so the author can compare them.
 	Flags []DeployFlag
 	// Static is true for a test without devices: there is no lab behind the handle.
 	Static bool
 }
 
-// DeployFlag is the resolved test flag of one device-linked task.
+// DeployFlag is the value pinned for one answer task of a test deploy, with the options the author's answer is
+// compared under (a text answer may ignore case and keep its edge spaces).
 type DeployFlag struct {
 	TaskID uuid.UUID `json:"task_id"`
 	Name   string    `json:"name"`
 	Flag   string    `json:"flag"`
+	// Type, IgnoreCase and Trim are the options of the task's answer; a deploy stored before them is a flag.
+	Type       AnswerType `json:"type,omitempty"`
+	IgnoreCase bool       `json:"ignore_case,omitempty"`
+	NoTrim     bool       `json:"no_trim,omitempty"`
 }
+
+// NewDeployFlag pins a value for a task's answer.
+func NewDeployFlag(task Task, value string) DeployFlag {
+	flag := DeployFlag{TaskID: task.ID, Name: task.Name, Flag: value}
+	if answer := task.Check.Answer; answer != nil && answer.Type == AnswerTypeText {
+		flag.Type, flag.IgnoreCase, flag.NoTrim = answer.Type, answer.IgnoreCase, !answer.TrimEffective()
+	}
+	return flag
+}
+
+// IsText reports whether the value is compared as free text.
+func (f DeployFlag) IsText() bool { return f.Type == AnswerTypeText }
 
 // LabDeployStatus is the runtime status of a deployed variant lab.
 type LabDeployStatus struct {
@@ -108,8 +125,19 @@ type LabDeployStatus struct {
 	VPNLastHandshake           time.Time
 	// VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
 	VPNProbeURL string
-	// SolvedTasks are the tasks the author has already checked correctly; filled by the use case.
+	// ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
+	// effective only with the VPN on); filled by the use case for a test deploy.
+	ReverseConnections bool
+	// VPNReverse is what is in force for connections the lab starts to the VPN clients: "blocked", "allowed", or
+	// "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).
+	// Empty for a lab without a VPN or whose state is not known.
+	VPNReverse string
+	// SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
+	// StateTasks); filled by the use case.
 	SolvedTasks []uuid.UUID
+	// StateTasks is where every task checked by the state of the lab stands, for the author of the test only; filled by the
+	// use case from the recorded check results. Absent for a variant without state tasks.
+	StateTasks []TaskCheckState
 	// ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.
 	ExpiresAt time.Time
 	Expired   bool
@@ -126,10 +154,79 @@ type LabDeployedDevice struct {
 	Name   string
 	Ready  bool
 	Reason string
+	// CPUThrottledPercent is the share of CPU periods the device was throttled in the agent's window (0: no data).
+	CPUThrottledPercent int32
 	// Snapshot is set only for a device with state persistence.
 	Snapshot *DeviceSnapshot
 	// Scheduling is the pod's way through the scheduler; nil when the scheduler does not track it.
 	Scheduling *PodScheduling
+	// Bootstrap is where the device's bootstrap is; nil for a device without one. For staff and the task author only.
+	Bootstrap *DeviceBootstrapStatus
+}
+
+// TaskCheckState is the state of one task checked by the lab. Solved follows its mode: once: every check has passed once and
+// it stays so; continuous: every check passes now and it may go back. FirstSolvedAt is the first time every check had
+// passed (kept when a continuous task goes back). The author sees each check with its detail; a participant never does.
+type TaskCheckState struct {
+	TaskID        uuid.UUID
+	Key           string
+	Mode          StateMode
+	Manual        bool
+	Solved        bool
+	SolvedAt      *time.Time
+	FirstSolvedAt *time.Time
+	// Known: every check of the task has a result.
+	Known  bool
+	Checks []CheckDetail
+}
+
+// CheckDetail is one laboratory check of a task with its last result, for the author or the teacher.
+type CheckDetail struct {
+	ID string
+	// Passed is the current state; Known is false until the check has a result.
+	Passed        bool
+	Known         bool
+	FirstPassedAt *time.Time
+	ChangedAt     *time.Time
+	Value         string
+	Detail        string
+}
+
+// States of LabDeployStatus.VPNReverse.
+const (
+	VPNReverseBlocked     = "blocked"
+	VPNReverseAllowed     = "allowed"
+	VPNReverseNotEnforced = "not_enforced"
+)
+
+// Bootstrap phases of a device (the laboratory's contract 1.5): pending until it is done, failed when its attempts are used up.
+const (
+	BootstrapPhasePending = "pending"
+	BootstrapPhaseDone    = "done"
+	BootstrapPhaseFailed  = "failed"
+)
+
+// DeviceBootstrapStatus is the bootstrap of one device as the laboratory reports it. Reason is a short text for the author
+// (at most 256 bytes) and holds no secret.
+type DeviceBootstrapStatus struct {
+	Phase    string
+	Attempts int32
+	Reason   string
+}
+
+// DeviceLimitCPU is the notice code of a device that hits its CPU limit (more than half of its CPU periods are
+// throttled). The limit is set by the task author; a test run tells the author, the event organizers hear nothing.
+const DeviceLimitCPU = "device_cpu_limit"
+
+// DeviceThrottleNoticePercent is the throttled share above which a device carries the DeviceLimitCPU notice.
+const DeviceThrottleNoticePercent = 50
+
+// LimitNotice is the code of the resource limit the device hits, empty when none.
+func (d LabDeployedDevice) LimitNotice() string {
+	if d.CPUThrottledPercent > DeviceThrottleNoticePercent {
+		return DeviceLimitCPU
+	}
+	return ""
 }
 
 // PodScheduling is where one device pod is between the scheduler queue and Ready. Failure is set
@@ -208,7 +305,8 @@ func (s *LabDeployStatus) FillQueueDetails() {
 				q.RetryAt = p.RetryAfter
 			}
 		case QueueReasonNodeStarting:
-			if p.State == PodStateStarting && !p.DispatchedAt.IsZero() && (q.WaitingSince.IsZero() || p.DispatchedAt.Before(q.WaitingSince)) {
+			if p.State == PodStateStarting && !p.DispatchedAt.IsZero() &&
+				(q.WaitingSince.IsZero() || p.DispatchedAt.Before(q.WaitingSince)) {
 				q.WaitingSince = p.DispatchedAt
 			}
 		}
@@ -225,8 +323,24 @@ type LabAccess struct {
 
 // WebURL is the web address of one device port, if it has one.
 func (s LabDeployStatus) WebURL(device string, port int32) (string, bool) {
+	return s.EntryURL(device, AccessHTTP, port)
+}
+
+// EntryURL is the address of one kind of access to a device: the url the laboratory put in the entry of that kind. An http
+// entry is told by its port (and a protocol of http or https); every other kind (terminal now, vnc and rdp later) has one
+// entry per device and is told by its protocol alone. No entry, or one with no url yet, gives false.
+func (s LabDeployStatus) EntryURL(device string, kind AccessKind, port int32) (string, bool) {
 	for _, a := range s.Access {
-		if a.Device == device && a.Port == port && a.URL != "" {
+		if a.Device != device || a.URL == "" {
+			continue
+		}
+		if kind == AccessHTTP {
+			if a.Port == port && (a.Protocol == "" || strings.HasPrefix(a.Protocol, string(AccessHTTP))) {
+				return a.URL, true
+			}
+			continue
+		}
+		if a.Protocol == string(kind) {
 			return a.URL, true
 		}
 	}

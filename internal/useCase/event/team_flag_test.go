@@ -88,9 +88,23 @@ func TestTeamFlags_TeamsAndModeratorsGetDistinctFlagsPerVariant(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link := perTeamLink()
-	task := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Flag: []string{`template:ICE{\d}`}}
-	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{task}}, {Tasks: []exerciseModel.Task{task}}}}
-	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: link.ID, TaskID: task.ID}
+	task := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`template:ICE{\d}`),
+	}
+	version := exerciseModel.ExerciseVersion{
+		ID: uuid.Must(uuid.NewV7()),
+		Variants: []exerciseModel.Variant{
+			{Tasks: []exerciseModel.Task{task}},
+			{Tasks: []exerciseModel.Task{task}},
+		},
+	}
+	challenge := eventChallengeModel.EventChallenge{
+		ID:              uuid.Must(uuid.NewV7()),
+		EventExerciseID: link.ID,
+		TaskID:          task.ID,
+	}
 	limit := int32(10)
 	store := newFlagStore(t, q, &limit)
 	onVariant := map[int32]int{}
@@ -148,9 +162,23 @@ func TestTeamFlags_FilterIsReadAndWrittenUnderTheLockBeforeTheChallenge(t *testi
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
-	task := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Flag: []string{`ICE{a}`, `template:ICE{[ab][0-2]}`}}
-	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{task}}, {Tasks: []exerciseModel.Task{task}}}}
-	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: link.ID, TaskID: task.ID}
+	task := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`ICE{a}`, `template:ICE{[ab][0-2]}`),
+	}
+	version := exerciseModel.ExerciseVersion{
+		ID: uuid.Must(uuid.NewV7()),
+		Variants: []exerciseModel.Variant{
+			{Tasks: []exerciseModel.Task{task}},
+			{Tasks: []exerciseModel.Task{task}},
+		},
+	}
+	challenge := eventChallengeModel.EventChallenge{
+		ID:              uuid.Must(uuid.NewV7()),
+		EventExerciseID: link.ID,
+		TaskID:          task.ID,
+	}
 	var saved postgres.UpsertEventFlagFilterParams
 	var written string
 	gomock.InOrder(
@@ -191,8 +219,16 @@ func TestTeamFlags_FilterIsReadAndWrittenUnderTheLockBeforeTheChallenge(t *testi
 func TestNewTeamChallenge_NoCandidatesStaysRandom(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl) // strict: no lock, no filter
-	task := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task"}
-	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: uuid.Must(uuid.NewV7()), TaskID: task.ID}
+	task := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(),
+	}
+	challenge := eventChallengeModel.EventChallenge{
+		ID:              uuid.Must(uuid.NewV7()),
+		EventExerciseID: uuid.Must(uuid.NewV7()),
+		TaskID:          task.ID,
+	}
 	var written string
 	q.EXPECT().CreateTeamChallenge(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateTeamChallengeParams) (postgres.TeamChallenge, error) {
 		written = arg.ExpectedFlag
@@ -216,9 +252,20 @@ func TestTeamFlags_UnlimitedEventGrowsTheFilterWithoutRepeats(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link := perTeamLink()
 	link.VariantMode, link.FixedVariantIndex = eventExerciseModel.VariantModeFixed, new(int32)
-	task := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Flag: []string{`template:ICE{[a-f]\d\d\d}`}}
-	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{task}}}}
-	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: link.ID, TaskID: task.ID}
+	task := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`template:ICE{[a-f]\d\d\d}`),
+	}
+	version := exerciseModel.ExerciseVersion{
+		ID:       uuid.Must(uuid.NewV7()),
+		Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{task}}},
+	}
+	challenge := eventChallengeModel.EventChallenge{
+		ID:              uuid.Must(uuid.NewV7()),
+		EventExerciseID: link.ID,
+		TaskID:          task.ID,
+	}
 	store := newFlagStore(t, q, nil)
 	seen := map[string]bool{}
 	key := flagKey{link.ID, 0, task.ID}
@@ -255,9 +302,13 @@ func TestRefreshTeamAssignments_TeamsMovedOntoOneVariantGetDistinctFlags(t *test
 	fixed := int32(0)
 	link := perTeamLink()
 	link.VariantMode, link.FixedVariantIndex = eventExerciseModel.VariantModeFixed, &fixed
-	oldTask := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Flag: []string{`ICE{old}`}}
+	oldTask := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`ICE{old}`),
+	}
 	task := oldTask
-	task.Flag = []string{`template:ICE{\d}`}
+	task.Check = exerciseModel.FlagCheck(`template:ICE{\d}`)
 	previous := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7())}
 	next := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7())}
 	for range 4 {
@@ -287,7 +338,7 @@ func TestRefreshTeamAssignments_TeamsMovedOntoOneVariantGetDistinctFlags(t *test
 		return 1, nil
 	}).Times(len(rows))
 	u := &EventUseCase{flagRandomBytes: 20}
-	if err := u.refreshTeamAssignments(context.Background(), q, link, previous, next, board, nil, time.Now()); err != nil {
+	if err := u.refreshTeamAssignments(context.Background(), q, link, previous, next, board, nil, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != len(rows) || store.writes != len(rows) {
@@ -301,7 +352,11 @@ func TestRefreshTeamAssignments_RepickedRowsDrawThroughTheirVariantFilter(t *tes
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link := perTeamLink()
-	task := exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Flag: []string{`template:ICE{\d}`}}
+	task := exerciseModel.Task{
+		ID:    uuid.Must(uuid.NewV7()),
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`template:ICE{\d}`),
+	}
 	next := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7())}
 	for range 3 {
 		next.Variants = append(next.Variants, exerciseModel.Variant{Tasks: []exerciseModel.Task{task}})
@@ -335,7 +390,7 @@ func TestRefreshTeamAssignments_RepickedRowsDrawThroughTheirVariantFilter(t *tes
 		return 1, nil
 	}).Times(len(rows))
 	u := &EventUseCase{flagRandomBytes: 20}
-	if err := u.refreshTeamAssignments(context.Background(), q, link, next, next, board, nil, time.Now()); err != nil {
+	if err := u.refreshTeamAssignments(context.Background(), q, link, next, next, board, nil, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if kept != "ICE{old}" {
@@ -355,9 +410,21 @@ func TestTeamFlags_ChangedCandidatesRebuildTheFilterFromTheStoredFlags(t *testin
 	link := perTeamLink()
 	link.VariantMode, link.FixedVariantIndex = eventExerciseModel.VariantModeFixed, new(int32)
 	taskID := uuid.Must(uuid.NewV7())
-	before := exerciseModel.Task{ID: taskID, Name: "Task", Flag: []string{`template:ICE{\d}`}}    // 0..9
-	after := exerciseModel.Task{ID: taskID, Name: "Task", Flag: []string{`template:ICE{[1-9a]}`}} // 1..9, a: also ten values
-	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: link.ID, TaskID: taskID}
+	before := exerciseModel.Task{
+		ID:    taskID,
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`template:ICE{\d}`),
+	} // 0..9
+	after := exerciseModel.Task{
+		ID:    taskID,
+		Name:  "Task",
+		Check: exerciseModel.FlagCheck(`template:ICE{[1-9a]}`),
+	} // 1..9, a: also ten values
+	challenge := eventChallengeModel.EventChallenge{
+		ID:              uuid.Must(uuid.NewV7()),
+		EventExerciseID: link.ID,
+		TaskID:          taskID,
+	}
 	store := newFlagStore(t, q, nil)
 	key := flagKey{link.ID, 0, taskID}
 	seen := map[string]bool{}

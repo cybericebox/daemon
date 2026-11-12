@@ -19,6 +19,7 @@ import (
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"sort"
 	"time"
 )
@@ -113,7 +114,20 @@ func (u *EventUseCase) ReconcileStageLabLifecycle(ctx context.Context, eventID u
 		}
 		set, err := eventExerciseRepo.New(q).GetByID(txCtx, eventID, l.EventExerciseID)
 		if err != nil {
-			return err
+			if !repositoryTools.IsObjectNotFoundError(err) {
+				return fmt.Errorf("stage lifecycle: get event exercise %s of lab %s: %w", l.EventExerciseID, l.ID, err)
+			}
+			// The set is gone (deleted while a Lab of it was kept): one orphan never fails the event.
+			wasRunning := l.DesiredState == "Running" && l.CloseReason != "solved"
+			if _, retireErr := retireRemovedSetLab(txCtx, q, l, now); retireErr != nil {
+				return retireErr
+			}
+			if wasRunning {
+				if err = u.requestLabAccessSyncInTransaction(txCtx, q, l.TeamID, now); err != nil {
+					return err
+				}
+			}
+			continue
 		}
 		l.CaptureRuntimeStage(set.StageID, now)
 		activeSelection, err := eventLabRetentionRepo.New(q).ActiveSelection(txCtx, l, now)
@@ -202,6 +216,12 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 	for _, snapshot := range groups {
 		observation, observeErr := port.ObserveLabGroup(ctx, snapshot.Name)
 		if observeErr != nil && u.settleGoneGroup(ctx, snapshot.Name, snapshot.AgentUID != "" && snapshot.AgentGeneration > 0, observeErr) {
+			continue
+		}
+		if observeErr != nil && awaitingCreation(snapshot.AgentUID, snapshot.AgentGeneration, observeErr) {
+			// The group is made by the first deploy of the team: not there yet is waiting, not a failure.
+			log.Debug().Err(observeErr).Str("lab_group", snapshot.Name).Msg("Lab group lifecycle waits for the agent to create the group")
+			_ = eventLabGroupRepo.New(u.repo).Schedule(ctx, snapshot, now.Add(u.labLifecycleRetryMin))
 			continue
 		}
 		if observeErr != nil {
@@ -343,7 +363,11 @@ func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository
 		}
 		set, err := eventExerciseRepo.New(q).GetByID(ctx, eventID, l.EventExerciseID)
 		if err != nil {
-			return false, err
+			if repositoryTools.IsObjectNotFoundError(err) {
+				// A Lab of a removed set authorizes nothing; it is retired by the stage lifecycle pass.
+				continue
+			}
+			return false, fmt.Errorf("group %s: get event exercise %s of lab %s: %w", group.Name, l.EventExerciseID, l.ID, err)
 		}
 		if set.StageID == nil && l.DesiredState == "Running" {
 			return true, nil

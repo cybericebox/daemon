@@ -14,6 +14,7 @@ import (
 
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
@@ -23,6 +24,11 @@ import (
 func (f *fakeUC) CheckImageAvailability(_ context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error) {
 	f.imageScope, f.checkedImages = scope, images
 	return f.availability, f.err
+}
+
+func (f *fakeUC) ImageServices(_ context.Context, images []string) []imageRegistryUseCase.ImageServiceInfo {
+	f.checkedImages = images
+	return f.services
 }
 
 // ExerciseImageScope: the owner event of an event-owned exercise (from the fake's exercise view).
@@ -121,6 +127,35 @@ func TestDeployVariantUnavailableImagesIs409WithTheImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := body.Status.Context.Images; len(got) != 1 || got[0]["Image"] != unavailable[0].Image || got[0]["Status"] != "unavailable" || got[0]["Reason"] != "not_found" {
+		t.Fatalf("body %s", w.Body.String())
+	}
+}
+
+func TestImageServicesReturnsTheStartConfigurationAndNeverNull(t *testing.T) {
+	exID := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{services: []imageRegistryUseCase.ImageServiceInfo{
+		{Image: "platform:web@sha256:a", Known: true, Service: exerciseModel.ImageService{Entrypoint: []string{"/e.sh"}, User: "www", WorkingDir: "/srv"}},
+		{Image: "nginx:1"},
+	}}
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises/"+exID.String()+"/images/service", strings.NewReader(`{"Images":["platform:web@sha256:a","nginx:1"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data []struct {
+			Image, User, WorkingDir string
+			Known                   bool
+			Entrypoint, Cmd         []string
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data) != 2 || !body.Data[0].Known || body.Data[0].User != "www" || body.Data[0].Entrypoint[0] != "/e.sh" ||
+		body.Data[1].Known || body.Data[1].Entrypoint == nil || body.Data[1].Cmd == nil {
 		t.Fatalf("body %s", w.Body.String())
 	}
 }

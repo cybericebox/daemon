@@ -13,16 +13,21 @@ import (
 const ExampleArchiveFilename = "example-task.cybericebox.zip"
 
 // exampleFS holds the example task: a commented exercise.yaml (the user-facing description of the format) and
-// the two files it links.
+// the three files it links.
 //
-//go:embed example/exercise.yaml example/files/notes.txt example/files/notes-2.txt
+//go:embed example/exercise.yaml example/files/notes.txt example/files/notes-2.txt example/files/config.yaml
 var exampleFS embed.FS
 
 // exampleEntries are the example's paths, relative to the zip root and to the example folder alike.
-var exampleEntries = []string{"exercise.yaml", "files/notes.txt", "files/notes-2.txt"}
+var exampleEntries = []string{
+	"exercise.yaml",
+	"files/notes.txt",
+	"files/notes-2.txt",
+	"files/config.yaml",
+}
 
-// ExampleArchive builds the downloadable example task: the three files at the zip root and no manifest.json,
-// as an author writes an archive by hand. Imported as it is, it creates a working published task.
+// ExampleArchive builds the downloadable example task: the four files at the zip root and no manifest.json,
+// as an author writes an archive by hand. Imported as it is, it creates a draft task that can be published.
 func ExampleArchive() ([]byte, error) {
 	files := make(map[string][]byte, len(exampleEntries))
 	for _, name := range exampleEntries {

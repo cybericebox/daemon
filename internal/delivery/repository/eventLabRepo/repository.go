@@ -39,6 +39,9 @@ type Queries interface {
 	RecordEventTeamLabInitialIdentity(ctx context.Context, arg postgres.RecordEventTeamLabInitialIdentityParams) (int64, error)
 	RecordEventTeamLabObservation(ctx context.Context, arg postgres.RecordEventTeamLabObservationParams) (int64, error)
 	UpdateEventTeamLab(ctx context.Context, arg postgres.UpdateEventTeamLabParams) (int64, error)
+	NextEventTeamLabGeneration(ctx context.Context, arg postgres.NextEventTeamLabGenerationParams) (int32, error)
+	UnlinkUnbornLabBindings(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteUnbornEventTeamLab(ctx context.Context, id uuid.UUID) (int64, error)
 }
 type Repository struct{ q Queries }
 
@@ -341,6 +344,48 @@ func (r *Repository) LockSourceChange(ctx context.Context, eventID, exerciseID u
 		}
 	}
 	return terminal, nil
+}
+
+// NextGeneration is the next free deployment generation for the team's Lab of the exercise that challengeID
+// belongs to: above current and above every canonical Lab the team had for that exercise.
+func (r *Repository) NextGeneration(ctx context.Context, teamID, challengeID uuid.UUID, current int32) (int32, error) {
+	return r.q.NextEventTeamLabGeneration(ctx, postgres.NextEventTeamLabGenerationParams{CurrentGeneration: current, EventTeamID: teamID, EventChallengeID: challengeID})
+}
+
+// DropUnborn resets and removes a canonical Lab that never reached the agent: its bindings go back to pending
+// without a Lab (the stand engine prepares a new one from the current version) and the Lab row with its objectives
+// is deleted. It reports whether the row was removed; a Lab that was born, or is still held by an archive or a
+// pin, is left alone.
+func (r *Repository) DropUnborn(ctx context.Context, id uuid.UUID) (bool, error) {
+	if _, err := r.q.UnlinkUnbornLabBindings(ctx, id); err != nil {
+		return false, err
+	}
+	n, err := r.q.DeleteUnbornEventTeamLab(ctx, id)
+	return n > 0, err
+}
+
+// LockSetLabs takes the locks of LockSourceChange and returns the canonical Labs
+// of one event exercise, locked, in id order.
+func (r *Repository) LockSetLabs(ctx context.Context, eventID, exerciseID uuid.UUID) ([]eventLabModel.Lab, error) {
+	if _, err := r.q.LockEventForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	if _, err := r.q.LockEventTeamsForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	rows, err := r.q.LockEventTeamLabsForSourceChange(ctx, postgres.LockEventTeamLabsForSourceChangeParams{EventID: eventID, EventExerciseID: exerciseID})
+	if err != nil {
+		return nil, err
+	}
+	labs := make([]eventLabModel.Lab, 0, len(rows))
+	for _, row := range rows {
+		lab, err := ToDomain(row)
+		if err != nil {
+			return nil, err
+		}
+		labs = append(labs, lab)
+	}
+	return labs, nil
 }
 
 func (r *Repository) RecordInitialReadiness(ctx context.Context, id uuid.UUID, ref eventLabModel.Ref, uid string, generation int64, ready bool, now time.Time) (bool, error) {

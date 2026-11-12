@@ -2,11 +2,14 @@ package exerciseModel
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
@@ -59,14 +62,14 @@ type Task struct {
 	Description json.RawMessage `json:"description,omitempty"`
 	Difficulty  Difficulty      `json:"difficulty"`
 
-	// Flag holds the candidate flag values: len 0 → a flag is generated
-	// randomly at deploy time; len 1 → that fixed value is used as-is; len >1
-	// → one value is picked at random at deploy time.
-	Flag []string `json:"flag,omitempty"`
-	// LinkedDeviceID + DeviceFlagVar: the flag is injected into that device's
-	// env var at deploy time.
-	LinkedDeviceID uuid.NullUUID `json:"linked_device_id,omitempty"`
-	DeviceFlagVar  string        `json:"device_flag_var,omitempty"`
+	// Key names the task inside its variant: {{task.<key>}} places its pinned value and Requires names tasks by it.
+	// An import and a save give a task without one a stable key (see NormalizeTaskKeys).
+	Key string `json:"key,omitempty"`
+	// Requires are the keys of tasks of the same variant that must be done before this one opens.
+	// The gating itself is applied where a task is solved (follow-up); this is only the data.
+	Requires []string `json:"requires,omitempty"`
+	// Check is what makes the task done: exactly one of a typed answer or a state of the lab.
+	Check Check `json:"check"`
 
 	Attachments  []AttachmentRef `json:"attachments,omitempty"`
 	Placeholders []Placeholder   `json:"placeholders,omitempty"`
@@ -146,16 +149,16 @@ func hasHintTextContent(text string) bool {
 // task: same count, IDs and levels at the same positions.
 func validateHints(task, canonical Task) error {
 	if len(task.Hints) > hintsMaxCount || len(task.Hints) != len(canonical.Hints) {
-		return ErrHintsInvalid.WithContext("task", task.Name).Err()
+		return forTask(ErrHintsInvalid, task).Err()
 	}
 	seen := make(map[uuid.UUID]struct{}, len(task.Hints))
 	for i, hint := range task.Hints {
 		if !hint.Level.Valid() || len(hint.Text) > hintTextMaxLen ||
 			hint.ID != canonical.Hints[i].ID || hint.Level != canonical.Hints[i].Level {
-			return ErrHintsInvalid.WithContext("task", task.Name).Err()
+			return forTask(ErrHintsInvalid, task).Err()
 		}
 		if _, duplicate := seen[hint.ID]; duplicate && hint.ID != uuid.Nil {
-			return ErrHintsInvalid.WithContext("task", task.Name).Err()
+			return forTask(ErrHintsInvalid, task).Err()
 		}
 		seen[hint.ID] = struct{}{}
 	}
@@ -167,9 +170,9 @@ type Variant struct {
 	Index int32     `json:"index"` // decorative admin-facing number; not an identity
 	Note  string    `json:"note"`  // per-variant admin note (never shown to participants)
 	// LinkedTo is the base variant (same version) this one inherits its content from;
-	// only Flag and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
+	// only the answer values and Attachments of each task, Note, Index, Weight and ImageOverrides stay its own. Zero = independent.
 	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
-	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); 0 counts as 1.
+	// Weight is how often the variant is given out relative to the others (2 = twice as often as 1); a stored 0 (data older than the rule) is read as 1; new input refuses 0.
 	Weight int `json:"weight,omitempty"`
 	// ImageOverrides (a linked variant only): its own image for some container devices of the base, by device id.
 	// The device keeps the base's name and everything else, so the descriptions' placeholders stay valid.
@@ -185,24 +188,28 @@ type ImageOverride struct {
 	Image    string    `json:"image"`
 }
 
-// MaxDeviceEnvVars bounds the env vars of one device.
-const MaxDeviceEnvVars = 64
-
 // MaxVariantWeight bounds a variant's weight.
 const MaxVariantWeight = 100
 
-// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset weight is 1).
+// EffectiveWeight is the variant's weight within 1..MaxVariantWeight (an unset or stored 0 weight is 1: tolerant of data saved
+// before 0 was refused).
 func (v Variant) EffectiveWeight() int {
 	return min(max(v.Weight, 1), MaxVariantWeight)
 }
 
-// ValidateTopologyForDeploy enforces runnable graph rules without requiring
-// publication-only task descriptions or flag content in a saved draft.
+// ValidateTopologyForDeploy enforces runnable graph rules and resolvable substitutions without requiring
+// publication-only task descriptions or answer content in a saved draft.
 func (v Variant) ValidateTopologyForDeploy() error {
 	if err := v.Topology.validateStructure(); err != nil {
 		return err
 	}
-	return v.Topology.validateGraph(v.Tasks)
+	if err := v.Topology.validateGraph(); err != nil {
+		return err
+	}
+	if err := validateVariables(v.Topology.Variables); err != nil {
+		return err
+	}
+	return v.ValidateSubstitutions()
 }
 
 // ExerciseVersion is a full content snapshot: the variant set persisted as one
@@ -253,58 +260,113 @@ func (v *ExerciseVersion) ValidateStructure() error {
 	if len(v.Variants) == 0 {
 		return ErrVersionNoVariants.Err()
 	}
+	if err := ValidateDeviceNames(v.Variants); err != nil {
+		return err
+	}
 	canonicalTasks := v.Variants[0].Tasks
-	taskCount := len(canonicalTasks)
 	for variantIndex, variant := range v.Variants {
-		if len(variant.Tasks) != taskCount {
-			return ErrTaskCountMismatch.Err()
+		if err := validateVariantStructure(variantIndex, variant, canonicalTasks); err != nil {
+			return InVariant(err, variantIndex+1)
 		}
-		for taskIndex, task := range variant.Tasks {
-			// Legacy persisted snapshots may predate task IDs. New saves receive
-			// canonical non-nil IDs in normalizeContentIDs before arriving here;
-			// for old all-nil snapshots position remains the only available key.
-			if (canonicalTasks[taskIndex].ID != uuid.Nil && task.ID != canonicalTasks[taskIndex].ID) ||
-				(canonicalTasks[taskIndex].ID == uuid.Nil && task.ID != uuid.Nil) {
-				return ErrTaskIdentityMismatch.WithContext("task", task.Name).Err()
-			}
-			if variantIndex > 0 && task.Difficulty != canonicalTasks[taskIndex].Difficulty {
-				return ErrTaskDifficultyMismatch.WithContext("task", task.Name).Err()
-			}
-			name := strings.TrimSpace(task.Name)
-			if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
-				return ErrTaskNameInvalid.WithContext("task", task.Name).Err()
-			}
-			if !task.Difficulty.Valid() {
-				return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
-			}
-			if !validFlag(task.Flag) {
-				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
-			}
-			if err := validateHints(task, canonicalTasks[taskIndex]); err != nil {
-				return err
-			}
-			keys := make(map[string]struct{}, len(task.Placeholders))
-			for _, placeholder := range task.Placeholders {
-				if placeholder.Key == "" {
-					continue
-				} // legacy draft; normalized on save
-				if _, duplicate := keys[placeholder.Key]; duplicate {
-					return ErrPlaceholderInvalid.WithContext("task", task.Name).Err()
-				}
-				keys[placeholder.Key] = struct{}{}
-			}
-		}
-		if err := variant.Topology.validateStructure(); err != nil {
-			return err
-		}
-		if err := validateImageOverrides(variantIndex, variant); err != nil {
-			return err
-		}
-		if err := variant.Topology.validateFlagEnvTargets(variant.Tasks); err != nil {
+	}
+	if err := validateChecksAcross(v.Variants); err != nil {
+		return err
+	}
+	return validateLinkedFlags(v.Variants)
+}
+
+// validateVariantStructure is the per-item shape check of one variant against the first one (its tasks line up with the
+// first variant's). The caller names the variant (InVariant) on the error.
+func validateVariantStructure(variantIndex int, variant Variant, canonicalTasks []Task) error {
+	if len(variant.Tasks) != len(canonicalTasks) {
+		return ErrTaskCountMismatch.Err()
+	}
+	for taskIndex, task := range variant.Tasks {
+		if err := validateTaskShape(variantIndex, task, canonicalTasks[taskIndex]); err != nil {
 			return err
 		}
 	}
-	return validateLinkedFlags(v.Variants)
+	if err := variant.Topology.validateStructure(); err != nil {
+		return err
+	}
+	if err := validateImageOverrides(variantIndex, variant); err != nil {
+		return err
+	}
+	return variant.ValidateDocument()
+}
+
+// validateTaskShape is the per-item shape check of one task against the task at its position in the first variant.
+func validateTaskShape(variantIndex int, task, canonical Task) error {
+	// Legacy persisted snapshots may predate task IDs. New saves receive
+	// canonical non-nil IDs in normalizeContentIDs before arriving here;
+	// for old all-nil snapshots position remains the only available key.
+	if (canonical.ID != uuid.Nil && task.ID != canonical.ID) ||
+		(canonical.ID == uuid.Nil && task.ID != uuid.Nil) {
+		return forTask(ErrTaskIdentityMismatch, task).Err()
+	}
+	if variantIndex > 0 && task.Difficulty != canonical.Difficulty {
+		return forTask(ErrTaskDifficultyMismatch, task).Err()
+	}
+	name := strings.TrimSpace(task.Name)
+	if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
+		return forTask(ErrTaskNameInvalid, task).WithPublicContext("field", "name").Err()
+	}
+	if !task.Difficulty.Valid() {
+		return forTask(ErrTaskDifficultyInvalid, task).Err()
+	}
+	if err := validateHints(task, canonical); err != nil {
+		return err
+	}
+	keys := make(map[string]struct{}, len(task.Placeholders))
+	for _, placeholder := range task.Placeholders {
+		if placeholder.Key == "" {
+			continue
+		} // legacy draft; normalized on save
+		if _, duplicate := keys[placeholder.Key]; duplicate {
+			return forTask(ErrPlaceholderInvalid, task).Err()
+		}
+		keys[placeholder.Key] = struct{}{}
+	}
+	return nil
+}
+
+// forTask names a task on an error: the public context key "task" is the task KEY (short, stable, and what the editor
+// addresses a task by; names repeat between tasks) and "task_name" is the name, for a message a person reads. The device is
+// "device" (its name) and the place inside the task or device is "field".
+func forTask(failure appErr.ErrorCreator, task Task) appErr.ErrorCreator {
+	if task.Key != "" { // an unkeyed task of an old draft has none yet: the name alone names it
+		failure = failure.WithPublicContext("task", task.Key)
+	}
+	return failure.WithPublicContext("task_name", task.Name)
+}
+
+// InVariantIfScoped is InVariant for the errors a deploy meets, which may be about the variant's content (an unsupported
+// runtime key, a laboratory that lacks an option the variant needs, an unresolved variable or device, a state check) or
+// about the platform (no agent, no room): only the first kind gets the variant.
+func InVariantIfScoped(failure error, number int) error {
+	for _, scoped := range []interface {
+		Err(skip ...int) appErr.Error
+	}{
+		ErrRuntimeNotSupported, ErrLabOptionUnavailable, ErrServiceCommandUnknown, ErrRuntimeDeviceUnresolved,
+		ErrDeviceRuntimeInvalid, ErrVariableInvalid, ErrStateInvalid, ErrBootstrapTooLarge, ErrSubstitutionUnresolved,
+	} {
+		if errors.Is(failure, scoped.Err()) {
+			return InVariant(failure, number)
+		}
+	}
+	return failure
+}
+
+// InVariant names the variant on an error that is about something inside it (a task, a device, a connection, a variable):
+// the public context key "variant" is the 1-based position of the variant in the version, as the draft lists them
+// (Variants[]), the same number a request body, an archive and the import issues use. The Index of a variant is
+// decorative and its ID is absent before the first save, so neither addresses a variant in a request. An error that
+// already names a variant, and an error about the whole exercise (number < 1), are returned as they are.
+func InVariant(failure error, number int) error {
+	if failure == nil || number < 1 {
+		return failure
+	}
+	return appErr.AddPublicContext(failure, "variant", number)
 }
 
 // ValidateForPublish runs the full validation set: structure plus per-variant
@@ -314,32 +376,61 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 	if err := v.ValidateStructure(); err != nil {
 		return err
 	}
-	for _, variant := range v.Variants {
-		if err := variant.Topology.validateGraph(variant.Tasks); err != nil {
+	for variantIndex, variant := range v.Variants {
+		if err := validateVariantForPublish(variant); err != nil {
+			return InVariant(err, variantIndex+1)
+		}
+	}
+	return validateLinkedContent(v.Variants)
+}
+
+// validateVariantForPublish is the publish check of one variant: its graph, its checks and the content of its tasks.
+func validateVariantForPublish(variant Variant) error {
+	if err := variant.Topology.validateGraph(); err != nil {
+		return err
+	}
+	if err := variant.RequireChecks(); err != nil {
+		return err
+	}
+	delivered := variant.DeliveredTaskKeys()
+	for _, task := range variant.Tasks {
+		if !hasTaskDescriptionContent(task.Description) {
+			return forTask(ErrTaskDescriptionRequired, task).WithPublicContext("field", "description").Err()
+		}
+		for hintIndex, hint := range task.Hints {
+			if !hasHintTextContent(hint.Text) {
+				return forTask(ErrHintTextRequired, task).
+					WithPublicContext("field", fmt.Sprintf("hints[%d].text", hintIndex+1)).Err()
+			}
+		}
+		if err := requireSingleValueWithoutDelivery(task, delivered); err != nil {
 			return err
 		}
-		for _, task := range variant.Tasks {
-			if !hasTaskDescriptionContent(task.Description) {
-				return ErrTaskDescriptionRequired.WithContext("task", task.Name).Err()
-			}
-			for _, hint := range task.Hints {
-				if !hasHintTextContent(hint.Text) {
-					return ErrHintTextRequired.WithContext("task", task.Name).Err()
-				}
-			}
-			if !task.LinkedDeviceID.Valid && len(task.Flag) == 0 {
-				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
-			}
-			if !task.LinkedDeviceID.Valid && (len(task.Flag) != 1 || strings.HasPrefix(task.Flag[0], flagpattern.TemplatePrefix)) {
-				return ErrFlagMultiNeedsDevice.WithContext("task", task.Name).Err()
-			}
-			if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
-				return err
-			}
-			if err := validateInlinePlaceholderRefs(task.Description, task.Placeholders); err != nil {
-				return err
-			}
+		if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
+			return err
 		}
+		if err := validateInlinePlaceholderRefs(task.Description, task.Placeholders); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireSingleValueWithoutDelivery: a task whose value does not reach a lab (no bootstrap names its
+// {{task.<key>}}) has exactly one fixed value, because the participant has no way to learn which one is theirs.
+func requireSingleValueWithoutDelivery(task Task, delivered map[string]struct{}) error {
+	answer := task.Check.Answer
+	if answer == nil {
+		return nil
+	}
+	if _, ok := delivered[task.Key]; ok {
+		return nil
+	}
+	if len(answer.Values) == 0 {
+		return forTask(ErrFlagSourceInvalid, task).WithPublicContext("field", "check.answer.values").Err()
+	}
+	if len(answer.Values) != 1 || strings.HasPrefix(answer.Values[0], flagpattern.TemplatePrefix) {
+		return forTask(ErrFlagMultiNeedsDevice, task).WithPublicContext("field", "check.answer.values").Err()
 	}
 	return nil
 }
@@ -355,16 +446,46 @@ func HasInfrastructure(variants []Variant) bool {
 	return false
 }
 
-// CollectFileIDs returns every attachment FileID across a variant set —
-// consumed by the media reference sync on draft save.
-func CollectFileIDs(variants []Variant) []uuid.UUID {
-	var ids []uuid.UUID
-	for _, v := range variants {
-		for _, t := range v.Tasks {
-			for _, a := range t.Attachments {
-				ids = append(ids, a.FileID)
+// UsesConsole reports whether any device of any variant has a terminal access entry (a console in the participant's
+// browser). A console is not meant for events: the event side shows it, no rule bans it yet. Where a ban would go: the
+// same place as RequireNoStateTasks, called from loadAvailableVersion in useCase/event/event_exercise.go.
+func UsesConsole(variants []Variant) bool {
+	for _, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if device.HasAccess(AccessTerminal) {
+				return true
 			}
 		}
 	}
+	return false
+}
+
+// UsesConsole reports whether any variant of the version has a console.
+func (v *ExerciseVersion) UsesConsole() bool { return UsesConsole(v.Variants) }
+
+// CollectFileIDs returns every file id across a variant set (task attachments and the source files of device
+// bootstraps) — consumed by the media reference sync on draft save.
+func CollectFileIDs(variants []Variant) []uuid.UUID {
+	var ids []uuid.UUID
+	for i := range variants {
+		variants[i].EachFileRef(func(ref *AttachmentRef) { ids = append(ids, ref.FileID) })
+	}
 	return ids
+}
+
+// EachFileRef calls fn for every stored file the variant names: the attachments of its tasks and the source files
+// of its devices' bootstrap. fn may change the reference in place.
+func (v *Variant) EachFileRef(fn func(*AttachmentRef)) {
+	for ti := range v.Tasks {
+		for ai := range v.Tasks[ti].Attachments {
+			fn(&v.Tasks[ti].Attachments[ai])
+		}
+	}
+	for di := range v.Topology.Devices {
+		for fi := range v.Topology.Devices[di].Bootstrap.Files {
+			if source := v.Topology.Devices[di].Bootstrap.Files[fi].Source; source != nil {
+				fn(source)
+			}
+		}
+	}
 }

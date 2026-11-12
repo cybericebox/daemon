@@ -102,3 +102,61 @@ func TestImportAttemptCASPreservesRestartAndDurableOutcome(t *testing.T) {
 	require.Equal(t, []uuid.UUID{task}, row.ExerciseIds)
 	require.Contains(t, string(row.Results), "update")
 }
+
+// Open imports are the running and failed ones the user has not closed; a change of the job shows a closed one again.
+func TestOpenImportJobsAndDismissal(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	user := mustSeedUser(t, db, "import-open@test.test")
+	running, failed, done := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, c := range []struct {
+		id    uuid.UUID
+		state string
+	}{{running, "running"}, {failed, "failed"}, {done, "done"}} {
+		_, err := db.Queries.StartExerciseImportJob(ctx, postgres.StartExerciseImportJobParams{ID: c.id, CreatedBy: user, Source: "upload", SourceID: uuid.Must(uuid.NewV7()), State: c.state, ExerciseIds: []uuid.UUID{}, CreatedAt: itNow, UpdatedAt: itNow})
+		require.NoError(t, err)
+	}
+	ids := func() []uuid.UUID {
+		rows, err := db.Queries.ListOpenExerciseImportJobs(ctx, user)
+		require.NoError(t, err)
+		out := make([]uuid.UUID, len(rows))
+		for i, r := range rows {
+			out[i] = r.ID
+		}
+		return out
+	}
+	require.ElementsMatch(t, []uuid.UUID{running, failed}, ids(), "a done import is not open")
+	stranger := mustSeedUser(t, db, "import-stranger@test.test")
+	n, err := db.Queries.DismissExerciseImportJob(ctx, postgres.DismissExerciseImportJobParams{JobID: failed, CreatedBy: stranger, DismissedAt: itNow.Add(time.Minute)})
+	require.NoError(t, err)
+	require.Zero(t, n, "another user's import is not closed")
+	require.ElementsMatch(t, []uuid.UUID{running, failed}, ids())
+	var rows int
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM exercise_import_dismissals`).Scan(&rows))
+	require.Zero(t, rows, "nothing written")
+	n, err = db.Queries.DismissExerciseImportJob(ctx, postgres.DismissExerciseImportJobParams{JobID: failed, CreatedBy: user, DismissedAt: itNow.Add(time.Minute)})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	require.Equal(t, []uuid.UUID{running}, ids())
+	// the job changes after the dismissal (a rerun): it is listed again
+	_, err = db.Queries.RestartExerciseImportJob(ctx, postgres.RestartExerciseImportJobParams{ID: failed, ExpectedGeneration: 1, Options: []byte("{}"), UpdatedAt: itNow.Add(2 * time.Minute), StaleBefore: itNow})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{running, failed}, ids())
+}
+
+// An account has at most one identity of a provider, whatever the interleaving of the links.
+func TestUserProviderIsUniquePerAccountAndKind(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	user := mustSeedUser(t, db, "one-google@test.test")
+	link := func(providerUserID string) error {
+		_, err := db.Queries.CreateUserProvider(ctx, postgres.CreateUserProviderParams{ID: uuid.Must(uuid.NewV7()), UserID: user, Provider: "google", ProviderUserID: providerUserID})
+		return err
+	}
+	require.NoError(t, link("g-1"))
+	var refused *pgconn.PgError
+	require.ErrorAs(t, link("g-2"), &refused, "a second Google identity for the account")
+	require.Equal(t, "23505", refused.Code)
+	_, err := db.Queries.CreateUserProvider(ctx, postgres.CreateUserProviderParams{ID: uuid.Must(uuid.NewV7()), UserID: user, Provider: "github", ProviderUserID: "h-1"})
+	require.NoError(t, err, "another provider is not affected")
+}

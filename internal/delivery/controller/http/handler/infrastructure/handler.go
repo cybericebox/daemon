@@ -16,6 +16,7 @@ import (
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 	"github.com/cybericebox/daemon/pkg/pagination"
@@ -41,10 +42,21 @@ type (
 		ListCapacityMonitoring(ctx context.Context, from, to, cursorAt time.Time, cursorID uuid.UUID, pageSize int32) (infrastructureUseCase.Page[infrastructureUseCase.CapacityMonitoringView], error)
 		ListStands(ctx context.Context, filter infrastructureUseCase.StandsFilter) (infrastructureUseCase.StandsPage, error)
 		ListStandEvents(ctx context.Context) ([]infrastructureUseCase.StandEventView, error)
+		StandFacets(ctx context.Context, field string, filter infrastructureUseCase.StandsFilter) (map[string]int64, error)
+		TestLabFacets(ctx context.Context, field string, filter infrastructureUseCase.TestLabsFilter) (map[string]int64, error)
 		InfrastructureSummary(ctx context.Context) (infrastructureUseCase.SummaryView, error)
 		RecreateTeamStand(ctx context.Context, eventID, teamID, by uuid.UUID) (eventUseCase.StandTeamView, error)
 		ListTestLabs(ctx context.Context, search string, page, pageSize int) (infrastructureUseCase.TestLabsPage, error)
 		TerminateTestLab(ctx context.Context, id uuid.UUID) error
+		ListTestLabsFiltered(
+			ctx context.Context,
+			f infrastructureUseCase.TestLabsFilter,
+		) (infrastructureUseCase.TestLabsPage, error)
+		BulkTerminateTestLabs(
+			ctx context.Context,
+			ids []uuid.UUID,
+		) ([]infrastructureUseCase.BulkTestLabResult, error)
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 		GetTeamStandDetail(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.StandDetailView, error)
 		ResetStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string) error
 		RescueStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string, enable bool) error
@@ -256,11 +268,21 @@ type (
 		// Kind is event (event teams) or moderators (the moderators team); empty for both.
 		Kind   string `form:"kind"`
 		Search string `form:"search"`
+		// SortBy is event, team, status, updatedAt, statusChangedAt or generation; SortDir asc or desc.
+		SortBy  string `form:"sortBy"`
+		SortDir string `form:"sortDir"`
 	}
 
 	testLabsQuery struct {
 		pagination.OffsetParams
 		Search string `form:"search"`
+		// Status is active (the lease runs) or expired; Author and Exercise are ids.
+		Status   string `form:"status"`
+		Author   string `form:"author"`
+		Exercise string `form:"exercise"`
+		// SortBy is exercise, author, createdAt or expiresAt; SortDir asc or desc.
+		SortBy  string `form:"sortBy"`
+		SortDir string `form:"sortDir"`
 	}
 )
 
@@ -286,7 +308,19 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	router.POST("infrastructure/agents/:agentID/renew-certificate", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.renewAgentCertificate)
 	router.POST("infrastructure/agents/:agentID/rotate-access-key", h.prot.RequirePermission(rbac.PermInfrastructureWrite), h.rotateAgentAccessKey)
 	router.GET("infrastructure/stands", read, h.listStands)
+	router.POST(
+		"infrastructure/stands/bulk/recreate",
+		h.prot.RequirePermission(rbac.PermInfrastructureWrite),
+		h.bulkRecreateStands,
+	)
+	router.POST(
+		"infrastructure/test-labs/bulk/terminate",
+		h.prot.RequirePermission(rbac.PermInfrastructureWrite),
+		h.bulkTerminateTestLabs,
+	)
 	router.GET("infrastructure/stands/events", read, h.listStandEvents)
+	router.GET("infrastructure/stands/facets", read, h.standFacets)
+	router.GET("infrastructure/test-labs/facets", read, h.testLabFacets)
 	// The target ids live in the route so the audit entry names the stand.
 	router.POST(
 		"infrastructure/stands/:eventID/:teamID/recreate",
@@ -476,6 +510,8 @@ func (h *Handler) listCapacityMonitoring(ctx *gin.Context) {
 //	@Param		status		query	string	false	"creating | ready | failed | removed | active"
 //	@Param		kind		query	string	false	"event | moderators"
 //	@Param		search		query	string	false	"event name or tag, team name"
+//	@Param		sortBy		query	string	false	"event | team | status | reason | cpu | memory | updatedAt | statusChangedAt | generation"
+//	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"
 //	@Success	200	{object}	response.Response{data=pagination.OffsetPage[standResponse]}
@@ -490,26 +526,9 @@ func (h *Handler) listStands(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	filter := infrastructureUseCase.StandsFilter{Search: strings.TrimSpace(query.Search), Page: query.Page, PageSize: query.PageSize}
-	if query.EventID != "" {
-		id, err := uuid.FromString(query.EventID)
-		if err != nil {
-			response.AbortWithBadRequest(ctx, err)
-			return
-		}
-		filter.EventID = uuid.NullUUID{UUID: id, Valid: true}
-	}
-	statuses, err := parseStatuses(query.Status)
+	filter, err := standsFilter(query)
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	filter.Statuses = statuses
-	switch query.Kind {
-	case "", platformStandKindEvent, platformStandKindModerators:
-		filter.Kind = query.Kind
-	default:
-		response.AbortWithBadRequest(ctx, errInvalidKind)
 		return
 	}
 	page, err := h.useCase.ListStands(ctx, filter)
@@ -613,6 +632,11 @@ func (h *Handler) recreateStand(ctx *gin.Context) {
 //	@Tags		infrastructure
 //	@Produce	json
 //	@Param		search		query	string	false	"exercise name, author name or email"
+//	@Param		status		query	string	false	"active | expired"
+//	@Param		author		query	string	false	"author user ID"
+//	@Param		exercise	query	string	false	"exercise ID"
+//	@Param		sortBy		query	string	false	"exercise | author | variant | status | createdAt | expiresAt"
+//	@Param		sortDir		query	string	false	"asc | desc"
 //	@Param		page		query	int		false	"1-based page"
 //	@Param		pageSize	query	int		false	"page size"
 //	@Success	200	{object}	response.Response{data=pagination.OffsetPage[testLabResponse]}
@@ -627,7 +651,12 @@ func (h *Handler) listTestLabs(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	page, err := h.useCase.ListTestLabs(ctx, strings.TrimSpace(query.Search), query.Page, query.PageSize)
+	filter, err := testLabsFilter(query)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	page, err := h.useCase.ListTestLabsFiltered(ctx, filter)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -973,4 +1002,111 @@ func parseStand(ctx *gin.Context) (eventID, teamID uuid.UUID, ok bool) {
 		return uuid.Nil, uuid.Nil, false
 	}
 	return eventID, teamID, true
+}
+
+// standsFilter reads and checks the filters and the sorting of the stand table.
+func standsFilter(query standsQuery) (infrastructureUseCase.StandsFilter, error) {
+	filter := infrastructureUseCase.StandsFilter{
+		Search:   strings.TrimSpace(query.Search),
+		Page:     query.Page,
+		PageSize: query.PageSize,
+		SortBy:   query.SortBy,
+		SortDir:  query.SortDir,
+	}
+	if !validSort(query.SortBy, query.SortDir, "event", "team", "status", "reason", "cpu", "memory", "updatedAt", "statusChangedAt", "generation") {
+		return filter, errInvalidSort
+	}
+	if query.EventID != "" {
+		id, err := uuid.FromString(query.EventID)
+		if err != nil {
+			return filter, err
+		}
+		filter.EventID = uuid.NullUUID{UUID: id, Valid: true}
+	}
+	statuses, err := parseStatuses(query.Status)
+	if err != nil {
+		return filter, err
+	}
+	filter.Statuses = statuses
+	switch query.Kind {
+	case "", platformStandKindEvent, platformStandKindModerators:
+		filter.Kind = query.Kind
+	default:
+		return filter, errInvalidKind
+	}
+	return filter, nil
+}
+
+// standFacets godoc
+//
+//	@Summary	Facet counts of the stand table
+//	@Description	How many stands have each value of field (status, kind or event) under the same filters as GET /infrastructure/stands (search, eventId, status, kind) except the field's own. Status keys are creating, ready, failed, removed and active (creating + ready). Requires infrastructure.read (super_admin only).
+//	@Tags		infrastructure
+//	@Produce	json
+//	@Param		field	query	string	true	"status | kind | event"
+//	@Success	200	{object}	response.Response{data=facetResponse}
+//	@Router		/infrastructure/stands/facets [get]
+func (h *Handler) standFacets(ctx *gin.Context) {
+	var query standsQuery
+	if err := ctx.ShouldBindQuery(&query); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	query.SortBy, query.SortDir = "", ""
+	filter, err := standsFilter(query)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	counts, err := h.useCase.StandFacets(ctx, ctx.Query("field"), filter)
+	if errors.Is(err, infrastructureUseCase.ErrUnknownFacetField) {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, facetResponse{Counts: counts})
+}
+
+// testLabFacets godoc
+//
+//	@Summary	Facet counts of the test laboratory table
+//	@Description	How many test labs have each value of field (status, author or exercise) under the same filters as GET /infrastructure/test-labs (search, status, author, exercise) except the field's own. Requires infrastructure.read (super_admin only).
+//	@Tags		infrastructure
+//	@Produce	json
+//	@Param		field	query	string	true	"status | author | exercise"
+//	@Success	200	{object}	response.Response{data=facetResponse}
+//	@Router		/infrastructure/test-labs/facets [get]
+func (h *Handler) testLabFacets(ctx *gin.Context) {
+	var query testLabsQuery
+	if err := ctx.ShouldBindQuery(&query); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	query.SortBy, query.SortDir = "", ""
+	filter, err := testLabsFilter(query)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	counts, err := h.useCase.TestLabFacets(ctx, ctx.Query("field"), filter)
+	if errors.Is(err, infrastructureUseCase.ErrUnknownFacetField) {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, facetResponse{Counts: counts})
+}
+
+// facetResponse maps a value of a field to the number of rows with it under the other filters; values with no
+// rows are absent.
+type facetResponse struct {
+	Counts map[string]int64 `json:"Counts"`
 }

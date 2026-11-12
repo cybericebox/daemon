@@ -157,63 +157,6 @@ func (q *Queries) CountIncompleteSignalHookExecutions(ctx context.Context, signa
 	return count, err
 }
 
-const createSecretEnvelope = `-- name: CreateSecretEnvelope :one
-INSERT INTO secret_envelopes (
-    id, purpose, key_version, signal_type, field_path, scope_event_id,
-    recipient_user_id, ciphertext, wrapped_data_key, expires_at, created_at
-)
-VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11
-)
-RETURNING id, purpose, key_version, signal_type, field_path, scope_event_id, recipient_user_id, ciphertext, wrapped_data_key, expires_at, created_at
-`
-
-type CreateSecretEnvelopeParams struct {
-	ID              uuid.UUID          `json:"id"`
-	Purpose         string             `json:"purpose"`
-	KeyVersion      int32              `json:"key_version"`
-	SignalType      string             `json:"signal_type"`
-	FieldPath       string             `json:"field_path"`
-	ScopeEventID    uuid.UUID          `json:"scope_event_id"`
-	RecipientUserID uuid.NullUUID      `json:"recipient_user_id"`
-	Ciphertext      string             `json:"ciphertext"`
-	WrappedDataKey  string             `json:"wrapped_data_key"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-}
-
-func (q *Queries) CreateSecretEnvelope(ctx context.Context, arg CreateSecretEnvelopeParams) (SecretEnvelope, error) {
-	row := q.db.QueryRow(ctx, createSecretEnvelope,
-		arg.ID,
-		arg.Purpose,
-		arg.KeyVersion,
-		arg.SignalType,
-		arg.FieldPath,
-		arg.ScopeEventID,
-		arg.RecipientUserID,
-		arg.Ciphertext,
-		arg.WrappedDataKey,
-		arg.ExpiresAt,
-		arg.CreatedAt,
-	)
-	var i SecretEnvelope
-	err := row.Scan(
-		&i.ID,
-		&i.Purpose,
-		&i.KeyVersion,
-		&i.SignalType,
-		&i.FieldPath,
-		&i.ScopeEventID,
-		&i.RecipientUserID,
-		&i.Ciphertext,
-		&i.WrappedDataKey,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const createSignalOutbox = `-- name: CreateSignalOutbox :one
 INSERT INTO signal_outbox (id, signal_type, occurred_at, payload, available_at, created_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -276,31 +219,6 @@ func (q *Queries) EnsureSignalHookExecution(ctx context.Context, arg EnsureSigna
 		arg.CreatedAt,
 	)
 	return err
-}
-
-const getSecretEnvelope = `-- name: GetSecretEnvelope :one
-SELECT id, purpose, key_version, signal_type, field_path, scope_event_id, recipient_user_id, ciphertext, wrapped_data_key, expires_at, created_at
-FROM secret_envelopes
-WHERE id = $1
-`
-
-func (q *Queries) GetSecretEnvelope(ctx context.Context, id uuid.UUID) (SecretEnvelope, error) {
-	row := q.db.QueryRow(ctx, getSecretEnvelope, id)
-	var i SecretEnvelope
-	err := row.Scan(
-		&i.ID,
-		&i.Purpose,
-		&i.KeyVersion,
-		&i.SignalType,
-		&i.FieldPath,
-		&i.ScopeEventID,
-		&i.RecipientUserID,
-		&i.Ciphertext,
-		&i.WrappedDataKey,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-	)
-	return i, err
 }
 
 const retrySignalHookExecution = `-- name: RetrySignalHookExecution :execrows

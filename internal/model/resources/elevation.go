@@ -154,3 +154,10 @@ type ElevationListed struct {
 	Elevation
 	ExerciseName string
 }
+
+// ElevationFilter narrows a list of elevation requests; a zero field does not filter.
+type ElevationFilter struct {
+	Status      *ElevationStatus
+	ExerciseID  uuid.NullUUID
+	RequestedBy uuid.NullUUID
+}

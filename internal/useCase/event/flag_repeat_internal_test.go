@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/flagFilterRepo"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 func fixedFlags(n int) []string {
@@ -17,13 +18,21 @@ func fixedFlags(n int) []string {
 	return flags
 }
 
+func fixedAnswer(n int) exerciseModel.AnswerCheck {
+	return exerciseModel.AnswerCheck{Type: exerciseModel.AnswerTypeFlag, Values: fixedFlags(n)}
+}
+
 // A pool of distinct flags is drawn without repeats until every flag is given:
 // the warning compares the pool with the teams that draw from it, never with a
 // default capacity, and says why.
 func TestFlagsRepeat(t *testing.T) {
 	exerciseID, taskID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	oneTask := func(n int) []map[uuid.UUID][]string { return []map[uuid.UUID][]string{{taskID: fixedFlags(n)}} }
-	reset := map[flagFilterRepo.Key]int{{EventExerciseID: exerciseID, VariantIndex: 0, TaskID: taskID}: 1}
+	oneTask := func(n int) []map[uuid.UUID]exerciseModel.AnswerCheck {
+		return []map[uuid.UUID]exerciseModel.AnswerCheck{{taskID: fixedAnswer(n)}}
+	}
+	reset := map[flagFilterRepo.Key]int{
+		{EventExerciseID: exerciseID, VariantIndex: 0, TaskID: taskID}: 1,
+	}
 	for _, tc := range []struct {
 		name   string
 		flags  int
@@ -51,7 +60,10 @@ func TestFlagsRepeat(t *testing.T) {
 // The smallest pool of the set is the one reported.
 func TestFlagsRepeatReportsTheSmallestPool(t *testing.T) {
 	exerciseID := uuid.Must(uuid.NewV7())
-	variants := []map[uuid.UUID][]string{{uuid.Must(uuid.NewV7()): fixedFlags(8)}, {uuid.Must(uuid.NewV7()): fixedFlags(5)}}
+	variants := []map[uuid.UUID]exerciseModel.AnswerCheck{
+		{uuid.Must(uuid.NewV7()): fixedAnswer(8)},
+		{uuid.Must(uuid.NewV7()): fixedAnswer(5)},
+	}
 	got := flagsRepeat(exerciseID, variants, flagTeams{Count: 20, Limit: true}, nil)
 	if got == nil || got.Flags != 5 {
 		t.Fatalf("flagsRepeat = %+v, want the 5-flag pool", got)

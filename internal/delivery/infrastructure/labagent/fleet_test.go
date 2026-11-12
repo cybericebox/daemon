@@ -322,6 +322,17 @@ func TestFleetRefusesPersistenceTheAgentDoesNotOffer(t *testing.T) {
 	if err = f.fleet.DeployLab(ctx, "e-1-t-1", "c-3", infraModel.LabMeta{}, persistentTopology()); err != nil {
 		t.Fatal(err)
 	}
+	// Persistence that became available after the agent started is seen at the refusal, without waiting for the
+	// next poll.
+	late := newFleetFixture(t)
+	late.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
+	late.a.features = &labpb.FeaturesResponse{StatePersistence: &labpb.StatePersistenceFeature{Available: true}}
+	if err = late.fleet.DeployLab(ctx, "e-3-t-1", "c-1", infraModel.LabMeta{}, persistentTopology()); err != nil {
+		t.Fatalf("the agent offers persistence now: %v", err)
+	}
+	if !late.am.Features.Get().Persistence.Available {
+		t.Fatal("the refreshed report is kept")
+	}
 	// An agent that has not reported yet is not second-guessed: it refuses on its own if it must.
 	other := newFleetFixture(t)
 	if err = other.fleet.DeployLab(ctx, "e-2-t-1", "c-1", infraModel.LabMeta{}, persistentTopology()); err != nil {
@@ -342,6 +353,23 @@ func TestFleetPersistenceAvailableFollowsTheEnabledAgentsReports(t *testing.T) {
 	f.bm.Enabled = false
 	if f.fleet.PersistenceAvailable() {
 		t.Fatal("a disabled agent takes no new groups, so it does not count")
+	}
+}
+
+func TestFleetLabCapabilitiesAggregatesTheEnabledAgentsReports(t *testing.T) {
+	f := newFleetFixture(t)
+	if got := f.fleet.LabCapabilities(); got.Known || got.Checks != infraModel.AvailabilityUnknown {
+		t.Fatalf("an agent that has not reported is unknown, not false: %+v", got)
+	}
+	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{Enabled: true}})
+	got := f.fleet.LabCapabilities()
+	// The fixture has another enabled agent that has not reported: what the reporting one can is "some", what it cannot is "unknown".
+	if !got.Known || got.Checks != infraModel.AvailabilitySome || got.Observations["custom"] != infraModel.AvailabilitySome || got.Observations["directory"] != infraModel.AvailabilityUnknown {
+		t.Fatalf("reported: %+v", got)
+	}
+	f.bm.Enabled = false
+	if got = f.fleet.LabCapabilities(); got.Known {
+		t.Fatalf("a disabled agent is not used: %+v", got)
 	}
 }
 

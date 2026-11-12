@@ -18,6 +18,7 @@ import (
 // ParticipantsUseCase is the «Учасники» and «Комунікації» part of IUseCase.
 type ParticipantsUseCase interface {
 	GetEventAnalyticsParticipants(ctx context.Context, eventID uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.ParticipantsView, error)
+	GetEventAnalyticsSubmissions(ctx context.Context, eventID uuid.UUID) (eventAnalyticsUseCase.SubmissionsView, error)
 	GetEventAnalyticsCommunications(ctx context.Context, eventID uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.CommunicationsView, error)
 }
 
@@ -29,6 +30,8 @@ func (h *Handler) initParticipants(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("participants", h.requireSections, h.participants)
 	analytics.GET("participants/export.csv", h.requireExport, h.exportParticipants)
+	analytics.GET("submissions", h.requireSections, h.submissions)
+	analytics.GET("submissions/export.csv", h.requireExport, h.exportSubmissions)
 	analytics.GET("communications", h.requireSections, h.communications)
 	analytics.GET("communications/export.csv", h.requireExport, h.exportCommunications)
 }

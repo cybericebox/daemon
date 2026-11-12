@@ -130,6 +130,37 @@ func (q *Queries) CreateEventTeamLab(ctx context.Context, arg CreateEventTeamLab
 	return err
 }
 
+const deleteUnbornEventTeamLab = `-- name: DeleteUnbornEventTeamLab :execrows
+WITH objectives AS (
+    DELETE FROM event_lab_objectives o
+    USING event_team_labs l
+    WHERE o.lab_id = l.id AND l.id = $1
+      AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL
+      AND NOT EXISTS (SELECT 1 FROM lab_bindings b WHERE b.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_lab_generations g WHERE g.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id = l.id)
+      AND NOT EXISTS (SELECT 1 FROM event_stage_lab_runtime_memberships m WHERE m.lab_id = l.id)
+    RETURNING o.lab_id
+)
+DELETE FROM event_team_labs l
+WHERE l.id = $1
+  AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL
+  AND NOT EXISTS (SELECT 1 FROM lab_bindings b WHERE b.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_lab_generations g WHERE g.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id = l.id)
+  AND NOT EXISTS (SELECT 1 FROM event_stage_lab_runtime_memberships m WHERE m.lab_id = l.id)
+`
+
+// Removes a canonical Lab that never reached the agent and nothing else holds on to (no binding, no archive, no
+// pin), with its objectives. The main statement counts the Lab row.
+func (q *Queries) DeleteUnbornEventTeamLab(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnbornEventTeamLab, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getEventTeamLab = `-- name: GetEventTeamLab :one
 SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error, create_evidence, runtime_stage_id, runtime_stage_known FROM event_team_labs WHERE id=$1
 `
@@ -804,6 +835,29 @@ func (q *Queries) LockEventTeamsForLabSourceChange(ctx context.Context, eventID 
 	return items, nil
 }
 
+const nextEventTeamLabGeneration = `-- name: NextEventTeamLabGeneration :one
+SELECT (GREATEST($1::int, COALESCE((
+    SELECT max(l.generation) FROM event_team_labs l
+    JOIN event_challenges ec ON ec.event_exercise_id = l.event_exercise_id
+    WHERE l.event_team_id = $2 AND ec.id = $3), -1)) + 1)::int AS next_generation
+`
+
+type NextEventTeamLabGenerationParams struct {
+	CurrentGeneration int32     `json:"current_generation"`
+	EventTeamID       uuid.UUID `json:"event_team_id"`
+	EventChallengeID  uuid.UUID `json:"event_challenge_id"`
+}
+
+// The next free deployment generation of a team's Lab of the exercise the challenge belongs to: above the
+// binding's own generation and above every canonical Lab the team ever had for that exercise, so a recreate
+// never collides with (event_team_id, event_exercise_id, generation).
+func (q *Queries) NextEventTeamLabGeneration(ctx context.Context, arg NextEventTeamLabGenerationParams) (int32, error) {
+	row := q.db.QueryRow(ctx, nextEventTeamLabGeneration, arg.CurrentGeneration, arg.EventTeamID, arg.EventChallengeID)
+	var next_generation int32
+	err := row.Scan(&next_generation)
+	return next_generation, err
+}
+
 const recordEventLabBirthIdentity = `-- name: RecordEventLabBirthIdentity :execrows
 UPDATE event_team_labs SET agent_uid=$1,agent_generation=$2,create_evidence=$3,updated_at=$4
 WHERE id=$5 AND agent_uid='' AND desired_state IN ('Running','Stopped')
@@ -1067,6 +1121,25 @@ func (q *Queries) ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg Sc
 		arg.DesiredRevision,
 		arg.OperationID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unlinkUnbornLabBindings = `-- name: UnlinkUnbornLabBindings :execrows
+UPDATE lab_bindings b
+SET lab_id = NULL, readiness = 0, deployed_at = NULL, failure_reason = NULL, failed_at = NULL,
+    retry_attempts = 0, wait_reason = '', wait_since = NULL
+FROM event_team_labs l
+WHERE l.id = $1 AND b.lab_id = l.id AND b.readiness <> 3
+  AND l.agent_uid = '' AND l.agent_generation = 0 AND l.create_evidence IS NULL
+`
+
+// A Lab that never reached the agent is reset in place: its bindings forget the canonical Lab (the stand engine
+// prepares a new one from the current version) and go back to pending with their retry state cleared.
+func (q *Queries) UnlinkUnbornLabBindings(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, unlinkUnbornLabBindings, id)
 	if err != nil {
 		return 0, err
 	}

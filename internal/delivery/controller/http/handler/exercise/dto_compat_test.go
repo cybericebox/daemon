@@ -25,14 +25,14 @@ func prodFrontendDraft(envVars int) string {
 	return `{"AdminNote":"note","Variants":[
 	{"ID":"0192f0a0-0000-7000-8000-000000000a01","Index":0,"Note":"base",
 	 "Tasks":[{"ID":"0192f0a0-0000-7000-8000-000000000b01","Name":"Find","Description":{"root":{"children":[]}},"Difficulty":"easy",
-	   "Flag":["ICE{x}"],"LinkedDeviceID":"0192f0a0-0000-7000-8000-000000000c01","DeviceFlagVar":"FLAG",
+	   "Key":"find","Check":{"Answer":{"Type":"flag","Values":["ICE{x}"]}},
 	   "Attachments":[{"FileID":"0192f0a0-0000-7000-8000-000000000d01","Name":"a.txt"}],"Placeholders":[],
 	   "Hints":[{"ID":"0192f0a0-0000-7000-8000-000000000e01","Text":"h","Level":"nudge"}]}],
 	 "Topology":{"VPN":{"Enabled":true,"DHCP":true,"DHCPRanges":[{"Start":10,"End":20}],"DNS":"1.1.1.1"},"Internet":{"Enabled":false,"DHCP":false},
 	   "Devices":[
 	     {"ID":"0192f0a0-0000-7000-8000-000000000c01","Name":"web","Type":"container","SecurityPreset":"standard","Image":"nginx:1.27","ResourcePreset":"small",
 	      "Interfaces":[{"Name":"eth0","MAC":"","IP":{"Type":"dhcp","AddressRef":null,"GatewayRef":null}}],
-	      "EnvVars":[` + strings.Join(vars, ",") + `],
+	      "Bootstrap":{"Env":[` + strings.Join(vars, ",") + `]},
 	      "External":{"Port":80,"Protocol":"http"},"Persistence":{"Enabled":true,"Debounce":"5s"},"WaitReadyFile":true},
 	     {"ID":"0192f0a0-0000-7000-8000-000000000c02","Name":"sw","Type":"unmanaged-switch"}],
 	   "Connections":[{"Endpoints":[{"Kind":"device","DeviceID":"0192f0a0-0000-7000-8000-000000000c01","Interface":"eth0"},{"Kind":"device","DeviceID":"0192f0a0-0000-7000-8000-000000000c02"}]}],
@@ -59,7 +59,7 @@ func TestSaveDraftRequest_ProductionFrontendPayloadStillBinds(t *testing.T) {
 	for _, envVars := range []int{0, 1, 63, 64} {
 		req, err := bindDraft(t, prodFrontendDraft(envVars))
 		if err != nil {
-			t.Fatalf("%d env vars: the production frontend draft is refused: %v", envVars, err)
+			t.Fatalf("%d env vars: the draft in the document shape is refused: %v", envVars, err)
 		}
 		if len(req.Variants) != 3 {
 			t.Fatalf("variants = %d", len(req.Variants))
@@ -81,7 +81,24 @@ func TestSaveDraftRequest_ProductionFrontendPayloadStillBinds(t *testing.T) {
 // back unchanged as the production frontend would, binds and stays unweighted.
 func TestSaveDraftRequest_RoundTripOfUnweightedVersionBinds(t *testing.T) {
 	variants := []exerciseModel.Variant{
-		{Index: 0, Tasks: []exerciseModel.Task{}, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer, EnvVars: []exerciseModel.EnvVar{{Name: "A", Value: "1"}, {Name: "S", Secret: true, Value: "s"}}}}}},
+		{
+			Index: 0,
+			Tasks: []exerciseModel.Task{},
+			Topology: exerciseModel.Topology{
+				Devices: []exerciseModel.Device{
+					{
+						Name: "web",
+						Type: exerciseModel.DeviceTypeContainer,
+						Bootstrap: exerciseModel.Bootstrap{
+							Env: []exerciseModel.EnvVar{
+								{Name: "A", Value: "1"},
+								{Name: "S", Secret: true, Value: "s"},
+							},
+						},
+					},
+				},
+			},
+		},
 		{Index: 1, Tasks: []exerciseModel.Task{}},
 	}
 	encoded, err := json.Marshal(map[string]any{"AdminNote": "", "Variants": variantsToDTO(variants)})

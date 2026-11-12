@@ -73,6 +73,13 @@ type StandLabView struct {
 	ChallengeName string
 	Readiness     labBindingModel.Readiness
 	Reason        string
+	// WaitReason is the machine code of what a pending lab waits for ("" when it waits for nothing), WaitSince since
+	// when; Wait is what it needs and what the reservation has left, when the wait is for room.
+	WaitReason string
+	WaitSince  *time.Time
+	Wait       *eventStandModel.WaitDetail
+	// RetryAttempts counts the automatic retries after failures.
+	RetryAttempts int32
 }
 
 type ModeratorsChallengeView struct {
@@ -114,7 +121,7 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 		return StandsView{}, err
 	}
 	schedule := u.standSchedule(ctx, e, time.Now())
-	teams, err := u.stands.ListTeams(ctx, eventID, schedule.NotDue)
+	teams, err := u.stands.ListTeams(ctx, eventID, schedule.NotDue, time.Now().Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return StandsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}
@@ -124,7 +131,19 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 	}
 	labsByTeam := make(map[uuid.UUID][]StandLabView, len(teams))
 	for _, lab := range labs {
-		labsByTeam[lab.TeamID] = append(labsByTeam[lab.TeamID], StandLabView{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason})
+		labsByTeam[lab.TeamID] = append(
+			labsByTeam[lab.TeamID],
+			StandLabView{
+				ChallengeID:   lab.ChallengeID,
+				ChallengeName: lab.ChallengeName,
+				Readiness:     lab.Readiness,
+				Reason:        lab.FailureReason,
+				WaitReason:    lab.WaitReason,
+				WaitSince:     lab.WaitSince,
+				Wait:          lab.WaitDetail,
+				RetryAttempts: lab.RetryAttempts,
+			},
+		)
 	}
 	view := StandsView{
 		InfrastructureAllowed: true,
@@ -243,6 +262,12 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	if !u.laboratoriesUsable(ctx) {
 		return StandTeamView{}, infraUnavailable()
 	}
+	// The organizer's recreate starts the automatic attempts over.
+	if u.autoRecreate != nil {
+		if err = u.autoRecreate.ResetTeam(ctx, teamID); err != nil {
+			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to reset the automatic recreation count").Err()
+		}
+	}
 	if u.lifecycleControls {
 		if retried, err := u.retryInitialFailedTeam(ctx, eventID, teamID); err != nil {
 			return StandTeamView{}, err
@@ -323,7 +348,10 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	}
 	generation := current.LabGeneration
 	for _, lab := range labs {
-		next := lab.Generation + 1
+		next, genErr := eventLabRepo.New(txRepo).NextGeneration(txCtx, lab.EventTeamID, lab.EventChallengeID, lab.Generation)
+		if genErr != nil {
+			return StandTeamView{}, model.ErrPlatform.WithError(genErr).WithMessage("Failed to find the next lab generation").Err()
+		}
 		if _, err = bindings.Recreate(txCtx, lab, labBindingModel.NextLabName(lab.LabName, next), next); err != nil {
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recreate team stand lab").Err()
 		}
@@ -401,7 +429,7 @@ func (u *EventUseCase) deleteStaleTeamLabs(ctx context.Context, teamID uuid.UUID
 }
 
 func (u *EventUseCase) standTeam(ctx context.Context, eventID, teamID uuid.UUID) (eventStandRepo.Team, error) {
-	teams, err := u.stands.ListTeams(ctx, eventID, nil)
+	teams, err := u.stands.ListTeams(ctx, eventID, nil, time.Now().Add(-eventStandModel.WaitAlarmAfter))
 	if err != nil {
 		return eventStandRepo.Team{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

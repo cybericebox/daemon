@@ -35,6 +35,7 @@ type Queries interface {
 	CreateEventChallengePrerequisite(ctx context.Context, arg postgres.CreateEventChallengePrerequisiteParams) error
 	UpdateEventChallengeContent(ctx context.Context, arg postgres.UpdateEventChallengeContentParams) (int64, error)
 	SetEventChallengeHintCosts(ctx context.Context, arg postgres.SetEventChallengeHintCostsParams) (int64, error)
+	UpdateEventChallengeTask(ctx context.Context, arg postgres.UpdateEventChallengeTaskParams) (int64, error)
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.EventChallengePrerequisite, error)
 	ListEventChallengesWithAttempts(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
@@ -43,6 +44,10 @@ type Queries interface {
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	SetEventExerciseChallengesPublished(ctx context.Context, arg postgres.SetEventExerciseChallengesPublishedParams) error
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
+	ListUnpublishedEventChallenges(
+		ctx context.Context,
+		eventID uuid.UUID,
+	) ([]postgres.ListUnpublishedEventChallengesRow, error)
 }
 
 func (r *Repository) UpdateScoring(ctx context.Context, value eventChallengeModel.EventChallenge) (eventChallengeModel.EventChallenge, error) {
@@ -274,6 +279,11 @@ func (r *Repository) UpdateContent(ctx context.Context, value eventChallengeMode
 	return r.q.SetEventChallengeHintCosts(ctx, postgres.SetEventChallengeHintCostsParams{ID: value.ID, EventExerciseID: value.EventExerciseID, HintCosts: costs})
 }
 
+// UpdateTask points the board challenge at the task that replaces its old one in a new version of the set.
+func (r *Repository) UpdateTask(ctx context.Context, id, eventExerciseID, taskID uuid.UUID) (int64, error) {
+	return r.q.UpdateEventChallengeTask(ctx, postgres.UpdateEventChallengeTaskParams{ID: id, EventExerciseID: eventExerciseID, TaskID: taskID})
+}
+
 // SetHintCosts writes the event's hint cost overrides.
 func (r *Repository) SetHintCosts(ctx context.Context, value eventChallengeModel.EventChallenge) (int64, error) {
 	_, costs, err := marshalHints(value)
@@ -356,4 +366,32 @@ func limitFromDB(value pgtype.Int4) *int32 {
 	}
 	limit := value.Int32
 	return &limit
+}
+
+// Unpublished is a task of an active set that participants do not see yet.
+type Unpublished struct {
+	ID, EventExerciseID uuid.UUID
+	Name                string
+	StageID             *uuid.UUID
+}
+
+// UnpublishedForEvent lists the unpublished tasks of the event's active sets.
+func (r *Repository) UnpublishedForEvent(
+	ctx context.Context,
+	eventID uuid.UUID,
+) ([]Unpublished, error) {
+	rows, err := r.q.ListUnpublishedEventChallenges(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Unpublished, 0, len(rows))
+	for _, row := range rows {
+		item := Unpublished{ID: row.ID, EventExerciseID: row.EventExerciseID, Name: row.Name}
+		if row.StageID.Valid {
+			id := row.StageID.UUID
+			item.StageID = &id
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }

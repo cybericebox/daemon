@@ -21,6 +21,11 @@ type Registry interface {
 	ListRecords(ctx context.Context) ([]infraModel.AgentRecord, error)
 }
 
+// ProfileSource lists the stored node profile reports of the agents.
+type ProfileSource interface {
+	List(ctx context.Context) ([]infraModel.AgentProfileReport, error)
+}
+
 // Cipher opens the stored certificate and key of an admin agent.
 type Cipher interface {
 	DecryptWithContext(encoded string, context []byte) ([]byte, error)
@@ -58,6 +63,11 @@ type Config struct {
 	Dial Dialer
 	// Enroll performs the enrollment call; see Enroller.
 	Enroll Enroller
+
+	// Profiles holds the node profile cell of every agent; ProfileSource lists the stored reports, applied at every
+	// reload (a replica that does not monitor learns the reports of the one that does). Both optional.
+	Profiles      *labagent.ProfileCells
+	ProfileSource ProfileSource
 
 	// Interval is how often the registry is re-read; a minute by default.
 	Interval time.Duration
@@ -183,6 +193,15 @@ func (m *Manager) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if m.cfg.ProfileSource != nil {
+		if stored, listErr := m.cfg.ProfileSource.List(ctx); listErr != nil {
+			log.Warn().
+				Err(listErr).
+				Msg("Agent fleet: the stored node profile reports cannot be read")
+		} else {
+			m.cfg.Profiles.ApplyStored(stored)
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	next := map[uuid.UUID]*running{}
@@ -238,7 +257,17 @@ func (m *Manager) member(r infraModel.AgentRecord) *running {
 		log.Error().Err(err).Str("agent", r.Name).Msg("Agent fleet: cannot connect to the agent, it is skipped")
 		return nil
 	}
-	member := &labagent.Member{ID: r.ID, Name: r.Name, Priority: r.Priority, Enabled: r.Enabled, Client: client, Tenant: r.Tenant, AccessKeyID: r.AccessKeyID, Features: labagent.NewFeatureCell(r.Features)}
+	member := &labagent.Member{
+		ID:          r.ID,
+		Name:        r.Name,
+		Priority:    r.Priority,
+		Enabled:     r.Enabled,
+		Client:      client,
+		Tenant:      r.Tenant,
+		AccessKeyID: r.AccessKeyID,
+		Features:    labagent.NewFeatureCell(r.Features),
+		Profiles:    m.cfg.Profiles.Cell(r.ID),
+	}
 	if r.AccessPrivateKeyCiphertext != "" {
 		plain, openErr := m.cfg.Cipher.DecryptWithContext(r.AccessPrivateKeyCiphertext, infraModel.AgentSecretContext(r.ID, "access"))
 		if openErr == nil {

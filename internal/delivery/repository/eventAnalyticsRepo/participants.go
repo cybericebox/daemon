@@ -3,6 +3,7 @@ package eventAnalyticsRepo
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -26,6 +27,7 @@ type ParticipantQueries interface {
 	ListEventInAppStats(context.Context, postgres.ListEventInAppStatsParams) ([]postgres.ListEventInAppStatsRow, error)
 	ListEventFormCompletion(context.Context, postgres.ListEventFormCompletionParams) ([]postgres.ListEventFormCompletionRow, error)
 	GetMailFunnels(context.Context, postgres.GetMailFunnelsParams) (postgres.GetMailFunnelsRow, error)
+	ListEventParticipantSubmissions(context.Context, uuid.UUID) ([]postgres.ListEventParticipantSubmissionsRow, error)
 }
 
 type (
@@ -257,4 +259,48 @@ func (r *Repository) MailFunnels(ctx context.Context, eventID uuid.UUID, from, t
 		return dispatchModel.MailFunnels{}, err
 	}
 	return dispatchRepo.MailFunnelsFromRow(row), nil
+}
+
+// Submission is the first correct submission of one solved task of a team.
+type Submission struct {
+	TeamChallengeID, TeamID, ChallengeID, UserID uuid.UUID
+	TeamName, ChallengeName                      string
+	ParticipantName, Email                       string
+	SubmittedAt, EventStartAt                    time.Time
+	// FirstOpenAt is the team's first open of the task (nil: never recorded).
+	FirstOpenAt *time.Time
+	// ParticipantWrong / TeamWrong count the wrong attempts before the correct one.
+	ParticipantWrong, TeamWrong int64
+}
+
+// Submissions lists, per solved task of the visible teams, who submitted the flag.
+func (r *Repository) Submissions(ctx context.Context, eventID uuid.UUID) ([]Submission, error) {
+	rows, err := r.q.ListEventParticipantSubmissions(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Submission, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.FirstName + " " + row.LastName)
+		submission := Submission{
+			TeamChallengeID:  row.TeamChallengeID,
+			TeamID:           row.TeamID,
+			ChallengeID:      row.ChallengeID,
+			UserID:           row.UserID,
+			TeamName:         row.TeamName,
+			ChallengeName:    row.ChallengeName,
+			ParticipantName:  name,
+			Email:            row.Email,
+			SubmittedAt:      row.SubmittedAt,
+			EventStartAt:     row.EventStartAt,
+			ParticipantWrong: row.ParticipantWrong,
+			TeamWrong:        row.TeamWrong,
+		}
+		if row.FirstOpenAt.After(time.Unix(0, 0)) {
+			opened := row.FirstOpenAt
+			submission.FirstOpenAt = &opened
+		}
+		out = append(out, submission)
+	}
+	return out, nil
 }

@@ -64,6 +64,11 @@ const (
 	NotificationPayloadCodeType
 	// AuthDeliveryCodeType stores a sealed public auth command pending its River handoff.
 	AuthDeliveryCodeType
+	// PasskeyRegistrationCodeType keeps the server half of a passkey registration ceremony (challenge, person,
+	// session); it is consumed by the one finish call that answers it.
+	PasskeyRegistrationCodeType
+	// PasskeyLoginCodeType keeps the server half of a passkey sign-in ceremony (the challenge).
+	PasskeyLoginCodeType
 )
 
 // Error-code convention: see internal/model/auth/errors.go. Enforced by

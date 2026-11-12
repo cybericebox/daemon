@@ -157,6 +157,7 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 		teams.GET("challenges/mine", h.listOwnChallenges)
 		teams.GET("challenges/:challengeID/files/:fileID", h.downloadChallengeAttachment)
 		teams.POST("challenges/:challengeID/open", h.openChallenge)
+		teams.POST("challenges/:challengeID/run-checks", h.runChecks)
 		teams.GET("challenges/:challengeID/solves", h.challengeSolves)
 		// Stands are managed only by moderators (manage/labs); participants
 		// read the lab status, their team stand status and their VPN config.
@@ -652,6 +653,8 @@ func (h *Handler) listOwnChallenges(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	// The board carries the lab lifecycle the description addresses are checked against: never served from a cache.
+	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, toOwnBoardResponse(board))
 }
 
@@ -738,6 +741,9 @@ func (h *Handler) labStatus(ctx *gin.Context) {
 	}
 	out := toLabStatusResponse(v.Status)
 	out.Lab = labview.ParticipantLab(v.Lab)
+	out.State = v.State
+	// A poll must see the runtime as it is now (addresses of a lab that just became ready): no cache in between.
+	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, out)
 }
 

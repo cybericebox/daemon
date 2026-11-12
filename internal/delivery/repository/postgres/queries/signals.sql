@@ -64,19 +64,3 @@ SELECT count(*)
 FROM signal_hook_executions
 WHERE signal_id = sqlc.arg(signal_id)
   AND status != 'completed';
-
--- name: CreateSecretEnvelope :one
-INSERT INTO secret_envelopes (
-    id, purpose, key_version, signal_type, field_path, scope_event_id,
-    recipient_user_id, ciphertext, wrapped_data_key, expires_at, created_at
-)
-VALUES (
-    sqlc.arg(id), sqlc.arg(purpose), sqlc.arg(key_version), sqlc.arg(signal_type), sqlc.arg(field_path), sqlc.arg(scope_event_id),
-    sqlc.arg(recipient_user_id), sqlc.arg(ciphertext), sqlc.arg(wrapped_data_key), sqlc.arg(expires_at), sqlc.arg(created_at)
-)
-RETURNING *;
-
--- name: GetSecretEnvelope :one
-SELECT *
-FROM secret_envelopes
-WHERE id = sqlc.arg(id);

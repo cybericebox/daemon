@@ -1,9 +1,24 @@
 basePath: /api
 definitions:
+  adminAudit.Change:
+    properties:
+      After: {}
+      Before: {}
+      Field:
+        type: string
+      Redacted:
+        type: boolean
+    type: object
   adminAudit.auditItem:
     properties:
       ActorID:
         type: string
+      Changes:
+        description: Changes are the fields the action changed, before and after;
+          secrets carry Redacted and no value.
+        items:
+          $ref: '#/definitions/adminAudit.Change'
+        type: array
       CreatedAt:
         type: string
       ID:
@@ -29,6 +44,10 @@ definitions:
         description: NextCursor continues the list after the last item; empty on the
           last page.
         type: string
+      Total:
+        description: Total is how many entries the filters match; set on the first
+          page (no cursor) only.
+        type: integer
     type: object
   auth.accountResponse:
     properties:
@@ -82,9 +101,111 @@ definitions:
       Code:
         type: string
     type: object
+  auth.googleLinkCodeResponse:
+    properties:
+      ResendAfterSeconds:
+        description: ResendAfterSeconds is how long to wait before asking for the
+          next code.
+        type: integer
+    type: object
+  auth.googleLinkConfirmRequest:
+    properties:
+      Code:
+        type: string
+      Password:
+        description: Exactly one of Password and Code.
+        type: string
+    type: object
+  auth.googleLinkPendingResponse:
+    properties:
+      CodeSentAt:
+        description: CodeSentAt is when the last code was mailed, null if none was.
+        type: string
+      Email:
+        description: Email is the address of the account, masked (a***@example.org).
+        type: string
+      ExpiresAt:
+        type: string
+      GoogleEmail:
+        description: GoogleEmail and GoogleName are the Google account that will be
+          linked; show them on the confirmation screen.
+        type: string
+      GoogleName:
+        type: string
+      HasPassword:
+        description: 'HasPassword: confirm with the password or the mailed code; false:
+          only the code.'
+        type: boolean
+    type: object
   auth.googleLinkResponse:
     properties:
       Url:
+        type: string
+    type: object
+  auth.lastEmailResponse:
+    properties:
+      Email:
+        description: Email is the remembered address, "" when the browser has none.
+        type: string
+    type: object
+  auth.passkeyCeremonyResponse:
+    properties:
+      CeremonyID:
+        type: string
+      Options:
+        items:
+          type: integer
+        type: array
+    type: object
+  auth.passkeyRegistrationFinishRequest:
+    properties:
+      CeremonyID:
+        type: string
+      Credential:
+        items:
+          type: integer
+        type: array
+      Name:
+        type: string
+    type: object
+  auth.passkeyResponse:
+    properties:
+      AAGUID:
+        type: string
+      BackedUp:
+        type: boolean
+      BackupEligible:
+        type: boolean
+      Compromised:
+        description: Compromised is true once the key's counter went backwards; CompromisedAt
+          says when. Such a key cannot sign in.
+        type: boolean
+      CompromisedAt:
+        type: string
+      CreatedAt:
+        type: string
+      ID:
+        type: string
+      LastUsedAt:
+        type: string
+      Name:
+        type: string
+      Transports:
+        items:
+          type: string
+        type: array
+    type: object
+  auth.passkeySignInFinishRequest:
+    properties:
+      CeremonyID:
+        type: string
+      Credential:
+        description: Credential is the PublicKeyCredential the browser returned, as
+          its toJSON() form.
+        items:
+          type: integer
+        type: array
+      Redirect:
         type: string
     type: object
   auth.passwordPolicyResponse:
@@ -210,6 +331,104 @@ definitions:
       Name:
         type: string
     type: object
+  dashboard.attentionItemResponse:
+    properties:
+      At:
+        type: string
+      Count:
+        type: integer
+      ID:
+        type: string
+      Label:
+        type: string
+    type: object
+  dashboard.attentionResponse:
+    properties:
+      Count:
+        type: integer
+      Items:
+        items:
+          $ref: '#/definitions/dashboard.attentionItemResponse'
+        type: array
+      Kind:
+        type: string
+      Target:
+        type: string
+    type: object
+  dashboard.currentEventResponse:
+    properties:
+      EventID:
+        type: string
+      FinishAt:
+        type: string
+      Name:
+        type: string
+      Participants:
+        type: integer
+      Running:
+        type: boolean
+      StandsReady:
+        type: integer
+      StandsTotal:
+        type: integer
+      StartAt:
+        type: string
+      Tag:
+        type: string
+      Teams:
+        type: integer
+    type: object
+  dashboard.dashboardResponse:
+    properties:
+      Attention:
+        items:
+          $ref: '#/definitions/dashboard.attentionResponse'
+        type: array
+      CurrentAndUpcoming:
+        items:
+          $ref: '#/definitions/dashboard.currentEventResponse'
+        type: array
+      Infrastructure:
+        $ref: '#/definitions/dashboard.infrastructureResponse'
+      Trends7d:
+        $ref: '#/definitions/dashboard.trendsResponse'
+    type: object
+  dashboard.infrastructureResponse:
+    properties:
+      ActiveStands:
+        type: integer
+      Agents:
+        type: integer
+      CPUAllocatableMillicores:
+        type: integer
+      CPUReservedMillicores:
+        type: integer
+      FailedStands:
+        type: integer
+      MemoryAllocatableBytes:
+        type: integer
+      MemoryReservedBytes:
+        type: integer
+    type: object
+  dashboard.trendsResponse:
+    properties:
+      ActiveUsers:
+        items:
+          type: integer
+        type: array
+      Days:
+        items:
+          type: string
+        type: array
+      Registrations:
+        items:
+          type: integer
+        type: array
+      Solves:
+        items:
+          type: integer
+        type: array
+    type: object
   dispatchModel.ApplicationFunnel:
     properties:
       Approved:
@@ -257,6 +476,33 @@ definitions:
         type: number
       Started:
         type: integer
+    type: object
+  errorJournal.bulkGroupResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      GroupID:
+        type: string
+      Ok:
+        type: boolean
+    type: object
+  errorJournal.bulkGroupsRequest:
+    properties:
+      GroupIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  errorJournal.bulkGroupsResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/errorJournal.bulkGroupResultResponse'
+        type: array
     type: object
   errorJournal.chatRequest:
     properties:
@@ -403,6 +649,11 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      DispatchID:
+        description: |-
+          DispatchID is the notification dispatch behind a mail failure (GET /notifications/dispatches/{id}); null
+          when the occurrence has none.
+        type: string
       HTTPStatus:
         type: integer
       ID:
@@ -997,6 +1248,33 @@ definitions:
       UserID:
         type: string
     type: object
+  event.bulkArchiveRequest:
+    properties:
+      EventIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  event.bulkArchiveResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/event.bulkEventResultResponse'
+        type: array
+    type: object
+  event.bulkEventResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      EventID:
+        type: string
+      Ok:
+        type: boolean
+    type: object
   event.bulkExerciseDetachRequest:
     properties:
       Confirm:
@@ -1092,6 +1370,17 @@ definitions:
       Text:
         type: string
     type: object
+  event.changeInvitationEmailRequest:
+    properties:
+      Email:
+        type: string
+      SendEmails:
+        description: SendEmails false moves the invitation without sending any email.
+          Omitted means send (the default).
+        type: boolean
+    required:
+    - Email
+    type: object
   event.configResponse:
     properties:
       AllowPseudonyms:
@@ -1184,6 +1473,11 @@ definitions:
       ArchiveAt:
         type: string
       AvailableFrom:
+        type: string
+      CopyFromEventID:
+        description: |-
+          CopyFromEventID copies the settings, theme, pages, organizers and task sets (unpublished) of that event; never
+          participants, teams, invitations, results, stands, the reservation or analytics.
         type: string
       InfrastructureAllowed:
         description: InfrastructureAllowed omitted defaults to Laboratory availability.
@@ -1340,6 +1634,19 @@ definitions:
       Variables:
         additionalProperties: {}
         type: object
+    type: object
+  event.eventCountsResponse:
+    properties:
+      Participants:
+        type: integer
+      StandsReady:
+        description: 'StandsReady of StandsTotal: the stands of the teams (the moderators
+          team excluded).'
+        type: integer
+      StandsTotal:
+        type: integer
+      Teams:
+        type: integer
     type: object
   event.eventEmailImageUploadResponse:
     properties:
@@ -1534,12 +1841,61 @@ definitions:
         type: array
       UpdateAvailable:
         type: boolean
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the pinned version has a console (terminal access) in the participant's browser. Not
+          meant for events; nothing bans it.
+        type: boolean
       VariantCount:
         type: integer
       VariantMode:
         type: integer
       VersionNumber:
         type: integer
+    type: object
+  event.eventExerciseUpdatePreviewResponse:
+    properties:
+      RequiresConfirmation:
+        type: boolean
+      ReservationShort:
+        type: boolean
+      StandsKept:
+        type: integer
+      StandsRecreated:
+        type: integer
+      StandsReset:
+        type: integer
+      TargetVersionID:
+        type: string
+      TasksAdded:
+        items:
+          type: string
+        type: array
+      TasksBlocking:
+        items:
+          type: string
+        type: array
+      TasksRemoved:
+        items:
+          type: string
+        type: array
+      TasksRepointed:
+        items:
+          type: string
+        type: array
+      Teams:
+        items:
+          $ref: '#/definitions/event.eventExerciseUpdateTeamResponse'
+        type: array
+      TeamsAffected:
+        type: integer
+    type: object
+  event.eventExerciseUpdateTeamResponse:
+    properties:
+      ID:
+        type: string
+      Name:
+        type: string
     type: object
   event.eventFormAssignmentSwaggerRequest:
     properties:
@@ -1741,7 +2097,13 @@ definitions:
         type: string
       AvailableFrom:
         type: string
+      Counts:
+        allOf:
+        - $ref: '#/definitions/event.eventCountsResponse'
+        description: Counts is set in the page (offset) list only.
       CreatedAt:
+        type: string
+      FinishAt:
         type: string
       ID:
         type: string
@@ -1752,6 +2114,10 @@ definitions:
       LifecycleStatus:
         type: string
       Name:
+        type: string
+      StartAt:
+        description: 'StartAt / FinishAt: the schedule (null until it is configured;
+          FinishAt null without a finish).'
         type: string
       Status:
         type: string
@@ -1793,6 +2159,17 @@ definitions:
       State:
         description: 'State is computed from time: upcoming | open | closed.'
         type: string
+    type: object
+  event.facetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          Counts maps a value of the field to the number of events with it under the other filters; values with no
+          events are absent.
+        type: object
     type: object
   event.flagsRepeatResponse:
     properties:
@@ -1930,6 +2307,15 @@ definitions:
         type: integer
       PublishAt:
         type: string
+      ReservationShortenedTo:
+        description: |-
+          ReservationShortenedTo is set only in the answer to a schedule change that ended the event's reservation
+          earlier (the withdrawal is before the old end): the new end of the reservation, where the labs are stopped and
+          deleted. RunningLabs is how many labs ran at that moment. The UI confirms before saving.
+        type: string
+        x-nullable: true
+      RunningLabs:
+        type: integer
       StartAt:
         type: string
       Status:
@@ -2304,6 +2690,15 @@ definitions:
       Name:
         type: string
     type: object
+  event.organizerResponse:
+    properties:
+      Email:
+        type: string
+      Name:
+        type: string
+      UserID:
+        type: string
+    type: object
   event.participantDetailResponse:
     properties:
       Answers:
@@ -2611,6 +3006,52 @@ definitions:
         items:
           type: string
         type: array
+      UsesConsole:
+        description: 'UsesConsole: some device of the published version has a console
+          (terminal access). Not meant for events.'
+        type: boolean
+    type: object
+  event.readinessResponse:
+    properties:
+      Ready:
+        description: 'Ready: nothing to warn about (every task is published and every
+          stand is ready).'
+        type: boolean
+      Stands:
+        description: Stands are the stands that are not ready, with their labs (Status,
+          Reason, WaitReason, WaitSince).
+        items:
+          $ref: '#/definitions/event.standTeamResponse'
+        type: array
+      StandsApplicable:
+        description: 'StandsApplicable: the event uses stands; StandsTotal / StandsReady
+          count every team stand.'
+        type: boolean
+      StandsReady:
+        type: integer
+      StandsTotal:
+        type: integer
+      StartAt:
+        type: string
+      Started:
+        type: boolean
+      UnpublishedTasks:
+        description: UnpublishedTasks are the tasks of the active sets that participants
+          do not see.
+        items:
+          $ref: '#/definitions/event.readinessTaskResponse'
+        type: array
+    type: object
+  event.readinessTaskResponse:
+    properties:
+      ChallengeID:
+        type: string
+      ExerciseID:
+        type: string
+      Name:
+        type: string
+      StageID:
+        type: string
     type: object
   event.recreateStandsRequest:
     properties:
@@ -2660,8 +3101,8 @@ definitions:
       ExerciseVersionID:
         type: string
       RecreateStands:
-        description: RecreateStands confirms recreating the stand Labs of teams whose
-          stage is already running.
+        description: RecreateStands confirms recreating running stand Labs (the preview
+          says whether the update does).
         type: boolean
     type: object
   event.rescueDeviceRequest:
@@ -2810,6 +3251,43 @@ definitions:
         type: integer
       ScoreboardVisibility:
         $ref: '#/definitions/eventConfigModel.Visibility'
+    type: object
+  event.scheduleChangeResponse:
+    properties:
+      After:
+        $ref: '#/definitions/event.scheduleResponse'
+      Before:
+        $ref: '#/definitions/event.scheduleResponse'
+      ByApplication:
+        type: boolean
+      ChangedAt:
+        type: string
+      ChangedBy:
+        type: string
+      ChangedByName:
+        description: |-
+          ChangedByName is the manager's name or email. ByApplication false: the schedule changed outside the
+          application (a hand edit in the database); DBRole is then the database role that did it.
+        type: string
+      DBRole:
+        type: string
+      ID:
+        type: string
+    type: object
+  event.scheduleResponse:
+    properties:
+      FinishAt:
+        type: string
+      JoinPolicy:
+        type: integer
+      ManualFinishedAt:
+        type: string
+      PublishAt:
+        type: string
+      StartAt:
+        type: string
+      WithdrawAt:
+        type: string
     type: object
   event.scoringProfileResponse:
     properties:
@@ -2970,7 +3448,22 @@ definitions:
         type: string
       Reason:
         type: string
+      RetryAttempts:
+        description: RetryAttempts counts the automatic retries after failures.
+        type: integer
       Status:
+        type: string
+      Wait:
+        allOf:
+        - $ref: '#/definitions/event.standWaitResponse'
+        description: Wait is what the lab needs and what the event's reservation has
+          left; null when none was recorded.
+      WaitReason:
+        description: |-
+          WaitReason is the code of what a pending lab waits for (cluster_reservation, snapshot_quota,
+          persistence_unavailable, ...), "" when nothing; WaitSince since when.
+        type: string
+      WaitSince:
         type: string
     type: object
   event.standLabStatusResponse:
@@ -2998,6 +3491,10 @@ definitions:
       Ready:
         type: boolean
       VPNCIDR:
+        type: string
+      VPNReverse:
+        description: 'VPNReverse: blocked, allowed or not_enforced (see the infrastructure
+          test lab status); absent when unknown.'
         type: string
     type: object
   event.standPrewarmResponse:
@@ -3094,6 +3591,21 @@ definitions:
       ProbeURL:
         type: string
     type: object
+  event.standWaitResponse:
+    properties:
+      HaveCPUMillicores:
+        type: integer
+      HaveMemoryBytes:
+        type: integer
+      HaveStorageBytes:
+        type: integer
+      NeedCPUMillicores:
+        type: integer
+      NeedMemoryBytes:
+        type: integer
+      NeedStorageBytes:
+        type: integer
+    type: object
   event.standsResponse:
     properties:
       ChallengesOpened:
@@ -3124,12 +3636,52 @@ definitions:
       TeardownDelayMinutes:
         type: integer
     type: object
+  event.teamCopiesResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/event.teamCopyDiffResponse'
+        type: array
+      Outdated:
+        type: integer
+      Total:
+        description: Total counts the team copies of the set, Outdated those that
+          differ from the task now.
+        type: integer
+    type: object
+  event.teamCopyDiffResponse:
+    properties:
+      ChallengeID:
+        type: string
+      ChallengeName:
+        type: string
+      Differs:
+        description: 'Differs lists what differs: name, description, difficulty, attachments,
+          placeholders, hints.'
+        items:
+          type: string
+        type: array
+      Solved:
+        description: Solved copies keep their pinned content and are not synced.
+        type: boolean
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+    type: object
   event.teamInvitationResponse:
     properties:
       CreatedAt:
         type: string
       Email:
         type: string
+      InvitationAwaitingPublication:
+        type: boolean
+      InvitationExpired:
+        description: |-
+          InvitationExpired: the person can no longer accept it; InvitationAwaitingPublication: the event is not
+          published yet and the invitation becomes acceptable at publication (not expired).
+        type: boolean
       InvitationSentAt:
         type: string
       Name:
@@ -3290,8 +3842,8 @@ definitions:
         description: ExerciseVersionID nil = the exercise's latest published version.
         type: string
       RecreateStands:
-        description: RecreateStands confirms recreating the stand Labs of teams whose
-          stage is already running.
+        description: RecreateStands confirms recreating running stand Labs (the preview
+          says whether the update does).
         type: boolean
     type: object
   event.updateEventRequest:
@@ -4591,6 +5143,55 @@ definitions:
       VPNTxBytes:
         type: integer
     type: object
+  eventAnalytics.submissionResponse:
+    properties:
+      ChallengeID:
+        type: string
+      ChallengeName:
+        type: string
+      Email:
+        type: string
+      MinutesFromOpen:
+        type: integer
+      MinutesFromStart:
+        description: |-
+          MinutesFromStart counts from the event start (0 before it); MinutesFromOpen from the team's first open of
+          the task, null when none was recorded.
+        type: integer
+      ParticipantName:
+        type: string
+      ParticipantWrong:
+        description: ParticipantWrong / TeamWrong are the wrong attempts before the
+          correct one.
+        type: integer
+      SubmittedAt:
+        type: string
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+      TeamWrong:
+        type: integer
+      UserID:
+        type: string
+    type: object
+  eventAnalytics.submissionsResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/eventAnalytics.submissionResponse'
+        type: array
+      Note:
+        description: |-
+          Note is the caveat that goes with the numbers: they count who SUBMITTED a correct flag, not who solved
+          the task (code submissions_not_solutions).
+        type: string
+      PeopleHidden:
+        description: |-
+          PeopleHidden: the caller may not see people (a read-only moderator): the participant names and ids are
+          empty and the addresses masked.
+        type: boolean
+    type: object
   eventAnalytics.taskDetailResponse:
     properties:
       FailedTeams:
@@ -5518,6 +6119,10 @@ definitions:
         type: string
       Ready:
         type: boolean
+      State:
+        description: 'State: ready | starting | restarting | unavailable | failed
+          | closed. Access holds addresses only when ready.'
+        type: string
       VPNCIDR:
         type: string
     type: object
@@ -6080,6 +6685,14 @@ definitions:
       TotalTeams:
         type: integer
     type: object
+  eventself.runChecksResponse:
+    properties:
+      Asked:
+        description: |-
+          Asked: the laboratory was asked to check the task now. The result is not in this answer: the task is marked solved by
+          itself once its checks pass (read the board). Nothing of what is checked, expected or found is ever returned.
+        type: boolean
+    type: object
   eventself.scoreboardEntryResponse:
     properties:
       NameHidden:
@@ -6201,6 +6814,12 @@ definitions:
         type: string
       ReplacesDraft:
         type: boolean
+      Report:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.ImportReport'
+        description: |-
+          Report is the dry-run answer: what stays, comes and goes by identity, the errors that would stop the result
+          being published, who uses the exercise and the warnings. The apply call returns the same report per item.
       SourceExerciseID:
         type: string
       SourceIDMismatch:
@@ -6337,6 +6956,27 @@ definitions:
       Scope:
         type: string
     type: object
+  exercise.accessDTO:
+    properties:
+      Command:
+        type: string
+      Kind:
+        enum:
+        - http
+        - terminal
+        - vnc
+        - rdp
+        type: string
+      Port:
+        type: integer
+      Protocol:
+        enum:
+        - http
+        - https
+        type: string
+      User:
+        type: string
+    type: object
   exercise.accessEventResponse:
     properties:
       CanWrite:
@@ -6373,6 +7013,24 @@ definitions:
         type: array
       IsAdmin:
         type: boolean
+    type: object
+  exercise.answerDTO:
+    properties:
+      IgnoreCase:
+        type: boolean
+      InputHint:
+        type: string
+      Trim:
+        type: boolean
+      Type:
+        enum:
+        - flag
+        - text
+        type: string
+      Values:
+        items:
+          type: string
+        type: array
     type: object
   exercise.approveProposalRequest:
     properties:
@@ -6435,6 +7093,40 @@ definitions:
       State:
         type: string
     type: object
+  exercise.bootstrapDTO:
+    properties:
+      Env:
+        items:
+          $ref: '#/definitions/exercise.envVarDTO'
+        maxItems: 64
+        type: array
+      Files:
+        items:
+          $ref: '#/definitions/exercise.bootstrapFileDTO'
+        maxItems: 32
+        type: array
+      Interpreter:
+        type: string
+      Script:
+        type: string
+      Timeout:
+        type: string
+    type: object
+  exercise.bootstrapFileDTO:
+    properties:
+      Content:
+        type: string
+      Group:
+        type: string
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
+        type: string
+      Source:
+        $ref: '#/definitions/exercise.attachmentDTO'
+    type: object
   exercise.bulkAccessRequest:
     properties:
       AccessLevel:
@@ -6493,6 +7185,13 @@ definitions:
       Skipped:
         type: integer
     type: object
+  exercise.checkDTO:
+    properties:
+      Answer:
+        $ref: '#/definitions/exercise.answerDTO'
+      State:
+        $ref: '#/definitions/exercise.stateDTO'
+    type: object
   exercise.checkImagesRequest:
     properties:
       Images:
@@ -6518,6 +7217,32 @@ definitions:
         type: string
     required:
     - SHA256
+    type: object
+  exercise.conditionDTO:
+    properties:
+      Custom:
+        allOf:
+        - $ref: '#/definitions/exercise.customCheckDTO'
+        description: Custom runs a command of the author in the device; User empty
+          = nobody (applied by the laboratory, not stored).
+      DeviceID:
+        type: string
+      Directory:
+        $ref: '#/definitions/exercise.directoryCheckDTO'
+      File:
+        $ref: '#/definitions/exercise.fileCheckDTO'
+      KernelParam:
+        $ref: '#/definitions/exercise.kernelParamCheckDTO'
+      Permission:
+        $ref: '#/definitions/exercise.permissionCheckDTO'
+      Port:
+        $ref: '#/definitions/exercise.portCheckDTO'
+      Process:
+        $ref: '#/definitions/exercise.processCheckDTO'
+      Request:
+        $ref: '#/definitions/exercise.requestCheckDTO'
+      Timeout:
+        type: string
     type: object
   exercise.connectionDTO:
     properties:
@@ -6569,6 +7294,19 @@ definitions:
           image to save.
         type: string
     type: object
+  exercise.customCheckDTO:
+    properties:
+      Interpreter:
+        type: string
+      OutputContains:
+        type: string
+      OutputMatches:
+        type: string
+      Run:
+        type: string
+      User:
+        type: string
+    type: object
   exercise.decideElevationRequest:
     properties:
       Devices:
@@ -6592,6 +7330,23 @@ definitions:
       URL:
         type: string
     type: object
+  exercise.deployCheckDetailResponse:
+    properties:
+      ChangedAt:
+        type: string
+      Detail:
+        type: string
+      FirstPassedAt:
+        type: string
+      ID:
+        type: string
+      Known:
+        type: boolean
+      Passed:
+        type: boolean
+      Value:
+        type: string
+    type: object
   exercise.deployCheckRequest:
     properties:
       Flag:
@@ -6608,6 +7363,17 @@ definitions:
     type: object
   exercise.deployDeviceResponse:
     properties:
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/labview.BootstrapResponse'
+        description: |-
+          Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); absent for a
+          device without one.
+      Limit:
+        description: |-
+          Limit is the code of a resource limit the device hits ("device_cpu_limit": more than half of its CPU periods
+          are throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.
+        type: string
       Name:
         type: string
       Ready:
@@ -6628,9 +7394,18 @@ definitions:
     type: object
   exercise.deployLinkRequest:
     properties:
+      Access:
+        description: |-
+          Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link opens the
+          device's own console host (the url of its terminal access entry). 404 (33518) when the lab cannot give a console link.
+        enum:
+        - http
+        - terminal
+        type: string
       Device:
         type: string
       Port:
+        description: Port is the web port from the deploy status (access http).
         type: integer
     required:
     - Device
@@ -6710,6 +7485,36 @@ definitions:
           $ref: '#/definitions/exercise.deployTaskResponse'
         type: array
     type: object
+  exercise.deployRunChecksResponse:
+    properties:
+      Asked:
+        description: 'Asked: the laboratory was asked to run the checks of the task
+          now. The result comes with the next status.'
+        type: boolean
+    type: object
+  exercise.deployStateTaskResponse:
+    properties:
+      Checks:
+        items:
+          $ref: '#/definitions/exercise.deployCheckDetailResponse'
+        type: array
+      FirstSolvedAt:
+        type: string
+      Key:
+        type: string
+      Known:
+        type: boolean
+      Manual:
+        type: boolean
+      Mode:
+        type: string
+      Solved:
+        type: boolean
+      SolvedAt:
+        type: string
+      TaskID:
+        type: string
+    type: object
   exercise.deployStatusResponse:
     properties:
       Access:
@@ -6752,10 +7557,22 @@ definitions:
         description: 'Removing: the lab is being removed (Phase is "Removing"); the
           answer stays 200 until it is gone, then 404.'
         type: boolean
+      ReverseConnections:
+        description: 'ReverseConnections: the exercise lets devices of the lab start
+          connections to the VPN clients (false: forbidden).'
+        type: boolean
       SolvedTaskIDs:
-        description: SolvedTaskIDs are the tasks the author has already checked correctly.
+        description: SolvedTaskIDs are the tasks the author has already checked correctly,
+          and the state tasks whose checks pass.
         items:
           type: string
+        type: array
+      StateTasks:
+        description: |-
+          StateTasks is where every task checked by the state of the lab stands (author only, with the details of the checks);
+          absent for a variant without such tasks.
+        items:
+          $ref: '#/definitions/exercise.deployStateTaskResponse'
         type: array
       VPNCIDR:
         type: string
@@ -6772,6 +7589,11 @@ definitions:
       VPNProbeURL:
         description: VPNProbeURL is the probe page served inside the tunnel by the
           lab group's VPN pod; absent until known.
+        type: string
+      VPNReverse:
+        description: |-
+          VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the
+          exercise forbids them but the agent of the node cannot enforce the block: show a warning, never "blocked").
         type: string
     type: object
   exercise.deployTaskResponse:
@@ -6799,13 +7621,32 @@ definitions:
     type: object
   exercise.deviceDTO:
     properties:
-      EnvVars:
+      Access:
+        description: Access replaces the former External and Terminal keys.
         items:
-          $ref: '#/definitions/exercise.envVarDTO'
-        maxItems: 64
+          $ref: '#/definitions/exercise.accessDTO'
         type: array
-      External:
-        $ref: '#/definitions/exercise.externalDTO'
+      Args:
+        items:
+          type: string
+        type: array
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/exercise.bootstrapDTO'
+        description: |-
+          Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
+          service process. Absent when the device has none.
+      Command:
+        description: Command and Args replace the entrypoint and arguments of the
+          image (up to 32 and 64 entries).
+        items:
+          type: string
+        type: array
+      Hardware:
+        enum:
+        - fast
+        - compatible
+        type: string
       ID:
         type: string
       Image:
@@ -6820,6 +7661,15 @@ definitions:
         allOf:
         - $ref: '#/definitions/exercise.persistenceDTO'
         description: Persistence is absent when the device keeps no state.
+      Profile:
+        description: |-
+          Profile (a node only) is container, microvm or vm; empty is the container. Only the profiles the platform
+          supports can be saved.
+        enum:
+        - container
+        - microvm
+        - vm
+        type: string
       ResourcePreset:
         description: |-
           ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty
@@ -6835,7 +7685,17 @@ definitions:
           SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
           NET_ADMIN and /dev/net/tun). Any other value is refused.
         type: string
+      System:
+        description: System (linux|windows) and Hardware (fast|compatible) are reserved
+          for the vm profile.
+        enum:
+        - linux
+        - windows
+        type: string
       Type:
+        description: |-
+          Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
+          profile.
         type: string
       WaitReadyFile:
         description: |-
@@ -6869,6 +7729,49 @@ definitions:
       Start:
         type: integer
     type: object
+  exercise.directoryCheckDTO:
+    properties:
+      Exists:
+        type: boolean
+      Group:
+        type: string
+      HasEntries:
+        items:
+          type: string
+        type: array
+      LacksEntries:
+        items:
+          type: string
+        type: array
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
+        type: string
+    type: object
+  exercise.elevationCapacityResponse:
+    properties:
+      AskedCPUMillicores:
+        type: integer
+      AskedMemoryBytes:
+        type: integer
+      CPUUnlimited:
+        type: boolean
+      CapacityCPUMillicores:
+        type: integer
+      CapacityMemoryBytes:
+        type: integer
+      Fits:
+        description: 'Fits: the free room covers what the request asks.'
+        type: boolean
+      FreeCPUMillicores:
+        type: integer
+      FreeMemoryBytes:
+        type: integer
+      MemoryUnlimited:
+        type: boolean
+    type: object
   exercise.elevationDeviceResponse:
     properties:
       Blocks:
@@ -6888,6 +7791,11 @@ definitions:
         items:
           $ref: '#/definitions/exercise.elevationDeviceResponse'
         type: array
+      Capacity:
+        allOf:
+        - $ref: '#/definitions/exercise.elevationCapacityResponse'
+        description: Capacity is the room the cluster has now beside what the request
+          asks; only the single-request read fills it.
       DecidedAt:
         type: string
       DecidedBy:
@@ -7056,6 +7964,11 @@ definitions:
         type: array
       UpdatedAt:
         type: string
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console
+          is not meant for events; the event side shows it.
+        type: boolean
       VariantCount:
         description: VariantCount is how many variants the visible snapshot has; null
           without one (offset pages only).
@@ -7148,6 +8061,11 @@ definitions:
         type: string
       UpdatedByName:
         type: string
+      UsesConsole:
+        description: |-
+          UsesConsole: some device of the published version has a terminal access entry (a console in the browser). A console
+          is not meant for events; the event side shows it.
+        type: boolean
     type: object
   exercise.exerciseUsageEventResponse:
     properties:
@@ -7197,7 +8115,8 @@ definitions:
         description: File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index}
           (done only).
       State:
-        description: State is running, done or failed.
+        description: State is queued (no worker has started it yet), running, done
+          or failed.
         type: string
     type: object
   exercise.exportJobStarted:
@@ -7222,11 +8141,29 @@ definitions:
       Size:
         type: integer
     type: object
-  exercise.externalDTO:
+  exercise.fileCheckDTO:
     properties:
-      Port:
-        type: integer
-      Protocol:
+      Checksum:
+        type: string
+      Contains:
+        type: string
+      Exists:
+        type: boolean
+      Group:
+        type: string
+      Matches:
+        type: string
+      Mode:
+        type: string
+      Owner:
+        type: string
+      Path:
+        type: string
+      Type:
+        enum:
+        - file
+        - directory
+        - symlink
         type: string
     type: object
   exercise.fileLookupRequest:
@@ -7310,6 +8247,27 @@ definitions:
       Image:
         description: 'Image: a registry reference (nginx:1.28) or a platform image
           (platform:<name>@sha256:…); checked on publish.'
+        type: string
+    type: object
+  exercise.imageServiceResponse:
+    properties:
+      Cmd:
+        items:
+          type: string
+        type: array
+      Entrypoint:
+        items:
+          type: string
+        type: array
+      Image:
+        type: string
+      Known:
+        description: Known is false when the platform has no start configuration for
+          the image (see imageServices); the rest is then empty.
+        type: boolean
+      User:
+        type: string
+      WorkingDir:
         type: string
     type: object
   exercise.importCommitResponse:
@@ -7472,6 +8430,15 @@ definitions:
       Type:
         type: string
     type: object
+  exercise.kernelParamCheckDTO:
+    properties:
+      Equals:
+        type: string
+      Matches:
+        type: string
+      Name:
+        type: string
+    type: object
   exercise.missingBlobsRequest:
     properties:
       Digests:
@@ -7506,6 +8473,11 @@ definitions:
         type: string
       Enabled:
         type: boolean
+      ReverseConnections:
+        description: |-
+          ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the
+          participants' machines. Default false.
+        type: boolean
     type: object
   exercise.networkIPRefDTO:
     properties:
@@ -7519,6 +8491,24 @@ definitions:
       Network:
         type: string
     type: object
+  exercise.pendingElevationCountResponse:
+    properties:
+      Pending:
+        type: integer
+    type: object
+  exercise.permissionCheckDTO:
+    properties:
+      Execute:
+        type: boolean
+      Path:
+        type: string
+      Read:
+        type: boolean
+      User:
+        type: string
+      Write:
+        type: boolean
+    type: object
   exercise.persistenceDTO:
     properties:
       Debounce:
@@ -7528,6 +8518,16 @@ definitions:
     type: object
   exercise.placeholderDTO:
     properties:
+      Access:
+        description: |-
+          Access (external.link only): the access entry of the device the link points to, http | terminal | vnc | rdp; empty =
+          http. The device must have an entry of that kind. vnc and rdp are accepted and resolve to nothing yet.
+        enum:
+        - http
+        - terminal
+        - vnc
+        - rdp
+        type: string
       AsLink:
         type: boolean
       DeviceName:
@@ -7550,6 +8550,33 @@ definitions:
         type: string
       ShowMask:
         type: boolean
+    type: object
+  exercise.portCheckDTO:
+    properties:
+      Address:
+        type: string
+      Listening:
+        type: boolean
+      Port:
+        type: integer
+      Process:
+        type: string
+      Protocol:
+        enum:
+        - tcp
+        - udp
+        type: string
+    type: object
+  exercise.processCheckDTO:
+    properties:
+      Matches:
+        type: string
+      Name:
+        type: string
+      Running:
+        type: boolean
+      User:
+        type: string
     type: object
   exercise.proposalResponse:
     properties:
@@ -7606,6 +8633,32 @@ definitions:
     properties:
       Note:
         type: string
+    type: object
+  exercise.requestCheckDTO:
+    properties:
+      BodyContains:
+        type: string
+      BodyMatches:
+        type: string
+      Host:
+        type: string
+      Method:
+        enum:
+        - GET
+        - HEAD
+        type: string
+      Path:
+        type: string
+      Port:
+        type: integer
+      Protocol:
+        enum:
+        - tcp
+        - http
+        - https
+        type: string
+      Status:
+        type: integer
     type: object
   exercise.requestElevationRequest:
     properties:
@@ -7666,6 +8719,11 @@ definitions:
         type: integer
       BytesTotal:
         type: integer
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only; an interrupted import has
+          the interrupted code).
       ImagesDone:
         type: integer
       ImagesTotal:
@@ -7673,6 +8731,10 @@ definitions:
       JobID:
         type: string
       Stage:
+        type: string
+      State:
+        description: State is queued, running or failed; a failed one says why in
+          Error and is closed with DELETE.
         type: string
       TasksDone:
         type: integer
@@ -7684,8 +8746,8 @@ definitions:
       AdminNote:
         type: string
       Variants:
-        description: Variants is the full snapshot; a variant Weight outside 0..100
-          is refused with 400.
+        description: Variants is the full snapshot; a variant Weight outside 1..100
+          (0 included) is refused with 400.
         items:
           $ref: '#/definitions/exercise.variantDTO'
         type: array
@@ -7729,26 +8791,37 @@ definitions:
     - Name
     - Size
     type: object
+  exercise.stateDTO:
+    properties:
+      Conditions:
+        items:
+          $ref: '#/definitions/exercise.conditionDTO'
+        type: array
+      Interval:
+        type: string
+      Manual:
+        type: boolean
+      Mode:
+        enum:
+        - once
+        - continuous
+        type: string
+    type: object
   exercise.taskDTO:
     properties:
       Attachments:
         items:
           $ref: '#/definitions/exercise.attachmentDTO'
         type: array
+      Check:
+        allOf:
+        - $ref: '#/definitions/exercise.checkDTO'
+        description: 'Check is what makes the task done: exactly one of Answer and
+          State.'
       Description:
         type: object
-      DeviceFlagVar:
-        type: string
       Difficulty:
         type: string
-      Flag:
-        description: |-
-          Flag holds the candidate flag values: empty → random at deploy time; one
-          value → fixed; several → one picked at random at deploy time. Mirrors
-          exerciseModel.Task.Flag 1:1 (no FlagSource/FlagMode wrapper).
-        items:
-          type: string
-        type: array
       Hints:
         description: |-
           Hints a team may unlock: IDs and levels match across variants, the
@@ -7758,13 +8831,22 @@ definitions:
         type: array
       ID:
         type: string
-      LinkedDeviceID:
+      Key:
+        description: |-
+          Key names the task inside its variant (the task substitution of a bootstrap and Requires use it): lowercase a-z, 0-9 and _,
+          starting with a letter, up to 32. Empty on save: the backend gives the task a stable one (task_<position>).
         type: string
       Name:
         type: string
       Placeholders:
         items:
           $ref: '#/definitions/exercise.placeholderDTO'
+        type: array
+      Requires:
+        description: Requires are the keys of the tasks of the same variant this one
+          waits for.
+        items:
+          type: string
         type: array
     type: object
   exercise.taskSolvesResponse:
@@ -7802,6 +8884,10 @@ definitions:
         $ref: '#/definitions/exercise.networkDTO'
       VPN:
         $ref: '#/definitions/exercise.networkDTO'
+      Variables:
+        items:
+          $ref: '#/definitions/exercise.variableDTO'
+        type: array
       VisualRender:
         type: object
     type: object
@@ -7839,6 +8925,15 @@ definitions:
       UploadID:
         type: string
     type: object
+  exercise.variableDTO:
+    properties:
+      Name:
+        type: string
+      Template:
+        type: string
+      Value:
+        type: string
+    type: object
   exercise.variantDTO:
     properties:
       CopyOf:
@@ -7874,10 +8969,11 @@ definitions:
       Topology:
         $ref: '#/definitions/exercise.topologyDTO'
       Weight:
-        description: Weight is how often the variant is given out relative to the
-          others (2 = twice as often); absent or 0 = 1.
+        description: |-
+          Weight is how often the variant is given out relative to the others (2 = twice as often): 1 to 100, absent = 1.
+          0 is refused with 400; to stop giving a variant out, delete it.
         maximum: 100
-        minimum: 0
+        minimum: 1
         type: integer
     type: object
   exercise.variantResourcesResponse:
@@ -8013,6 +9109,35 @@ definitions:
       VersionID:
         type: string
     type: object
+  exerciseModel.CheckDetail:
+    properties:
+      changedAt:
+        type: string
+      detail:
+        type: string
+      firstPassedAt:
+        type: string
+      id:
+        type: string
+      known:
+        type: boolean
+      passed:
+        description: Passed is the current state; Known is false until the check has
+          a result.
+        type: boolean
+      value:
+        type: string
+    type: object
+  exerciseModel.DeviceBootstrapStatus:
+    properties:
+      attempts:
+        format: int32
+        type: integer
+      phase:
+        type: string
+      reason:
+        type: string
+    type: object
   exerciseModel.DeviceSnapshot:
     properties:
       lastSnapshotAt:
@@ -8031,6 +9156,101 @@ definitions:
           the last good one is kept.
         type: string
     type: object
+  exerciseModel.ImportChanges:
+    properties:
+      Added:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportItem'
+        type: array
+      Kept:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportItem'
+        type: array
+      Removed:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportItem'
+        type: array
+    type: object
+  exerciseModel.ImportDiff:
+    properties:
+      Variants:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportVariantDiff'
+        type: array
+    type: object
+  exerciseModel.ImportIssue:
+    properties:
+      Code:
+        type: integer
+      Context:
+        additionalProperties: {}
+        type: object
+      Message:
+        type: string
+      Path:
+        type: string
+    type: object
+  exerciseModel.ImportItem:
+    properties:
+      ID:
+        description: ID is the stored id a kept or removed item has. An added item
+          gets its id when the draft is written.
+        type: string
+      Key:
+        description: 'Key is the task key (tasks only): the stored one for a kept
+          task, the document''s otherwise.'
+        type: string
+      KeyChanged:
+        description: |-
+          KeyChanged: a task matched by id keeps the stored key; this is true only when it could not (another task of
+          the document uses that key), so the document's key stays.
+        type: boolean
+      MatchedBy:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.ImportMatch'
+        description: 'MatchedBy is set on kept items: the stored item keeps its id
+          (and a task its key).'
+      Name:
+        description: Name is the name in the document (kept, added) or in the stored
+          copy (removed).
+        type: string
+      PreviousName:
+        description: PreviousName is the stored name of a kept task whose name changed.
+        type: string
+    type: object
+  exerciseModel.ImportMatch:
+    enum:
+    - id
+    - key
+    - name
+    - order
+    type: string
+    x-enum-varnames:
+    - ImportMatchID
+    - ImportMatchKey
+    - ImportMatchName
+    - ImportMatchOrder
+  exerciseModel.ImportReport:
+    properties:
+      Diff:
+        $ref: '#/definitions/exerciseModel.ImportDiff'
+      Issues:
+        description: |-
+          Issues are the errors of the result (draft validation and the publish checks). Errors of the document itself
+          refuse the request instead.
+        items:
+          $ref: '#/definitions/exerciseModel.ImportIssue'
+        type: array
+      Publishable:
+        description: 'Publishable: the result passes every publish check.'
+        type: boolean
+      Usage:
+        $ref: '#/definitions/exerciseModel.ImportUsage'
+      Warnings:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportWarning'
+        type: array
+    type: object
   exerciseModel.ImportResult:
     properties:
       ExerciseID:
@@ -8039,6 +9259,98 @@ definitions:
         type: string
       Mode:
         type: string
+      Report:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.ImportReport'
+        description: Report is what the item did to the exercise; set for an import
+          into an existing exercise and for a new one alike.
+    type: object
+  exerciseModel.ImportUsage:
+    properties:
+      Events:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportUsageEvent'
+        type: array
+      TestDeploys:
+        description: TestDeploys are the test labs of the exercise that are leased
+          now (any author).
+        type: integer
+    type: object
+  exerciseModel.ImportUsageEvent:
+    properties:
+      Added:
+        items:
+          $ref: '#/definitions/exerciseModel.ImportUsageTask'
+        type: array
+      Archived:
+        type: boolean
+      Blocked:
+        description: 'Blocked: the event could not move to the result as it is: a
+          removed task has recorded answers.'
+        type: boolean
+      EventID:
+        type: string
+      Name:
+        type: string
+      Removed:
+        description: |-
+          Removed and Added are the tasks of the event's challenge variant that would go and come, by the rule the
+          event itself applies when it moves to a new version (by task id, else by name).
+        items:
+          $ref: '#/definitions/exerciseModel.ImportUsageTask'
+        type: array
+      RunningLabs:
+        description: RunningLabs are the event's team laboratories of this exercise
+          that are running now.
+        type: integer
+      VariantMissing:
+        description: 'VariantMissing: the event''s fixed variant would not exist in
+          the result.'
+        type: boolean
+      VersionPublished:
+        description: 'VersionPublished: the event runs the version published now;
+          otherwise it is pinned to an older one.'
+        type: boolean
+    type: object
+  exerciseModel.ImportUsageTask:
+    properties:
+      Attempts:
+        description: Attempts and Solves are the recorded answers of the event's challenge
+          (removed tasks only).
+        type: integer
+      Name:
+        type: string
+      Solves:
+        type: integer
+    type: object
+  exerciseModel.ImportVariantDiff:
+    properties:
+      Devices:
+        $ref: '#/definitions/exerciseModel.ImportChanges'
+      MatchedBy:
+        $ref: '#/definitions/exerciseModel.ImportMatch'
+      Position:
+        description: |-
+          Position is the 1-based position in the document (0 for a removed variant); StoredPosition the position in
+          the stored copy (0 for an added variant).
+        type: integer
+      Status:
+        type: string
+      StoredPosition:
+        type: integer
+      Tasks:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.ImportChanges'
+        description: 'Tasks of an added variant that match a stored task (by id or
+          key) are listed as kept: they take its identity.'
+    type: object
+  exerciseModel.ImportWarning:
+    properties:
+      Code:
+        type: string
+      Context:
+        additionalProperties: {}
+        type: object
     type: object
   exerciseModel.LabAccess:
     properties:
@@ -8113,11 +9425,24 @@ definitions:
         description: 'Removing: the lab is being removed (its lease is over); the
           row goes once the agent no longer has it.'
         type: boolean
+      reverseConnections:
+        description: |-
+          ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
+          effective only with the VPN on); filled by the use case for a test deploy.
+        type: boolean
       solvedTasks:
-        description: SolvedTasks are the tasks the author has already checked correctly;
-          filled by the use case.
+        description: |-
+          SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
+          StateTasks); filled by the use case.
         items:
           type: string
+        type: array
+      stateTasks:
+        description: |-
+          StateTasks is where every task checked by the state of the lab stands, for the author of the test only; filled by the
+          use case from the recorded check results. Absent for a variant without state tasks.
+        items:
+          $ref: '#/definitions/exerciseModel.TaskCheckState'
         type: array
       usageAvailable:
         type: boolean
@@ -8139,9 +9464,25 @@ definitions:
         description: VPNProbeURL is the probe page the group's VPN pod serves inside
           the tunnel; empty when unknown. Filled by the use case.
         type: string
+      vpnreverse:
+        description: |-
+          VPNReverse is what is in force for connections the lab starts to the VPN clients: "blocked", "allowed", or
+          "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).
+          Empty for a lab without a VPN or whose state is not known.
+        type: string
     type: object
   exerciseModel.LabDeployedDevice:
     properties:
+      bootstrap:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.DeviceBootstrapStatus'
+        description: Bootstrap is where the device's bootstrap is; nil for a device
+          without one. For staff and the task author only.
+      cputhrottledPercent:
+        description: 'CPUThrottledPercent is the share of CPU periods the device was
+          throttled in the agent''s window (0: no data).'
+        format: int32
+        type: integer
       name:
         type: string
       ready:
@@ -8231,6 +9572,38 @@ definitions:
           the cluster sends it again (zero: no wait).
         format: int32
         type: integer
+    type: object
+  exerciseModel.StateMode:
+    enum:
+    - once
+    - continuous
+    type: string
+    x-enum-varnames:
+    - StateModeOnce
+    - StateModeContinuous
+  exerciseModel.TaskCheckState:
+    properties:
+      checks:
+        items:
+          $ref: '#/definitions/exerciseModel.CheckDetail'
+        type: array
+      firstSolvedAt:
+        type: string
+      key:
+        type: string
+      known:
+        description: 'Known: every check of the task has a result.'
+        type: boolean
+      manual:
+        type: boolean
+      mode:
+        $ref: '#/definitions/exerciseModel.StateMode'
+      solved:
+        type: boolean
+      solvedAt:
+        type: string
+      taskID:
+        type: string
     type: object
   exerciseModel.VersionStatus:
     enum:
@@ -8580,6 +9953,16 @@ definitions:
     type: object
   infrastructure.agentFeaturesResponse:
     properties:
+      BootstrapAvailable:
+        type: boolean
+      ChecksEnabled:
+        description: |-
+          ChecksEnabled: the laboratory runs lab checks (a task with a state check can start there). TerminalEnabled: the
+          browser terminal is on. BootstrapAvailable: the agent carries the device bootstrap (contract 1.5); false for an
+          older agent. ChecksMaxPerLab is the most checks of one lab (0 when not reported).
+        type: boolean
+      ChecksMaxPerLab:
+        type: integer
       DeviceMaxCPUMillicores:
         description: |-
           DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the
@@ -8605,6 +9988,16 @@ definitions:
         description: LabsDomain is the base domain of the lab web endpoints; VPNEndpoint
           is host:port of WireGuard.
         type: string
+      Lifecycle:
+        allOf:
+        - $ref: '#/definitions/infrastructure.lifecycleResponse'
+        description: |-
+          Lifecycle is what the agent confirms; LifecycleUnavailable and PersistenceUnavailable name the reason when a
+          feature the cluster is configured for is held back (absent: nothing is, or it is not configured).
+      LifecycleUnavailable:
+        allOf:
+        - $ref: '#/definitions/infrastructure.unavailableResponse'
+        x-nullable: true
       PersistenceAvailable:
         type: boolean
       PersistenceDefaultDebounceMs:
@@ -8615,6 +10008,10 @@ definitions:
         type: array
       PersistenceMaxFileSizeBytes:
         type: integer
+      PersistenceUnavailable:
+        allOf:
+        - $ref: '#/definitions/infrastructure.unavailableResponse'
+        x-nullable: true
       PersistenceWriteQuotaBytes:
         type: integer
       ProxyAccessTokenMaxTTLSeconds:
@@ -8633,6 +10030,8 @@ definitions:
       SchedulerMaxPods:
         description: SchedulerMaxPods is the most pods starting at once; 0 = no limit.
         type: integer
+      TerminalEnabled:
+        type: boolean
       VPN:
         allOf:
         - $ref: '#/definitions/infrastructure.groupPodSizingResponse'
@@ -8669,6 +10068,49 @@ definitions:
       Items:
         items:
           $ref: '#/definitions/infrastructure.agentAdminResponse'
+        type: array
+    type: object
+  infrastructure.bulkRecreateRequest:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/infrastructure.bulkStandItem'
+        type: array
+    type: object
+  infrastructure.bulkResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/infrastructure.bulkResult'
+        type: array
+    type: object
+  infrastructure.bulkResult:
+    properties:
+      Code:
+        type: string
+      Error:
+        type: string
+      EventID:
+        type: string
+      ID:
+        type: string
+      Ok:
+        type: boolean
+      TeamID:
+        type: string
+    type: object
+  infrastructure.bulkStandItem:
+    properties:
+      EventID:
+        type: string
+      TeamID:
+        type: string
+    type: object
+  infrastructure.bulkTerminateRequest:
+    properties:
+      IDs:
+        items:
+          type: string
         type: array
     type: object
   infrastructure.capabilitiesResponse:
@@ -8751,6 +10193,14 @@ definitions:
       Priority:
         type: integer
     type: object
+  infrastructure.facetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+    type: object
   infrastructure.groupPodSizingResponse:
     properties:
       BaseCPUMillicores:
@@ -8787,6 +10237,19 @@ definitions:
         type: array
       NextCursor:
         type: string
+    type: object
+  infrastructure.lifecycleResponse:
+    properties:
+      ConfirmedRuntime:
+        type: boolean
+      FullGroupStop:
+        type: boolean
+      PerLabStop:
+        type: boolean
+      RequiredSnapshot:
+        type: boolean
+      RetainedRestart:
+        type: boolean
     type: object
   infrastructure.observationResponse:
     properties:
@@ -9036,6 +10499,15 @@ definitions:
       VariantNumber:
         type: integer
     type: object
+  infrastructure.unavailableResponse:
+    properties:
+      Code:
+        type: string
+      NodesAsked:
+        type: integer
+      NodesFailed:
+        type: integer
+    type: object
   infrastructure.updateAgentRequest:
     properties:
       CAPEM:
@@ -9072,8 +10544,22 @@ definitions:
         description: URL is the full link to open in the browser.
         type: string
     type: object
+  labview.BootstrapResponse:
+    properties:
+      Attempts:
+        type: integer
+      Phase:
+        type: string
+      Reason:
+        type: string
+    type: object
   labview.DeviceResponse:
     properties:
+      Bootstrap:
+        allOf:
+        - $ref: '#/definitions/labview.BootstrapResponse'
+        description: 'Bootstrap is the device''s bootstrap: absent for a device without
+          one. Organizers and the task author only.'
       LogicalName:
         description: LogicalName is the device name in the exercise topology; empty
           when unknown.
@@ -9269,6 +10755,11 @@ definitions:
         description: Queue is null for a lab that was never queued.
       Ready:
         type: boolean
+      VPNReverse:
+        description: |-
+          VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids
+          them but the agent of the node cannot enforce the block: show a warning, never "blocked"). Absent when unknown.
+        type: string
     type: object
   mail.enabledRequest:
     properties:
@@ -9989,6 +11480,45 @@ definitions:
       Items:
         items:
           $ref: '#/definitions/infrastructure.testLabResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  pagination.OffsetPage-messaging_deliveryResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/messaging.deliveryResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  pagination.OffsetPage-platformAnalytics_eventRowResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/platformAnalytics.eventRowResponse'
+        type: array
+      Page:
+        type: integer
+      PageSize:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  pagination.OffsetPage-platformAnalytics_taskRowResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/platformAnalytics.taskRowResponse'
         type: array
       Page:
         type: integer
@@ -10745,6 +12275,30 @@ definitions:
       Role:
         type: string
     type: object
+  platformSettings.nodeProfilesResponse:
+    properties:
+      Custom:
+        description: 'Custom: a value is saved; false: the defaults apply.'
+        type: boolean
+      Fields:
+        items:
+          $ref: '#/definitions/platformSettings.typedFieldResponse'
+        type: array
+      Ignored:
+        description: |-
+          Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are
+          in force; reset or save again.
+        type: boolean
+      RunnableNow:
+        additionalProperties:
+          type: boolean
+        description: |-
+          RunnableNow is keyed by field (Container, MicroVM, VM). A ticked profile with false here is the one to warn
+          about; it changes nothing else.
+        type: object
+      UpdatedAt:
+        type: string
+    type: object
   platformSettings.saveTypedRequest:
     properties:
       Values:
@@ -10757,6 +12311,11 @@ definitions:
     properties:
       CreatedAt:
         type: string
+      Description:
+        allOf:
+        - $ref: '#/definitions/platformSettingsModel.Description'
+        description: Description explains the key in each interface language; null
+          for a key the platform does not know.
       ID:
         type: string
       Key:
@@ -10814,6 +12373,13 @@ definitions:
         type: string
       Value:
         type: object
+    type: object
+  platformSettingsModel.Description:
+    properties:
+      En:
+        type: string
+      Uk:
+        type: string
     type: object
   pulse.bannerResponse:
     properties:
@@ -11144,6 +12710,15 @@ definitions:
         type: integer
       To:
         type: string
+      Units:
+        items:
+          $ref: '#/definitions/resourceCalendar.organizerUnitDTO'
+        type: array
+      Unplaced:
+        description: |-
+          Unplaced counts the units no agent could take; Units has the state of every team that has a place (no
+          laboratory is named): Ended after its labs were deleted, EndsAt while the ending notice runs.
+        type: integer
     type: object
   resourceCalendar.eventStatDTO:
     properties:
@@ -11214,6 +12789,15 @@ definitions:
       WindowEnd:
         type: string
       WindowStart:
+        type: string
+    type: object
+  resourceCalendar.organizerUnitDTO:
+    properties:
+      Ended:
+        type: boolean
+      EndsAt:
+        type: string
+      TeamID:
         type: string
     type: object
   resourceCalendar.partDTO:
@@ -11334,6 +12918,11 @@ definitions:
       PerTeamSnapshotQuotaBytes:
         example: ""
         type: string
+      PlacedTeams:
+        description: |-
+          PlacedTeams is the number of teams that have an agent; UnplacedReason says why the others have none
+          (no_agents, device_too_large, no_capacity); empty when every team is placed.
+        type: integer
       Placement:
         items:
           $ref: '#/definitions/resourceCalendar.shareDTO'
@@ -11355,6 +12944,8 @@ definitions:
         type: string
       Unplaced:
         type: integer
+      UnplacedReason:
+        type: string
       Used:
         allOf:
         - $ref: '#/definitions/resourceCalendar.amountDTO'
@@ -11709,12 +13300,49 @@ definitions:
       UpdatedAt:
         type: string
     type: object
+  stats.dispatchFacetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: Counts maps a value of the field to the number of dispatches
+          with it; values with none are absent.
+        type: object
+    type: object
   stats.keyCountResponse:
     properties:
       Count:
         type: integer
       Key:
         type: string
+    type: object
+  stats.resendRequest:
+    properties:
+      DispatchIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  stats.resendResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/stats.resendResultResponse'
+        type: array
+    type: object
+  stats.resendResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      DispatchID:
+        type: string
+      Error:
+        type: string
+      Ok:
+        type: boolean
     type: object
   stats.statsResponse:
     properties:
@@ -11771,6 +13399,32 @@ definitions:
       Transport:
         type: string
       UpdatedAt:
+        type: string
+    type: object
+  tablePrefsModel.Prefs:
+    properties:
+      ColumnOrder:
+        items:
+          type: string
+        type: array
+      ColumnWidths:
+        additionalProperties:
+          type: integer
+        type: object
+      Hidden:
+        items:
+          type: string
+        type: array
+      PageSize:
+        type: integer
+      Sort:
+        $ref: '#/definitions/tablePrefsModel.Sort'
+    type: object
+  tablePrefsModel.Sort:
+    properties:
+      Dir:
+        type: string
+      Key:
         type: string
     type: object
   template.createEmailRequest:
@@ -12025,6 +13679,33 @@ definitions:
         additionalProperties: {}
         type: object
     type: object
+  user.bulkUserResultResponse:
+    properties:
+      Code:
+        description: Code is the catalog code of the refusal (empty when Ok); Error
+          its English text.
+        type: string
+      Error:
+        type: string
+      Ok:
+        type: boolean
+      UserID:
+        type: string
+    type: object
+  user.bulkUsersRequest:
+    properties:
+      UserIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  user.bulkUsersResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/user.bulkUserResultResponse'
+        type: array
+    type: object
   user.dayCountResponse:
     properties:
       Count:
@@ -12120,6 +13801,38 @@ definitions:
       Status:
         $ref: '#/definitions/userModel.UserStatus'
     type: object
+  user.userFacetResponse:
+    properties:
+      Counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          Counts maps a value of the field to the number of users with it under the other filters; values with no
+          users are absent. signIn counts a user once per method (email, google).
+        type: object
+    type: object
+  user.userParticipationResponse:
+    properties:
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      Role:
+        description: 'Role: participant (no team yet), captain, member, or owner /
+          manager / viewer of the event.'
+        type: string
+      Status:
+        description: 'Status of the participation: 1 pending, 2 approved, 3 rejected;
+          2 for an event the user manages.'
+        type: integer
+      TeamID:
+        type: string
+      TeamName:
+        type: string
+    type: object
   user.userResponse:
     properties:
       CreatedAt:
@@ -12136,8 +13849,16 @@ definitions:
         type: string
       LastSeen:
         type: string
+      Picture:
+        type: string
       Role:
         $ref: '#/definitions/rbac.Role'
+      SignInMethods:
+        description: 'SignInMethods: email (a password) and the linked providers;
+          filled in the offset (page) list.'
+        items:
+          type: string
+        type: array
       Status:
         $ref: '#/definitions/userModel.UserStatus'
     type: object
@@ -12161,6 +13882,217 @@ definitions:
         type: array
       Total:
         type: integer
+    type: object
+  userModel.DataExport:
+    properties:
+      ExportedAt:
+        type: string
+      eventStaffRoles:
+        items:
+          $ref: '#/definitions/userModel.ExportEventRole'
+        type: array
+      flagSubmissions:
+        items:
+          $ref: '#/definitions/userModel.ExportFlagSubmission'
+        type: array
+      formAnswers:
+        items:
+          $ref: '#/definitions/userModel.ExportFormAnswer'
+        type: array
+      inbox:
+        items:
+          $ref: '#/definitions/userModel.ExportInboxItem'
+        type: array
+      notificationSettings:
+        items:
+          $ref: '#/definitions/userModel.ExportNotificationSetting'
+        type: array
+      participations:
+        items:
+          $ref: '#/definitions/userModel.ExportParticipation'
+        type: array
+      profile:
+        $ref: '#/definitions/userModel.ExportProfile'
+      sessions:
+        items:
+          $ref: '#/definitions/userModel.ExportSession'
+        type: array
+      signInMethods:
+        description: 'SignInMethods lists how the person can sign in: the kind, the
+          name they gave it, and dates.'
+        items:
+          $ref: '#/definitions/userModel.ExportSignInMethod'
+        type: array
+      tableViews:
+        items:
+          $ref: '#/definitions/userModel.ExportTableView'
+        type: array
+    type: object
+  userModel.ExportEventRole:
+    properties:
+      eventID:
+        type: string
+      eventName:
+        type: string
+      grantedAt:
+        type: string
+      role:
+        format: int32
+        type: integer
+    type: object
+  userModel.ExportFlagSubmission:
+    properties:
+      answer:
+        type: string
+      challengeName:
+        type: string
+      correct:
+        type: boolean
+      eventID:
+        type: string
+      eventName:
+        type: string
+      practice:
+        type: boolean
+      receivedAt:
+        type: string
+      teamName:
+        type: string
+    type: object
+  userModel.ExportFormAnswer:
+    properties:
+      answers:
+        items:
+          type: integer
+        type: array
+      eventID:
+        type: string
+      eventName:
+        type: string
+      formVersionID:
+        type: string
+      submittedAt:
+        type: string
+    type: object
+  userModel.ExportInboxItem:
+    properties:
+      body:
+        type: string
+      category:
+        type: string
+      createdAt:
+        type: string
+      eventName:
+        type: string
+      link:
+        type: string
+      readAt:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  userModel.ExportNotificationSetting:
+    properties:
+      channel:
+        type: string
+      enabled:
+        type: boolean
+      type:
+        type: string
+    type: object
+  userModel.ExportParticipation:
+    properties:
+      decidedAt:
+        type: string
+      eventID:
+        type: string
+      eventName:
+        type: string
+      eventTag:
+        type: string
+      invitationSent:
+        type: string
+      invited:
+        type: boolean
+      invitedTeamName:
+        type: string
+      invitedToTeam:
+        type: boolean
+      isCaptain:
+        type: boolean
+      joinedAt:
+        type: string
+      pseudonym:
+        type: string
+      status:
+        format: int32
+        type: integer
+      teamName:
+        type: string
+      teamRole:
+        type: integer
+    type: object
+  userModel.ExportProfile:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      emailConfirmed:
+        type: boolean
+      firstName:
+        type: string
+      id:
+        type: string
+      lastName:
+        type: string
+      lastSeen:
+        type: string
+      role:
+        type: string
+      status:
+        type: string
+      tosAcceptedAt:
+        type: string
+      tosVersion:
+        format: int32
+        type: integer
+    type: object
+  userModel.ExportSession:
+    properties:
+      createdAt:
+        type: string
+      ip:
+        type: string
+      lastSeen:
+        type: string
+      userAgent:
+        type: string
+    type: object
+  userModel.ExportSignInMethod:
+    properties:
+      createdAt:
+        type: string
+      lastUsedAt:
+        type: string
+      name:
+        type: string
+      type:
+        description: Type is "password", "google" or "passkey".
+        type: string
+    type: object
+  userModel.ExportTableView:
+    properties:
+      prefs:
+        items:
+          type: integer
+        type: array
+      table:
+        type: string
+      updatedAt:
+        type: string
     type: object
   userModel.UserStatus:
     enum:
@@ -12187,6 +14119,10 @@ paths:
         in: query
         name: actorID
         type: string
+      - description: 'true: only the caller''s own actions (overrides actorID)'
+        in: query
+        name: mine
+        type: boolean
       - description: gating permission (exact), e.g. users.delete
         in: query
         name: permission
@@ -12247,6 +14183,87 @@ paths:
       summary: Admin audit journal (filtered, keyset-paged, newest first)
       tags:
       - admin
+  /admin/audit-log/export:
+    get:
+      description: Newest first, at most 100000 rows. Each export is itself recorded
+        in the journal.
+      parameters:
+      - description: actor user ID (exact)
+        in: query
+        name: actorID
+        type: string
+      - description: 'true: only the caller''s own actions (overrides actorID)'
+        in: query
+        name: mine
+        type: boolean
+      - description: gating permission (exact)
+        in: query
+        name: permission
+        type: string
+      - description: route template contains this text
+        in: query
+        name: route
+        type: string
+      - description: HTTP method (exact)
+        in: query
+        name: method
+        type: string
+      - description: 'final response status: exact (409) or a class (2xx, 4xx, 5xx)'
+        in: query
+        name: status
+        type: string
+      - description: not before (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: not after (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: kind token of the target
+        in: query
+        name: targetKind
+        type: string
+      - description: an id contained in the target
+        in: query
+        name: targetID
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Admin audit journal as CSV (same filters, no paging)
+      tags:
+      - admin
+  /admin/dashboard:
+    get:
+      description: 'One answer with the blocks the caller may see: Attention (what
+        needs the admin, with where to fix it), CurrentAndUpcoming (running events
+        and those starting within 7 days), Trends7d (sign-ups, active users, solves)
+        and Infrastructure (cluster CPU and memory, active stands). A block without
+        the permission is null.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.dashboardResponse'
+              type: object
+      summary: The platform admin dashboard
+      tags:
+      - admin
   /admin/errors:
     get:
       parameters:
@@ -12270,6 +14287,11 @@ paths:
       - description: last seen at or before (RFC 3339)
         in: query
         name: to
+        type: string
+      - description: only groups first seen at or after this time (RFC 3339); with
+          limit=1 the Total is the new-items counter
+        in: query
+        name: newSince
         type: string
       - description: text in the title or source
         in: query
@@ -12368,6 +14390,93 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Resolve, ignore or reopen an error group (super admin)
+      tags:
+      - error-journal
+  /admin/errors/bulk/ignore:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
+      tags:
+      - error-journal
+  /admin/errors/bulk/reopen:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
+      tags:
+      - error-journal
+  /admin/errors/bulk/resolve:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 groups; one result per group in request order; a group
+        that fails never stops the others; one audit entry per group. The routes are
+        /admin/errors/bulk/resolve, /admin/errors/bulk/ignore and /admin/errors/bulk/reopen.
+      parameters:
+      - description: groups
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.bulkGroupsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.bulkGroupsResponse'
+              type: object
+      summary: Resolve, ignore or reopen many error groups
       tags:
       - error-journal
   /admin/errors/not-found:
@@ -12537,6 +14646,58 @@ paths:
           schema:
             type: string
       summary: Export a table of the events analytics as CSV (UTF-8 with BOM)
+      tags:
+      - platform-analytics
+  /analytics/events/table:
+    get:
+      description: Every event of the period with participants, teams, solves and
+        completion; search over the tag and the name; sortBy start, name, tag, status,
+        participants, teams, solves or teamsSolved. Not cut at the newest N. from/to
+        are RFC 3339.
+      parameters:
+      - description: period start (RFC 3339); absent = all time
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339); absent = now
+        in: query
+        name: to
+        type: string
+      - description: tag or name
+        in: query
+        name: search
+        type: string
+      - description: start | name | tag | status | participants | teams | solves |
+          teamsSolved
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
+      - description: 1-based page
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: page size
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pagination.OffsetPage-platformAnalytics_eventRowResponse'
+              type: object
+      summary: 'Platform analytics: the per-event table (searched, sorted, paged)'
       tags:
       - platform-analytics
   /analytics/infrastructure:
@@ -12825,6 +14986,65 @@ paths:
       summary: Export a table of the catalog task analytics as CSV (UTF-8 with BOM)
       tags:
       - platform-analytics
+  /analytics/tasks/table:
+    get:
+      description: Every catalog task used in the period (not the first 200), filtered
+        by category and level, searched over the exercise and task names; sortBy exercise,
+        task, level, eventsUsed, attempts, teamsTried, solves, solveRate, medianSolveSeconds
+        or hintRate.
+      parameters:
+      - description: period start (RFC 3339); absent = all time
+        in: query
+        name: from
+        type: string
+      - description: period end, exclusive (RFC 3339); absent = now
+        in: query
+        name: to
+        type: string
+      - description: exercise tag
+        in: query
+        name: category
+        type: string
+      - description: difficulty
+        in: query
+        name: level
+        type: string
+      - description: exercise or task name
+        in: query
+        name: search
+        type: string
+      - description: column
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
+      - description: 1-based page
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: page size
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/pagination.OffsetPage-platformAnalytics_taskRowResponse'
+              type: object
+      summary: 'Platform analytics: the task usage table (searched, sorted, paged)'
+      tags:
+      - platform-analytics
   /analytics/users:
     get:
       description: Aggregates of the admin user stats bound to the period (total,
@@ -13036,6 +15256,30 @@ paths:
       summary: Confirm an email address change using the code sent to the new address
       tags:
       - auth
+  /auth/account/export:
+    get:
+      description: Needs a sign-in from the last minutes (403 ErrAuthReauthRequired
+        otherwise) and is limited to one download per 10 minutes (429 with RetryAfterSeconds).
+        The answer is the file itself, not the usual envelope.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/userModel.DataExport'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Download everything the platform stores about the current user (JSON
+        file)
+      tags:
+      - auth
   /auth/account/profile:
     patch:
       consumes:
@@ -13061,6 +15305,88 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update the authenticated user's profile (first name, last name)
+      tags:
+      - auth
+  /auth/account/table-prefs/{tableKey}:
+    delete:
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Forget the current user's view of a table (back to the default)
+      tags:
+      - auth
+    get:
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/tablePrefsModel.Prefs'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Get the current user's saved view of a table (null when none)
+      tags:
+      - auth
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: table key, up to 64 of [a-z0-9._-]
+        in: path
+        name: tableKey
+        required: true
+        type: string
+      - description: the view
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/tablePrefsModel.Prefs'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/tablePrefsModel.Prefs'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save the current user's view of a table
       tags:
       - auth
   /auth/avatar/{id}:
@@ -13199,6 +15525,103 @@ paths:
         first)
       tags:
       - auth
+  /auth/google/pending:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Give up the pending Google link
+      tags:
+      - auth
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.googleLinkPendingResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: The Google link waiting for the owner's confirmation (ticket cookie)
+      tags:
+      - auth
+  /auth/google/pending/code:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.googleLinkCodeResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Mail the one-time code that confirms the pending Google link (60 s
+        apart, 5 per hour; recaptcha action googleLinkCode)
+      tags:
+      - auth
+  /auth/google/pending/confirm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exactly one of Password and Code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.googleLinkConfirmRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Confirm the pending Google link with the password or the mailed code,
+        link it and sign in
+      tags:
+      - auth
   /auth/google/register:
     get:
       parameters:
@@ -13247,6 +15670,33 @@ paths:
       summary: Link Google to an incomplete (setup) account
       tags:
       - auth
+  /auth/last-email:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Forget the remembered sign-in address («not you»)
+      tags:
+      - auth
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.lastEmailResponse'
+              type: object
+      summary: The address of the last sign-in in this browser (cookie), for prefilling
+        the sign-in page; empty without functional consent (cib_consent)
+      tags:
+      - auth
   /auth/me:
     get:
       produces:
@@ -13261,6 +15711,186 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get the authenticated user's public profile
+      tags:
+      - auth
+  /auth/passkeys:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/auth.passkeyResponse'
+                  type: array
+              type: object
+      summary: List the current user's passkeys
+      tags:
+      - auth
+  /auth/passkeys/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: passkey ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Remove one of the current user's passkeys (the owner is confirmed first;
+        refused when it is the last way to sign in)
+      tags:
+      - auth
+  /auth/passkeys/registration/begin:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyCeremonyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Begin adding a passkey (the owner is confirmed first)
+      tags:
+      - auth
+  /auth/passkeys/registration/finish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: ceremony, name and attestation
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.passkeyRegistrationFinishRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Finish adding a passkey with the authenticator's attestation
+      tags:
+      - auth
+  /auth/passkeys/sign-in/begin:
+    post:
+      consumes:
+      - application/json
+      description: 'The body carries the captcha token: {"RecaptchaToken": "..."}.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.passkeyCeremonyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Begin a usernameless passkey sign-in
+      tags:
+      - auth
+  /auth/passkeys/sign-in/finish:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: ceremony and assertion
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.passkeySignInFinishRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Finish a passkey sign-in with the authenticator's assertion
       tags:
       - auth
   /auth/password/change:
@@ -14769,6 +17399,53 @@ paths:
       summary: Team stands as CSV (UTF-8 with BOM)
       tags:
       - event-analytics
+  /events/{id}/manage/analytics/submissions:
+    get:
+      description: 'One row per solved task of a visible team: the participant whose
+        submission was the first correct one, the minute from the event start and
+        from the team''s first open of the task, and the wrong attempts before it.
+        It counts submissions, not solutions (Note).'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventAnalytics.submissionsResponse'
+              type: object
+      summary: Who submitted the flag of each solved task
+      tags:
+      - event-analytics
+  /events/{id}/manage/analytics/submissions/export.csv:
+    get:
+      description: The first line is a note that the rows count flag submissions,
+        not solutions.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: CSV
+          schema:
+            type: string
+      summary: Export the submissions per participant as CSV (UTF-8 with BOM)
+      tags:
+      - event-analytics
   /events/{id}/manage/analytics/tasks:
     get:
       description: '§6.3 «Завдання». Attempts, solves, solve rate (solvers ÷ teams
@@ -15142,6 +17819,31 @@ paths:
         in: query
         name: cursor
         type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: subject, in-app title or event name (page-number mode)
+        in: query
+        name: search
+        type: string
+      - description: sending | done | failed | canceled (page-number mode)
+        in: query
+        name: status
+        type: string
+      - description: subject | channels | audience | recipients | delivered | failed
+          | status | author | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
+        type: string
       produces:
       - application/json
       responses:
@@ -15209,6 +17911,37 @@ paths:
       summary: Get a broadcast
       tags:
       - notification-broadcasts
+  /events/{id}/manage/broadcasts/{broadcastID}/cancel:
+    post:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.broadcastResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Stop a broadcast that is still being sent
+      tags:
+      - notification-broadcasts
   /events/{id}/manage/broadcasts/{broadcastID}/deliveries:
     get:
       parameters:
@@ -15217,13 +17950,17 @@ paths:
         name: broadcastID
         required: true
         type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      - description: page number (default 1)
+        in: query
+        name: page
+        type: integer
       - description: page size (default 50)
         in: query
-        name: limit
-        type: integer
-      - description: offset
-        in: query
-        name: offset
+        name: pageSize
         type: integer
       produces:
       - application/json
@@ -15235,11 +17972,31 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/messaging.deliveryResponse'
-                  type: array
+                  $ref: '#/definitions/pagination.OffsetPage-messaging_deliveryResponse'
               type: object
       summary: Recipients of a broadcast with their outcome, failures first
+      tags:
+      - notification-broadcasts
+  /events/{id}/manage/broadcasts/{broadcastID}/deliveries/export:
+    get:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Recipients of a broadcast with their outcome as CSV
       tags:
       - notification-broadcasts
   /events/{id}/manage/broadcasts/audience-count:
@@ -16672,13 +19429,75 @@ paths:
       summary: Attach an exercise set to a stage (or to the whole event)
       tags:
       - events
+  /events/{id}/manage/exercises/{exerciseID}/team-copies:
+    get:
+      description: 'Compares every team copy with the task of the version the set
+        is pinned to (for the variant the team plays) and lists the copies that differ:
+        text, attachments, hints.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.teamCopiesResponse'
+              type: object
+      summary: Team copies of a set's tasks that differ from the task now
+      tags:
+      - events
+  /events/{id}/manage/exercises/{exerciseID}/team-copies/sync:
+    post:
+      description: Refreshes text, attachments and hints of the differing copies from
+        the pinned version and marks them updated on the board. The variant and the
+        flag stay; solved copies are left alone. Returns what was updated.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.teamCopiesResponse'
+              type: object
+      summary: Bring the differing team copies of a set up to date
+      tags:
+      - events
   /events/{id}/manage/exercises/{exerciseID}/update:
     post:
       consumes:
       - application/json
       description: |-
         On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
-        Teams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.
+        Board challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.
       parameters:
       - description: event ID
         in: path
@@ -16709,6 +19528,49 @@ paths:
               type: object
       summary: '«Оновити»: switch the attachment in place to the latest (or given)
         published version, keeping event overrides'
+      tags:
+      - events
+  /events/{id}/manage/exercises/{exerciseID}/update/preview:
+    post:
+      consumes:
+      - application/json
+      description: 'Returns how many stands of how many teams would be recreated (StandsRecreated,
+        TeamsAffected, Teams), how many labs are re-prepared in place because they
+        have not started (StandsReset) or are kept as they are (StandsKept), the tasks
+        added, removed or kept under a new task id, removed tasks with attempts that
+        block the update, and whether the reservation is short. RequiresConfirmation
+        is true when the update recreates running stands: repeat the update with RecreateStands=true
+        only after the organizer confirmed.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      - description: 'target version (default: latest published)'
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/event.updateEventExerciseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventExerciseUpdatePreviewResponse'
+              type: object
+      summary: 'Dry run of «Оновити до нової версії»: what the update would do, nothing
+        is changed'
       tags:
       - events
   /events/{id}/manage/exercises/{exerciseID}/visibility:
@@ -17626,6 +20488,34 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update an event's lifecycle configuration
+      tags:
+      - events
+  /events/{id}/manage/lifecycle/changes:
+    get:
+      description: The latest 200 recorded changes of the schedule (publication, start,
+        finish, withdrawal, manual finish, join policy), newest first. Every change
+        is recorded, including one made outside the application.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.scheduleChangeResponse'
+                  type: array
+              type: object
+      summary: Who changed the event schedule, when, and from what to what
       tags:
       - events
   /events/{id}/manage/list-columns/{list}:
@@ -19499,6 +22389,66 @@ paths:
       summary: Revoke a pending participant invitation
       tags:
       - events
+  /events/{id}/manage/participants/{userID}/invitation/accept:
+    post:
+      description: 'Organizers are not time-limited: the registration window, publication
+        and a formed team do not stop it; the team size still applies.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: invited user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Accept a pending participant invitation on behalf of the invited person
+      tags:
+      - events
+  /events/{id}/manage/participants/{userID}/invitation/email:
+    put:
+      consumes:
+      - application/json
+      description: Moves the pending invitation (team, captaincy and prefilled answers
+        included) to the account of the new address and sends a new email with a new
+        link; the old link stops working. The same address just re-sends.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: invited user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      - description: new email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.changeInvitationEmailRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.ParticipantInvitationResult'
+              type: object
+      summary: Correct the email of a pending participant invitation
+      tags:
+      - events
   /events/{id}/manage/participants/{userID}/invitation/resend:
     post:
       parameters:
@@ -19588,6 +22538,35 @@ paths:
       summary: Save staff-only field values of a participant
       tags:
       - events
+  /events/{id}/manage/participants/{userID}/team/{teamID}:
+    put:
+      description: The participant leaves their current team for teamID. Organizers
+        are not time-limited (formed teams and a started event do not stop it). The
+        captain must hand over the captaincy first; the target team needs a free seat.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: participant user ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      - description: target team ID
+        in: path
+        name: teamID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Move a team member to another team
+      tags:
+      - events
   /events/{id}/manage/participants/{userID}/visibility:
     put:
       consumes:
@@ -19646,6 +22625,32 @@ paths:
                   type: array
               type: object
       summary: Invite event participants by email
+      tags:
+      - events
+  /events/{id}/manage/readiness:
+    get:
+      description: 'One look before the start: the tasks participants still do not
+        see and the stands that are not ready, with what each lab waits for.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.readinessResponse'
+              type: object
+      summary: 'Readiness of the event: unpublished tasks and stands that are not
+        ready'
       tags:
       - events
   /events/{id}/manage/registry-secrets:
@@ -21679,6 +24684,46 @@ paths:
       summary: Record that the caller opened a task of the team's board
       tags:
       - events-self
+  /events/{id}/teams/challenges/{challengeID}/run-checks:
+    post:
+      description: Only for a task checked by the state of the lab that allows a manual
+        check. A task that waits for other tasks answers 409 with the names of what
+        it waits for (public context waits_for). At most 3 asks a minute per team
+        and task (429 with Retry-After). The answer only says the request was recorded.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event challenge ID
+        in: path
+        name: challengeID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.runChecksResponse'
+              type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Ask for a check of the caller's own task now
+      tags:
+      - events-self
   /events/{id}/teams/challenges/{challengeID}/solves:
     get:
       description: Needs the board gates and event results access (under a freeze
@@ -22075,6 +25120,80 @@ paths:
                   $ref: '#/definitions/event.configResponse'
               type: object
       summary: Update an event's brand and optional accent
+      tags:
+      - events
+  /events/bulk/archive:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 events; one result per event in request order; an event
+        that fails never stops the others; one audit entry per event.
+      parameters:
+      - description: events
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkArchiveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkArchiveResponse'
+              type: object
+      summary: Archive many events
+      tags:
+      - events
+  /events/facets:
+    get:
+      description: How many events have each value of field (status, infrastructure
+        or organizer) under the same filters as GET /events (search, status, startFrom,
+        startTo, organizer, infrastructure, needsReservation) except the field's own.
+      parameters:
+      - description: status | infrastructure | organizer
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.facetResponse'
+              type: object
+      summary: Facet counts of the events table
+      tags:
+      - events
+  /events/organizers:
+    get:
+      description: Feeds the organizer filter of the events table.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.organizerResponse'
+                  type: array
+              type: object
+      summary: Everyone who manages at least one event
       tags:
       - events
   /events/self/answer-files:
@@ -22790,6 +25909,44 @@ paths:
       summary: Save the draft version (full snapshot PUT)
       tags:
       - exercises
+  /exercises/{id}/draft/document:
+    get:
+      description: 'Same access as reading the draft. The working copy (the draft,
+        else the published content, else an empty copy) written as the exercise document
+        of the archive: schema cib-exercise/1.0, one version, the keys in the order
+        of the specification, files as their archive paths (files/...). Secret env
+        values are empty (secret: true stays); a reader who may not see flags gets
+        no answer values and no conditions. Content-Type application/yaml; charset=utf-8,
+        at most 8 MiB (413 above). It is a view: nothing is written. Not wrapped in
+        the response envelope.'
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/yaml
+      responses:
+        "200":
+          description: the document
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: The working copy as the exercise document (YAML)
+      tags:
+      - exercises
   /exercises/{id}/elevation:
     get:
       parameters:
@@ -23133,6 +26290,58 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Check that the device images of the exercise can be pulled
+      tags:
+      - exercises
+  /exercises/{id}/images/service:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft; the same body as images/check.
+        The editor shows these as the default of a device's command, arguments and
+        terminal user. One entry per distinct non-empty image, in the order sent.
+        Known is true only for a platform image (platform:<name>@sha256:...) whose
+        start configuration was read when it was published, so an image the author
+        just uploaded is known as soon as its reference is returned. Known is false
+        (the other fields empty) for an image by reference to an external registry
+        (nothing reads its config), for a platform image published before the configuration
+        was kept, and when the read fails; then the device needs its own command when
+        it has bootstrap files or a script. No registry call is made, the answer is
+        immediate.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: images
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.checkImagesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.imageServiceResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: What the images themselves run (entrypoint, cmd, user, working directory)
       tags:
       - exercises
   /exercises/{id}/proposals:
@@ -23788,6 +26997,50 @@ paths:
       summary: Get the link that opens one web device of a ready test deploy
       tags:
       - exercises
+  /exercises/deploys/{deployID}/tasks/{taskID}/run-checks:
+    post:
+      description: 'Asks the laboratory to run the checks of one task checked by the
+        state of the lab. Only a task that allows a manual run; at most 3 asks a minute
+        per task (429 with Retry-After). The answer only says the request was recorded:
+        read the result from the deploy status. Author of the deploy only.'
+      parameters:
+      - description: test deployment id
+        in: path
+        name: deployID
+        required: true
+        type: string
+      - description: task id
+        in: path
+        name: taskID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.deployRunChecksResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Run the checks of a state task of a test deploy now
+      tags:
+      - exercises
   /exercises/deploys/{group}:
     delete:
       parameters:
@@ -23843,6 +27096,10 @@ paths:
         in: query
         name: status
         type: string
+      - description: 'user ID: only the requests this person made (their history)'
+        in: query
+        name: author
+        type: string
       produces:
       - application/json
       responses:
@@ -23862,7 +27119,8 @@ paths:
       - exercises
   /exercises/elevations/{elevationID}:
     get:
-      description: Requires exercises.elevations.read (super_admin only).
+      description: Requires exercises.elevations.read (super_admin only). Capacity
+        is null when it cannot be read.
       parameters:
       - description: request ID
         in: path
@@ -23881,7 +27139,8 @@ paths:
                 data:
                   $ref: '#/definitions/exercise.elevationResponse'
               type: object
-      summary: One resource elevation request (platform admin)
+      summary: One resource elevation request with the free cluster capacity beside
+        it (platform admin)
       tags:
       - exercises
   /exercises/elevations/{elevationID}/approve:
@@ -23950,6 +27209,24 @@ paths:
                   $ref: '#/definitions/exercise.elevationResponse'
               type: object
       summary: Reject a resource elevation request
+      tags:
+      - exercises
+  /exercises/elevations/pending-count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.pendingElevationCountResponse'
+              type: object
+      summary: How many resource elevation requests wait for a decision (the menu
+        badge)
       tags:
       - exercises
   /exercises/export:
@@ -24228,8 +27505,9 @@ paths:
       - exercises
   /exercises/import/jobs:
     get:
-      description: So a page on another device, or with cleared storage, can follow
-        them (GET /exercises/import/jobs/{jobID}).
+      description: |-
+        So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).
+        A running import without a heartbeat for 2 minutes is listed as failed (interrupted).
       produces:
       - application/json
       responses:
@@ -24244,10 +27522,37 @@ paths:
                     $ref: '#/definitions/exercise.runningImport'
                   type: array
               type: object
-      summary: The caller's background task imports that still run
+      summary: 'The caller''s open background task imports: running, or failed and
+        not closed'
       tags:
       - exercises
   /exercises/import/jobs/{jobID}:
+    delete:
+      description: |-
+        The import is no longer listed (GET /exercises/import/jobs); running it again shows it again. A
+        running import cannot be closed (409). Only the user who started it (404 otherwise).
+      parameters:
+      - description: import job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Close the row of a failed background task import
+      tags:
+      - exercises
     get:
       description: |-
         running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is
@@ -24281,10 +27586,16 @@ paths:
     post:
       consumes:
       - application/json
-      description: Omitted Targets are nonbinding editable-ID suggestions. Explicit
+      description: 'This is the dry run of an import: nothing is written. Omitted
+        Targets are nonbinding editable-ID suggestions (a document without an exercise
+        id is suggested as a new exercise, with the warning no_exercise_id). Explicit
         choices must name every item exactly once. FixedExerciseID forces one item
         into that editable target. Revisions bind the exact immutable source/item
-        and current target content. Summary never returns flags or device secrets.
+        and current target content. Each item carries Summary (counts) and Report:
+        Diff (per variant, tasks and devices kept/added/removed by identity), Issues
+        (errors that would stop the result being published, with Path), Publishable,
+        Warnings and Usage (events and labs using the exercise). Neither returns flags
+        or device secrets. The apply call returns the same Report per result.'
       parameters:
       - description: owned source and optional per-item choices
         in: body
@@ -25709,6 +29020,15 @@ paths:
         in: query
         name: search
         type: string
+      - description: event | team | status | reason | cpu | memory | updatedAt | statusChangedAt
+          | generation
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
+        type: string
       - description: 1-based page
         in: query
         name: page
@@ -25876,6 +29196,35 @@ paths:
       summary: Recreate one team stand
       tags:
       - infrastructure
+  /infrastructure/stands/bulk/recreate:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 50 stands; each gets the checks of the single recreation;
+        one result and one audit entry per stand in request order, a refusal never
+        stops the others. Requires infrastructure.write (super_admin only).
+      parameters:
+      - description: stands
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/infrastructure.bulkRecreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.bulkResponse'
+              type: object
+      summary: Recreate many team stands
+      tags:
+      - infrastructure
   /infrastructure/stands/events:
     get:
       description: Feeds the event filter of the stand table. Requires infrastructure.read
@@ -25895,6 +29244,33 @@ paths:
                   type: array
               type: object
       summary: List events that have stands
+      tags:
+      - infrastructure
+  /infrastructure/stands/facets:
+    get:
+      description: How many stands have each value of field (status, kind or event)
+        under the same filters as GET /infrastructure/stands (search, eventId, status,
+        kind) except the field's own. Status keys are creating, ready, failed, removed
+        and active (creating + ready). Requires infrastructure.read (super_admin only).
+      parameters:
+      - description: status | kind | event
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.facetResponse'
+              type: object
+      summary: Facet counts of the stand table
       tags:
       - infrastructure
   /infrastructure/status:
@@ -25945,6 +29321,26 @@ paths:
       - description: exercise name, author name or email
         in: query
         name: search
+        type: string
+      - description: active | expired
+        in: query
+        name: status
+        type: string
+      - description: author user ID
+        in: query
+        name: author
+        type: string
+      - description: exercise ID
+        in: query
+        name: exercise
+        type: string
+      - description: exercise | author | variant | status | createdAt | expiresAt
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc
+        in: query
+        name: sortDir
         type: string
       - description: 1-based page
         in: query
@@ -26071,6 +29467,62 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: End a catalog test lab
+      tags:
+      - infrastructure
+  /infrastructure/test-labs/bulk/terminate:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 100 labs; each gets the checks of the single termination;
+        one result and one audit entry per lab in request order. Requires infrastructure.write
+        (super_admin only).
+      parameters:
+      - description: test labs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/infrastructure.bulkTerminateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.bulkResponse'
+              type: object
+      summary: End many catalog test labs
+      tags:
+      - infrastructure
+  /infrastructure/test-labs/facets:
+    get:
+      description: How many test labs have each value of field (status, author or
+        exercise) under the same filters as GET /infrastructure/test-labs (search,
+        status, author, exercise) except the field's own. Requires infrastructure.read
+        (super_admin only).
+      parameters:
+      - description: status | author | exercise
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/infrastructure.facetResponse'
+              type: object
+      summary: Facet counts of the test laboratory table
       tags:
       - infrastructure
   /mail/settings:
@@ -26444,6 +29896,31 @@ paths:
         in: query
         name: cursor
         type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: subject, in-app title or event name (page-number mode)
+        in: query
+        name: search
+        type: string
+      - description: sending | done | failed | canceled (page-number mode)
+        in: query
+        name: status
+        type: string
+      - description: subject | channels | audience | recipients | delivered | failed
+          | status | author | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
+        type: string
       produces:
       - application/json
       responses:
@@ -26511,6 +29988,37 @@ paths:
       summary: Get a broadcast
       tags:
       - notification-broadcasts
+  /notifications/broadcasts/{broadcastID}/cancel:
+    post:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/messaging.broadcastResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Stop a broadcast that is still being sent
+      tags:
+      - notification-broadcasts
   /notifications/broadcasts/{broadcastID}/deliveries:
     get:
       parameters:
@@ -26519,13 +30027,17 @@ paths:
         name: broadcastID
         required: true
         type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      - description: page number (default 1)
+        in: query
+        name: page
+        type: integer
       - description: page size (default 50)
         in: query
-        name: limit
-        type: integer
-      - description: offset
-        in: query
-        name: offset
+        name: pageSize
         type: integer
       produces:
       - application/json
@@ -26537,11 +30049,31 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/messaging.deliveryResponse'
-                  type: array
+                  $ref: '#/definitions/pagination.OffsetPage-messaging_deliveryResponse'
               type: object
       summary: Recipients of a broadcast with their outcome, failures first
+      tags:
+      - notification-broadcasts
+  /notifications/broadcasts/{broadcastID}/deliveries/export:
+    get:
+      parameters:
+      - description: broadcast ID
+        in: path
+        name: broadcastID
+        required: true
+        type: string
+      - description: error | done | waiting
+        in: query
+        name: status
+        type: string
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Recipients of a broadcast with their outcome as CSV
       tags:
       - notification-broadcasts
   /notifications/broadcasts/audience-count:
@@ -26601,6 +30133,18 @@ paths:
         in: query
         name: transport
         type: string
+      - description: part of the recipient email or name
+        in: query
+        name: recipient
+        type: string
+      - description: created at or after (RFC 3339)
+        in: query
+        name: from
+        type: string
+      - description: created before (RFC 3339)
+        in: query
+        name: to
+        type: string
       - description: page size (default 50)
         in: query
         name: limit
@@ -26608,6 +30152,22 @@ paths:
       - description: last dispatch ID from the previous cursor page
         in: query
         name: cursor
+        type: string
+      - description: 'page number: switches to the page-number mode (OffsetPage answer)'
+        in: query
+        name: page
+        type: integer
+      - description: page size of the page-number mode (default 50)
+        in: query
+        name: pageSize
+        type: integer
+      - description: type | recipient | event | status | created (page-number mode)
+        in: query
+        name: sortBy
+        type: string
+      - description: asc | desc (page-number mode)
+        in: query
+        name: sortDir
         type: string
       produces:
       - application/json
@@ -26649,6 +30209,61 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get a dispatch with its targets
+      tags:
+      - notification-stats
+  /notifications/dispatches/facets:
+    get:
+      description: How many dispatches have each value of field under the same filters
+        as the list (type, status, event, channel, result, transport, user, recipient,
+        from, to) except the field's own.
+      parameters:
+      - description: type | status | event | channel | result | transport
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/stats.dispatchFacetResponse'
+              type: object
+      summary: Facet counts of the notification log
+      tags:
+      - notification-stats
+  /notifications/dispatches/resend:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 dispatches; the failed channels of each are queued again
+        from the stored content; one result per dispatch in request order; a dispatch
+        that cannot be resent never stops the others; one audit entry per dispatch.
+      parameters:
+      - description: dispatches
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/stats.resendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/stats.resendResponse'
+              type: object
+      summary: Send the failed deliveries of many dispatches again
       tags:
       - notification-stats
   /notifications/inbox:
@@ -28378,6 +31993,72 @@ paths:
       summary: List the repositories a registry token can see
       tags:
       - settings
+  /settings/node-profiles:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+      summary: 'Remove the saved node profiles: the container only applies again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+      summary: 'Get the node profiles the platform supports (default: the container
+        only), with, per profile, whether a connected laboratory agent can run it
+        now'
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Container, MicroVM and VM, 1 or 0
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.nodeProfilesResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'Save the supported node profiles (Container, MicroVM, VM: 1 or 0 each);
+        a missing or unknown field, a value other than 0 or 1 or no profile at all
+        is a 400 (Context.field)'
+      tags:
+      - settings
   /settings/participant-preview:
     get:
       produces:
@@ -28672,6 +32353,50 @@ paths:
       summary: Get a single user's detail
       tags:
       - users
+  /users/{userID}/invitation/resend:
+    post:
+      description: Only for status incomplete; the old link stops working.
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Send the invitation of an unfinished registration again
+      tags:
+      - users
+  /users/{userID}/participations:
+    get:
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/user.userParticipationResponse'
+                  type: array
+              type: object
+      summary: The events a user takes part in or manages
+      tags:
+      - users
   /users/{userID}/role:
     patch:
       consumes:
@@ -28710,6 +32435,24 @@ paths:
       summary: Update a user's role
       tags:
       - users
+  /users/{userID}/sessions/end:
+    post:
+      parameters:
+      - description: user UUID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Sign a user out everywhere
+      tags:
+      - users
   /users/{userID}/status:
     patch:
       consumes:
@@ -28746,6 +32489,139 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Update a user's status (active / suspended)
+      tags:
+      - users
+  /users/bulk/block:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Block many users
+      tags:
+      - users
+  /users/bulk/end-sessions:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: End the sessions of many users
+      tags:
+      - users
+  /users/bulk/resend-invitation:
+    post:
+      consumes:
+      - application/json
+      description: 1 to 200 users; one result per user in request order; a refusal
+        for one never stops the others. Same for /users/bulk/block, /users/bulk/unblock
+        and /users/bulk/end-sessions.
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Send the invitations of many unfinished registrations again
+      tags:
+      - users
+  /users/bulk/unblock:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: users
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/user.bulkUsersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.bulkUsersResponse'
+              type: object
+      summary: Unblock many users
+      tags:
+      - users
+  /users/facets:
+    get:
+      description: How many users have each value of field (role, status, emailConfirmed
+        or signIn) under the same filters as GET /users (search, role, status, emailConfirmed,
+        signIn, inactiveDays) except the field's own.
+      parameters:
+      - description: role | status | emailConfirmed | signIn
+        in: query
+        name: field
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.userFacetResponse'
+              type: object
+      summary: Facet counts of the users table
       tags:
       - users
   /users/invite:

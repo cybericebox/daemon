@@ -171,6 +171,36 @@ func (e appError) WithPublicContext(key string, value any) ErrorCreator {
 	return e
 }
 
+// AddPublicContext adds a public context value to an error that already exists (WithPublicContext does it while the
+// error is built). The error is returned unchanged when it is not an application error, is nil, or already has the key,
+// so the place that knows the most keeps its value. The stack position of the error is kept.
+func AddPublicContext(failure error, key string, value any) error {
+	coded, ok := failure.(appError) //nolint:errorlint // only the error itself is changed: a wrapper around it would be lost
+	if !ok {
+		return failure
+	}
+	if _, set := coded.public[key]; set {
+		return failure
+	}
+	return coded.withPublic(key, value)
+}
+
+// withPublic is a copy of the error with the value in both the context and the public context.
+func (e appError) withPublic(key string, value any) appError {
+	ctx := make(map[string]any, len(e.context)+1)
+	for k, v := range e.context {
+		ctx[k] = v
+	}
+	ctx[key] = value
+	public := make(map[string]any, len(e.public)+1)
+	for k, v := range e.public {
+		public[k] = v
+	}
+	public[key] = value
+	e.context, e.public = ctx, public
+	return e
+}
+
 // PublicContext returns a copy of the context marked public; nil when there is none.
 func (e appError) PublicContext() map[string]any {
 	if len(e.public) == 0 {

@@ -2,6 +2,7 @@ package flagpattern_test
 
 import (
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -93,5 +94,55 @@ func TestParse_BigCardinalityDoesNotOverflow(t *testing.T) {
 	}
 	if got := p.Cardinality().String(); got != "10000000000000000000000000" {
 		t.Fatalf("cardinality = %s", got)
+	}
+}
+
+func TestParse_FlagTemplateRepeatCount(t *testing.T) {
+	p, err := flagpattern.Parse(`template:ICE{[a-f0-9]{16}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Cardinality().String(); got != "18446744073709551616" { // 16^16
+		t.Fatalf("cardinality = %s", got)
+	}
+	value, err := p.Generate(repeatedByte(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`^ICE\{[a-f0-9]{16}\}$`).MatchString(value) {
+		t.Fatalf("generated %q", value)
+	}
+	if strings.ContainsAny(value[len("ICE{"):len(value)-1], "{}") {
+		t.Fatalf("generated flag %q holds a brace inside", value)
+	}
+	mixed, err := flagpattern.Parse(`template:ICE{room-\d{3}-[A-C]{2}x}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mixed.Cardinality().String(); got != "9000" { // 10^3 * 3^2
+		t.Fatalf("mixed cardinality = %s", got)
+	}
+}
+
+func TestParse_FlagTemplateRepeatCountRejectsMisuse(t *testing.T) {
+	for _, candidate := range []string{
+		`template:ICE{[a-f]{0}}`,
+		`template:ICE{[a-f]{65}}`,
+		`template:ICE{[a-f]{x}}`,
+		`template:ICE{[a-f]{3}{2}}`,
+		`template:ICE{[a-f]{3}`,
+		`template:ICE{{3}[a-f]}`,
+		`template:ICE{a{3}[a-f]}`,
+		`template:ICE{[a-f]}x}}`,
+		`template:ICE{[a-f]\{}`,
+		// a fixed flag never holds a brace inside, whatever follows it
+		`ICE{a{3}}`,
+		`ICE{a}b}`,
+	} {
+		t.Run(candidate, func(t *testing.T) {
+			if _, err := flagpattern.Parse(candidate); err == nil {
+				t.Fatalf("accepted invalid %q", candidate)
+			}
+		})
 	}
 }

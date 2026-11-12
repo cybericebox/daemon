@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry/provider"
@@ -51,12 +52,22 @@ type (
 		// Nil: asking for a blob push is a platform error.
 		Media         MediaSource
 		QueueBlobPush BlobPushQueue
+		// Configs keeps the start configuration of the platform images (entrypoint, cmd, user, working directory) so a lab with
+		// a bootstrap knows what to run after it. Nil: not kept, and a deploy then finds no configuration.
+		Configs ImageConfigStore
 		// HeadTimeout bounds one registry request of an availability check (default 10 s);
 		// CallTimeout bounds one whole check call (default 30 s).
 		HeadTimeout, CallTimeout time.Duration
 	}
 
+	// ImageConfigStore keeps the start configuration of a platform image by its manifest digest.
+	ImageConfigStore interface {
+		Save(ctx context.Context, digest string, service exerciseModel.ImageService, now time.Time) error
+		Get(ctx context.Context, digests []string) (map[string]exerciseModel.ImageService, error)
+	}
+
 	ImageRegistryUseCase struct {
+		configs  ImageConfigStore
 		settings *imageRegistryRepo.Repository
 		secrets  *imageRegistryRepo.EventSecrets
 		images   *imageRegistryRepo.PlatformImages
@@ -98,6 +109,7 @@ func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 
 func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
+		configs:       deps.Configs,
 		settings:      imageRegistryRepo.New(deps.Repo),
 		secrets:       imageRegistryRepo.NewEventSecrets(deps.Repo),
 		images:        imageRegistryRepo.NewPlatformImages(deps.Repo),

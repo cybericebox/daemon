@@ -13,6 +13,71 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelNotificationBroadcast = `-- name: CancelNotificationBroadcast :execrows
+UPDATE notification_broadcasts
+SET status      = 'canceled',
+    finished_at = now()
+WHERE id = $1
+  AND status = 'sending'
+`
+
+// Only a running broadcast can be canceled; the sender stops queuing recipients.
+func (q *Queries) CancelNotificationBroadcast(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelNotificationBroadcast, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const countBroadcastDeliveries = `-- name: CountBroadcastDeliveries :one
+SELECT count(*)
+FROM notification_dispatches d
+LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
+WHERE d.broadcast_id = $1
+  AND ($2::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = $2::text)
+`
+
+type CountBroadcastDeliveriesParams struct {
+	BroadcastID  uuid.NullUUID `json:"broadcast_id"`
+	StatusFilter string        `json:"status_filter"`
+}
+
+func (q *Queries) CountBroadcastDeliveries(ctx context.Context, arg CountBroadcastDeliveriesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBroadcastDeliveries, arg.BroadcastID, arg.StatusFilter)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countNotificationBroadcasts = `-- name: CountNotificationBroadcasts :one
+SELECT count(*)
+FROM notification_broadcasts b
+LEFT JOIN events e ON e.id = b.scope_event_id
+WHERE ($1::text = ''
+    OR ($1::text = 'platform' AND b.scope_event_id IS NULL)
+    OR b.scope_event_id::text = $1::text)
+  AND ($2::text = ''
+    OR strpos(lower(b.subject), lower($2::text)) > 0
+    OR strpos(lower(b.inapp_title), lower($2::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower($2::text)) > 0)
+  AND ($3::text = '' OR b.status = $3::text)
+`
+
+type CountNotificationBroadcastsParams struct {
+	ScopeFilter  string `json:"scope_filter"`
+	Search       string `json:"search"`
+	StatusFilter string `json:"status_filter"`
+}
+
+func (q *Queries) CountNotificationBroadcasts(ctx context.Context, arg CountNotificationBroadcastsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countNotificationBroadcasts, arg.ScopeFilter, arg.Search, arg.StatusFilter)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNotificationBroadcast = `-- name: CreateNotificationBroadcast :one
 INSERT INTO notification_broadcasts (id, scope_event_id, created_by, channels, subject, preheader, email_body, email_styling,
                                      inapp_title, inapp_body, inapp_link, audience, recipient_count, status)
@@ -82,6 +147,7 @@ SET status          = $1,
     recipient_count = $2,
     finished_at     = now()
 WHERE id = $3
+  AND status = 'sending'
 `
 
 type FinishNotificationBroadcastParams struct {
@@ -176,14 +242,17 @@ FROM notification_dispatches d
 LEFT JOIN users u ON u.id = d.recipient_user_id
 LEFT JOIN notification_dispatch_targets t ON t.dispatch_id = d.id
 WHERE d.broadcast_id = $1
+  AND ($2::text = ''
+       OR COALESCE(NULLIF(t.status, ''), 'waiting') = $2::text)
 ORDER BY (t.status = 'error') DESC NULLS LAST, d.created_at, d.id, t.channel
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListBroadcastDeliveriesParams struct {
-	BroadcastID uuid.NullUUID `json:"broadcast_id"`
-	OffsetVal   int32         `json:"offset_val"`
-	LimitVal    int32         `json:"limit_val"`
+	BroadcastID  uuid.NullUUID `json:"broadcast_id"`
+	StatusFilter string        `json:"status_filter"`
+	OffsetVal    int32         `json:"offset_val"`
+	LimitVal     int32         `json:"limit_val"`
 }
 
 type ListBroadcastDeliveriesRow struct {
@@ -197,9 +266,15 @@ type ListBroadcastDeliveriesRow struct {
 }
 
 // One row per recipient and channel target of the broadcast (recipients still
-// waiting for their first attempt have a NULL channel).
+// waiting for their first attempt have a NULL channel). status_filter is
+// ” (all), 'error', 'done' or 'waiting' (no attempt yet).
 func (q *Queries) ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error) {
-	rows, err := q.db.Query(ctx, listBroadcastDeliveries, arg.BroadcastID, arg.OffsetVal, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listBroadcastDeliveries,
+		arg.BroadcastID,
+		arg.StatusFilter,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -328,30 +403,60 @@ const listNotificationBroadcasts = `-- name: ListNotificationBroadcasts :many
 SELECT b.id, b.scope_event_id, b.created_by, b.channels, b.subject, b.preheader, b.email_body, b.email_styling, b.inapp_title, b.inapp_body, b.inapp_link, b.audience, b.recipient_count, b.status, b.created_at, b.finished_at,
        COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')::text AS created_by_name,
        COALESCE(e.name, '')::text                                                          AS event_name,
-       (SELECT count(*) FROM notification_dispatches d
-        WHERE d.broadcast_id = b.id AND EXISTS (SELECT 1 FROM notification_dispatch_targets t
-                                                WHERE t.dispatch_id = d.id AND t.status = 'error'))::bigint AS failed_count,
-       (SELECT count(*) FROM notification_dispatches d
-        WHERE d.broadcast_id = b.id
-          AND d.status = 'done'
-          AND NOT EXISTS (SELECT 1 FROM notification_dispatch_targets t
-                          WHERE t.dispatch_id = d.id AND t.status = 'error'))::bigint AS sent_count
+       c.failed::bigint                                                                    AS failed_count,
+       c.sent::bigint                                                                      AS sent_count
 FROM notification_broadcasts b
 LEFT JOIN users u ON u.id = b.created_by
 LEFT JOIN events e ON e.id = b.scope_event_id
+LEFT JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM notification_dispatch_targets t
+                                          WHERE t.dispatch_id = d.id AND t.status = 'error'))      AS failed,
+           count(*) FILTER (WHERE d.status = 'done'
+                              AND NOT EXISTS (SELECT 1 FROM notification_dispatch_targets t
+                                              WHERE t.dispatch_id = d.id AND t.status = 'error')) AS sent
+    FROM notification_dispatches d
+    WHERE d.broadcast_id = b.id) c ON true
 WHERE ($1::text = ''
     OR ($1::text = 'platform' AND b.scope_event_id IS NULL)
     OR b.scope_event_id::text = $1::text)
   AND ($2::text = '' OR (b.created_at, b.id) < (
     SELECT created_at, id FROM notification_broadcasts WHERE id = NULLIF($2::text, '')::uuid
   ))
-ORDER BY b.created_at DESC, b.id DESC
-LIMIT $3
+  AND ($3::text = ''
+    OR strpos(lower(b.subject), lower($3::text)) > 0
+    OR strpos(lower(b.inapp_title), lower($3::text)) > 0
+    OR strpos(lower(COALESCE(e.name, '')), lower($3::text)) > 0)
+  AND ($4::text = '' OR b.status = $4::text)
+ORDER BY
+  CASE WHEN $5::text = 'subject' AND $6::text = 'asc' THEN lower(b.subject) END ASC,
+  CASE WHEN $5::text = 'subject' AND $6::text = 'desc' THEN lower(b.subject) END DESC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'asc' THEN b.status END ASC,
+  CASE WHEN $5::text = 'status' AND $6::text = 'desc' THEN b.status END DESC,
+  CASE WHEN $5::text = 'recipients' AND $6::text = 'asc' THEN b.recipient_count END ASC,
+  CASE WHEN $5::text = 'recipients' AND $6::text = 'desc' THEN b.recipient_count END DESC,
+  CASE WHEN $5::text = 'channels' AND $6::text = 'asc' THEN array_to_string(b.channels, ',') END ASC,
+  CASE WHEN $5::text = 'channels' AND $6::text = 'desc' THEN array_to_string(b.channels, ',') END DESC,
+  CASE WHEN $5::text = 'audience' AND $6::text = 'asc' THEN b.audience ->> 'kind' END ASC,
+  CASE WHEN $5::text = 'audience' AND $6::text = 'desc' THEN b.audience ->> 'kind' END DESC,
+  CASE WHEN $5::text = 'delivered' AND $6::text = 'asc' THEN c.sent END ASC,
+  CASE WHEN $5::text = 'delivered' AND $6::text = 'desc' THEN c.sent END DESC,
+  CASE WHEN $5::text = 'failed' AND $6::text = 'asc' THEN c.failed END ASC,
+  CASE WHEN $5::text = 'failed' AND $6::text = 'desc' THEN c.failed END DESC,
+  CASE WHEN $5::text = 'author' AND $6::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')) END ASC,
+  CASE WHEN $5::text = 'author' AND $6::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email, '')) END DESC,
+  CASE WHEN $5::text = 'created' AND $6::text = 'asc' THEN b.created_at END ASC,
+  b.created_at DESC, b.id DESC
+LIMIT $8 OFFSET $7
 `
 
 type ListNotificationBroadcastsParams struct {
 	ScopeFilter  string `json:"scope_filter"`
 	CursorFilter string `json:"cursor_filter"`
+	Search       string `json:"search"`
+	StatusFilter string `json:"status_filter"`
+	SortBy       string `json:"sort_by"`
+	SortDir      string `json:"sort_dir"`
+	OffsetVal    int32  `json:"offset_val"`
 	LimitVal     int32  `json:"limit_val"`
 }
 
@@ -381,7 +486,16 @@ type ListNotificationBroadcastsRow struct {
 // scope_filter: ” = every scope, 'platform' = platform broadcasts only,
 // otherwise the Event id.
 func (q *Queries) ListNotificationBroadcasts(ctx context.Context, arg ListNotificationBroadcastsParams) ([]ListNotificationBroadcastsRow, error) {
-	rows, err := q.db.Query(ctx, listNotificationBroadcasts, arg.ScopeFilter, arg.CursorFilter, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listNotificationBroadcasts,
+		arg.ScopeFilter,
+		arg.CursorFilter,
+		arg.Search,
+		arg.StatusFilter,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}

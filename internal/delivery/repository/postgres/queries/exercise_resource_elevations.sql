@@ -21,13 +21,19 @@ WHERE id = sqlc.arg(id)
   AND status = 0;
 
 -- name: ListExerciseResourceElevations :many
--- Newest first; status and exercise narrow the list (a null argument does not filter).
+-- Newest first; status, exercise and author narrow the list (a null argument does not filter).
 SELECT elevation.*, exercise.name AS exercise_name
 FROM exercise_resource_elevations elevation
          JOIN exercises exercise ON exercise.id = elevation.exercise_id
 WHERE (sqlc.narg(status)::smallint IS NULL OR elevation.status = sqlc.narg(status)::smallint)
   AND (sqlc.narg(exercise_id)::uuid IS NULL OR elevation.exercise_id = sqlc.narg(exercise_id)::uuid)
+  AND (sqlc.narg(requested_by)::uuid IS NULL OR elevation.requested_by = sqlc.narg(requested_by)::uuid)
 ORDER BY elevation.requested_at DESC, elevation.id DESC;
+
+-- name: CountPendingExerciseResourceElevations :one
+SELECT count(*)
+FROM exercise_resource_elevations
+WHERE status = 0;
 
 -- name: GetLatestExerciseResourceElevation :one
 -- The open request of the exercise, else its latest decided one.

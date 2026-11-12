@@ -47,14 +47,15 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 	if ok, wait := u.limits.emailChangeUsers.Allow(userID.String()); !ok {
 		return tooManyRequests(wait)
 	}
-	if !u.mailAllowed(mailKindEmailChange, newEmail) {
-		return tooManyRequests(u.limits.mailGap)
+	if _, err = u.requestMail(newEmail); err != nil {
+		return err
 	}
 
-	// Reject if a (non-deleted) account already uses the new address.
-	if _, err := u.users.GetByEmail(ctx, newEmail); err == nil {
+	// The account's own address is a resend of its confirmation (the «Не підтверджено» button), under the same
+	// limits and captcha; any other account's address is refused.
+	if existing, err := u.users.GetByEmail(ctx, newEmail); err == nil && existing.ID != userID {
 		return userModel.ErrUserExists.WithError(errors.New("email-change-request: new address already in use")).Err()
-	} else if !repositoryTools.IsObjectNotFoundError(err) {
+	} else if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to check email availability").Err()
 	}
 
@@ -126,13 +127,22 @@ func (u *AuthUseCase) confirmEmailChange(ctx context.Context, bsCode string) err
 
 	// One aggregate write replaces the old email+confirmed statement pair.
 	var oldEmail, name string
+	sameAddress := false
 	if err = u.mutateUser(ctx, data.UserID, func(user *userModel.User) error {
 		oldEmail, name = user.Email, user.FirstName
-		user.ChangeEmail(data.Email, time.Now())
+		sameAddress = user.Email == data.Email
+		if !sameAddress {
+			user.ChangeEmail(data.Email, time.Now())
+		}
 		user.ConfirmEmail(time.Now())
 		return nil
 	}); err != nil {
 		return err
+	}
+	if sameAddress {
+		// A confirmation of the address the account already has: nothing about the account's identity changed,
+		// so sessions and the Google link stay.
+		return u.revokeCodes(ctx, data.UserID, temporalCodeModel.EmailChangeCodeType)
 	}
 	// The change is done: pending recovery and email-change codes issued before it are dead.
 	if err = u.revokeCodes(ctx, data.UserID, temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType); err != nil {

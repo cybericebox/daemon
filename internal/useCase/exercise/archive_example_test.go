@@ -135,7 +135,7 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 		}).AnyTimes()
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			written = append(written, arg.Variants)
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		}).AnyTimes()
@@ -145,6 +145,22 @@ func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte,
 		Archive: archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
 	})
 	return media, written, err
+}
+
+// importExamplePublishable is importExample plus the publish validation of the imported version. An import always
+// lands as a draft and a draft may be incomplete, so the keys the example calls required are the ones whose absence
+// the import or the later publication refuses.
+func importExamplePublishable(t *testing.T, files map[string][]byte) error {
+	t.Helper()
+	if _, _, err := importExample(t, files); err != nil {
+		return err
+	}
+	archive, err := exercise.BuildArchiveNoManifest(files)
+	require.NoError(t, err)
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	expectUserNames(q)
+	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	return uc.ImportedVersionPublishable(context.Background(), archive)
 }
 
 func replaced(files map[string][]byte, name string, body []byte) map[string][]byte {
@@ -165,14 +181,18 @@ func TestExampleArchive_ContainsOnlyYAMLAndFiles(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	require.Equal(t, []string{"exercise.yaml", "files/notes-2.txt", "files/notes.txt"}, names)
+	require.Equal(
+		t,
+		[]string{"exercise.yaml", "files/config.yaml", "files/notes-2.txt", "files/notes.txt"},
+		names,
+	)
 	require.Equal(t, "example-task.cybericebox.zip", exercise.ExampleArchiveFilename)
 }
 
 func TestExampleArchive_StartsWithSchema(t *testing.T) {
 	root := exampleRoot(t, exampleEntries(t)["exercise.yaml"]).Content[0]
 	require.Equal(t, "schema", root.Content[0].Value)
-	require.Equal(t, "cib-exercise/1", root.Content[1].Value)
+	require.Equal(t, "cib-exercise/1.0", root.Content[1].Value)
 }
 
 func TestExampleArchive_ImportsCleanly(t *testing.T) {
@@ -195,7 +215,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	var variants []exerciseModel.Variant
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			require.NoError(t, json.Unmarshal(arg.Variants, &variants))
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
@@ -211,7 +231,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	base, linked := variants[0], variants[1]
 	require.Equal(t, 2, base.Weight, "the example's base variant is given out twice as often")
 	require.Equal(t, 1, linked.EffectiveWeight(), "a variant without weight counts as 1")
-	require.Len(t, base.Tasks, 2)
+	require.Len(t, base.Tasks, 4)
 	require.Contains(t, string(base.Tasks[0].Description), `"type":"variable"`)
 	require.Contains(t, string(base.Tasks[0].Description), `"varName":"server"`)
 	require.Len(t, base.Topology.Devices, 4)
@@ -226,14 +246,47 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Equal(t, exerciseModel.SecurityPresetExtended, devices["db"].SecurityPreset)
 	require.Nil(t, base.Topology.VisualRender, "visual_render: null is no layout")
 	require.True(t, web.WaitReadyFile)
-	require.NotNil(t, web.External)
-	require.EqualValues(t, 80, web.External.Port)
-	require.Equal(t, "http", web.External.Protocol)
+	httpAccess, hasHTTP := web.HTTPAccess()
+	require.True(t, hasHTTP)
+	require.EqualValues(t, 80, httpAccess.Port)
+	require.Equal(t, "http", httpAccess.Protocol)
 	require.NotNil(t, web.Persistence)
 	require.True(t, web.Persistence.Enabled)
 	require.Equal(t, "5s", web.Persistence.Debounce)
-	require.Len(t, web.EnvVars, 1)
-	require.False(t, web.EnvVars[0].Secret)
+	require.Len(t, web.Bootstrap.Env, 2)
+	require.False(t, web.Bootstrap.Env[0].Secret)
+	require.Equal(t, "{{var.app_mode}}", web.Bootstrap.Env[0].Value)
+	require.Equal(
+		t,
+		"{{task.container_secret}}",
+		web.Bootstrap.Env[1].Value,
+		"the task value reaches the device through its bootstrap",
+	)
+	require.Equal(t, []string{"nginx"}, web.Command)
+	require.Equal(t, []string{"-g", "daemon off;"}, web.Args)
+	require.Equal(t, exerciseModel.SystemLinux, web.System)
+	require.Equal(t, exerciseModel.HardwareFast, web.Hardware)
+	terminal, hasTerminal := web.AccessOf(exerciseModel.AccessTerminal)
+	require.True(t, hasTerminal)
+	require.Equal(t, exerciseModel.Access{Kind: exerciseModel.AccessTerminal, Command: "/bin/sh", User: "root"}, terminal)
+	require.Equal(t, "60s", web.Bootstrap.Timeout)
+	require.Len(t, web.Bootstrap.Files, 2)
+	require.Equal(t, "Ласкаво просимо", web.Bootstrap.Files[0].Content)
+	require.NotNil(
+		t,
+		web.Bootstrap.Files[1].Source,
+		"a source file of the archive is stored like an attachment",
+	)
+	require.Contains(t, web.Bootstrap.Script, "{{var.db_password}}")
+	require.Equal(t, "/bin/sh", web.Bootstrap.Interpreter)
+	require.Equal(
+		t,
+		[]exerciseModel.Variable{
+			{Name: "db_password", Template: "[a-z0-9]{16}"},
+			{Name: "app_mode", Value: "ctf"},
+		},
+		base.Topology.Variables,
+	)
 	require.Len(t, base.Topology.Connections, 6)
 	known := map[uuid.UUID]bool{}
 	for _, device := range base.Topology.Devices {
@@ -247,14 +300,25 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 		}
 	}
 	second := base.Tasks[1]
-	require.Equal(t, uuid.NullUUID{UUID: web.ID, Valid: true}, second.LinkedDeviceID)
-	require.Equal(t, "FLAG", second.DeviceFlagVar)
-	require.Len(t, second.Flag, 2)
+	require.Equal(t, "container_secret", second.Key)
+	require.Len(t, second.Check.Answer.Values, 2)
 	require.Len(t, second.Placeholders, 5)
 	require.Len(t, second.Hints, 4)
 	require.Equal(t, uuid.NullUUID{UUID: base.ID, Valid: true}, linked.LinkedTo)
-	require.Equal(t, []string{"ICE{example_flag_2}"}, linked.Tasks[0].Flag)
-	require.Equal(t, []exerciseModel.ImageOverride{{DeviceID: devices["db"].ID, Image: "redis:7.4"}}, linked.ImageOverrides)
+	require.Equal(t, []string{"ICE{example_flag_2}"}, linked.Tasks[0].Check.AnswerValues())
+	require.Equal(
+		t,
+		exerciseModel.AnswerTypeFlag,
+		linked.Tasks[0].Check.Answer.Type,
+		"the type is the base's",
+	)
+	require.Equal(t, []string{"IS-IS"}, linked.Tasks[2].Check.AnswerValues())
+	require.NotNil(t, linked.Tasks[3].Check.State, "a state task is the base's")
+	require.Equal(
+		t,
+		[]exerciseModel.ImageOverride{{DeviceID: devices["db"].ID, Image: "redis:7.4"}},
+		linked.ImageOverrides,
+	)
 	for _, device := range linked.Topology.Devices {
 		if device.Name == "db" {
 			require.Equal(t, "redis:7.4", device.Image, "the linked variant runs its own db image")
@@ -262,8 +326,31 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 			require.Equal(t, devices[device.Name].Image, device.Image)
 		}
 	}
-	require.Equal(t, []string{"ICE{example_flag}"}, base.Tasks[0].Flag)
-	require.Len(t, media.uploads, 2)
+	require.Equal(t, []string{"ICE{example_flag}"}, base.Tasks[0].Check.AnswerValues())
+	third, fourth := base.Tasks[2], base.Tasks[3]
+	require.Equal(t, exerciseModel.AnswerTypeText, third.Check.Answer.Type)
+	require.True(t, third.Check.Answer.IgnoreCase)
+	require.True(t, third.Check.Answer.TrimEffective())
+	require.Equal(t, []string{"find_flag"}, third.Requires)
+	require.Equal(t, "protocol", third.Key)
+	state := fourth.Check.State
+	require.NotNil(t, state)
+	require.Equal(t, exerciseModel.StateModeOnce, state.Mode)
+	require.Equal(t, "30s", state.Interval)
+	require.True(t, state.Manual)
+	require.Len(t, state.Conditions, 8)
+	require.Equal(t, web.ID, state.Conditions[0].DeviceID, "a condition names its device")
+	require.NotNil(t, state.Conditions[0].File)
+	require.NotNil(t, state.Conditions[1].Custom)
+	require.NotNil(t, state.Conditions[2].Directory)
+	require.Equal(t, []string{"config.php", "uploads"}, state.Conditions[2].Directory.HasEntries)
+	require.NotNil(t, state.Conditions[3].Process)
+	require.NotNil(t, state.Conditions[4].Port)
+	require.NotNil(t, state.Conditions[5].KernelParam)
+	require.NotNil(t, state.Conditions[6].Request)
+	require.NotNil(t, state.Conditions[7].Permission)
+	require.Equal(t, "file", state.Conditions[0].File.Type)
+	require.Len(t, media.uploads, 3)
 }
 
 func TestExampleArchive_EveryKeyHasEndOfLineComment(t *testing.T) {
@@ -286,12 +373,60 @@ var requiredKeyErrors = map[string]string{
 	"exercise":                              "exercise name",
 	"exercise.name":                         "exercise name",
 	"versions":                              "nothing links to",
-	"versions[1].status":                    "versions[1].status: required",
 	"versions[1].variants":                  "nothing links to",
 	"versions[1].variants[1].tasks[1].name": "task name must be 3-50 characters",
 	"versions[1].variants[1].tasks[1].description":                                           "task description is required before publication",
 	"versions[1].variants[1].tasks[1].difficulty":                                            "task difficulty is invalid",
-	"versions[1].variants[1].tasks[1].flag":                                                  "task flag must use ice{...} without whitespace",
+	"versions[1].variants[1].tasks[1].check":                                                 "a task needs exactly one check",
+	"versions[1].variants[1].tasks[1].check.answer":                                          "a task needs exactly one check",
+	"versions[1].variants[1].tasks[1].check.answer.type":                                     "check.answer.type: required",
+	"versions[1].variants[1].tasks[2].check":                                                 "a substitution names a task or a variable that does not exist",
+	"versions[1].variants[1].tasks[2].check.answer":                                          "a substitution names a task or a variable that does not exist",
+	"versions[1].variants[1].tasks[2].check.answer.type":                                     "check.answer.type: required",
+	"versions[1].variants[1].tasks[3].name":                                                  "task name must be 3-50 characters",
+	"versions[1].variants[1].tasks[3].description":                                           "task description is required before publication",
+	"versions[1].variants[1].tasks[3].difficulty":                                            "task difficulty is invalid",
+	"versions[1].variants[1].tasks[3].check":                                                 "a task needs exactly one check",
+	"versions[1].variants[1].tasks[3].check.answer":                                          "a task needs exactly one check",
+	"versions[1].variants[1].tasks[3].check.answer.type":                                     "check.answer.type: required",
+	"versions[1].variants[1].tasks[3].check.answer.values":                                   "the answer of the task is invalid",
+	"versions[1].variants[1].tasks[4].name":                                                  "task name must be 3-50 characters",
+	"versions[1].variants[1].tasks[4].description":                                           "task description is required before publication",
+	"versions[1].variants[1].tasks[4].difficulty":                                            "task difficulty is invalid",
+	"versions[1].variants[1].tasks[4].check":                                                 "a task needs exactly one check",
+	"versions[1].variants[1].tasks[4].check.state":                                           "a task needs exactly one check",
+	"versions[1].variants[1].tasks[4].check.state.conditions":                                "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[1].device":                      "conditions[1].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[1].file":                        "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[1].file.path":                   "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[2].device":                      "conditions[2].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[2].custom":                      "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[2].custom.run":                  "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].device":                      "conditions[3].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].directory":                   "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[3].directory.path":              "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[4].device":                      "conditions[4].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[4].process":                     "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].device":                      "conditions[5].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].port":                        "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[5].port.port":                   "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].device":                      "conditions[6].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].kernel_param":                "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[6].kernel_param.name":           "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].device":                      "conditions[7].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request":                     "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request.protocol":            "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[7].request.port":                "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].device":                      "conditions[8].device: required",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission":                  "must hold exactly one observation",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission.user":             "the state check of the task is invalid",
+	"versions[1].variants[1].tasks[4].check.state.conditions[8].permission.path":             "the state check of the task is invalid",
+	"versions[1].variants[1].topology.variables[1].name":                                     "a variable of the infrastructure is invalid",
+	"versions[1].variants[1].topology.variables[2].name":                                     "a variable of the infrastructure is invalid",
+	"versions[1].variants[1].topology.devices[1].bootstrap.env[1].name":                      "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].bootstrap.env[2].name":                      "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].bootstrap.files[1].path":                    "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].bootstrap.files[2].path":                    "a runtime setting of the device is invalid",
 	"versions[1].variants[1].tasks[1].attachments[1].file":                                   "an archive path is not allowed",
 	"versions[1].variants[1].tasks[1].placeholders[1].kind":                                  "description placeholder is malformed",
 	"versions[1].variants[1].tasks[1].placeholders[1].ip_reference":                          "description placeholder is malformed",
@@ -313,9 +448,13 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.internet.dhcp_ranges[1].start":                         "dhcp ranges or internet dns address are invalid",
 	"versions[1].variants[1].topology.internet.dhcp_ranges[1].end":                           "dhcp ranges or internet dns address are invalid",
 	"versions[1].variants[1].topology.devices[1].name":                                       "device named \"web\"",
-	"versions[1].variants[1].topology.devices[1].type":                                       "device type is invalid",
-	"versions[1].variants[1].topology.devices[1].external.port":                              "device external access is invalid",
-	"versions[1].variants[1].topology.devices[1].external.protocol":                          "device external access is invalid",
+	"versions[1].variants[1].topology.devices[1].type":                                       "the state check of the task is invalid", // a condition looks at a node, and the device is no node without a type
+	"versions[1].variants[1].topology.devices[1].access[1].kind":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[1].port":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[1].protocol":                         "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].kind":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].command":                          "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].user":                             "a runtime setting of the device is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].name":                         "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                           "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
@@ -389,7 +528,6 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.connections[6].endpoints[2].device":                    "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[6].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
 	"versions[1].variants[2].linked_to":                                                      "device_images is only for a linked variant (with linked_to)",
-	"versions[1].variants[2].tasks[1].flag":                                                  "task flag must use ice{...} without whitespace",
 	"versions[1].variants[2].tasks[1].attachments[1].file":                                   "an archive path is not allowed",
 }
 
@@ -400,7 +538,7 @@ func TestExampleArchive_CommentTagsMatchRealOptionality(t *testing.T) {
 	doc := files["exercise.yaml"]
 	for _, key := range exampleKeys(exampleRoot(t, doc)) {
 		t.Run(key.Path, func(t *testing.T) {
-			_, _, err := importExample(t, replaced(files, "exercise.yaml", withoutKey(t, doc, key)))
+			err := importExamplePublishable(t, replaced(files, "exercise.yaml", withoutKey(t, doc, key)))
 			switch {
 			case strings.HasPrefix(key.Comment, tagRequired):
 				require.Error(t, err, "%s is marked required but the example imports without it", key.Path)
@@ -420,14 +558,76 @@ var indexRE = regexp.MustCompile(`\[\d+\]`)
 
 func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 	enums := map[string][]string{
-		"versions.status":                                                      {"draft", "published", "unpublished", "checkpoint"},
-		"versions.variants.tasks.difficulty":                                   {"elementary", "trivial", "easy", "medium", "hard", "insane"},
-		"versions.variants.tasks.hints.level":                                  {"nudge", "direction", "steps", "near_solution"},
-		"versions.variants.tasks.placeholders.kind":                            {"vpn.subnet", "internet.subnet", "ip", "external.link"},
-		"versions.variants.tasks.placeholders.ip_reference":                    {"vpn", "internet", "static"},
-		"versions.variants.topology.devices.type":                              {"container", "unmanaged-switch", "hub"},
-		"versions.variants.topology.devices.security_preset":                   {"standard", "extended"},
-		"versions.variants.topology.devices.interfaces.ip.type":                {"static", "dhcp", "dhcp-preset", "none"},
+		"versions.status": {
+			"draft",
+			"published",
+			"unpublished",
+			"checkpoint",
+		},
+		"versions.variants.tasks.difficulty": {
+			"elementary",
+			"trivial",
+			"easy",
+			"medium",
+			"hard",
+			"insane",
+		},
+		"versions.variants.tasks.hints.level": {
+			"nudge",
+			"direction",
+			"steps",
+			"near_solution",
+		},
+		"versions.variants.tasks.check.answer.type":                       {"flag", "text"},
+		"versions.variants.topology.devices.access.kind":                  {"http", "terminal", "vnc", "rdp"},
+		"versions.variants.topology.devices.access.protocol":              {"http", "https"},
+		"versions.variants.tasks.check.state.conditions.file.type":        {"file", "directory", "symlink"},
+		"versions.variants.tasks.check.state.conditions.port.protocol":    {"tcp", "udp"},
+		"versions.variants.tasks.check.state.conditions.request.protocol": {"tcp", "http", "https"},
+		"versions.variants.tasks.check.state.conditions.request.method":   {"GET", "HEAD"},
+		"versions.variants.tasks.check.state.mode": {
+			"once",
+			"continuous",
+		},
+		"versions.variants.topology.devices.system": {
+			"linux",
+			"windows",
+		},
+		"versions.variants.topology.devices.hardware": {
+			"fast",
+			"compatible",
+		},
+		"versions.variants.tasks.placeholders.kind": {
+			"vpn.subnet",
+			"internet.subnet",
+			"ip",
+			"external.link",
+		},
+		"versions.variants.tasks.placeholders.ip_reference": {
+			"vpn",
+			"internet",
+			"static",
+		},
+		"versions.variants.topology.devices.type": {
+			"node",
+			"unmanaged-switch",
+			"hub",
+		},
+		"versions.variants.topology.devices.profile": {
+			"container",
+			"microvm",
+			"vm",
+		},
+		"versions.variants.topology.devices.security_preset": {
+			"standard",
+			"extended",
+		},
+		"versions.variants.topology.devices.interfaces.ip.type": {
+			"static",
+			"dhcp",
+			"dhcp-preset",
+			"none",
+		},
 		"versions.variants.topology.devices.interfaces.ip.address_ref.network": {"vpn", "internet"},
 		"versions.variants.topology.connections.endpoints.kind":                {"device", "vpn", "internet"},
 	}
@@ -481,22 +681,26 @@ func TestExampleArchive_LinkedVariantMinimal(t *testing.T) {
 	}
 	tasks, ok := linked["tasks"].([]any)
 	require.True(t, ok)
-	require.Len(t, tasks, 2)
+	require.Len(t, tasks, 4)
 	for _, item := range tasks {
 		task, isMap := item.(map[string]any)
 		require.True(t, isMap)
 		for key := range task {
-			require.Contains(t, []string{"flag", "attachments"}, key)
+			require.Contains(t, []string{"check", "attachments"}, key)
 		}
 	}
 	first := tasks[0].(map[string]any)
-	require.Equal(t, []any{"ICE{example_flag_2}"}, first["flag"])
+	require.Equal(
+		t,
+		map[string]any{"answer": map[string]any{"values": []any{"ICE{example_flag_2}"}}},
+		first["check"],
+	)
 }
 
 func TestExampleArchive_FlagCommentWarnsAboutSpaceHash(t *testing.T) {
 	found := false
 	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {
-		if key.Path == "versions[1].variants[1].tasks[1].flag" {
+		if key.Path == "versions[1].variants[1].tasks[1].check.answer.values" {
 			found = true
 			require.Contains(t, key.Comment, " #")
 			require.Contains(t, key.Comment, "лапк")

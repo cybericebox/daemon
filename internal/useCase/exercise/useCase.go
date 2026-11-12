@@ -71,6 +71,10 @@ type ExerciseUseCase struct {
 	clock func() time.Time
 	// images checks a lab's images and gives its pull credentials; nil: no checks (narrow constructions).
 	images IImageAccess
+	// files reads the stored files a bootstrap names (SetFileReader); nil: such a file cannot be read.
+	files IFileReader
+	// labChecks keeps the results of laboratory checks and the manual runs asked for (SetLabChecks); nil: none shown.
+	labChecks ILabChecks
 	// The background import of archives with image files (SetArchiveImport); nil: such archives are refused.
 	archiveImages  IArchiveImages
 	archiveSources IArchiveSources
@@ -150,6 +154,7 @@ type Dependencies struct {
 type ISettings interface {
 	ArchiveLimits(ctx context.Context) (exerciseModel.ArchiveLimits, error)
 	TestRunLeases(ctx context.Context) (exerciseModel.TestRunLeases, error)
+	NodeProfiles(ctx context.Context) (exerciseModel.SupportedProfiles, error)
 }
 
 type FlagPolicy struct {

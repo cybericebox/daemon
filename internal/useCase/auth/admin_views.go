@@ -24,6 +24,8 @@ type (
 		Status         userModel.UserStatus
 		LastSeen       time.Time
 		CreatedAt      time.Time
+		// SignInMethods: email (a password) and the linked providers, as in UserDetail; filled in the offset list.
+		SignInMethods []string
 	}
 
 	// UserDetail is the admin single-user view.
@@ -50,6 +52,10 @@ type (
 		PageSize int
 		SortBy   string
 		SortDir  string
+		// EmailConfirmed is "", "true" or "false"; SignIn "", password, google or passkey; InactiveDays 0 = any.
+		EmailConfirmed string
+		SignIn         string
+		InactiveDays   int
 	}
 
 	UsersListResult struct {

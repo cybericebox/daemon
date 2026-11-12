@@ -10,7 +10,7 @@ import (
 // TestCatalogUpToDate fails when error-catalog/errors.en.json differs from a fresh
 // generation; fix it with `make error-catalog`.
 func TestCatalogUpToDate(t *testing.T) {
-	got, err := generate("../../internal/model", "../../pkg/ipam")
+	got, err := generate("../../internal/model")
 	if err != nil {
 		t.Fatal(err)
 	}

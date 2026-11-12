@@ -13,6 +13,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countPendingExerciseResourceElevations = `-- name: CountPendingExerciseResourceElevations :one
+SELECT count(*)
+FROM exercise_resource_elevations
+WHERE status = 0
+`
+
+func (q *Queries) CountPendingExerciseResourceElevations(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingExerciseResourceElevations)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createExerciseResourceElevation = `-- name: CreateExerciseResourceElevation :exec
 INSERT INTO exercise_resource_elevations (id, exercise_id, version_id, status, reason, requested, requested_by, requested_at)
 VALUES ($1, $2, $3, 0, $4, $5, $6, $7)
@@ -191,12 +204,14 @@ FROM exercise_resource_elevations elevation
          JOIN exercises exercise ON exercise.id = elevation.exercise_id
 WHERE ($1::smallint IS NULL OR elevation.status = $1::smallint)
   AND ($2::uuid IS NULL OR elevation.exercise_id = $2::uuid)
+  AND ($3::uuid IS NULL OR elevation.requested_by = $3::uuid)
 ORDER BY elevation.requested_at DESC, elevation.id DESC
 `
 
 type ListExerciseResourceElevationsParams struct {
-	Status     pgtype.Int2   `json:"status"`
-	ExerciseID uuid.NullUUID `json:"exercise_id"`
+	Status      pgtype.Int2   `json:"status"`
+	ExerciseID  uuid.NullUUID `json:"exercise_id"`
+	RequestedBy uuid.NullUUID `json:"requested_by"`
 }
 
 type ListExerciseResourceElevationsRow struct {
@@ -215,9 +230,9 @@ type ListExerciseResourceElevationsRow struct {
 	ExerciseName string             `json:"exercise_name"`
 }
 
-// Newest first; status and exercise narrow the list (a null argument does not filter).
+// Newest first; status, exercise and author narrow the list (a null argument does not filter).
 func (q *Queries) ListExerciseResourceElevations(ctx context.Context, arg ListExerciseResourceElevationsParams) ([]ListExerciseResourceElevationsRow, error) {
-	rows, err := q.db.Query(ctx, listExerciseResourceElevations, arg.Status, arg.ExerciseID)
+	rows, err := q.db.Query(ctx, listExerciseResourceElevations, arg.Status, arg.ExerciseID, arg.RequestedBy)
 	if err != nil {
 		return nil, err
 	}

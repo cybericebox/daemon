@@ -38,6 +38,10 @@ type ReservationView struct {
 
 	Placement []ShareView
 	Unplaced  int
+	// PlacedTeams is how many teams have an agent (Teams - Unplaced); UnplacedReason says why the others have none
+	// (no_agents, device_too_large, no_capacity), empty when all are placed.
+	PlacedTeams    int
+	UnplacedReason string
 	// Covered: every team has an agent and no slot of the window is over capacity.
 	Covered bool
 	// Used is what the event's running objects request now (events only; zero when unknown).
@@ -256,6 +260,18 @@ type OrganizerReservationView struct {
 	Covered bool
 	// Changes are the event's change requests, newest first.
 	Changes []OrganizerChangeView
+	// Unplaced counts the units no agent could take; Units says, per team that has a place, how its part of the
+	// reservation stands. No laboratory is named.
+	Unplaced int
+	Units    []OrganizerUnitView
+}
+
+// OrganizerUnitView is the reservation state of one team's unit: Ended after its part ended and the labs were
+// deleted, EndsAt while it is ending (its notice).
+type OrganizerUnitView struct {
+	TeamID uuid.UUID
+	EndsAt *time.Time
+	Ended  bool
 }
 
 // OrganizerChangeView is a change request as the organizer sees it.

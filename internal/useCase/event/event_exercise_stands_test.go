@@ -110,6 +110,9 @@ func newStandUpdateFixture(t *testing.T, started bool, stageOpensIn *time.Durati
 		updated.ExerciseVersionID, updated.Revision = arg.ExerciseVersionID, 2
 		return updated, nil
 	}).AnyTimes()
+	q.EXPECT().NextEventTeamLabGeneration(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.NextEventTeamLabGenerationParams) (int32, error) {
+		return arg.CurrentGeneration + 1, nil
+	}).AnyTimes()
 	q.EXPECT().RecreateLabBinding(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.RecreateLabBindingParams) (int64, error) {
 		f.recreated = &arg
 		return 1, nil
@@ -144,10 +147,16 @@ func (f *standUpdateFixture) requireRecreated(t *testing.T) {
 	}
 }
 
-func TestUpdateEventExercise_RecreatesStandsBeforeEventStart(t *testing.T) {
+// khctf 2026-10-26: «Оновити» 18 minutes before the start recreated 94 labs without asking. Recreating labs that
+// exist needs the organizer's confirmation whenever it happens.
+func TestUpdateEventExercise_RecreatingStandsBeforeEventStartNeedsConfirmation(t *testing.T) {
 	f := newStandUpdateFixture(t, false, nil)
-	if _, err := f.uc.UpdateEventExercise(context.Background(), f.eventID, f.attachmentID, &f.nextID, uuid.Must(uuid.NewV7()), false); err != nil {
-		t.Fatalf("UpdateEventExercise: %v", err)
+	_, err := f.uc.UpdateEventExercise(context.Background(), f.eventID, f.attachmentID, &f.nextID, uuid.Must(uuid.NewV7()), false)
+	if !errors.Is(err, eventExerciseModel.ErrEventExerciseStandsRunning.Err()) || f.unit.saved || f.recreated != nil || len(f.infra.deleted) != 0 {
+		t.Fatalf("want ErrEventExerciseStandsRunning without changes, got %v", err)
+	}
+	if _, err = f.uc.UpdateEventExercise(context.Background(), f.eventID, f.attachmentID, &f.nextID, uuid.Must(uuid.NewV7()), true); err != nil {
+		t.Fatalf("UpdateEventExercise confirmed: %v", err)
 	}
 	f.requireRecreated(t)
 }
@@ -182,7 +191,7 @@ func TestUpdateEventExercise_RunningStandsRecreatedWhenConfirmed(t *testing.T) {
 func TestUpdateEventExercise_UpcomingStageStandsRecreatedOnStartedEvent(t *testing.T) {
 	opensIn := time.Hour
 	f := newStandUpdateFixture(t, true, &opensIn)
-	if _, err := f.uc.UpdateEventExercise(context.Background(), f.eventID, f.attachmentID, &f.nextID, uuid.Must(uuid.NewV7()), false); err != nil {
+	if _, err := f.uc.UpdateEventExercise(context.Background(), f.eventID, f.attachmentID, &f.nextID, uuid.Must(uuid.NewV7()), true); err != nil {
 		t.Fatalf("UpdateEventExercise: %v", err)
 	}
 	f.requireRecreated(t)

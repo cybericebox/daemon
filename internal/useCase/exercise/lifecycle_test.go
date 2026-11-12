@@ -80,7 +80,7 @@ func TestGetVersion_MasksSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVersion: %v", err)
 	}
-	env := view.Variants[0].Topology.Devices[0].EnvVars[0]
+	env := view.Variants[0].Topology.Devices[0].Bootstrap.Env[0]
 	if env.Value != "" || !env.Secret {
 		t.Fatalf("secret value must be masked in views: %+v", env)
 	}

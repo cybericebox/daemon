@@ -379,3 +379,62 @@ func (u *ResourceCalendarUseCase) FutureImpact(ctx context.Context, agent uuid.U
 	}
 	return out, nil
 }
+
+// FreeCapacityView is the room left in the cluster now, summed over the agents that are used. A resource an agent
+// puts no limit on is not in the sums: its flag is set and the figure is only the limited part.
+type FreeCapacityView struct {
+	Capacity        Amount
+	Allocated       Amount
+	Free            Amount
+	CPUUnlimited    bool
+	MemoryUnlimited bool
+	// LargestDevice is the largest device any used agent can place (zero: no agent states a limit).
+	LargestDevice Amount
+}
+
+// ClusterFreeCapacity is the capacity of the agents that are used less what the active reservations allocate now.
+// It is the hint beside a resource elevation request (admin).
+func (u *ResourceCalendarUseCase) ClusterFreeCapacity(
+	ctx context.Context,
+) (FreeCapacityView, error) {
+	now := u.now().UTC()
+	states, err := u.agentStates(ctx, now)
+	if err != nil {
+		return FreeCapacityView{}, err
+	}
+	slot, _ := calModel.NewWindow(now, now.Add(time.Second))
+	rs, err := u.store.ListInWindow(ctx, slot)
+	if err != nil {
+		return FreeCapacityView{}, platformErr(err, "Failed to read the reservations")
+	}
+	allocated := calModel.PeakLoad(slot, rs)
+	var view FreeCapacityView
+	for _, st := range states {
+		if !st.Used {
+			continue
+		}
+		view.LargestDevice.CPUMillicores = max(
+			view.LargestDevice.CPUMillicores,
+			st.DeviceMax.CPUMillicores,
+		)
+		view.LargestDevice.MemoryBytes = max(
+			view.LargestDevice.MemoryBytes,
+			st.DeviceMax.MemoryBytes,
+		)
+		if st.Capacity.CPUMillicores >= calModel.Unlimited {
+			view.CPUUnlimited = true
+		} else {
+			view.Capacity.CPUMillicores += st.Capacity.CPUMillicores
+			view.Allocated.CPUMillicores += allocated[st.ID].CPUMillicores
+			view.Free.CPUMillicores += st.Free(allocated[st.ID]).CPUMillicores
+		}
+		if st.Capacity.MemoryBytes >= calModel.Unlimited {
+			view.MemoryUnlimited = true
+		} else {
+			view.Capacity.MemoryBytes += st.Capacity.MemoryBytes
+			view.Allocated.MemoryBytes += allocated[st.ID].MemoryBytes
+			view.Free.MemoryBytes += st.Free(allocated[st.ID]).MemoryBytes
+		}
+	}
+	return view, nil
+}

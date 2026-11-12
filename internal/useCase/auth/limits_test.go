@@ -127,51 +127,53 @@ func TestSetAccountPassword_GuessLockout(t *testing.T) {
 	tooMany(t, uc.SetAccountPassword(context.Background(), uid, "Correct!1", "New!1pass"))
 }
 
-// M3: a mailbox cannot be bombed through forgot-password; the answer stays neutral.
-func TestForgotPassword_RecipientCooldownIsSilent(t *testing.T) {
+// A mailbox cannot be bombed through forgot-password: the second request inside the gap is refused with the wait,
+// whether or not the account exists (the check runs before the lookup).
+func TestForgotPassword_RecipientCooldownIsRefusedWithTheWait(t *testing.T) {
 	uc, repo, _, notifier := newPwUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{ID: uid, Status: "active"}, nil).Times(3)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{ID: uid, Status: "active"}, nil).Times(1)
 	repo.EXPECT().CreateTemporalCode(gomock.Any(), gomock.Any()).Return(postgres.TemporalCode{}, nil).Times(1)
-	for i := 0; i < 3; i++ {
-		if e := uc.ForgotPassword(context.Background(), "A@b.test"); e != nil {
-			t.Fatalf("request %d must look like success, got %v", i, e)
-		}
+	if e := uc.ForgotPassword(context.Background(), "A@b.test"); e != nil {
+		t.Fatalf("first request: %v", e)
 	}
+	tooMany(t, uc.ForgotPassword(context.Background(), "a@b.test"))
+	// An unknown address is counted and refused the same way: the answer does not tell whether the account exists.
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "ghost@b.test").Return(postgres.User{}, pgx.ErrNoRows).Times(1)
+	if e := uc.ForgotPassword(context.Background(), "ghost@b.test"); e != nil {
+		t.Fatalf("first request for an unknown address: %v", e)
+	}
+	tooMany(t, uc.ForgotPassword(context.Background(), "ghost@b.test"))
 	if notifier.calls != 1 {
 		t.Fatalf("want exactly 1 mail inside the cooldown, got %d", notifier.calls)
 	}
 }
 
-func TestBeginEmailRegistration_RecipientCooldownIsSilent(t *testing.T) {
+func TestBeginEmailRegistration_RecipientCooldownIsRefusedWithTheWait(t *testing.T) {
 	uc, repo, _, notifier := newSignupUC(t)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "v@b.test").Return(postgres.User{
 		ID: uuid.Must(uuid.NewV7()), Status: "incomplete",
-	}, nil).Times(3)
-	for i := 0; i < 3; i++ {
-		if e := uc.BeginEmailRegistration(context.Background(), "V@b.test", ""); e != nil {
-			t.Fatalf("request %d must look like success, got %v", i, e)
-		}
+	}, nil).Times(1)
+	if e := uc.BeginEmailRegistration(context.Background(), "V@b.test", ""); e != nil {
+		t.Fatalf("first request: %v", e)
 	}
+	tooMany(t, uc.BeginEmailRegistration(context.Background(), "v@b.test", ""))
 	if notifier.calls != 1 {
 		t.Fatalf("want 1 setup mail inside the cooldown, got %d", notifier.calls)
 	}
 }
 
-// The account-exists notice is a mail too.
-func TestBeginEmailRegistration_AccountExistsNoticeIsLimited(t *testing.T) {
-	uc, repo, _, notifier := newSignupUC(t)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{
-		ID: uuid.Must(uuid.NewV7()), Status: "active",
-	}, nil).Times(3)
-	for i := 0; i < 3; i++ {
-		if e := uc.BeginEmailRegistration(context.Background(), "a@b.test", ""); e != nil {
-			t.Fatalf("request %d: %v", i, e)
-		}
+// The limit is shared by every kind of sign-in mail: after a sign-up mail a reset for the same address waits too,
+// and five requests an hour is the ceiling.
+func TestMailRequests_OneBudgetForEveryKindAndAnHourlyCap(t *testing.T) {
+	uc, repo, _, _ := newSignupUC(t)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows).AnyTimes()
+	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(postgres.User{}, nil).AnyTimes()
+	repo.EXPECT().CreateTemporalCode(gomock.Any(), gomock.Any()).Return(postgres.TemporalCode{}, nil).AnyTimes()
+	if e := uc.BeginEmailRegistration(context.Background(), "s@b.test", ""); e != nil {
+		t.Fatalf("sign-up: %v", e)
 	}
-	if notifier.calls != 1 {
-		t.Fatalf("want 1 notice, got %d", notifier.calls)
-	}
+	tooMany(t, uc.ForgotPassword(context.Background(), "s@b.test"))
 }
 
 func TestRequestEmailChange_RecipientAndUserLimits(t *testing.T) {

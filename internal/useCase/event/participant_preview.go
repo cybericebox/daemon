@@ -18,8 +18,8 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
+	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	preview "github.com/cybericebox/daemon/internal/model/participantPreview"
 	settingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
@@ -637,10 +637,11 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 		}
 		run = preview.NewRun(event, user, selection, now)
 		for _, task := range variant.Tasks {
-			if dynamic && task.LinkedDeviceID.Valid {
+			// A lab pins the value of every answer task itself (the test lab checks them); a state task has none.
+			if (dynamic && task.Check.Answer != nil) || task.Check.Answer == nil {
 				continue
 			}
-			flag, e := flagpattern.Resolve(task.Flag, u.flagRandomBytes, rand.Reader)
+			flag, e := task.Check.Answer.Resolve(u.flagRandomBytes, rand.Reader)
 			if e != nil {
 				return PreviewRunView{}, previewFailure(e)
 			}
@@ -710,7 +711,7 @@ func (u *EventUseCase) SubmitPreviewFlag(ctx context.Context, event, user, selec
 		if e != nil {
 			return e
 		}
-		if run.DeployID.Valid && task.LinkedDeviceID.Valid {
+		if run.DeployID.Valid {
 			result.Correct, e = u.previewLabs.CheckTestFlag(ctx, user, run.DeployID.UUID, taskID, flag)
 			if e != nil {
 				return e
@@ -719,7 +720,10 @@ func (u *EventUseCase) SubmitPreviewFlag(ctx context.Context, event, user, selec
 				result.FirstSolve = run.MarkSolved(taskID, time.Now())
 			}
 		} else {
-			result.Correct, result.FirstSolve = run.Check(taskID, flag, time.Now())
+			answer := eventChallengeModel.SnapshotAnswerFor(task)
+			result.Correct, result.FirstSolve = run.CheckWith(taskID, time.Now(), func(expected string) bool {
+				return answer.Matches(expected, strings.TrimSpace(flag), flag)
+			})
 		}
 		run.RecordAttempt(taskID, result.Correct)
 		return nil

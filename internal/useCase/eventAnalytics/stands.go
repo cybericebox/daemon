@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/model"
@@ -114,6 +115,20 @@ func (u *EventAnalyticsUseCase) GetEventAnalyticsStands(ctx context.Context, eve
 		return StandsView{}, nil
 	}
 	finish := e.Lifecycle.EffectiveFinishAt()
+	if from == nil && u.reservations != nil {
+		// The stands exist from the start of the resource reservation (the labs are prepared before the event).
+		if start, reserved, reservedErr := u.reservations.EventReservationStart(
+			ctx,
+			eventID,
+		); reservedErr != nil {
+			log.Warn().
+				Err(reservedErr).
+				Msg("The reservation start is unavailable for the stands analytics")
+		} else if reserved &&
+			start.Before(e.Lifecycle.StartAt) {
+			from = &start
+		}
+	}
 	period, err := eventAnalyticsModel.NewPeriod(from, to, e.Lifecycle.StartAt, finish, u.now())
 	if err != nil {
 		return StandsView{}, err

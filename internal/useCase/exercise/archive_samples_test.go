@@ -15,7 +15,7 @@ import (
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
-// testdata/static.zip is a copy of dist/static.zip of the test-exercises repository.
+// testdata/static.zip is dist/static.zip of the test-exercises repository, written in the shape of cib-exercise/1.0.
 func TestSampleArchive_StaticImports(t *testing.T) {
 	archive, err := os.ReadFile("testdata/static.zip")
 	require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestSampleArchive_StaticImports(t *testing.T) {
 		})
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.EqualValues(t, exerciseModel.VersionStatusDraft, arg.Status)
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
 		})
 	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)

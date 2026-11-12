@@ -19,6 +19,14 @@ type Binding struct {
 	// DeployedAt is when the agent accepted the current generation's Lab.
 	DeployedAt    *time.Time
 	FailureReason string
+	// FailedAt is when the binding last failed; RetryAttempts counts the automatic retries of failures the
+	// agent never accepted; the stand engine retries after a backoff (see eventStandModel.RetryBackoff).
+	FailedAt      *time.Time
+	RetryAttempts int32
+	// WaitReason is a machine code of what a pending Lab waits for (empty when it does not wait), WaitSince the
+	// first moment of that wait.
+	WaitReason string
+	WaitSince  *time.Time
 }
 
 type Readiness int16

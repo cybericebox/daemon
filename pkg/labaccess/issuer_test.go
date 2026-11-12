@@ -26,7 +26,7 @@ func TestNewRefusesANegativeTTL(t *testing.T) {
 	}
 }
 
-const webURL = "https://web-abc123.challenges.example.com/login"
+const webURL = "https://web-abc123w.challenges.example.com/login"
 
 func TestIssueSignsAHandoffLinkTheProxyCanVerify(t *testing.T) {
 	sk := testSigningKey(t)
@@ -42,7 +42,7 @@ func TestIssueSignsAHandoffLinkTheProxyCanVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsedURL, err := url.Parse(link.URL)
-	if err != nil || parsedURL.Scheme != "https" || parsedURL.Host != "web-abc123.challenges.example.com" || parsedURL.Path != AuthPath || parsedURL.Query().Get("t") != link.Token {
+	if err != nil || parsedURL.Scheme != "https" || parsedURL.Host != "web-abc123w.challenges.example.com" || parsedURL.Path != AuthPath || parsedURL.Query().Get("t") != link.Token {
 		t.Fatalf("link = %s err = %v", link.URL, err)
 	}
 	var got claims
@@ -55,7 +55,7 @@ func TestIssueSignsAHandoffLinkTheProxyCanVerify(t *testing.T) {
 	if parsed.Header["kid"] != "k-1" {
 		t.Fatalf("kid header = %v, want the key id the proxy picks the key by", parsed.Header["kid"])
 	}
-	if got.GroupID != session.Group || got.Host != "web-abc123" || got.Subject != session.Client || got.Issuer != "platform" || got.NotBefore == nil || !got.NotBefore.Time.Equal(now) {
+	if got.GroupID != session.Group || got.Host != "web-abc123w" || got.Subject != session.Client || got.Issuer != "platform" || got.NotBefore == nil || !got.NotBefore.Time.Equal(now) {
 		t.Fatalf("claims = %+v", got)
 	}
 	if got.Session != now.Add(DefaultSessionTTL).Unix() || !link.ExpiresAt.Equal(now.Add(DefaultSessionTTL)) {
@@ -186,5 +186,29 @@ func TestTheAgentsProxyLimitsCapTheLinkAndTheSession(t *testing.T) {
 	}
 	if _, err := New(Config{SessionTTL: -time.Hour}); err == nil {
 		t.Fatal("a negative session ttl must be rejected")
+	}
+}
+
+// The console link: the console has its own host per device (<device>-<code>t.<base>); the token is signed with that
+// first label and the link carries no next.
+func TestConsoleLinkIsSignedForTheDeviceConsoleHost(t *testing.T) {
+	sk := testSigningKey(t)
+	issuer, err := New(Config{TokenTTL: 30 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	link, err := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: "https://db-1-abc123t.challenges.example.com"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(link.URL)
+	if err != nil || parsed.Host != "db-1-abc123t.challenges.example.com" || parsed.Path != AuthPath || parsed.Query().Has("next") {
+		t.Fatalf("link = %s err = %v", link.URL, err)
+	}
+	var got claims
+	if _, err = jwt.ParseWithClaims(link.Token, &got, func(*jwt.Token) (any, error) { return sk.Key.Public(), nil },
+		jwt.WithTimeFunc(func() time.Time { return now })); err != nil || got.Host != "db-1-abc123t" {
+		t.Fatalf("host claim = %q err = %v", got.Host, err)
 	}
 }

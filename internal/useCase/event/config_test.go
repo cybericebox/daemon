@@ -692,18 +692,34 @@ func TestUpdateEventConfig_TeamLimitChangeRebuildsEveryFlagFilterInOneTransactio
 		}, nil),
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), low).Return(nil),
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), high).Return(nil),
-		q.EXPECT().ListEventFlagFilters(gomock.Any(), eventID).Return([]postgres.ListEventFlagFiltersRow{
-			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, Resets: 2},
-		}, nil),
-		q.EXPECT().ListEventIssuedFlags(gomock.Any(), eventID).Return([]postgres.ListEventIssuedFlagsRow{
-			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{1}"},
-			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{7}"},
-			{EventExerciseID: high, VariantIndex: 1, TaskID: letters, ExpectedFlag: "ICE{abc}"},
-		}, nil),
-		q.EXPECT().ListVersionTaskFlags(gomock.Any(), gomock.Any()).Return([]postgres.ListVersionTaskFlagsRow{
-			{VersionID: versionLow, Variants: []byte(`[{"tasks":[{"id":"` + digits.String() + `","flag":["template:ICE{\\d}"]},{"id":"` + plain.String() + `","flag":null}]}]`)},
-			{VersionID: versionHigh, Variants: []byte(`[{"tasks":[{"id":"` + letters.String() + `","flag":["template:ICE{\\l\\l\\l}"]}]},{"tasks":[{"id":"` + letters.String() + `","flag":["template:ICE{\\l\\l\\l}"]}]}]`)},
-		}, nil),
+		q.EXPECT().
+			ListEventFlagFilters(gomock.Any(), eventID).
+			Return([]postgres.ListEventFlagFiltersRow{
+				{EventExerciseID: low, VariantIndex: 0, TaskID: digits, Resets: 2},
+			}, nil),
+		q.EXPECT().
+			ListEventIssuedFlags(gomock.Any(), eventID).
+			Return([]postgres.ListEventIssuedFlagsRow{
+				{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{1}"},
+				{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{7}"},
+				{EventExerciseID: high, VariantIndex: 1, TaskID: letters, ExpectedFlag: "ICE{abc}"},
+			}, nil),
+		q.EXPECT().
+			ListVersionTaskFlags(gomock.Any(), gomock.Any()).
+			Return([]postgres.ListVersionTaskFlagsRow{
+				{
+					VersionID: versionLow,
+					Variants: []byte(
+						`[{"tasks":[{"id":"` + digits.String() + `","answer":{"type":"flag","values":["template:ICE{\\d}"]}},{"id":"` + plain.String() + `","answer":null}]}]`,
+					),
+				},
+				{
+					VersionID: versionHigh,
+					Variants: []byte(
+						`[{"tasks":[{"id":"` + letters.String() + `","answer":{"type":"flag","values":["template:ICE{\\l\\l\\l}"]}}]},{"tasks":[{"id":"` + letters.String() + `","answer":{"type":"flag","values":["template:ICE{\\l\\l\\l}"]}}]}]`,
+					),
+				},
+			}, nil),
 	)
 	q.EXPECT().UpsertEventFlagFilter(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpsertEventFlagFilterParams) error {
 		if !unit.saved {

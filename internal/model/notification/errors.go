@@ -32,6 +32,15 @@ var (
 				WithMessage("Invalid broadcast").WithDetailCode(21)
 	ErrBroadcastNoRecipients = err.ErrInvalidData.WithObjectCode(model.NotificationObjectCode).
 					WithMessage("The audience has no recipients").WithDetailCode(22)
+	// ErrBroadcastNotRunning: only a broadcast that is still sending can be canceled.
+	ErrBroadcastNotRunning = err.ErrConflict.WithObjectCode(model.NotificationObjectCode).
+				WithMessage("The broadcast is not being sent").WithDetailCode(29)
+	// ErrDispatchNotFailed: only a dispatch with a failed channel can be sent again.
+	ErrDispatchNotFailed = err.ErrConflict.WithObjectCode(model.NotificationObjectCode).
+				WithMessage("The notification has no failed delivery to resend").WithDetailCode(30)
+	// ErrDispatchPayloadGone: the message content is no longer stored, so it cannot be sent again.
+	ErrDispatchPayloadGone = err.ErrConflict.WithObjectCode(model.NotificationObjectCode).
+				WithMessage("The notification content is no longer stored").WithDetailCode(31)
 )
 
 // Broadcast template errors: a saved broadcast message of one scope (the

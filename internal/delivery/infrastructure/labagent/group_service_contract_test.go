@@ -2,6 +2,7 @@ package labagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	eventLab "github.com/cybericebox/daemon/internal/model/eventLab"
 	exercise "github.com/cybericebox/daemon/internal/model/exercise"
@@ -103,13 +104,18 @@ type absenceClient struct {
 	pingClient
 	tenant     string
 	featureErr error
+	lifecycle  *labpb.LifecycleFeature
 }
 
 func (c absenceClient) GetFeatures(context.Context, *labpb.Empty, ...grpc.CallOption) (*labpb.FeaturesResponse, error) {
 	if c.featureErr != nil {
 		return nil, c.featureErr
 	}
-	return &labpb.FeaturesResponse{Tenant: c.tenant, Lifecycle: &labpb.LifecycleFeature{ConfirmedRuntime: true, RetainedRestart: true}}, nil
+	lifecycle := c.lifecycle
+	if lifecycle == nil {
+		lifecycle = &labpb.LifecycleFeature{ConfirmedRuntime: true, RetainedRestart: true}
+	}
+	return &labpb.FeaturesResponse{Tenant: c.tenant, Lifecycle: lifecycle}, nil
 }
 func TestInitialAbsenceChecksDisabledHistoricalOwners(t *testing.T) {
 	f := newFleetFixture(t)
@@ -156,5 +162,27 @@ func TestInitialAbsenceUnavailableClientFailsClosed(t *testing.T) {
 	f.am.Client = nil
 	if absent, e := f.fleet.InitialDeploymentAbsent(context.Background(), eventLab.Ref{Group: "unknown", Lab: "lab"}); e == nil || absent {
 		t.Fatal("missing client certified absence")
+	}
+}
+
+// An agent that does not report what the absence check needs is refused with a coded error that names the missing
+// feature, not a bare failure.
+func TestInitialAbsenceNamesTheMissingAgentFeature(t *testing.T) {
+	for feature, lifecycle := range map[string]*labpb.LifecycleFeature{
+		"retained_restart":  {ConfirmedRuntime: true},
+		"confirmed_runtime": {RetainedRestart: true},
+	} {
+		f := newFleetFixture(t)
+		f.am.Tenant = "a"
+		f.bm.Enabled = false
+		f.am.Client.Client = absenceClient{pingClient: pingClient{pingAgent{fakeAgent: f.a}}, tenant: "a", lifecycle: lifecycle}
+		absent, e := f.fleet.InitialDeploymentAbsent(context.Background(), eventLab.Ref{Group: "g", Lab: "lab"})
+		if absent || !errors.Is(e, infra.ErrAgentFeatureUnavailable.Err()) {
+			t.Fatalf("%s: absent=%v err=%v", feature, absent, e)
+		}
+		var withContext interface{ PublicContext() map[string]any }
+		if !errors.As(e, &withContext) || withContext.PublicContext()["feature"] != feature {
+			t.Fatalf("%s: context %v", feature, e)
+		}
 	}
 }

@@ -22,6 +22,10 @@ type UsersQueries interface {
 	GetPlatformUsersMethods(context.Context, postgres.GetPlatformUsersMethodsParams) (postgres.GetPlatformUsersMethodsRow, error)
 	GetPlatformUsersRetention(context.Context, time.Time) (postgres.GetPlatformUsersRetentionRow, error)
 	ListPlatformUsersPeople(context.Context, int32) ([]postgres.ListPlatformUsersPeopleRow, error)
+	ListPlatformUsersPeoplePage(
+		context.Context,
+		postgres.ListPlatformUsersPeoplePageParams,
+	) ([]postgres.ListPlatformUsersPeoplePageRow, error)
 }
 
 type (
@@ -117,4 +121,38 @@ func (r *Repository) UsersPeople(ctx context.Context, limit int32) ([]UsersPerso
 		})
 	}
 	return out, nil
+}
+
+// UsersPeoplePage reads one page of the accounts that joined an event: filtered by the search, sorted, with the size
+// of the filtered list.
+func (r *Repository) UsersPeoplePage(
+	ctx context.Context,
+	q TableQuery,
+) ([]UsersPerson, int64, error) {
+	rows, err := r.q.ListPlatformUsersPeoplePage(ctx, postgres.ListPlatformUsersPeoplePageParams{
+		Search:    q.Search,
+		SortBy:    q.SortBy,
+		SortDir:   q.SortDir,
+		LimitVal:  q.Limit,
+		OffsetVal: q.Offset,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]UsersPerson, 0, len(rows))
+	var total int64
+	for _, row := range rows {
+		total = row.Total
+		out = append(out, UsersPerson{
+			ID:           row.ID,
+			FirstName:    row.FirstName,
+			LastName:     row.LastName,
+			Email:        row.Email,
+			Role:         row.Role,
+			EventsJoined: row.EventsJoined,
+			Solves:       row.Solves,
+			LastSeenAt:   row.LastSeen,
+		})
+	}
+	return out, total, nil
 }

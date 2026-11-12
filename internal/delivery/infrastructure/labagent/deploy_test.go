@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/gofrs/uuid"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +33,12 @@ type fakeAgent struct {
 	itemState   labpb.ItemState // answer for every mutated item; default CREATED
 	itemError   string
 	retryable   bool
+	itemReason  string               // the machine code of a failed item
+	itemWait    *durationpb.Duration // its retry_after
 	clientCfg   string
 	createGroup *labpb.CreateLabGroupsRequest
+	// features is what GetFeatures answers (an error when nil).
+	features    *labpb.FeaturesResponse
 	createLabs  *labpb.CreateLabsRequest
 	createCl    *labpb.CreateLabGroupClientsRequest
 	access      *labpb.SetLabGroupAccessRequest
@@ -51,6 +56,9 @@ type fakeAgent struct {
 	listSelector                                 string
 	renewCSR, rotateKeyID, rotatePub, removedKey string
 	keyErr                                       error
+	// runChecks is the last RunChecks request; runChecksErr fails it.
+	runChecks    *labpb.RunChecksRequest
+	runChecksErr error
 	// clientGone makes Create answer EXISTS (without a config) until the client is deleted.
 	clientExists bool
 }
@@ -65,7 +73,7 @@ func (f *fakeAgent) state() labpb.ItemState {
 }
 
 func (f *fakeAgent) result(ref *labpb.ItemRef) *labpb.ItemResult {
-	return &labpb.ItemResult{Ref: ref, State: f.state(), Error: f.itemError, Retryable: f.retryable}
+	return &labpb.ItemResult{Ref: ref, State: f.state(), Error: f.itemError, Retryable: f.retryable, Reason: f.itemReason, RetryAfter: f.itemWait}
 }
 
 func (f *fakeAgent) CreateLabGroups(_ context.Context, in *labpb.CreateLabGroupsRequest, _ ...grpc.CallOption) (*labpb.BatchResult, error) {
@@ -250,9 +258,21 @@ func TestEveryMutatingCallCarriesTheInstanceLabel(t *testing.T) {
 func TestDeployLabSendsVariantOnceWithLabelsDeployGroupAndAllVariablesAsLabEnv(t *testing.T) {
 	f := &fakeAgent{groups: readyGroup()}
 	c := newClient(f)
-	web := exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx",
-		EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: "ICE{x}"}, {Name: "MODE", Value: "ctf"}}}
-	topo := exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}, Devices: []exerciseModel.Device{web}}
+	web := exerciseModel.Device{
+		Name:  "web",
+		Type:  exerciseModel.DeviceTypeContainer,
+		Image: "nginx",
+		Bootstrap: exerciseModel.Bootstrap{
+			Env: []exerciseModel.EnvVar{
+				{Name: "FLAG", Value: "ICE{x}"},
+				{Name: "MODE", Value: "ctf"},
+			},
+		},
+	}
+	topo := exerciseModel.Topology{
+		VPN:     exerciseModel.NetworkSpec{Enabled: true},
+		Devices: []exerciseModel.Device{web},
+	}
 	meta := infraModel.LabMeta{
 		Labels:      map[string]string{infraModel.LabelTask: "task-1", infraModel.LabelTeam: "team-1"},
 		GroupLabels: map[string]string{infraModel.LabelTeam: "team-1"},
@@ -710,4 +730,11 @@ func TestPrewarmImagesForwardsCredentials(t *testing.T) {
 	if _, err := newClient(f).PrewarmImages(context.Background(), []string{"a"}, nil); err != nil || len(f.prewarm.GetRegistryCredentials()) != 0 {
 		t.Fatalf("nil creds send none: %v %+v", err, f.prewarm)
 	}
+}
+
+func (f *fakeAgent) GetFeatures(context.Context, *labpb.Empty, ...grpc.CallOption) (*labpb.FeaturesResponse, error) {
+	if f.features == nil {
+		return nil, errors.New("features are not available")
+	}
+	return f.features, nil
 }

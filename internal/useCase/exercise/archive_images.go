@@ -338,6 +338,8 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 		if parseErr != nil {
 			return nil, parseErr
 		}
+		// Every version was checked while parsing; the import brings one of them, as a draft.
+		parsed.keepOneVersionAsDraft()
 		parsed.ItemKey = importItemKey(folder.Prefix)
 		tasks = append(tasks, parsed)
 	}

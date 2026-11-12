@@ -16,35 +16,42 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/infrastructure/agentfleet"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 )
 
 type fakeUseCase struct {
-	includeRecent *bool
-	pageSize      int32
-	standsFilter  infrastructureUseCase.StandsFilter
-	recreated     [3]uuid.UUID
-	recreateErr   error
-	terminated    uuid.UUID
-	terminateErr  error
-	testLabsQuery [3]any
-	observations  infrastructureUseCase.Page[infrastructureUseCase.LabMonitoringView]
-	deviceCall    string
-	deviceErr     error
-	agentsView    infrastructureUseCase.AgentsView
-	enrollInput   infraModel.AgentEnrollment
-	listArchived  bool
-	preview       infrastructureUseCase.DeletePreview
-	reconnect     string
-	confirm       bool
-	updateInput   infraModel.AgentUpdate
-	agentID       uuid.UUID
-	agentErr      error
+	facetField       string
+	includeRecent    *bool
+	pageSize         int32
+	standsFilter     infrastructureUseCase.StandsFilter
+	recreated        [3]uuid.UUID
+	recreateErr      error
+	terminated       uuid.UUID
+	terminateErr     error
+	testLabsQuery    [3]any
+	testLabsFilter   infrastructureUseCase.TestLabsFilter
+	bulkLabResults   []infrastructureUseCase.BulkTestLabResult
+	audited          []adminAuditUseCase.Entry
+	recreateFailsFor uuid.UUID
+	observations     infrastructureUseCase.Page[infrastructureUseCase.LabMonitoringView]
+	deviceCall       string
+	deviceErr        error
+	agentsView       infrastructureUseCase.AgentsView
+	enrollInput      infraModel.AgentEnrollment
+	listArchived     bool
+	preview          infrastructureUseCase.DeletePreview
+	reconnect        string
+	confirm          bool
+	updateInput      infraModel.AgentUpdate
+	agentID          uuid.UUID
+	agentErr         error
 }
 
 func (f *fakeUseCase) ListAgents(_ context.Context, includeArchived bool) (infrastructureUseCase.AgentsView, error) {
@@ -110,6 +117,22 @@ func (f *fakeUseCase) ListStands(_ context.Context, filter infrastructureUseCase
 		Total: 1, Page: filter.Page, PageSize: filter.PageSize,
 	}, nil
 }
+func (f *fakeUseCase) StandFacets(_ context.Context, field string, filter infrastructureUseCase.StandsFilter) (map[string]int64, error) {
+	f.standsFilter = filter
+	f.facetField = field
+	if field == "bogus" {
+		return nil, infrastructureUseCase.ErrUnknownFacetField
+	}
+	return map[string]int64{"failed": 2}, nil
+}
+func (f *fakeUseCase) TestLabFacets(_ context.Context, field string, filter infrastructureUseCase.TestLabsFilter) (map[string]int64, error) {
+	f.testLabsFilter = filter
+	f.facetField = field
+	if field == "bogus" {
+		return nil, infrastructureUseCase.ErrUnknownFacetField
+	}
+	return map[string]int64{"active": 3}, nil
+}
 func (f *fakeUseCase) ListStandEvents(context.Context) ([]infrastructureUseCase.StandEventView, error) {
 	return nil, nil
 }
@@ -124,6 +147,9 @@ func (f *fakeUseCase) InfrastructureSummary(context.Context) (infrastructureUseC
 }
 func (f *fakeUseCase) RecreateTeamStand(_ context.Context, eventID, teamID, by uuid.UUID) (eventUseCase.StandTeamView, error) {
 	f.recreated = [3]uuid.UUID{eventID, teamID, by}
+	if teamID == f.recreateFailsFor {
+		return eventUseCase.StandTeamView{}, eventModel.ErrEventNotFound.Err()
+	}
 	return eventUseCase.StandTeamView{TeamID: teamID, Status: eventStandModel.StatusCreating, Generation: 4}, f.recreateErr
 }
 
@@ -133,6 +159,25 @@ func (f *fakeUseCase) ListTestLabs(_ context.Context, search string, page, pageS
 		Items: []infrastructureUseCase.TestLabView{{ExerciseName: "Web 1", AuthorName: "Ann", AuthorEmail: "ann@example.test", VariantNumber: 2, Status: infrastructureUseCase.TestLabReady, Expired: true, Resources: infrastructureUseCase.ResourcesView{Known: true, Available: true, CPUMillicores: 300, MemoryBytes: 2048}}},
 		Total: 1, Page: page, PageSize: pageSize,
 	}, nil
+}
+
+func (f *fakeUseCase) ListTestLabsFiltered(
+	ctx context.Context,
+	filter infrastructureUseCase.TestLabsFilter,
+) (infrastructureUseCase.TestLabsPage, error) {
+	f.testLabsFilter = filter
+	return f.ListTestLabs(ctx, filter.Search, filter.Page, filter.PageSize)
+}
+
+func (f *fakeUseCase) BulkTerminateTestLabs(
+	context.Context,
+	[]uuid.UUID,
+) ([]infrastructureUseCase.BulkTestLabResult, error) {
+	return f.bulkLabResults, nil
+}
+func (f *fakeUseCase) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {
+	f.audited = append(f.audited, entry)
+	return nil
 }
 func (f *fakeUseCase) TerminateTestLab(_ context.Context, id uuid.UUID) error {
 	f.terminated = id

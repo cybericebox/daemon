@@ -10,7 +10,7 @@ import (
 
 func TestValidateForPublish_Placeholders(t *testing.T) {
 	webExt := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	webExt.External = &exerciseModel.ExternalAccess{Port: 8080, Protocol: "http"}
+	webExt.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 8080, Protocol: "http"}, {Kind: exerciseModel.AccessTerminal}, {Kind: exerciseModel.AccessVNC, Port: 5900}}
 	plain := dev("plain", exerciseModel.DeviceTypeContainer, "eth0")
 
 	base := exerciseModel.Topology{
@@ -37,7 +37,12 @@ func TestValidateForPublish_Placeholders(t *testing.T) {
 		{"ip bad octet", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderIP, IPReference: "vpn", LastOctet: 256}, exerciseModel.ErrPlaceholderInvalid.Err()},
 		{"external link ok", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web"}, nil},
 		{"external link unknown device", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "ghost"}, exerciseModel.ErrPlaceholderNode.Err()},
-		{"external link device without external", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "plain"}, exerciseModel.ErrPlaceholderNode.Err()},
+		{"external link device without an http entry", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "plain"}, exerciseModel.ErrPlaceholderNode.Err()},
+		{"external link to the console", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web", Access: exerciseModel.AccessTerminal}, nil},
+		{"external link to vnc validates", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web", Access: exerciseModel.AccessVNC}, nil},
+		{"external link to a missing rdp entry", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web", Access: exerciseModel.AccessRDP}, exerciseModel.ErrPlaceholderNode.Err()},
+		{"external link to a missing console", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "plain", Access: exerciseModel.AccessTerminal}, exerciseModel.ErrPlaceholderNode.Err()},
+		{"external link unknown access kind", base, exerciseModel.Placeholder{Kind: exerciseModel.PlaceholderExternalLink, DeviceName: "web", Access: "ssh"}, exerciseModel.ErrPlaceholderInvalid.Err()},
 		{"unknown kind", base, exerciseModel.Placeholder{Kind: "bogus"}, exerciseModel.ErrPlaceholderInvalid.Err()},
 	}
 	for _, tc := range cases {

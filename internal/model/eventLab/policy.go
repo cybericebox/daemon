@@ -11,6 +11,22 @@ type Policy struct {
 	RetentionMinutes     int32
 }
 
+// ForTopology is the policy of one lab: a lab with a device that keeps its state (persistence.enabled) is always
+// stopped with a snapshot of it, whatever the event's default; the devices of the lab that keep none are stopped
+// without one (owner, 2026-10-31). A lab without such a device keeps the event's policy.
+func (p Policy) ForTopology(t exerciseModel.Topology) Policy {
+	if p.SnapshotMode == "required" {
+		return p
+	}
+	for _, d := range t.Devices {
+		if d.IsNode() && d.Persistence != nil && d.Persistence.Enabled {
+			p.SnapshotMode = "required"
+			return p
+		}
+	}
+	return p
+}
+
 var defaultPolicy = Policy{SnapshotMode: "skip", RetentionMinutes: 60}
 
 func SetDefaultPolicy(p Policy) {
@@ -46,10 +62,19 @@ func (p Policy) ValidatePreparation(t exerciseModel.Topology, captureSupported b
 		return nil
 	}
 	missing := !captureSupported
+	// The snapshot is taken where the task asks for it: it suffices that one device of the lab keeps its state, the
+	// others are stopped without one (owner, 2026-10-31). A lab with devices and none that keeps state is refused.
+	nodes, persistent := 0, 0
 	for _, d := range t.Devices {
-		if d.Type == exerciseModel.DeviceTypeContainer && (d.Persistence == nil || !d.Persistence.Enabled) {
-			missing = true
+		if d.IsNode() {
+			nodes++
+			if d.Persistence != nil && d.Persistence.Enabled {
+				persistent++
+			}
 		}
+	}
+	if nodes > 0 && persistent == 0 {
+		missing = true
 	}
 	if missing {
 		return ErrCaptureUnavailable.Err()

@@ -196,8 +196,9 @@ func TestVariantDTO_WeightBothWays(t *testing.T) {
 
 func TestSaveDraftRequest_WeightRange(t *testing.T) {
 	for raw, valid := range map[string]bool{
-		`{"Variants":[{"Weight":0}]}`:                true,
+		`{"Variants":[{"Weight":0}]}`:                false, // zero is refused, an absent weight is 1
 		`{"Variants":[{}]}`:                          true,
+		`{"Variants":[{"Weight":1}]}`:                true,
 		`{"Variants":[{"Weight":100}]}`:              true,
 		`{"Variants":[{"Weight":1},{"Weight":101}]}`: false,
 		`{"Variants":[{"Weight":-1}]}`:               false,
@@ -236,11 +237,30 @@ func TestVariantDTO_ImageOverridesBothWays(t *testing.T) {
 func TestVersionToResponse_SecretGroupsAndContentHashes(t *testing.T) {
 	file := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f001")
 	view := exerciseUseCase.VersionView{
-		Variants: []exerciseModel.Variant{{
-			Tasks: []exerciseModel.Task{{Name: "t", Attachments: []exerciseModel.AttachmentRef{{FileID: file, Name: "a.txt"}}}},
-			Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer,
-				EnvVars: []exerciseModel.EnvVar{{Name: "PASS", Secret: true}, {Name: "MODE", Value: "ctf"}}}}},
-		}},
+		Variants: []exerciseModel.Variant{
+			{
+				Tasks: []exerciseModel.Task{
+					{
+						Name:        "t",
+						Attachments: []exerciseModel.AttachmentRef{{FileID: file, Name: "a.txt"}},
+					},
+				},
+				Topology: exerciseModel.Topology{
+					Devices: []exerciseModel.Device{
+						{
+							Name: "web",
+							Type: exerciseModel.DeviceTypeContainer,
+							Bootstrap: exerciseModel.Bootstrap{
+								Env: []exerciseModel.EnvVar{
+									{Name: "PASS", Secret: true},
+									{Name: "MODE", Value: "ctf"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 		SecretGroups: [][][]int{{{3, 7}}},
 		FileHashes:   map[uuid.UUID]string{file: "cc33"},
 	}
@@ -269,7 +289,10 @@ func TestSaveDraftRequest_EnvVarCap(t *testing.T) {
 		vars = append(vars, `{"Name":"V`+strconv.Itoa(i)+`"}`)
 	}
 	for count, valid := range map[int]bool{64: true, 65: false} {
-		raw := `{"Variants":[{"Topology":{"Devices":[{"Name":"web","Type":"container","EnvVars":[` + strings.Join(vars[:count], ",") + `]}]}}]}`
+		raw := `{"Variants":[{"Topology":{"Devices":[{"Name":"web","Type":"container","Bootstrap":{"Env":[` + strings.Join(
+			vars[:count],
+			",",
+		) + `]}}]}}]}`
 		var req saveDraftRequest
 		if err := json.Unmarshal([]byte(raw), &req); err != nil {
 			t.Fatal(err)

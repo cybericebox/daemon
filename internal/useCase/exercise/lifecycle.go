@@ -49,12 +49,21 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = version.SyncLinkedVariants(); err != nil {
 		return VersionView{}, err
 	}
+	if err = exerciseModel.ValidateDeviceNames(version.Variants); err != nil {
+		return VersionView{}, err
+	}
 	if err = u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
+		return VersionView{}, err
+	}
+	if err = u.requireProfilesSupported(ctx, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 	// The client names the attached files by id: it may attach only what it uploaded or what the exercise
 	// already holds, never another user's file (the table of files is shared by every event).
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
+		return VersionView{}, err
+	}
+	if err = u.requireBootstrapSizes(ctx, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 	// Snapshot which secret fields the caller actually submitted BEFORE the
@@ -106,6 +115,9 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, err
 	}
 	if err = session.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
+		return VersionView{}, err
+	}
+	if err = session.requireBootstrapSizes(ctx, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 	if err = session.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
@@ -216,6 +228,9 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 // yet created has none).
 func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseModel.Exercise, version *exerciseModel.ExerciseVersion) error {
 	if err := version.ValidateForPublish(); err != nil {
+		return err
+	}
+	if err := u.requireProfilesSupported(ctx, version.Variants); err != nil {
 		return err
 	}
 	if err := u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
@@ -482,6 +497,15 @@ func (u *ExerciseUseCase) ListVersions(ctx context.Context, exerciseID uuid.UUID
 // devices by id, and the secret merge/encrypt passes key by variant id, so
 // every id must exist before either runs — this MUST run before
 // submittedSecretKeys/mergeKeptSecrets/encryptSecrets in SaveDraft.
+// inheritTaskKeys gives a task without a key the key of the first variant's task at the same position.
+func inheritTaskKeys(tasks, first []exerciseModel.Task) {
+	for ti := range min(len(tasks), len(first)) {
+		if tasks[ti].Key == "" {
+			tasks[ti].Key = first[ti].Key
+		}
+	}
+}
+
 func normalizeContentIDs(variants []exerciseModel.Variant) {
 	for vi := range variants {
 		if variants[vi].ID == uuid.Nil {
@@ -517,5 +541,11 @@ func normalizeContentIDs(variants []exerciseModel.Variant) {
 				variants[vi].Topology.Devices[di].ID = uuid.Must(uuid.NewV7())
 			}
 		}
+		// Task keys: a task without one takes the key of the task at its position in the first variant, else a
+		// stable generated one, so {{task.<key>}} and requires mean the same task in every variant.
+		if vi > 0 {
+			inheritTaskKeys(variants[vi].Tasks, variants[0].Tasks)
+		}
+		variants[vi].NormalizeTaskKeys()
 	}
 }

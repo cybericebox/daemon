@@ -88,7 +88,7 @@ func TestSourceHTTPRecoversOwnedActiveAndCompletedReimport(t *testing.T) {
 				require.NoError(t, err)
 				draft, err := repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "before"}, now, uuid.NullUUID{})
 				require.NoError(t, err)
-				archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Replay updated"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`), "images/web.tar": archivetest.Legacy(archivetest.Amd64([]byte("replay layer")))})
+				archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Replay updated"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`), "images/web.tar": archivetest.Legacy(archivetest.Amd64([]byte("replay layer")))})
 				require.NoError(t, err)
 				media := mediaUseCase.NewMediaUseCase(mediaUseCase.Dependencies{Repo: db.Queries, Storage: testhelpers.NewMemoryStorage(), Config: config.MediaConfig{MaxUploadBytes: 64 << 20, UploadChunkBytes: 64 << 20, UploadTTL: time.Hour}})
 				sources := &replaySources{MediaUseCase: media}

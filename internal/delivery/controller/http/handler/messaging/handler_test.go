@@ -41,6 +41,7 @@ func (permProtection) RequirePermission(required rbac.Permission) gin.HandlerFun
 // fakeUseCase records calls; the Event access checks follow the caller's
 // header: "owner" manages, "viewer" only reads.
 type fakeUseCase struct {
+	pageFilter broadcastModel.ListFilter
 	IUseCase
 	sent          []broadcastUseCase.SendInput
 	created       []*uuid.UUID
@@ -61,8 +62,37 @@ func (f *fakeUseCase) RequireReadEvent(context.Context, uuid.UUID, uuid.UUID) er
 func (f *fakeUseCase) GetBroadcast(context.Context, uuid.UUID, *uuid.UUID) (broadcastModel.Broadcast, error) {
 	return broadcastModel.Broadcast{}, nil
 }
-func (f *fakeUseCase) ListBroadcastDeliveries(context.Context, uuid.UUID, int32, int32) ([]broadcastModel.Delivery, error) {
-	return f.deliveries, nil
+
+func (f *fakeUseCase) ListBroadcastDeliveries(
+	context.Context,
+	uuid.UUID,
+	string,
+	int32,
+	int32,
+) ([]broadcastModel.Delivery, int64, error) {
+	return f.deliveries, int64(len(f.deliveries)), nil
+}
+
+func (f *fakeUseCase) ExportBroadcastDeliveries(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+	emit func(broadcastModel.Delivery) error,
+) error {
+	for _, d := range f.deliveries {
+		if err := emit(d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *fakeUseCase) CancelBroadcast(
+	context.Context,
+	uuid.UUID,
+	*uuid.UUID,
+) (broadcastModel.Broadcast, error) {
+	return broadcastModel.Broadcast{Status: broadcastModel.StatusCanceled}, nil
 }
 func (f *fakeUseCase) CountBroadcastAudience(_ context.Context, scope *uuid.UUID, _ broadcastModel.Audience) (int, error) {
 	f.counted = append(f.counted, scope)
@@ -71,6 +101,14 @@ func (f *fakeUseCase) CountBroadcastAudience(_ context.Context, scope *uuid.UUID
 func (f *fakeUseCase) SendBroadcast(_ context.Context, in broadcastUseCase.SendInput) (broadcastModel.Broadcast, error) {
 	f.sent = append(f.sent, in)
 	return broadcastModel.Broadcast{ID: uuid.Must(uuid.NewV7()), Content: in.Content, Audience: in.Audience, RecipientCount: 7}, nil
+}
+
+func (f *fakeUseCase) ListBroadcastsPage(
+	_ context.Context,
+	filter broadcastModel.ListFilter,
+) ([]broadcastModel.Broadcast, int64, error) {
+	f.pageFilter = filter
+	return []broadcastModel.Broadcast{{ID: uuid.Must(uuid.NewV7())}}, 7, nil
 }
 func (f *fakeUseCase) ListBroadcasts(context.Context, broadcastModel.ListFilter) ([]broadcastModel.Broadcast, error) {
 	return nil, nil
@@ -205,5 +243,150 @@ func TestBroadcastDeliveriesMaskTheAddressesForAViewer(t *testing.T) {
 	w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/deliveries", string(rbac.PermNotificationsBroadcast), "")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "olena@example.com") {
 		t.Fatalf("platform deliveries: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The deliveries list is a page with a total, and the CSV export masks and neutralizes like the list does.
+func TestBroadcastDeliveriesPageAndExport(t *testing.T) {
+	deliveries := []broadcastModel.Delivery{
+		{
+			RecipientEmail: "olena@example.com",
+			Channel:        "email",
+			TargetStatus:   "error",
+			Error:          "=cmd|' /C calc'!A0",
+		},
+		{RecipientEmail: "ivan@example.com", Channel: "email", TargetStatus: "done"},
+	}
+	uc := &fakeUseCase{role: "owner", deliveries: deliveries}
+	base := "/api/notifications/broadcasts/" + uuid.Must(uuid.NewV7()).String() + "/deliveries"
+
+	w := do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"?page=1&pageSize=1",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":2`) ||
+		!strings.Contains(w.Body.String(), `"PageSize":1`) {
+		t.Fatalf("page: %d %s", w.Code, w.Body.String())
+	}
+	if w = do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"?pageSize=9999",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	); w.Code != http.StatusBadRequest {
+		t.Fatalf("an oversized page is refused: %d", w.Code)
+	}
+
+	w = do(t, uc, http.MethodGet, base+"/export", string(rbac.PermNotificationsBroadcast), "")
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") {
+		t.Fatalf("export: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "ivan@example.com") || strings.Contains(body, ",=cmd") ||
+		strings.Contains(body, ",\"=cmd") {
+		t.Fatalf("export must carry the rows and neutralize a formula: %s", body)
+	}
+	if w = do(
+		t,
+		uc,
+		http.MethodGet,
+		base+"/export?status=bogus",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	); w.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown status is refused: %d", w.Code)
+	}
+
+	eventPath := "/api/events/" + uuid.Must(uuid.NewV7()).
+		String() +
+		"/manage/broadcasts/" + uuid.Must(uuid.NewV7()).
+		String() +
+		"/deliveries/export"
+	uc = &fakeUseCase{role: "viewer", deliveries: deliveries}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	NewMessagingAPIHandler(uc, permProtection{}).Init(router.Group("/api"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, eventPath, nil))
+	if strings.Contains(rec.Body.String(), "olena@example.com") ||
+		!strings.Contains(rec.Body.String(), "o***@example.com") {
+		t.Fatalf("a read-only moderator gets masked addresses in the export: %s", rec.Body.String())
+	}
+}
+
+func TestCancelBroadcastRoute(t *testing.T) {
+	uc := &fakeUseCase{role: "owner"}
+	w := do(
+		t,
+		uc,
+		http.MethodPost,
+		"/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "canceled") {
+		t.Fatalf("cancel: %d %s", w.Code, w.Body.String())
+	}
+	if w = do(
+		t,
+		uc,
+		http.MethodPost,
+		"/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/cancel",
+		"",
+		"",
+	); w.Code == http.StatusOK {
+		t.Fatalf("cancel needs the broadcast permission: %d", w.Code)
+	}
+}
+
+func TestBroadcastHistoryPageNumberMode(t *testing.T) {
+	uc := &fakeUseCase{role: "owner"}
+	w := do(
+		t,
+		uc,
+		http.MethodGet,
+		"/api/notifications/broadcasts?page=2&pageSize=10&search=%20news%20&status=done&sortBy=recipients&sortDir=desc",
+		string(rbac.PermNotificationsBroadcast),
+		"",
+	)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Total":7`) ||
+		!strings.Contains(w.Body.String(), `"Page":2`) {
+		t.Fatalf("page: %d %s", w.Code, w.Body.String())
+	}
+	f := uc.pageFilter
+	if f.Scope != "platform" || f.Limit != 10 || f.Offset != 10 || f.Search != "news" ||
+		f.Status != "done" ||
+		f.SortBy != "recipients" ||
+		f.SortDir != "desc" {
+		t.Fatalf("filter = %+v", f)
+	}
+	for _, bad := range []string{"?page=1&status=bogus", "?page=1&sortBy=password", "?page=1&sortBy=subject&sortDir=up", "?page=1&pageSize=99999"} {
+		if w = do(
+			t,
+			uc,
+			http.MethodGet,
+			"/api/notifications/broadcasts"+bad,
+			string(rbac.PermNotificationsBroadcast),
+			"",
+		); w.Code != http.StatusBadRequest {
+			t.Errorf("%s must be refused: %d", bad, w.Code)
+		}
+	}
+}
+
+func TestBroadcastHistoryAcceptsEveryColumnForSorting(t *testing.T) {
+	uc := &fakeUseCase{role: "owner"}
+	for _, column := range []string{"subject", "channels", "audience", "recipients", "delivered", "failed", "status", "author", "created"} {
+		w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts?page=1&sortBy="+column+"&sortDir=asc", string(rbac.PermNotificationsBroadcast), "")
+		if w.Code != http.StatusOK || uc.pageFilter.SortBy != column {
+			t.Errorf("sortBy=%s: %d (%s)", column, w.Code, uc.pageFilter.SortBy)
+		}
 	}
 }

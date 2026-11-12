@@ -30,7 +30,7 @@ var (
 
 func linkedTask(id uuid.UUID, name string, flag ...string) Task {
 	return Task{
-		ID: id, Name: name, Difficulty: DifficultyEasy, Flag: flag,
+		ID: id, Name: name, Difficulty: DifficultyEasy, Check: FlagCheck(flag...),
 		Description: json.RawMessage(`{"root":{"children":[{"type":"text","text":"x"}]}}`),
 	}
 }
@@ -38,22 +38,36 @@ func linkedTask(id uuid.UUID, name string, flag ...string) Task {
 func TestSyncLinkedVariants_CopiesInheritedParts(t *testing.T) {
 	baseTask := Task{
 		Name: "Пошук", Description: json.RawMessage(`{"root":{}}`), Difficulty: DifficultyHard,
-		Placeholders:   []Placeholder{{Key: "srv", Kind: PlaceholderIP}},
-		Hints:          []Hint{{ID: linkHintID, Text: "a", Level: HintLevelSteps}},
-		LinkedDeviceID: uuid.NullUUID{UUID: linkDevID, Valid: true}, DeviceFlagVar: "FLAG",
+		Placeholders: []Placeholder{{Key: "srv", Kind: PlaceholderIP}},
+		Hints:        []Hint{{ID: linkHintID, Text: "a", Level: HintLevelSteps}},
+		Check:        FlagCheck("ICE{a}"),
 	}
 	version := &ExerciseVersion{Variants: []Variant{
-		{ID: linkBaseID, Index: 1, Tasks: []Task{baseTask}, Topology: Topology{Devices: []Device{{ID: linkDevID, Name: "srv"}}}},
 		{
-			ID: linkLinkedID, Index: 2, Note: "seed 2", LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
-			Tasks: []Task{{Name: "", Flag: []string{"ICE{b}"}, Attachments: []AttachmentRef{{FileID: linkFileID, Name: "b.txt"}}}},
+			ID:       linkBaseID,
+			Index:    1,
+			Tasks:    []Task{baseTask},
+			Topology: Topology{Devices: []Device{{ID: linkDevID, Name: "srv"}}},
+		},
+		{
+			ID:       linkLinkedID,
+			Index:    2,
+			Note:     "seed 2",
+			LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
+			Tasks: []Task{
+				{
+					Name:        "",
+					Check:       FlagCheck("ICE{b}"),
+					Attachments: []AttachmentRef{{FileID: linkFileID, Name: "b.txt"}},
+				},
+			},
 		},
 	}}
 	require.NoError(t, version.SyncLinkedVariants())
 
 	linked := version.Variants[1]
 	want := baseTask
-	want.Flag = []string{"ICE{b}"}
+	want.Check = FlagCheck("ICE{b}")
 	want.Attachments = []AttachmentRef{{FileID: linkFileID, Name: "b.txt"}}
 	assert.Equal(t, want, linked.Tasks[0])
 	baseJSON, _ := json.Marshal(version.Variants[0].Topology)
@@ -72,24 +86,28 @@ func TestSyncLinkedVariants_FollowsBaseTaskChanges(t *testing.T) {
 	version := &ExerciseVersion{Variants: []Variant{
 		{ID: linkBaseID, Tasks: []Task{a, b}},
 		{
-			ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
-			Tasks: []Task{{ID: linkTaskA, Flag: []string{"ICE{a2}"}}, {ID: linkTaskB, Flag: []string{"ICE{b2}"}}},
+			ID:       linkLinkedID,
+			LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
+			Tasks: []Task{
+				{ID: linkTaskA, Check: FlagCheck("ICE{a2}")},
+				{ID: linkTaskB, Check: FlagCheck("ICE{b2}")},
+			},
 		},
 	}}
 	version.Variants[0].Tasks = []Task{b, a, linkedTask(linkTaskC, "C")}
 	require.NoError(t, version.SyncLinkedVariants())
 	got := version.Variants[1].Tasks
 	require.Len(t, got, 3)
-	assert.Equal(t, []string{"ICE{b2}"}, got[0].Flag)
-	assert.Equal(t, []string{"ICE{a2}"}, got[1].Flag)
-	assert.Nil(t, got[2].Flag)
+	assert.Equal(t, []string{"ICE{b2}"}, got[0].Check.AnswerValues())
+	assert.Equal(t, []string{"ICE{a2}"}, got[1].Check.AnswerValues())
+	assert.Nil(t, got[2].Check.AnswerValues())
 	assert.Equal(t, linkTaskC, got[2].ID)
 
 	version.Variants[0].Tasks = []Task{a}
 	require.NoError(t, version.SyncLinkedVariants())
 	got = version.Variants[1].Tasks
 	require.Len(t, got, 1)
-	assert.Equal(t, []string{"ICE{a2}"}, got[0].Flag)
+	assert.Equal(t, []string{"ICE{a2}"}, got[0].Check.AnswerValues())
 }
 
 func TestSyncLinkedVariants_MatchesByPositionWithoutIDs(t *testing.T) {
@@ -97,12 +115,12 @@ func TestSyncLinkedVariants_MatchesByPositionWithoutIDs(t *testing.T) {
 		{ID: linkBaseID, Tasks: []Task{linkedTask(uuid.Nil, "A"), linkedTask(uuid.Nil, "B")}},
 		{
 			ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
-			Tasks: []Task{{Flag: []string{"ICE{1}"}}, {Flag: []string{"ICE{2}"}}},
+			Tasks: []Task{{Check: FlagCheck("ICE{1}")}, {Check: FlagCheck("ICE{2}")}},
 		},
 	}}
 	require.NoError(t, version.SyncLinkedVariants())
-	assert.Equal(t, []string{"ICE{1}"}, version.Variants[1].Tasks[0].Flag)
-	assert.Equal(t, []string{"ICE{2}"}, version.Variants[1].Tasks[1].Flag)
+	assert.Equal(t, []string{"ICE{1}"}, version.Variants[1].Tasks[0].Check.AnswerValues())
+	assert.Equal(t, []string{"ICE{2}"}, version.Variants[1].Tasks[1].Check.AnswerValues())
 }
 
 func TestSyncLinkedVariants_NilLinkedTaskIDMatchesByPosition(t *testing.T) {
@@ -111,16 +129,19 @@ func TestSyncLinkedVariants_NilLinkedTaskIDMatchesByPosition(t *testing.T) {
 		{
 			ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
 			Tasks: []Task{
-				{Flag: []string{"ICE{1}"}, Attachments: []AttachmentRef{{FileID: linkFileID, Name: "1.txt"}}},
-				{Flag: []string{"ICE{2}"}},
+				{
+					Check:       FlagCheck("ICE{1}"),
+					Attachments: []AttachmentRef{{FileID: linkFileID, Name: "1.txt"}},
+				},
+				{Check: FlagCheck("ICE{2}")},
 			},
 		},
 	}}
 	require.NoError(t, version.SyncLinkedVariants())
 	got := version.Variants[1].Tasks
-	assert.Equal(t, []string{"ICE{1}"}, got[0].Flag)
+	assert.Equal(t, []string{"ICE{1}"}, got[0].Check.AnswerValues())
 	assert.Equal(t, []AttachmentRef{{FileID: linkFileID, Name: "1.txt"}}, got[0].Attachments)
-	assert.Equal(t, []string{"ICE{2}"}, got[1].Flag)
+	assert.Equal(t, []string{"ICE{2}"}, got[1].Check.AnswerValues())
 	assert.Equal(t, linkTaskB, got[1].ID)
 }
 
@@ -181,7 +202,11 @@ func TestSyncLinkedVariants_DeepCopy(t *testing.T) {
 func TestSyncLinkedVariants_Idempotent(t *testing.T) {
 	version := &ExerciseVersion{Variants: []Variant{
 		{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "A", "ICE{a}")}},
-		{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}, Tasks: []Task{{ID: linkTaskA, Flag: []string{"ICE{b}"}}}},
+		{
+			ID:       linkLinkedID,
+			LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
+			Tasks:    []Task{{ID: linkTaskA, Check: FlagCheck("ICE{b}")}},
+		},
 	}}
 	require.NoError(t, version.SyncLinkedVariants())
 	first, err := json.Marshal(version)
@@ -217,7 +242,7 @@ func TestValidateStructure_LinkedFlagsDistinct(t *testing.T) {
 				tasks[i].ID = linkTaskB
 			}
 			if flags[i] == "" {
-				tasks[i].Flag = nil
+				tasks[i].Check = FlagCheck()
 			}
 		}
 		return Variant{ID: id, LinkedTo: linkedTo, Tasks: tasks}
@@ -244,7 +269,7 @@ func TestValidateStructure_LinkedFlagsDistinct(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, ErrLinkedFlagsNotDistinct.Err()))
-			assert.Contains(t, err.Error(), "TASK:=Task")
+			assert.Contains(t, err.Error(), "TASK_NAME:=Task")
 		})
 	}
 }
@@ -279,12 +304,30 @@ func TestVariant_EffectiveWeight(t *testing.T) {
 }
 
 func TestSyncLinkedVariants_OwnDeviceImages(t *testing.T) {
-	webID, dbID, swID, goneID := lid("00000000-0000-0000-0000-0000000000e1"), lid("00000000-0000-0000-0000-0000000000e2"), lid("00000000-0000-0000-0000-0000000000e3"), lid("00000000-0000-0000-0000-0000000000e4")
-	base := Variant{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "A")}, Topology: Topology{Devices: []Device{
-		{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1.27", EnvVars: []EnvVar{{Name: "MODE", Value: "a"}}},
-		{ID: dbID, Name: "db", Type: DeviceTypeContainer, Image: "redis:7"},
-		{ID: swID, Name: "sw", Type: DeviceTypeUnmanagedSwitch},
-	}}}
+	webID, dbID, swID, goneID := lid(
+		"00000000-0000-0000-0000-0000000000e1",
+	), lid(
+		"00000000-0000-0000-0000-0000000000e2",
+	), lid(
+		"00000000-0000-0000-0000-0000000000e3",
+	), lid(
+		"00000000-0000-0000-0000-0000000000e4",
+	)
+	base := Variant{
+		ID:    linkBaseID,
+		Tasks: []Task{linkedTask(linkTaskA, "A")},
+		Topology: Topology{Devices: []Device{
+			{
+				ID:        webID,
+				Name:      "web",
+				Type:      DeviceTypeContainer,
+				Image:     "nginx:1.27",
+				Bootstrap: Bootstrap{Env: []EnvVar{{Name: "MODE", Value: "a"}}},
+			},
+			{ID: dbID, Name: "db", Type: DeviceTypeContainer, Image: "redis:7"},
+			{ID: swID, Name: "sw", Type: DeviceTypeUnmanagedSwitch},
+		}},
+	}
 	version := &ExerciseVersion{Variants: []Variant{base, {
 		ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
 		// The base is the source of truth for everything else: a stale topology in the linked variant is replaced.
@@ -358,8 +401,21 @@ func TestValidateStructure_ImageOverrideReference(t *testing.T) {
 		"nginx:":              false,
 	} {
 		version := &ExerciseVersion{Variants: []Variant{
-			{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "Перше", "ICE{a}")}, Topology: Topology{Devices: []Device{{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1"}}}},
-			{ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true}, Tasks: []Task{{ID: linkTaskA, Flag: []string{"ICE{b}"}}}, ImageOverrides: []ImageOverride{{DeviceID: webID, Image: image}}},
+			{
+				ID:    linkBaseID,
+				Tasks: []Task{linkedTask(linkTaskA, "Перше", "ICE{a}")},
+				Topology: Topology{
+					Devices: []Device{
+						{ID: webID, Name: "web", Type: DeviceTypeContainer, Image: "nginx:1"},
+					},
+				},
+			},
+			{
+				ID:             linkLinkedID,
+				LinkedTo:       uuid.NullUUID{UUID: linkBaseID, Valid: true},
+				Tasks:          []Task{{ID: linkTaskA, Check: FlagCheck("ICE{b}")}},
+				ImageOverrides: []ImageOverride{{DeviceID: webID, Image: image}},
+			},
 		}}
 		require.NoError(t, version.SyncLinkedVariants())
 		err := version.ValidateStructure()

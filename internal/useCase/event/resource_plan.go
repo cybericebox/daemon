@@ -57,6 +57,8 @@ type PlanTask struct {
 	deviceMax  resourcesModel.Amount
 	labDevices int
 	hasLab     bool
+	// profiles are the node profiles of the planned variants.
+	profiles exerciseModel.NodeProfileSet
 }
 
 // GroupOverhead is a team's lab group's own pods, computed with the agents' formula for the plan.
@@ -107,12 +109,13 @@ type planInputs struct {
 	internetLab      int
 	activeLabs       int
 	allowedRelations int
+	profiles         exerciseModel.NodeProfileSet
 }
 
 // placementNeed is what a team's group asks of an agent.
 func (p planInputs) placementNeed() infraModel.PlacementNeed {
 	return infraModel.PlacementNeed{
-		Device: p.maxDevice, LabDevices: p.maxLabSize,
+		Device: p.maxDevice, LabDevices: p.maxLabSize, Profiles: p.profiles,
 		Plan: infraModel.GroupPlan{MaxUsers: p.maxUsers, InternetLabs: p.internetLab, MaxActiveLabs: p.activeLabs, AllowedRelations: p.allowedRelations},
 	}
 }
@@ -179,6 +182,7 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		in.tasks = append(in.tasks, task)
 		in.maxLabSize = max(in.maxLabSize, task.labDevices)
 		in.maxDevice = in.maxDevice.Max(task.deviceMax)
+		in.profiles = in.profiles.Union(task.profiles)
 		if task.hasLab {
 			in.activeLabs++
 		}
@@ -212,6 +216,7 @@ func planTask(policy resourcesModel.Policy, link eventExerciseModel.EventExercis
 	if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && int(*link.FixedVariantIndex) >= 0 && int(*link.FixedVariantIndex) < len(variants) {
 		plannedVariants = variants[*link.FixedVariantIndex : *link.FixedVariantIndex+1]
 	}
+	task.profiles = exerciseModel.NodeProfileSetOf(plannedVariants)
 	for _, v := range plannedVariants {
 		if len(v.Topology.Devices) > 0 {
 			task.hasLab = true
@@ -295,6 +300,7 @@ type taskResources struct {
 	Range       resourcesModel.Range
 	Heavy       bool
 	NoAgentFits bool
+	Console     bool
 }
 
 // versionsResources reads, for pinned versions (version id to exercise id), their resources: the range over
@@ -319,7 +325,7 @@ func (u *EventUseCase) versionsResources(ctx context.Context, versions map[uuid.
 	for version, exercise := range versions {
 		vs := variants[version]
 		task := planTask(policy, eventExerciseModel.EventExercise{ExerciseID: exercise}, vs, approvals[exercise])
-		res := taskResources{Range: task.Range, Heavy: task.Heavy}
+		res := taskResources{Range: task.Range, Heavy: task.Heavy, Console: exerciseModel.UsesConsole(vs)}
 		if planner != nil {
 			need := infraModel.PlacementNeed{Device: task.deviceMax, LabDevices: task.labDevices}
 			res.NoAgentFits = need.Known() && planner.NeedFit(need) != nil
@@ -333,7 +339,7 @@ func (u *EventUseCase) versionsResources(ctx context.Context, versions map[uuid.
 func (u *EventUseCase) applyVersionResources(ctx context.Context, view *EventExerciseView, version exerciseModel.ExerciseVersion) {
 	policy := u.resourcePolicy()
 	task := planTask(policy, eventExerciseModel.EventExercise{ExerciseID: version.ExerciseID}, version.Variants, u.approvals(ctx, []uuid.UUID{version.ExerciseID})[version.ExerciseID])
-	view.Resources, view.ResourceHeavy = task.Range, task.Heavy
+	view.Resources, view.ResourceHeavy, view.UsesConsole = task.Range, task.Heavy, version.UsesConsole()
 	if planner, ok := u.infra.(resourcePlanner); ok {
 		need := infraModel.PlacementNeed{Device: task.deviceMax, LabDevices: task.labDevices}
 		view.NoAgentFits = need.Known() && planner.NeedFit(need) != nil
@@ -352,7 +358,7 @@ func (u *EventUseCase) decorateExerciseResources(ctx context.Context, items []Ev
 	}
 	for i := range items {
 		r := res[items[i].ExerciseVersionID]
-		items[i].Resources, items[i].ResourceHeavy, items[i].NoAgentFits = r.Range, r.Heavy, r.NoAgentFits
+		items[i].Resources, items[i].ResourceHeavy, items[i].NoAgentFits, items[i].UsesConsole = r.Range, r.Heavy, r.NoAgentFits, r.Console
 	}
 	return nil
 }
@@ -369,7 +375,7 @@ func (u *EventUseCase) decorateCatalogResources(ctx context.Context, items []Eve
 	}
 	for i := range items {
 		r := res[items[i].PublishedVersionID]
-		items[i].Resources, items[i].ResourceHeavy = r.Range, r.Heavy
+		items[i].Resources, items[i].ResourceHeavy, items[i].UsesConsole = r.Range, r.Heavy, r.Console
 	}
 	return nil
 }

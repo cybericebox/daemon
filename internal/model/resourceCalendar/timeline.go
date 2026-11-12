@@ -238,12 +238,6 @@ func slotHolds(t time.Time, i int, agents []Agent, loads map[uuid.UUID][]Amount,
 	return fits && pool.Within(rest)
 }
 
-// Slack is the room left in every slot of w on one agent, at the least: capacity minus the peak load.
-func Slack(w Window, a Agent, rs []*Reservation) Amount {
-	peak := PeakLoad(w, rs)
-	return a.during(w).Free(peak[a.ID])
-}
-
 // addSat adds two amounts without passing Unlimited, so a few unlimited agents never overflow.
 func addSat(a, b Amount) Amount {
 	return Amount{CPUMillicores: min(a.CPUMillicores+b.CPUMillicores, Unlimited), MemoryBytes: min(a.MemoryBytes+b.MemoryBytes, Unlimited)}

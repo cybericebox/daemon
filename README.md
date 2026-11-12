@@ -98,6 +98,10 @@ The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `a
 | `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
+| `HTTP_SERVER_PROXY_PROTOCOL_FROM` | none (off) | Comma-separated CIDRs or addresses of the edge proxy (Envoy) that sends a PROXY protocol v2 header with the real client address to the HTTPS listener. A peer in the list may send the header (it is optional: a connection without it keeps the peer address); the header of any other peer is read and discarded. Only the HTTPS listener is affected (not 8081, 8082 or HTTP/3). The header comes before the TLS handshake, so mTLS is unchanged and `CF-Connecting-IP` still wins on a verified Cloudflare connection. The session stores the address only if it is public. Empty: the listener is plain `ListenAndServeTLS` as before; deploy the daemon with the list set before the proxy starts sending the header. The header read is limited by `HTTP_SERVER_READ_TIMEOUT`. |
+| `HTTP_SERVER_PROXY_PROTOCOL_SECRET` | none | Shared secret (at least 16 characters) the edge Envoy puts in the custom TLV `0xE0` of the PROXY v2 header (`added_tlvs`). With it set, the header's address is used only from a listed peer whose TLV equals this or `HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT` (constant-time compare); a wrong or missing TLV keeps the peer address (the session stores no IP). Empty: no TLV is required, the list alone decides, and a warning is logged at start. Never logged. |
+| `HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV` | `224` | PROXY v2 TLV type that carries the secret (custom range 224-239; `0xE0`). |
+| `HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT` | none | Optional second accepted secret for rotation: give the edge the new value after the daemon has it in `_NEXT`, then move it to `_SECRET`. Needs `_SECRET`. |
 | `HTTP_SERVER_HTTPS_PORT` | `8443` | TLS listener (HTTP/2); runs only when both `HTTP_SERVER_TLS_CERT_FILE` and `HTTP_SERVER_TLS_KEY_FILE` are set. |
 | `HTTP_SERVER_TLS_CERT_FILE` | `/tls/tls.crt` when it and the key exist | PEM server certificate chain. Both cert and key set: TLS on; exactly one set: the daemon refuses to start. |
 | `HTTP_SERVER_TLS_KEY_FILE` | `/tls/tls.key` when it and the certificate exist | PEM server key. The certificate, key and client CA are reread when a file changes (a renewal needs no restart); a broken renewal keeps the previous one in service. |
@@ -125,12 +129,12 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_PASSWORD` | required | Password; there is no default and the daemon does not start without it. |
 | `POSTGRES_DB` | `cybericebox` | Database name (the one the deploy creates; a local run sets its own). |
 | `POSTGRES_SSL_MODE` | `verify-full` | pgx `sslmode`. The default encrypts and checks the server certificate and name; set another mode (for example `disable` for a local development database) only for a trusted network. |
-| `POSTGRES_MAX_CONNS` | `32` | Size of the main pool (requests and use cases, job handlers included). |
+| `POSTGRES_MAX_CONNS` | `24` | Size of the main pool (requests and use cases, job handlers included). |
 | `POSTGRES_ACQUIRE_TIMEOUT` | `3s` | Longest a statement waits for a free connection of the main pool; past it the request is answered 503 with `Retry-After: 1`. A statement that got a connection runs as long as it needs. 100ms to 30s. |
 | `POSTGRES_MAX_CONN_LIFETIME` / `POSTGRES_MAX_CONN_IDLE_TIME` | `30m` / `5m` | A connection of either pool is replaced after this age / closed after this long unused. |
 | `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so request queries cannot starve them and they cannot starve requests. Not fully isolated: a job enqueued by a request outside a transaction (a broadcast, a notification, an import) is inserted on this pool too, with no acquire bound; those inserts are short and the in-flight cap bounds how many run at once. An enqueue inside a unit of work uses its transaction on the main pool. At least 4, like `POSTGRES_MAX_CONNS`. |
 
-Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` (40 by default), so N replicas need N × 40 + 20 (reserved for administration; the leader also holds one connection of its own outside the pools for the leadership lock, and a push to an agent holds one more while it runs) ≤ the server's `max_connections`. The daemon logs this arithmetic at startup and warns when a single replica already does not fit.
+Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` + 8 lock sessions (40 by default), so N replicas need N × 40 + 20 (reserved for administration) ≤ the server's `max_connections`. The lock sessions are the advisory locks (the leadership lock, a push to an agent): each keeps a connection of its own outside the pools, and at most 8 are open at once per replica, the rest wait. A statement that cannot get a pool connection within `POSTGRES_ACQUIRE_TIMEOUT` is answered 503 with Retry-After instead of queueing. River and its LISTEN run on the job pool. The daemon logs this arithmetic at startup, warns when a single replica already does not fit, and warns every 15 s while a pool is 80% in use or statements waited or gave up for a connection (with the lock sessions open).
 
 ### Authentication and secrets
 
@@ -272,8 +276,8 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CALENDAR_BUFFER_PERCENT` | `0` | Optional buffer added to the size of an event reservation (0 to 200). Off by default: the agent keeps its own hidden 15% packing reserve, so a reservation is the plan x teams plus the dynamic estimate. |
-| `CALENDAR_TAIL_GAP` | `1h` | Gap kept after the event end (15m to 168h); the admin may set more per event, never less. |
-| `CALENDAR_LEAD_MARGIN` | `30m` | Added before the stand deploy lead: the capacity must be connected that much earlier (0 to 24h). |
+| `CALENDAR_TAIL_GAP` | `1h` | Default gap after the event end (15m to 168h): the default end of an event reservation is the event end plus this, cut at the withdrawal. It is only a default: the end may be as early as the event end and as late as the withdrawal. |
+| `CALENDAR_LEAD_MARGIN` | `30m` | Added to the 30 minute planning lead: the reservation window starts at least this lead (30m + margin = 60m by default) before the event start, earlier is allowed, later is refused (22521) (0 to 24h). |
 | `CALENDAR_SEARCH_HORIZON` | `168h` | How far ahead the nearest free window of a test lab is looked for (1h to 2160h). |
 | `CALENDAR_AGENT_FRESH` | `15m` | How recent an agent's capacity read must be for it to count as connected (6m to 24h). |
 

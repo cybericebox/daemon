@@ -11,8 +11,8 @@ const (
 	AuthRecaptchaObjectCode
 	// Infrastructure packages (pkg/...) also namespace their error codes here
 	// so the registry stays single and collision-free.
-	IPAMObjectCode
-	WgKeyGenObjectCode
+	IPAMObjectCode     // reserved: it was pkg/ipam (removed); the constant stays so the object codes after it keep their numbers
+	WgKeyGenObjectCode // reserved: it was pkg/wgkeygen (removed); kept so the codes after it keep their numbers
 	ExerciseObjectCode
 	MediaObjectCode
 	EventObjectCode
@@ -34,4 +34,10 @@ const (
 	ParticipantPreviewObjectCode
 	ImageRegistryObjectCode
 	ExerciseImportObjectCode
+	LinkedVariantObjectCode
+	NodeProfileObjectCode
+	DeviceObjectCode
+	PasskeyObjectCode
+	TablePrefsObjectCode
+	ExerciseDocumentObjectCode
 )

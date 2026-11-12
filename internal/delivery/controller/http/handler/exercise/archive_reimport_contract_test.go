@@ -29,7 +29,8 @@ func TestCommitImportRequestAndResponseSchemasMatchActualPascalCaseKeys(t *testi
 	require.NoError(t, yaml.Unmarshal(raw, &yamlDoc))
 	source, target := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	body := `{"UploadID":"` + source.String() + `","Password":"private","OwnerEventID":null,"Targets":[{"ItemKey":".","Mode":"update","ExerciseID":"` + target.String() + `"}],"FixedExerciseID":"` + target.String() + `","ConfirmedUpdates":[{"ItemKey":".","Revision":"source-target-revision","ReplaceDraft":true}]}`
-	uc := &fakeUC{archiveImport: archiveImportCalls{start: exerciseUseCase.ArchiveImportStart{Exercises: []exerciseUseCase.ExerciseView{}, Results: []exerciseModel.ImportResult{{ItemKey: ".", Mode: "update", ExerciseID: target}}, Created: 0, Updated: 1}}}
+	report := sampleImportReport(target)
+	uc := &fakeUC{archiveImport: archiveImportCalls{start: exerciseUseCase.ArchiveImportStart{Exercises: []exerciseUseCase.ExerciseView{}, Results: []exerciseModel.ImportResult{{ItemKey: ".", Mode: "update", ExerciseID: target, Report: &report}}, Created: 0, Updated: 1}}}
 	w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/import/upload", body)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var input any
@@ -80,6 +81,7 @@ func TestReimportPublicSchemasMatchRuntimeKeysAndAllGeneratedArtifacts(t *testin
 			ItemKey: "folder", SourceExerciseID: &source, Name: "Source name", SourceVersion: exerciseUseCase.ImportSourceVersion{Position: 0, Status: "draft"},
 			SuggestedTarget: target, Target: target, TargetExercise: &context, SourceIDMismatch: true, ConfirmationRevision: "bound-revision", ReplacesDraft: true,
 			Summary: exerciseUseCase.ArchiveImportSummary{Variants: exerciseUseCase.ImportCountChange{Added: 1, Removed: 2, Changed: 3}, Subtasks: exerciseUseCase.ImportSubtaskCount{Before: 1, After: 2}, FlagsChanged: 3, Files: exerciseUseCase.ImportFileChange{Added: 1, Removed: 2}, Images: exerciseUseCase.ImportImageChange{New: 1, Reused: 2}, MetadataChanged: true},
+			Report:  sampleImportReport(event),
 		}}},
 		targets: pagination.NewCursorPage([]exerciseUseCase.ImportTargetExercise{context}, false, uuid.Nil, 1),
 	}}
@@ -170,4 +172,20 @@ func TestReimportPublicTagsPreserveZeroAndNullFieldPresence(t *testing.T) {
 	require.Contains(t, targetContext, "OwnerEventID")
 	require.Nil(t, targetContext["OwnerEventID"], "the nullable ownership context remains present")
 
+}
+
+// sampleImportReport fills every field of the report, so the contract test compares every generated key.
+func sampleImportReport(id uuid.UUID) exerciseModel.ImportReport {
+	item := exerciseModel.ImportItem{Name: "Task", PreviousName: "Old", Key: "task", ID: id, MatchedBy: exerciseModel.ImportMatchID, KeyChanged: true}
+	changes := exerciseModel.ImportChanges{Kept: []exerciseModel.ImportItem{item}, Added: []exerciseModel.ImportItem{item}, Removed: []exerciseModel.ImportItem{item}}
+	return exerciseModel.ImportReport{
+		Diff: exerciseModel.ImportDiff{Variants: []exerciseModel.ImportVariantDiff{{
+			Status: exerciseModel.ImportVariantKept, Position: 1, StoredPosition: 1, MatchedBy: exerciseModel.ImportMatchID, Tasks: changes, Devices: changes}}},
+		Issues:      []exerciseModel.ImportIssue{{Code: 23504, Message: "answer invalid", Path: "variants[1]", Context: map[string]any{"task": "Task"}}},
+		Publishable: false,
+		Warnings:    []exerciseModel.ImportWarning{{Code: exerciseModel.ImportWarnUsedByEvents, Context: map[string]any{"events": 1}}},
+		Usage: exerciseModel.ImportUsage{TestDeploys: 1, Events: []exerciseModel.ImportUsageEvent{{
+			EventID: id, Name: "Event", Archived: true, VersionPublished: true, RunningLabs: 2, VariantMissing: true, Blocked: true,
+			Removed: []exerciseModel.ImportUsageTask{{Name: "Task", Attempts: 3, Solves: 1}}, Added: []exerciseModel.ImportUsageTask{{Name: "New"}}}}},
+	}
 }

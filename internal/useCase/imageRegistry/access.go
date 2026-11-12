@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -97,6 +98,53 @@ func (u *ImageRegistryUseCase) CheckImageAvailability(ctx context.Context, scope
 	return out, nil
 }
 
+// ImageServiceInfo is what the platform knows about the start configuration of one image reference.
+type ImageServiceInfo struct {
+	Image string
+	// Known: the start configuration is stored for the image. False for an image by reference to an external registry
+	// (nothing reads its config), for a platform image published before the configuration was kept, and when the
+	// read fails; the other fields are then empty.
+	Known   bool
+	Service exerciseModel.ImageService
+}
+
+// ImageServices gives the stored start configuration (entrypoint, cmd, user, working directory) of each distinct
+// non-empty image reference, in the order given. It makes no registry call. Only platform references
+// (platform:<name>@sha256:...) can be known; a failed read answers "not known" for all.
+func (u *ImageRegistryUseCase) ImageServices(ctx context.Context, images []string) []ImageServiceInfo {
+	seen := make(map[string]bool, len(images))
+	out := make([]ImageServiceInfo, 0, len(images))
+	var digests []string
+	for _, image := range images {
+		if image == "" || seen[image] {
+			continue
+		}
+		seen[image] = true
+		out = append(out, ImageServiceInfo{Image: image})
+		if ref, ok := imageRegistryModel.ParsePlatformRef(image); ok {
+			digests = append(digests, ref.Digest)
+		}
+	}
+	if len(digests) == 0 || u.configs == nil {
+		return out
+	}
+	configs, err := u.configs.Get(ctx, digests)
+	if err != nil {
+		log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
+		return out
+	}
+	for i := range out {
+		ref, ok := imageRegistryModel.ParsePlatformRef(out[i].Image)
+		if !ok {
+			continue
+		}
+		if service, found := configs[ref.Digest]; found && !service.IsZero() {
+			out[i].Known, out[i].Service = true, service
+		}
+	}
+	return out
+}
+
 // PrepareDeployImages checks every device image of a lab topology right before
 // the deploy (forwarding devices and empty images are skipped), rewrites the
 // platform references and collects the pull credentials, one per registry
@@ -156,7 +204,46 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		return DeployImages{Unavailable: unavailable}, imageRegistryModel.ErrImagesUnavailable.
 			WithPublicContext(imageRegistryModel.ContextImages, unavailable).Err()
 	}
+	u.fillImageServices(ctx, topo, &out)
 	return DeployImages{Topology: out, Credentials: creds}, nil
+}
+
+// fillImageServices gives every device whose image is a platform image the start configuration stored for it (what the
+// image runs and as whom), so the laboratory can be told what to start after a bootstrap. An image by reference to an
+// external registry has none: nothing reads its configuration, so such a device needs a command of its own when it has a
+// bootstrap list (the deploy then refuses with the device named). A failed read leaves the devices without one.
+func (u *ImageRegistryUseCase) fillImageServices(ctx context.Context, original exerciseModel.Topology, out *exerciseModel.Topology) {
+	if u.configs == nil {
+		return
+	}
+	digests := map[string]struct{}{}
+	for _, d := range original.Devices {
+		if ref, ok := imageRegistryModel.ParsePlatformRef(d.Image); ok {
+			digests[ref.Digest] = struct{}{}
+		}
+	}
+	if len(digests) == 0 {
+		return
+	}
+	list := make([]string, 0, len(digests))
+	for digest := range digests {
+		list = append(list, digest)
+	}
+	configs, err := u.configs.Get(ctx, list)
+	if err != nil {
+		log.Warn().Err(err).Msg("image config: the start configurations of the images cannot be read")
+		return
+	}
+	for i, d := range original.Devices {
+		ref, ok := imageRegistryModel.ParsePlatformRef(d.Image)
+		if !ok {
+			continue
+		}
+		if service, found := configs[ref.Digest]; found && !service.IsZero() {
+			service := service
+			out.Devices[i].ImageService = &service
+		}
+	}
 }
 
 // EventImagesAvailability checks the images of every active attachment of the

@@ -3,6 +3,7 @@ package protection
 import (
 	"context"
 	"errors"
+	"regexp"
 
 	"net/http"
 	"strings"
@@ -154,7 +155,7 @@ func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, sta
 	defer cancel()
 	if err := p.useCase.RecordAdminAction(auditCtx, adminAuditUseCase.Entry{
 		ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
-		Route: ctx.FullPath(), ResponseStatus: status, Target: target,
+		Route: ctx.FullPath(), ResponseStatus: status, Target: target, Changes: audit.Changes(ctx),
 	}); err != nil {
 		log.Warn().Err(err).Str("route", ctx.FullPath()).Msg("Failed to record admin audit action")
 	}
@@ -165,7 +166,8 @@ func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, sta
 //     user's own inbox settings (notifications.self);
 //   - PermSelf writes only where PermSelf stands for staff work: the event
 //     manage area and the exercise catalog (the plain self-service writes —
-//     profile, sessions, flag submissions — are not administration);
+//     profile, sessions, flag submissions — are not administration), plus a user's own passkeys: adding
+//     and removing a sign-in method is an account-security event worth a line;
 //   - GET exports (CSV/ZIP of people and results), which move PII out.
 func isAuditedAction(required rbac.Permission, ctx *gin.Context) bool {
 	path := ctx.FullPath()
@@ -178,7 +180,10 @@ func isAuditedAction(required rbac.Permission, ctx *gin.Context) bool {
 	if required == rbac.PermNotificationsSelf {
 		return false
 	}
-	return required != rbac.PermSelf || strings.Contains(path, "/manage/") || strings.Contains(path, "/exercises")
+	return required != rbac.PermSelf ||
+		strings.Contains(path, "/manage/") ||
+		strings.Contains(path, "/exercises") ||
+		strings.Contains(path, "/auth/passkeys")
 }
 
 // routeTarget names the objects a request addressed from its route ids
@@ -221,6 +226,10 @@ func (p *Protection) signInURL() string {
 func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	cookie := getCookie(ctx, authModel.SessionCookie)
 	if cookie == "" {
+		// A hint left behind by a session that is gone (cookie expired, other browser profile) must not outlive it.
+		if getCookie(ctx, SignedInHintCookie) != "" {
+			p.clearSignedInHint(ctx)
+		}
 		if !p.countAnonymous(ctx, silent) {
 			return false
 		}
@@ -249,6 +258,7 @@ func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
 	if value, ok := p.useCase.ReissueCookie(pass); ok {
 		setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+		p.setSignedInHint(ctx)
 	}
 	return true
 }
@@ -318,10 +328,50 @@ func isUnauthorized(err error) bool {
 // short-lived stash cookie (see handler/auth/google.go).
 func (p *Protection) Authenticate(ctx *gin.Context, value string) {
 	setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+	p.setSignedInHint(ctx)
 }
 
 func (p *Protection) clearSessionCookie(ctx *gin.Context) {
 	clearCookie(ctx, authModel.SessionCookie, http.SameSiteStrictMode)
+	p.clearSignedInHint(ctx)
+}
+
+// SignedInHintCookie tells the landing page (a static site that cannot read the session) that a session exists, so
+// it can show «Мій профіль» instead of «Увійти». It carries no personal data and grants nothing: the value is
+// always "1", it lives on the platform's parent domain like the theme and consent cookies, is readable by
+// scripts (not HttpOnly), and lasts as long as the session cookie. The backend sets it with every sign-in and
+// removes it with the session cookie.
+const SignedInHintCookie = "cib_signed_in"
+
+// ConsentCookie is the cookie of the consent banner: `analytics:granted|denied,functional:granted|denied`, set by the
+// frontends on the parent domain. The sign-in hint and the remembered sign-in address are functional cookies: they are
+// set only while it grants the functional category.
+const ConsentCookie = "cib_consent"
+
+var functionalConsent = regexp.MustCompile(`\bfunctional:granted\b`)
+
+// HasFunctionalConsent: the request carries a consent cookie that grants the functional category. An absent cookie, an
+// old-format value without the functional token and `functional:denied` are no consent.
+func HasFunctionalConsent(ctx *gin.Context) bool {
+	return functionalConsent.MatchString(getCookie(ctx, ConsentCookie))
+}
+
+// setSignedInHint sets the hint when functional consent is granted; without it the hint is not set, and one left from
+// before the consent was withdrawn is removed.
+func (p *Protection) setSignedInHint(ctx *gin.Context) {
+	if !HasFunctionalConsent(ctx) {
+		if getCookie(ctx, SignedInHintCookie) != "" {
+			p.clearSignedInHint(ctx)
+		}
+		return
+	}
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(SignedInHintCookie, "1", int(p.ttl.Seconds()), "/", p.hosts.Main, true, false)
+}
+
+func (p *Protection) clearSignedInHint(ctx *gin.Context) {
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(SignedInHintCookie, "", -1, "/", p.hosts.Main, true, false)
 }
 
 // DeAuthenticate clears the session cookie and deletes the session. Reads the

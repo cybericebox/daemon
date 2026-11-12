@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -100,6 +103,24 @@ func TestWithErrorHandlerDoesNotHideAFaultBehindACancellation(t *testing.T) {
 	}
 	// A cancellation while the client is still there is a dependency fault.
 	rec, _ = serveStoredError(context.Canceled, false)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d", rec.Code)
+	}
+}
+
+// «Failed to get lab status»: the agent call was cut by the client that left, a gRPC Canceled status.
+func TestWithErrorHandlerAnswers499ToAGRPCCancelledCall(t *testing.T) {
+	cancelled := model.ErrPlatform.WithError(fmt.Errorf("get lab group: %w", status.Error(codes.Canceled, "context canceled"))).WithMessage("Failed to get lab status").Err()
+	rec, _ := serveStoredError(cancelled, true)
+	if rec.Code != 499 {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	// A real agent fault stays a fault, and a cancellation while the client is still there too.
+	rec, _ = serveStoredError(status.Error(codes.Unavailable, "down"), true)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	rec, _ = serveStoredError(cancelled, false)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d", rec.Code)
 	}

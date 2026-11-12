@@ -25,3 +25,9 @@ WHERE user_id = $1
 DELETE
 FROM user_providers
 WHERE user_id = $1;
+
+-- name: ListUserProvidersForUsers :many
+SELECT user_id, provider
+FROM user_providers
+WHERE user_id = ANY (sqlc.arg(user_ids)::uuid[])
+ORDER BY user_id, provider;

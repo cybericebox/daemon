@@ -239,3 +239,103 @@ func (q *Queries) ListPlatformUsersPeople(ctx context.Context, limitVal int32) (
 	}
 	return items, nil
 }
+
+const listPlatformUsersPeoplePage = `-- name: ListPlatformUsersPeoplePage :many
+WITH joined AS (
+    SELECT p.user_id, count(*)::bigint AS events_joined
+    FROM event_participants p
+    LEFT JOIN event_teams t ON t.id = p.team_id
+    WHERE p.status = 2 AND NOT COALESCE(t.moderators, false)
+    GROUP BY p.user_id
+), solved AS (
+    SELECT a.user_id, count(DISTINCT a.team_challenge_id)::bigint AS solves
+    FROM effective_challenge_attempts a
+    JOIN event_teams t ON t.id = a.event_team_id AND NOT t.moderators
+    WHERE a.effective_correct
+    GROUP BY a.user_id
+), people AS (
+    SELECT u.id, u.first_name, u.last_name, u.email, u.role, j.events_joined, COALESCE(s.solves, 0)::bigint AS solves, u.last_seen
+    FROM joined j
+    JOIN users u ON u.id = j.user_id AND u.deleted_at IS NULL
+    LEFT JOIN solved s ON s.user_id = u.id
+    WHERE ($5::text = '' OR u.email ILIKE '%' || $5::text || '%'
+           OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $5::text || '%')
+)
+SELECT p.id, p.first_name, p.last_name, p.email, p.role, p.events_joined, p.solves, p.last_seen,
+       count(*) OVER ()::bigint AS total
+FROM people p
+ORDER BY
+  CASE WHEN $1::text = 'name' AND $2::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(p.first_name || ' ' || p.last_name), ''), p.email)) END ASC,
+  CASE WHEN $1::text = 'name' AND $2::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(p.first_name || ' ' || p.last_name), ''), p.email)) END DESC,
+  CASE WHEN $1::text = 'email' AND $2::text = 'asc' THEN lower(p.email) END ASC,
+  CASE WHEN $1::text = 'email' AND $2::text = 'desc' THEN lower(p.email) END DESC,
+  CASE WHEN $1::text = 'role' AND $2::text = 'asc' THEN p.role END ASC,
+  CASE WHEN $1::text = 'role' AND $2::text = 'desc' THEN p.role END DESC,
+  CASE WHEN $1::text = 'eventsJoined' AND $2::text = 'asc' THEN p.events_joined END ASC,
+  CASE WHEN $1::text = 'eventsJoined' AND $2::text = 'desc' THEN p.events_joined END DESC,
+  CASE WHEN $1::text = 'solves' AND $2::text = 'asc' THEN p.solves END ASC,
+  CASE WHEN $1::text = 'solves' AND $2::text = 'desc' THEN p.solves END DESC,
+  CASE WHEN $1::text = 'lastSeen' AND $2::text = 'asc' THEN p.last_seen END ASC,
+  CASE WHEN $1::text = 'lastSeen' AND $2::text = 'desc' THEN p.last_seen END DESC,
+  p.events_joined DESC, p.last_seen DESC NULLS LAST, p.id
+LIMIT $4 OFFSET $3
+`
+
+type ListPlatformUsersPeoplePageParams struct {
+	SortBy    string `json:"sort_by"`
+	SortDir   string `json:"sort_dir"`
+	OffsetVal int32  `json:"offset_val"`
+	LimitVal  int32  `json:"limit_val"`
+	Search    string `json:"search"`
+}
+
+type ListPlatformUsersPeoplePageRow struct {
+	ID           uuid.UUID `json:"id"`
+	FirstName    string    `json:"first_name"`
+	LastName     string    `json:"last_name"`
+	Email        string    `json:"email"`
+	Role         string    `json:"role"`
+	EventsJoined int64     `json:"events_joined"`
+	Solves       int64     `json:"solves"`
+	LastSeen     time.Time `json:"last_seen"`
+	Total        int64     `json:"total"`
+}
+
+// Every account that joined an event (approved, the moderators team excluded), filtered by a search over the name and
+// the email, sorted by a column and cut to one page; total is the size of the filtered list. Solves are the distinct
+// team tasks with an effectively correct attempt of the account. Per-user data: super_admin only.
+func (q *Queries) ListPlatformUsersPeoplePage(ctx context.Context, arg ListPlatformUsersPeoplePageParams) ([]ListPlatformUsersPeoplePageRow, error) {
+	rows, err := q.db.Query(ctx, listPlatformUsersPeoplePage,
+		arg.SortBy,
+		arg.SortDir,
+		arg.OffsetVal,
+		arg.LimitVal,
+		arg.Search,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPlatformUsersPeoplePageRow{}
+	for rows.Next() {
+		var i ListPlatformUsersPeoplePageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FirstName,
+			&i.LastName,
+			&i.Email,
+			&i.Role,
+			&i.EventsJoined,
+			&i.Solves,
+			&i.LastSeen,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

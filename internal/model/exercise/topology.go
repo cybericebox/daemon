@@ -15,6 +15,10 @@ import (
 type DeviceType string
 
 const (
+	// DeviceTypeNode is the «Вузол»: a machine of the lab that runs as the container, microVM or VM of its Profile.
+	DeviceTypeNode DeviceType = "node"
+	// DeviceTypeContainer is the former type of a container device. It is only read: Device.Normalize (run by the
+	// JSON decoding and by every import) turns it into a node with the container profile, and nothing writes it.
 	DeviceTypeContainer       DeviceType = "container"
 	DeviceTypeUnmanagedSwitch DeviceType = "unmanaged-switch"
 	DeviceTypeHub             DeviceType = "hub"
@@ -22,7 +26,31 @@ const (
 
 func (t DeviceType) Valid() bool {
 	switch t {
-	case DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub:
+	case DeviceTypeNode, DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub:
+		return true
+	}
+	return false
+}
+
+// IsNode reports whether the device runs a workload (a node, or a not yet normalized former container).
+func (t DeviceType) IsNode() bool { return t == DeviceTypeNode || t == DeviceTypeContainer }
+
+// NodeProfile is how a node runs: «Контейнер», «Мікро-VM» or «VM».
+type NodeProfile string
+
+const (
+	NodeProfileContainer NodeProfile = "container"
+	NodeProfileMicroVM   NodeProfile = "microvm"
+	// NodeProfileVM is reserved in the model: it is refused where a lab would be deployed.
+	NodeProfileVM NodeProfile = "vm"
+)
+
+// NodeProfiles lists every profile of the model in display order.
+var NodeProfiles = []NodeProfile{NodeProfileContainer, NodeProfileMicroVM, NodeProfileVM}
+
+func (p NodeProfile) Valid() bool {
+	switch p {
+	case NodeProfileContainer, NodeProfileMicroVM, NodeProfileVM:
 		return true
 	}
 	return false
@@ -93,6 +121,9 @@ type (
 	// Topology is one variant's lab layout. Spec §8/§9: devices + direct
 	// connections + the vpn/internet singletons as NetworkSpec fields.
 	Topology struct {
+		// Variables are set once per instance and used as {{var.<name>}} in any device's bootstrap and in the
+		// expectations of the conditions.
+		Variables    []Variable      `json:"variables,omitempty"`
 		VPN          NetworkSpec     `json:"vpn"`
 		Internet     NetworkSpec     `json:"internet"`
 		Devices      []Device        `json:"devices"`
@@ -105,6 +136,9 @@ type (
 		DHCP       bool        `json:"dhcp"`
 		DHCPRanges []DHCPRange `json:"dhcp_ranges,omitempty"`
 		DNS        string      `json:"dns,omitempty"`
+		// ReverseConnections (the VPN gateway only) lets devices of the lab start connections to the VPN clients, the
+		// participants' machines. Off by default; needs Enabled.
+		ReverseConnections bool `json:"reverse_connections,omitempty"`
 	}
 
 	DHCPRange struct {
@@ -113,9 +147,11 @@ type (
 	}
 
 	Device struct {
-		ID             uuid.UUID      `json:"id"`
-		Name           string         `json:"name"` // logical lab name; DNS label
-		Type           DeviceType     `json:"type"`
+		ID   uuid.UUID  `json:"id"`
+		Name string     `json:"name"` // logical lab name; DNS label
+		Type DeviceType `json:"type"`
+		// Profile (a node only) is how the node runs; empty counts as the container.
+		Profile        NodeProfile    `json:"profile,omitempty"`
 		Image          string         `json:"image,omitempty"`
 		SecurityPreset SecurityPreset `json:"security_preset,omitempty"` // empty = standard
 		// ResourcePreset is a platform preset id (micro, small, medium, large); when empty the device
@@ -124,8 +160,22 @@ type (
 		ResourcePreset string           `json:"resource_preset,omitempty"`
 		Resources      *DeviceResources `json:"resources,omitempty"`
 		Interfaces     []Interface      `json:"interfaces,omitempty"`
-		EnvVars        []EnvVar         `json:"env_vars,omitempty"`
-		External       *ExternalAccess  `json:"external,omitempty"` // exposure: web
+		// Access lists the ways a participant reaches the device in the browser, without VPN: at most one entry per
+		// kind (http, terminal, vnc, rdp). It replaces the former external and terminal keys.
+		Access []Access `json:"access,omitempty"`
+		// Command and Args replace the entrypoint and arguments of the image (empty = the image's own).
+		Command []string `json:"command,omitempty"`
+		Args    []string `json:"args,omitempty"`
+		// System and Hardware are reserved for the vm profile (default linux / fast).
+		System   SystemKind   `json:"system,omitempty"`
+		Hardware HardwareKind `json:"hardware,omitempty"`
+		// Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
+		// service process.
+		Bootstrap Bootstrap `json:"bootstrap,omitzero"`
+		// ImageService is what the image's own configuration says it runs (entrypoint, cmd, user, working directory). It is
+		// never part of the document or the stored topology (nothing writes or reads it as JSON): the deploy fills it from
+		// the image registry rows right before a lab is built, so the laboratory can be told what to run after a bootstrap.
+		ImageService *ImageService `json:"-"`
 		// Persistence keeps the device's writable layer across an unplanned restart; nil = off.
 		Persistence *DevicePersistence `json:"persistence,omitempty"`
 		// WaitReadyFile makes the device Ready only once the application has created /run/ready inside the
@@ -192,11 +242,6 @@ type (
 		Origin string `json:"origin,omitempty"`
 	}
 
-	ExternalAccess struct {
-		Port     int32  `json:"port"`
-		Protocol string `json:"protocol"` // http | https (re-encrypt), spec §5
-	}
-
 	Connection struct {
 		Endpoints []Endpoint `json:"endpoints"`
 	}
@@ -217,6 +262,14 @@ const MaxDeviceNameLen = 35
 
 var dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
+// validateVPNOptions: reverse_connections belongs to the VPN gateway and needs the VPN network switched on.
+func (t Topology) validateVPNOptions() error {
+	if (t.VPN.ReverseConnections && !t.VPN.Enabled) || t.Internet.ReverseConnections {
+		return ErrVPNOptionInvalid.WithPublicContext("field", "topology.vpn.reverse_connections").Err()
+	}
+	return nil
+}
+
 // validateStructure checks per-item shape only (types, names, endpoint arity).
 // Cross-item graph rules (uniqueness, resolution, port occupancy) run at
 // publish time — validateGraph, Task 4.
@@ -226,12 +279,15 @@ func (t Topology) validateStructure() error {
 		!validDHCPRanges(t.VPN.DHCPRanges) || !validDHCPRanges(t.Internet.DHCPRanges) {
 		return ErrNetworkDHCPInvalid.Err()
 	}
+	if err := t.validateVPNOptions(); err != nil {
+		return err
+	}
 	if t.VPN.DNS != "" || t.Internet.DNS != "" && !validIPv4(t.Internet.DNS) {
 		return ErrNetworkDHCPInvalid.Err()
 	}
 	usedAddressRefs := make(map[NetworkIPRef]bool)
 	for _, d := range t.Devices {
-		if d.Type == DeviceTypeContainer {
+		if d.Type.IsNode() {
 			if !dnsLabelRe.MatchString(d.Name) {
 				return ErrDeviceNameInvalid.WithContext("device", d.Name).Err()
 			}
@@ -242,8 +298,20 @@ func (t Topology) validateStructure() error {
 		if d.Type.IsForwarding() && strings.TrimSpace(d.Name) == "" {
 			return ErrDeviceDisplayNameInvalid.WithContext("device", d.Name).Err()
 		}
-		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
+		if !d.Type.Valid() ||
+			(d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.Access) > 0 || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
+		}
+		if d.Profile != "" && (!d.Type.IsNode() || !d.Profile.Valid()) {
+			return ErrNodeProfileInvalid.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(d.Profile)).
+				Err()
+		}
+		if d.Persistence != nil && d.Persistence.Enabled && d.EffectiveProfile() != "" && d.EffectiveProfile() != NodeProfileContainer {
+			return ErrNodeProfilePersistence.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(d.Profile)).
+				WithPublicContext("field", "persistence").
+				Err()
 		}
 		if reason := invalidPersistence(d); reason != "" {
 			return ErrDevicePersistenceInvalid.WithContext("device", d.Name).WithContext("reason", reason).Err()
@@ -268,9 +336,8 @@ func (t Topology) validateStructure() error {
 				return ErrDeviceInterfaceInvalid.WithContext("device", d.Name).Err()
 			}
 		}
-		if d.External != nil && (d.External.Port < 1 || d.External.Port > 65535 ||
-			(d.External.Protocol != "http" && d.External.Protocol != "https")) {
-			return ErrDeviceExternalInvalid.WithContext("device", d.Name).Err()
+		if err := validateDeviceRuntime(d); err != nil {
+			return err
 		}
 	}
 	for _, c := range t.Connections {
@@ -289,11 +356,11 @@ func (t Topology) validateStructure() error {
 }
 
 // validateGraph enforces the cross-item publish rules (spec §8/§9): unique
-// names, endpoint resolution, port occupancy and flag-device links. L2 shape
+// names, endpoint resolution and port occupancy. L2 shape
 // (loops, broadcast-domain separation) is not validated here: unmanaged
 // switches/hubs can be cabled to real hardware outside the declared topology,
 // so a static check would be meaningless — the editor UI warns instead.
-func (t Topology) validateGraph(tasks []Task) error {
+func (t Topology) validateGraph() error {
 	// 1. Unique device names + index by id.
 	byID := make(map[uuid.UUID]Device, len(t.Devices))
 	names := make(map[string]bool, len(t.Devices))
@@ -355,16 +422,6 @@ func (t Topology) validateGraph(tasks []Task) error {
 		return err
 	}
 
-	// Flag-device links resolve to a non-forwarding device with a var name.
-	for _, task := range tasks {
-		if !task.LinkedDeviceID.Valid {
-			continue
-		}
-		d, ok := byID[task.LinkedDeviceID.UUID]
-		if !ok || d.Type.IsForwarding() || task.DeviceFlagVar == "" {
-			return ErrFlagDeviceUnresolved.WithContext("task", task.Name).Err()
-		}
-	}
 	return nil
 }
 
@@ -426,41 +483,6 @@ func validForwardingPort(name string) bool {
 	}
 	number, parseErr := strconv.Atoi(strings.TrimPrefix(name, prefix))
 	return parseErr == nil && number >= 1 && number <= 48 && name == prefix+strconv.Itoa(number)
-}
-
-func (t Topology) validateFlagEnvTargets(tasks []Task) error {
-	devices := make(map[uuid.UUID]Device, len(t.Devices))
-	for _, device := range t.Devices {
-		devices[device.ID] = device
-	}
-	type target struct {
-		deviceID uuid.UUID
-		name     string
-	}
-	used := make(map[target]struct{})
-	for _, task := range tasks {
-		if !task.LinkedDeviceID.Valid || task.DeviceFlagVar == "" {
-			continue
-		}
-		device, found := devices[task.LinkedDeviceID.UUID]
-		if !found {
-			continue // Publish validation reports the missing device.
-		}
-		key := target{deviceID: device.ID, name: task.DeviceFlagVar}
-		_, duplicateTask := used[key]
-		conflict := duplicateTask
-		for _, env := range device.EnvVars {
-			if env.Name == task.DeviceFlagVar {
-				conflict = true
-				break
-			}
-		}
-		if conflict {
-			return ErrFlagEnvironmentConflict.WithContext("task", task.Name).WithContext("device", device.Name).WithContext("env_var", task.DeviceFlagVar).Err()
-		}
-		used[key] = struct{}{}
-	}
-	return nil
 }
 
 func hasInterface(d Device, name string) bool {
@@ -651,7 +673,7 @@ func invalidPersistence(d Device) string {
 	if d.Persistence == nil {
 		return ""
 	}
-	if d.Type != DeviceTypeContainer {
+	if !d.Type.IsNode() {
 		return "device_type"
 	}
 	if d.Persistence.Debounce != "" {
@@ -661,4 +683,107 @@ func invalidPersistence(d Device) string {
 		}
 	}
 	return ""
+}
+
+// EffectiveProfile is the profile a node runs as: an unset profile is the container. "" for a switch or a hub.
+func (d Device) EffectiveProfile() NodeProfile {
+	if !d.Type.IsNode() {
+		return ""
+	}
+	if d.Profile == "" {
+		return NodeProfileContainer
+	}
+	return d.Profile
+}
+
+// IsNode reports whether the device is a node (it runs a workload, whatever its profile).
+func (d Device) IsNode() bool { return d.Type.IsNode() }
+
+// Normalize rewrites the former container type as a node with the container profile and gives a node without a
+// profile the container profile. Idempotent.
+func (d *Device) Normalize() {
+	if d.Type == DeviceTypeContainer {
+		d.Type = DeviceTypeNode
+		if d.Profile == "" {
+			d.Profile = NodeProfileContainer
+		}
+	}
+	if d.Type == DeviceTypeNode && d.Profile == "" {
+		d.Profile = NodeProfileContainer
+	}
+}
+
+// UnmarshalJSON reads a device and normalizes it, so stored data and archives in the former form (type container)
+// load as nodes.
+func (d *Device) UnmarshalJSON(data []byte) error {
+	type plain Device
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*d = Device(decoded)
+	d.Normalize()
+	return nil
+}
+
+// NodeProfilesUsed lists the profiles of the nodes of the variants, in the order of NodeProfiles.
+func NodeProfilesUsed(variants []Variant) []NodeProfile {
+	seen := make(map[NodeProfile]bool, len(NodeProfiles))
+	for _, variant := range variants {
+		for _, device := range variant.Topology.Devices {
+			if profile := device.EffectiveProfile(); profile != "" {
+				seen[profile] = true
+			}
+		}
+	}
+	var out []NodeProfile
+	for _, profile := range NodeProfiles {
+		if seen[profile] {
+			out = append(out, profile)
+		}
+	}
+	return out
+}
+
+// NodeProfileSet is a set of node profiles, small and comparable (a field of the placement need).
+type NodeProfileSet uint8
+
+func profileBit(profile NodeProfile) NodeProfileSet {
+	for i, known := range NodeProfiles {
+		if known == profile {
+			return 1 << i
+		}
+	}
+	return 0
+}
+
+// Add returns the set with the profile.
+func (s NodeProfileSet) Add(profile NodeProfile) NodeProfileSet { return s | profileBit(profile) }
+
+// Union returns the profiles of both sets.
+func (s NodeProfileSet) Union(o NodeProfileSet) NodeProfileSet { return s | o }
+
+// Has reports whether the profile is in the set.
+func (s NodeProfileSet) Has(profile NodeProfile) bool {
+	return profile != "" && s&profileBit(profile) != 0
+}
+
+// List is the profiles of the set in the order of NodeProfiles.
+func (s NodeProfileSet) List() []NodeProfile {
+	var out []NodeProfile
+	for _, profile := range NodeProfiles {
+		if s.Has(profile) {
+			out = append(out, profile)
+		}
+	}
+	return out
+}
+
+// NodeProfileSetOf is the profiles the nodes of the variants run as.
+func NodeProfileSetOf(variants []Variant) NodeProfileSet {
+	var set NodeProfileSet
+	for _, profile := range NodeProfilesUsed(variants) {
+		set = set.Add(profile)
+	}
+	return set
 }

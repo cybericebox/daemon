@@ -285,9 +285,6 @@ type publicEventPageContentResponse struct {
 	Document any    `json:"Document"`
 }
 
-func toPublicEventContentResponse(v eventUseCase.PublicEventContentView) publicEventContentResponse {
-	return publicEventContentResponse{Landing: v.Landing, Live: v.Live, Variables: v.Variables}
-}
 func toPublicEventPageResponse(v eventUseCase.PublicEventPageView) publicEventPageResponse {
 	return publicEventPageResponse{
 		Page:      publicEventPageContentResponse{Slug: v.Page.Slug, Title: v.Page.Title, Document: v.Page.Document},
@@ -324,6 +321,8 @@ func toParticipantFormAnswerResponse(v eventUseCase.ParticipantFormAnswerView) p
 }
 
 type labStatusResponse struct {
+	// State: ready | starting | restarting | unavailable | failed | closed. Access holds addresses only when ready.
+	State        string                          `json:"State"`
 	Lab          *labview.ParticipantLabResponse `json:"Lab"`
 	Phase        string                          `json:"Phase"`
 	Ready        bool                            `json:"Ready"`
@@ -373,13 +372,6 @@ func toScoreboardEntryResponse(v eventUseCase.ScoreboardEntryView) scoreboardEnt
 }
 func toOwnScoreTimelineEntryResponse(v eventUseCase.OwnScoreTimelineEntryView) ownScoreTimelineEntryResponse {
 	return ownScoreTimelineEntryResponse{EventChallengeID: v.EventChallengeID, Points: v.Points, SolvedAt: v.SolvedAt}
-}
-func toOwnResultsResponse(v eventUseCase.OwnResultsView) ownResultsResponse {
-	timeline := make([]ownScoreTimelineEntryResponse, 0, len(v.Timeline))
-	for _, item := range v.Timeline {
-		timeline = append(timeline, toOwnScoreTimelineEntryResponse(item))
-	}
-	return ownResultsResponse{Entry: toScoreboardEntryResponse(v.Entry), Timeline: timeline}
 }
 func toOwnTeamResultsResponse(v eventUseCase.OwnTeamResultsView) ownTeamResultsResponse {
 	timeline := make([]ownScoreTimelineEntryResponse, 0, len(v.Timeline))

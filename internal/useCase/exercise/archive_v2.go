@@ -15,11 +15,12 @@ import (
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
 // archiveSchema is the only accepted value of the document's `schema` key.
-const archiveSchema = "cib-exercise/1"
+const archiveSchema = "cib-exercise/1.0"
 
 // The DTOs below are the portable document (snake_case keys). Domain types are reused where
 // their JSON shape already is the document shape (placeholders, interfaces, env vars, ...);
@@ -58,7 +59,7 @@ type (
 		// LinkedTo: the 1-based position of the base variant; the variant then holds only its own parts.
 		LinkedTo *int `json:"linked_to,omitempty"`
 		// Weight: how often the variant is given out relative to the others (absent = 1).
-		Weight int `json:"weight,omitempty"`
+		Weight *int `json:"weight,omitempty"`
 		// DeviceImages (a linked variant only): its own image for base devices, by device name.
 		DeviceImages map[string]archiveImageV2 `json:"device_images,omitempty"`
 		Tasks        []archiveTaskV2           `json:"tasks,omitempty"`
@@ -66,17 +67,73 @@ type (
 	}
 
 	archiveTaskV2 struct {
-		ID             string                      `json:"id,omitempty"`
-		Name           string                      `json:"name"`
-		Description    json.RawMessage             `json:"description,omitempty"`
-		Difficulty     exerciseModel.Difficulty    `json:"difficulty,omitempty"`
-		Flag           []string                    `json:"flag,omitempty"`
-		LinkedDevice   string                      `json:"linked_device,omitempty"`
-		LinkedDeviceID string                      `json:"linked_device_id,omitempty"`
-		DeviceFlagVar  string                      `json:"device_flag_var,omitempty"`
-		Attachments    []archiveAttachmentV2       `json:"attachments,omitempty"`
-		Placeholders   []exerciseModel.Placeholder `json:"placeholders,omitempty"`
-		Hints          []archiveHintV2             `json:"hints,omitempty"`
+		ID          string                   `json:"id,omitempty"`
+		Key         string                   `json:"key,omitempty"`
+		Name        string                   `json:"name"`
+		Description json.RawMessage          `json:"description,omitempty"`
+		Difficulty  exerciseModel.Difficulty `json:"difficulty,omitempty"`
+		Requires    []string                 `json:"requires,omitempty"`
+		// Check holds exactly one of answer and state (a linked variant's task may carry only check.answer.values).
+		Check        *archiveCheckV2             `json:"check,omitempty"`
+		Attachments  []archiveAttachmentV2       `json:"attachments,omitempty"`
+		Placeholders []exerciseModel.Placeholder `json:"placeholders,omitempty"`
+		Hints        []archiveHintV2             `json:"hints,omitempty"`
+	}
+
+	archiveCheckV2 struct {
+		Answer *archiveAnswerV2 `json:"answer,omitempty"`
+		State  *archiveStateV2  `json:"state,omitempty"`
+	}
+
+	// archiveAnswerV2: ignore_case and trim are pointers so that naming them on a flag is seen and refused.
+	archiveAnswerV2 struct {
+		Type       exerciseModel.AnswerType `json:"type,omitempty"`
+		Values     []string                 `json:"values,omitempty"`
+		InputHint  string                   `json:"input_hint,omitempty"`
+		IgnoreCase *bool                    `json:"ignore_case,omitempty"`
+		Trim       *bool                    `json:"trim,omitempty"`
+	}
+
+	archiveStateV2 struct {
+		Mode       exerciseModel.StateMode `json:"mode,omitempty"`
+		Interval   archiveInterval         `json:"interval,omitempty"`
+		Manual     bool                    `json:"manual,omitempty"`
+		Conditions []archiveConditionV2    `json:"conditions,omitempty"`
+	}
+
+	// archiveConditionV2 names its device by name.
+	archiveConditionV2 struct {
+		Device  string `json:"device"`
+		Timeout string `json:"timeout,omitempty"`
+		// Exactly one observation. The keys of the built-in ones are the document's and the model's own.
+		File        *archiveFileCheckV2                   `json:"file,omitempty"`
+		Directory   *exerciseModel.DirectoryObservation   `json:"directory,omitempty"`
+		Process     *exerciseModel.ProcessObservation     `json:"process,omitempty"`
+		Port        *exerciseModel.PortObservation        `json:"port,omitempty"`
+		KernelParam *exerciseModel.KernelParamObservation `json:"kernel_param,omitempty"`
+		Request     *exerciseModel.RequestObservation     `json:"request,omitempty"`
+		Permission  *exerciseModel.PermissionObservation  `json:"permission,omitempty"`
+		Custom      *archiveCustomCheckV2                 `json:"custom,omitempty"`
+	}
+
+	archiveFileCheckV2 struct {
+		Path     string `json:"path"`
+		Exists   *bool  `json:"exists,omitempty"`
+		Type     string `json:"type,omitempty"`
+		Contains string `json:"contains,omitempty"`
+		Matches  string `json:"matches,omitempty"`
+		Checksum string `json:"checksum,omitempty"`
+		Mode     string `json:"mode,omitempty"`
+		Owner    string `json:"owner,omitempty"`
+		Group    string `json:"group,omitempty"`
+	}
+
+	archiveCustomCheckV2 struct {
+		Run            string `json:"run"`
+		Interpreter    string `json:"interpreter,omitempty"`
+		User           string `json:"user,omitempty"`
+		OutputContains string `json:"output_contains,omitempty"`
+		OutputMatches  string `json:"output_matches,omitempty"`
 	}
 
 	// archiveAttachmentV2: File is relative to the task folder; Name defaults to its base name.
@@ -92,6 +149,7 @@ type (
 	}
 
 	archiveTopologyV2 struct {
+		Variables    []archiveVariableV2       `json:"variables,omitempty"`
 		VPN          exerciseModel.NetworkSpec `json:"vpn"`
 		Internet     exerciseModel.NetworkSpec `json:"internet"`
 		Devices      []archiveDeviceV2         `json:"devices,omitempty"`
@@ -103,21 +161,50 @@ type (
 		ID             string                           `json:"id,omitempty"`
 		Name           string                           `json:"name"`
 		Type           exerciseModel.DeviceType         `json:"type"`
+		Profile        exerciseModel.NodeProfile        `json:"profile,omitempty"`
 		Image          archiveImageV2                   `json:"image,omitzero"`
 		SecurityPreset exerciseModel.SecurityPreset     `json:"security_preset,omitempty"`
 		ResourcePreset string                           `json:"resource_preset,omitempty"`
 		Interfaces     []exerciseModel.Interface        `json:"interfaces,omitempty"`
-		EnvVars        []archiveEnvVarV2                `json:"env_vars,omitempty"`
-		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
+		Command        []string                         `json:"command,omitempty"`
+		Args           []string                         `json:"args,omitempty"`
+		System         exerciseModel.SystemKind         `json:"system,omitempty"`
+		Hardware       exerciseModel.HardwareKind       `json:"hardware,omitempty"`
+		Bootstrap      *archiveBootstrapV2              `json:"bootstrap,omitempty"`
+		Access         []exerciseModel.Access           `json:"access,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
 		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
 	}
 
-	// archiveEnvVarV2 is a device env var as the document writes it (the server-side origin of a secret is not).
+	// archiveEnvVarV2 is a bootstrap env var as the document writes it (the server-side origin of a secret is not).
 	archiveEnvVarV2 struct {
 		Name   string `json:"name"`
 		Value  string `json:"value"`
-		Secret bool   `json:"secret"`
+		Secret bool   `json:"secret,omitempty"`
+	}
+
+	archiveBootstrapV2 struct {
+		Timeout     string                   `json:"timeout,omitempty"`
+		Env         []archiveEnvVarV2        `json:"env,omitempty"`
+		Files       []archiveBootstrapFileV2 `json:"files,omitempty"`
+		Script      string                   `json:"script,omitempty"`
+		Interpreter string                   `json:"interpreter,omitempty"`
+	}
+
+	// archiveBootstrapFileV2: Source is a file of the archive (relative to the task folder), like an attachment.
+	archiveBootstrapFileV2 struct {
+		Path    string `json:"path"`
+		Content string `json:"content,omitempty"`
+		Source  string `json:"source,omitempty"`
+		Owner   string `json:"owner,omitempty"`
+		Group   string `json:"group,omitempty"`
+		Mode    string `json:"mode,omitempty"`
+	}
+
+	archiveVariableV2 struct {
+		Name     string `json:"name"`
+		Value    string `json:"value,omitempty"`
+		Template string `json:"template,omitempty"`
 	}
 
 	archiveConnectionV2 struct {
@@ -132,6 +219,26 @@ type (
 		Interface string                     `json:"interface,omitempty"`
 	}
 )
+
+// archiveInterval is the schedule of a state check: a duration text ("30s"), or the number 0 for no schedule.
+type archiveInterval string
+
+func (i *archiveInterval) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if bytes.Equal(trimmed, []byte("0")) {
+		*i = "0"
+		return nil
+	}
+	var text string
+	if json.Unmarshal(trimmed, &text) != nil {
+		return archiveInvalid("interval must be a duration such as 30s, or 0")
+	}
+	*i = archiveInterval(text)
+	return nil
+}
 
 // archiveImageV2 is a device image: a reference string ("nginx:1.27") or the reserved object
 // form {"file": "<path>"} for an image shipped inside the archive.
@@ -196,7 +303,7 @@ func archiveUnsupportedSchema() error {
 }
 
 // probeArchiveSchema reads only the schema key of a (comment-free) document and accepts nothing
-// but the JSON string "cib-exercise/1".
+// but the JSON string "cib-exercise/1.0".
 func probeArchiveSchema(payload []byte) error {
 	var probe struct {
 		Schema json.RawMessage `json:"schema"`
@@ -492,7 +599,7 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 	for vi, version := range d.Versions {
 		statusPath := fmt.Sprintf("versions[%d].status", vi+1)
 		if version.Status == "" {
-			return ParsedExerciseArchive{}, archiveInvalid(statusPath + ": required")
+			version.Status = exerciseModel.VersionStatusDraft // optional: an import makes a draft whatever it says
 		}
 		if !version.Status.Valid() {
 			return ParsedExerciseArchive{}, unknownEnum(statusPath, string(version.Status))
@@ -535,7 +642,7 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 				if variant.LinkedTo != nil {
 					value, err = variant.toLinkedDomain(path, xi, version.Variants, values, ids, links)
 				} else {
-					value, err = variant.toDomain(path, ids[xi], links)
+					value, err = variant.toDomain(path, xi+1, ids[xi], links)
 				}
 				if err != nil {
 					return ParsedExerciseArchive{}, err
@@ -552,15 +659,33 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 	return parsed, nil
 }
 
-// checkArchiveWeight refuses a variant weight outside 0..MaxVariantWeight (0 or absent means 1).
-func checkArchiveWeight(path string, weight int) error {
-	if weight < 0 || weight > exerciseModel.MaxVariantWeight {
+// checkArchiveWeight refuses a variant weight outside 1..MaxVariantWeight; an absent weight (nil) means 1 and is not
+// written into the document. Zero is refused: to stop giving a variant out, delete it.
+// weightValue is the weight a document names (0 when it names none).
+func weightValue(weight *int) int {
+	if weight == nil {
+		return 0
+	}
+	return *weight
+}
+
+// weightPointer is a stored weight as the document writes it: nothing for an unset one.
+func weightPointer(weight int) *int {
+	if weight == 0 {
+		return nil
+	}
+	return &weight
+}
+
+func checkArchiveWeight(path string, weight *int) error {
+	if weight != nil && (*weight < 1 || *weight > exerciseModel.MaxVariantWeight) {
 		return archiveInvalid(fmt.Sprintf("%s.weight must be a whole number from 1 to %d", path, exerciseModel.MaxVariantWeight))
 	}
 	return nil
 }
 
-func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
+// toDomain maps one variant of the archive; number is its 1-based position in the version, named on the model errors.
+func (v archiveVariantV2) toDomain(path string, number int, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
 	if err := checkArchiveWeight(path, v.Weight); err != nil {
 		return exerciseModel.Variant{}, err
 	}
@@ -571,13 +696,24 @@ func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLink
 	if err != nil {
 		return exerciseModel.Variant{}, err
 	}
-	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Weight: v.Weight, Topology: topology}
+	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Weight: weightValue(v.Weight), Topology: topology}
 	for ti, task := range v.Tasks {
 		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, links)
 		if taskErr != nil {
 			return exerciseModel.Variant{}, taskErr
 		}
 		variant.Tasks = append(variant.Tasks, value)
+	}
+	variant.NormalizeTaskKeys()
+	// The document is strict: a generator learns here, with the path of the variant, what breaks the contract.
+	if err = variant.Topology.ValidateDeviceRuntime(); err != nil {
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
+	}
+	if err = variant.ValidateDocument(); err != nil {
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
+	}
+	if err = variant.ValidateBootstrapSizes(links.sourceSize); err != nil {
+		return exerciseModel.Variant{}, withArchivePath(exerciseModel.InVariant(err, number), path)
 	}
 	return variant, nil
 }
@@ -594,9 +730,19 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, lin
 	if err != nil {
 		return exerciseModel.Task{}, err
 	}
+	check, err := t.Check.toDomain(path+".check", deviceIDs)
+	if err != nil {
+		return exerciseModel.Task{}, err
+	}
 	task := exerciseModel.Task{
-		ID: id, Name: t.Name, Description: description, Difficulty: t.Difficulty, Flag: t.Flag,
-		DeviceFlagVar: t.DeviceFlagVar, Placeholders: t.Placeholders,
+		ID:           id,
+		Key:          t.Key,
+		Name:         t.Name,
+		Description:  description,
+		Difficulty:   t.Difficulty,
+		Requires:     t.Requires,
+		Check:        check,
+		Placeholders: t.Placeholders,
 	}
 	for ai, attachment := range t.Attachments {
 		ref, linkErr := links.attachment(fmt.Sprintf("%s.attachments[%d]", path, ai+1), attachment)
@@ -605,11 +751,6 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, lin
 		}
 		task.Attachments = append(task.Attachments, ref)
 	}
-	linked, err := resolveDevice(path+".linked_device", t.LinkedDevice, t.LinkedDeviceID, deviceIDs)
-	if err != nil {
-		return exerciseModel.Task{}, err
-	}
-	task.LinkedDeviceID = uuid.NullUUID{UUID: linked, Valid: linked != uuid.Nil}
 	for hi, hint := range t.Hints {
 		if !hintLevelValid(hint.Level) {
 			return exerciseModel.Task{}, unknownEnum(fmt.Sprintf("%s.hints[%d].level", path, hi+1), string(hint.Level))
@@ -625,6 +766,115 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, lin
 		task.Hints = append(task.Hints, exerciseModel.Hint{ID: hintID, Text: hint.Text, Level: level})
 	}
 	return task, nil
+}
+
+// toDomain maps the check of a task: at most one of answer and state here (naming both is refused); a task with
+// none is an incomplete draft, which the publish check refuses. A linked variant's task never goes through this
+// (it carries only the answer values).
+func (c *archiveCheckV2) toDomain(
+	path string,
+	deviceIDs map[string]uuid.UUID,
+) (exerciseModel.Check, error) {
+	if c == nil || (c.Answer == nil && c.State == nil) {
+		return exerciseModel.Check{}, nil // a draft may be incomplete; the publish check asks for exactly one
+	}
+	if c.Answer != nil && c.State != nil {
+		return exerciseModel.Check{}, archiveInvalid(
+			path + " must hold exactly one of answer and state",
+		)
+	}
+	if c.Answer != nil {
+		answer, err := c.Answer.toDomain(path + ".answer")
+		return exerciseModel.Check{Answer: answer}, err
+	}
+	state, err := c.State.toDomain(path+".state", deviceIDs)
+	return exerciseModel.Check{State: state}, err
+}
+
+func (a *archiveAnswerV2) toDomain(path string) (*exerciseModel.AnswerCheck, error) {
+	if a.Type == "" {
+		return nil, archiveInvalid(path + ".type: required")
+	}
+	if !a.Type.Valid() {
+		return nil, unknownEnum(path+".type", string(a.Type))
+	}
+	if a.Type == exerciseModel.AnswerTypeFlag && (a.IgnoreCase != nil || a.Trim != nil) {
+		key := "ignore_case"
+		if a.IgnoreCase == nil {
+			key = "trim"
+		}
+		return nil, archiveInvalid(fmt.Sprintf("%s.%s is only for the type text", path, key))
+	}
+	answer := &exerciseModel.AnswerCheck{
+		Type:      a.Type,
+		Values:    a.Values,
+		InputHint: a.InputHint,
+		Trim:      a.Trim,
+	}
+	if a.IgnoreCase != nil {
+		answer.IgnoreCase = *a.IgnoreCase
+	}
+	return answer, nil
+}
+
+func (s *archiveStateV2) toDomain(
+	path string,
+	deviceIDs map[string]uuid.UUID,
+) (*exerciseModel.StateCheck, error) {
+	if !s.Mode.Valid() {
+		return nil, unknownEnum(path+".mode", string(s.Mode))
+	}
+	state := &exerciseModel.StateCheck{Mode: s.Mode, Interval: string(s.Interval), Manual: s.Manual}
+	for ci, c := range s.Conditions {
+		conditionPath := fmt.Sprintf("%s.conditions[%d]", path, ci+1)
+		device, err := resolveDevice(conditionPath+".device", c.Device, "", deviceIDs)
+		if err != nil {
+			return nil, err
+		}
+		if device == uuid.Nil {
+			return nil, archiveInvalid(conditionPath + ".device: required")
+		}
+		condition := exerciseModel.Condition{DeviceID: device, Timeout: c.Timeout}
+		if f := c.File; f != nil {
+			condition.File = &exerciseModel.FileObservation{
+				Path:     f.Path,
+				Exists:   f.Exists,
+				Type:     f.Type,
+				Contains: f.Contains,
+				Matches:  f.Matches,
+				Checksum: f.Checksum,
+				Mode:     f.Mode,
+				Owner:    f.Owner,
+				Group:    f.Group,
+			}
+		}
+		condition.Directory, condition.Process, condition.Port = c.Directory, c.Process, c.Port
+		condition.KernelParam, condition.Request, condition.Permission = c.KernelParam, c.Request, c.Permission
+		if o := c.Custom; o != nil {
+			condition.Custom = &exerciseModel.CustomObservation{
+				Run:            o.Run,
+				Interpreter:    o.Interpreter,
+				User:           o.User,
+				OutputContains: o.OutputContains,
+				OutputMatches:  o.OutputMatches,
+			}
+		}
+		if len(condition.Kinds()) != 1 {
+			return nil, archiveInvalid(conditionPath + " must hold exactly one observation: file, directory, process, port, kernel_param, request, permission or custom")
+		}
+		state.Conditions = append(state.Conditions, condition)
+	}
+	return state, nil
+}
+
+// withArchivePath adds the 1-based document path to a model validation error as its public "field"... the
+// model names the task or device itself; the path says which variant of which version.
+func withArchivePath(failure error, path string) error {
+	var creator appErr.ErrorCreator
+	if !errors.As(failure, &creator) {
+		return failure
+	}
+	return creator.WithPublicContext("path", path).Err()
 }
 
 // absentIfNull treats a JSON null (visual_render: null) as no value, so it is not stored as the text null.
@@ -668,8 +918,25 @@ func resolveDevice(path, name, rawID string, deviceIDs map[string]uuid.UUID) (uu
 	return id, nil
 }
 
-func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseModel.Topology, map[string]uuid.UUID, error) {
-	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: absentIfNull(t.VisualRender)}
+func (t archiveTopologyV2) toDomain(
+	path string,
+	links *archiveLinks,
+) (exerciseModel.Topology, map[string]uuid.UUID, error) {
+	topology := exerciseModel.Topology{
+		VPN:          t.VPN,
+		Internet:     t.Internet,
+		VisualRender: absentIfNull(t.VisualRender),
+	}
+	for _, variable := range t.Variables {
+		topology.Variables = append(
+			topology.Variables,
+			exerciseModel.Variable{
+				Name:     variable.Name,
+				Value:    variable.Value,
+				Template: variable.Template,
+			},
+		)
+	}
 	deviceIDs := make(map[string]uuid.UUID, len(t.Devices))
 	for di, device := range t.Devices {
 		devicePath := fmt.Sprintf("%s.devices[%d]", path, di+1)
@@ -682,6 +949,12 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 		}
 		if device.Type != "" && !device.Type.Valid() {
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".type", string(device.Type))
+		}
+		if device.Profile != "" && !device.Profile.Valid() {
+			return exerciseModel.Topology{}, nil, unknownEnum(
+				devicePath+".profile",
+				string(device.Profile),
+			)
 		}
 		if device.SecurityPreset != "" && !device.SecurityPreset.Valid() {
 			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".security_preset", string(device.SecurityPreset))
@@ -705,20 +978,35 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 			}
 			image = marker
 		}
-		if len(device.EnvVars) > exerciseModel.MaxDeviceEnvVars {
-			return exerciseModel.Topology{}, nil, archiveInvalid(fmt.Sprintf("%s.env_vars has more than %d variables", devicePath, exerciseModel.MaxDeviceEnvVars))
+		bootstrap, bootstrapErr := device.Bootstrap.toDomain(devicePath+".bootstrap", links)
+		if bootstrapErr != nil {
+			return exerciseModel.Topology{}, nil, bootstrapErr
 		}
 		if _, seen := deviceIDs[device.Name]; seen {
 			deviceIDs[device.Name] = ambiguousDevice
 		} else {
 			deviceIDs[device.Name] = id
 		}
-		topology.Devices = append(topology.Devices, exerciseModel.Device{
-			ID: id, Name: device.Name, Type: device.Type, Image: image,
-			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
-			Interfaces: device.Interfaces, EnvVars: envVarsToDomain(device.EnvVars),
-			External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
-		})
+		domainDevice := exerciseModel.Device{
+			ID:             id,
+			Name:           device.Name,
+			Type:           device.Type,
+			Profile:        device.Profile,
+			Image:          image,
+			SecurityPreset: device.SecurityPreset,
+			ResourcePreset: device.ResourcePreset,
+			Interfaces:     device.Interfaces,
+			Command:        device.Command,
+			Args:           device.Args,
+			System:         device.System,
+			Hardware:       device.Hardware,
+			Bootstrap:      bootstrap,
+			Access:         device.Access,
+			Persistence:    device.Persistence,
+			WaitReadyFile:  device.WaitReadyFile,
+		}
+		domainDevice.Normalize() // the former type container is a node with the container profile
+		topology.Devices = append(topology.Devices, domainDevice)
 	}
 	for ci, connection := range t.Connections {
 		mapped := exerciseModel.Connection{}
@@ -779,13 +1067,46 @@ func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseMode
 // exportVariantV2 writes one variant in full.
 func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, imagePaths map[string]string) archiveVariantV2 {
 	refs := newDeviceRefs(variant.Topology.Devices)
-	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
+	topology := archiveTopologyV2{
+		VPN:          variant.Topology.VPN,
+		Internet:     variant.Topology.Internet,
+		VisualRender: variant.Topology.VisualRender,
+	}
+	for _, variable := range variant.Topology.Variables {
+		topology.Variables = append(
+			topology.Variables,
+			archiveVariableV2{
+				Name:     variable.Name,
+				Value:    variable.Value,
+				Template: variable.Template,
+			},
+		)
+	}
 	for _, device := range variant.Topology.Devices {
-		topology.Devices = append(topology.Devices, archiveDeviceV2{
-			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
-			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
-			EnvVars: exportEnvVarsV2(device.EnvVars), External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
-		})
+		exported := archiveDeviceV2{
+			ID: optionalID(
+				device.ID,
+			),
+			Name:           device.Name,
+			Type:           device.Type,
+			Profile:        device.Profile,
+			Image:          exportDeviceImage(device.Image, imagePaths),
+			SecurityPreset: device.SecurityPreset,
+			ResourcePreset: device.ResourcePreset,
+			Interfaces:     device.Interfaces,
+			Command:        device.Command,
+			Args:           device.Args,
+			System:         device.System,
+			Hardware:       device.Hardware,
+			Bootstrap: exportBootstrapV2(
+				device.Bootstrap,
+				paths,
+			),
+			Access:        device.Access,
+			Persistence:   device.Persistence,
+			WaitReadyFile: device.WaitReadyFile,
+		}
+		topology.Devices = append(topology.Devices, exported)
 	}
 	for _, connection := range variant.Topology.Connections {
 		out := archiveConnectionV2{Endpoints: []archiveEndpointV2{}}
@@ -796,25 +1117,85 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		}
 		topology.Connections = append(topology.Connections, out)
 	}
-	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: variant.Weight, Topology: topology}
+	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Weight: weightPointer(variant.Weight), Topology: topology}
 	for _, task := range variant.Tasks {
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}
 	return result
 }
 
-func envVarsToDomain(vars []archiveEnvVarV2) []exerciseModel.EnvVar {
-	var out []exerciseModel.EnvVar
-	for _, v := range vars {
-		out = append(out, exerciseModel.EnvVar{Name: v.Name, Value: v.Value, Secret: v.Secret})
+// toDomain maps a bootstrap block; its env keeps the secret flag of the document (a secret value is sealed later
+// and only a password-protected archive may carry one).
+func (b *archiveBootstrapV2) toDomain(
+	path string,
+	links *archiveLinks,
+) (exerciseModel.Bootstrap, error) {
+	if b == nil {
+		return exerciseModel.Bootstrap{}, nil
 	}
-	return out
+	if len(b.Env) > exerciseModel.MaxDeviceEnvVars {
+		return exerciseModel.Bootstrap{}, archiveInvalid(
+			fmt.Sprintf("%s.env has more than %d variables", path, exerciseModel.MaxDeviceEnvVars),
+		)
+	}
+	if len(b.Files) > exerciseModel.MaxBootstrapFiles {
+		return exerciseModel.Bootstrap{}, archiveInvalid(
+			fmt.Sprintf("%s.files has more than %d files", path, exerciseModel.MaxBootstrapFiles),
+		)
+	}
+	out := exerciseModel.Bootstrap{Timeout: b.Timeout, Script: b.Script, Interpreter: b.Interpreter}
+	for _, v := range b.Env {
+		out.Env = append(
+			out.Env,
+			exerciseModel.EnvVar{Name: v.Name, Value: v.Value, Secret: v.Secret},
+		)
+	}
+	for fi, file := range b.Files {
+		filePath := fmt.Sprintf("%s.files[%d]", path, fi+1)
+		if (file.Content == "") == (file.Source == "") {
+			return exerciseModel.Bootstrap{}, archiveInvalid(
+				filePath + " must hold exactly one of content and source",
+			)
+		}
+		mapped := exerciseModel.BootstrapFile{
+			Path:    file.Path,
+			Content: file.Content,
+			Owner:   file.Owner,
+			Group:   file.Group,
+			Mode:    file.Mode,
+		}
+		if file.Source != "" {
+			ref, err := links.attachment(filePath+".source", archiveAttachmentV2{File: file.Source})
+			if err != nil {
+				return exerciseModel.Bootstrap{}, err
+			}
+			mapped.Source = &ref
+		}
+		out.Files = append(out.Files, mapped)
+	}
+	return out, nil
 }
 
-func exportEnvVarsV2(vars []exerciseModel.EnvVar) []archiveEnvVarV2 {
-	var out []archiveEnvVarV2
-	for _, v := range vars {
-		out = append(out, archiveEnvVarV2{Name: v.Name, Value: v.Value, Secret: v.Secret})
+func exportBootstrapV2(b exerciseModel.Bootstrap, paths map[uuid.UUID]string) *archiveBootstrapV2 {
+	if b.IsZero() {
+		return nil
+	}
+	out := &archiveBootstrapV2{Timeout: b.Timeout, Script: b.Script, Interpreter: b.Interpreter}
+	for _, v := range b.Env {
+		out.Env = append(out.Env, archiveEnvVarV2{Name: v.Name, Value: v.Value, Secret: v.Secret})
+	}
+	for _, file := range b.Files {
+		mapped := archiveBootstrapFileV2{
+			Path:    file.Path,
+			Content: file.Content,
+			Owner:   file.Owner,
+			Group:   file.Group,
+			Mode:    file.Mode,
+		}
+		if file.Source != nil {
+			mapped.Source = paths[file.Source.FileID]
+		}
+		out.Files = append(out.Files, mapped)
 	}
 	return out
 }
@@ -832,15 +1213,78 @@ func exportDeviceImage(image string, imagePaths map[string]string) archiveImageV
 
 func exportTaskV2(task exerciseModel.Task, refs deviceRefs, paths map[uuid.UUID]string) archiveTaskV2 {
 	out := archiveTaskV2{
-		ID: optionalID(task.ID), Name: task.Name, Description: task.Description, Difficulty: task.Difficulty, Flag: task.Flag,
-		DeviceFlagVar: task.DeviceFlagVar, Placeholders: task.Placeholders,
-	}
-	if task.LinkedDeviceID.Valid {
-		out.LinkedDevice, out.LinkedDeviceID = refs.ref(task.LinkedDeviceID.UUID)
+		ID: optionalID(
+			task.ID,
+		),
+		Key:          task.Key,
+		Name:         task.Name,
+		Description:  task.Description,
+		Difficulty:   task.Difficulty,
+		Requires:     task.Requires,
+		Check:        exportCheckV2(task.Check, refs),
+		Placeholders: task.Placeholders,
 	}
 	out.Attachments = exportAttachmentRefsV2(task.Attachments, paths)
 	for _, hint := range task.Hints {
 		out.Hints = append(out.Hints, archiveHintV2{ID: optionalID(hint.ID), Text: hint.Text, Level: hint.Level})
+	}
+	return out
+}
+
+// exportCheckV2 writes the check of a task; a task with no check at all (an unfinished draft) writes none.
+func exportCheckV2(check exerciseModel.Check, refs deviceRefs) *archiveCheckV2 {
+	out := &archiveCheckV2{}
+	if a := check.Answer; a != nil {
+		answer := &archiveAnswerV2{
+			Type:      a.Type,
+			Values:    a.Values,
+			InputHint: a.InputHint,
+			Trim:      a.Trim,
+		}
+		if a.IgnoreCase {
+			answer.IgnoreCase = &a.IgnoreCase
+		}
+		out.Answer = answer
+	}
+	if s := check.State; s != nil {
+		state := &archiveStateV2{
+			Mode:     s.Mode,
+			Interval: archiveInterval(s.Interval),
+			Manual:   s.Manual,
+		}
+		for _, c := range s.Conditions {
+			name, _ := refs.ref(c.DeviceID)
+			condition := archiveConditionV2{Device: name, Timeout: c.Timeout}
+			if f := c.File; f != nil {
+				condition.File = &archiveFileCheckV2{
+					Path:     f.Path,
+					Exists:   f.Exists,
+					Type:     f.Type,
+					Contains: f.Contains,
+					Matches:  f.Matches,
+					Checksum: f.Checksum,
+					Mode:     f.Mode,
+					Owner:    f.Owner,
+					Group:    f.Group,
+				}
+			}
+			condition.Directory, condition.Process, condition.Port = c.Directory, c.Process, c.Port
+			condition.KernelParam, condition.Request, condition.Permission = c.KernelParam, c.Request, c.Permission
+			if o := c.Custom; o != nil {
+				condition.Custom = &archiveCustomCheckV2{
+					Run:            o.Run,
+					Interpreter:    o.Interpreter,
+					User:           o.User,
+					OutputContains: o.OutputContains,
+					OutputMatches:  o.OutputMatches,
+				}
+			}
+			state.Conditions = append(state.Conditions, condition)
+		}
+		out.State = state
+	}
+	if out.Answer == nil && out.State == nil {
+		return nil
 	}
 	return out
 }

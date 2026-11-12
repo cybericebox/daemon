@@ -3,7 +3,10 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
+	"slices"
+	"sort"
 	"strconv"
 	"time"
 
@@ -15,16 +18,21 @@ import (
 	labMonitoringModel "github.com/cybericebox/daemon/internal/model/labMonitoring"
 )
 
+// ErrUnknownFacetField: the facet was asked for a field the table has no facet for.
+var ErrUnknownFacetField = errors.New("unknown facet field")
+
 type (
 	// StandsFilter narrows the platform stand table. Statuses empty = all.
 	StandsFilter struct {
 		EventID  uuid.NullUUID
 		Statuses []eventStandModel.Status
 		// Kind is "" for every stand, "event" for event teams or "moderators" for the moderators team.
-		Kind     string
-		Search   string
-		Page     int
-		PageSize int
+		Kind   string
+		Search string
+		// SortBy is event, team, status, updatedAt, statusChangedAt or generation; SortDir asc or desc.
+		SortBy, SortDir string
+		Page            int
+		PageSize        int
 	}
 
 	PlatformStandView struct {
@@ -89,12 +97,23 @@ type (
 	}
 )
 
-// ListStands returns one page of stands across events.
+// maxStandsSortedByResources bounds the stands read to sort them by their resources in memory.
+const maxStandsSortedByResources = 100000
+
+// ListStands returns one page of stands across events. The resource columns (cpu, memory) are not stored: such a
+// sort reads every stand behind the filter and orders them by what their labs use now.
 func (u *InfrastructureUseCase) ListStands(ctx context.Context, filter StandsFilter) (StandsPage, error) {
-	items, total, err := u.stands.List(ctx, platformStandRepo.Filter{
+	byResources := filter.SortBy == StandSortCPU || filter.SortBy == StandSortMemory
+	repoFilter := platformStandRepo.Filter{
 		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search,
+		SortBy: filter.SortBy, SortDir: filter.SortDir,
 		Limit: int32(filter.PageSize), Offset: int32((filter.Page - 1) * filter.PageSize),
-	})
+	}
+	if byResources {
+		repoFilter.SortBy, repoFilter.SortDir = "", ""
+		repoFilter.Limit, repoFilter.Offset = maxStandsSortedByResources, 0
+	}
+	items, total, err := u.stands.List(ctx, repoFilter)
 	if err != nil {
 		return StandsPage{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list platform stands").Err()
 	}
@@ -118,7 +137,41 @@ func (u *InfrastructureUseCase) ListStands(ctx context.Context, filter StandsFil
 			StatusChangedAt: item.StatusChangedAt, Generation: item.Generation, Resources: resources[standKey{item.EventID, item.TeamID}], Launch: launch[standKey{item.EventID, item.TeamID}],
 		})
 	}
+	if byResources {
+		out = pageOfStandsByResources(out, filter)
+	}
 	return StandsPage{Items: out, Total: total, Page: filter.Page, PageSize: filter.PageSize}, nil
+}
+
+// Sort keys of the stand table that are derived from the observed resources.
+const (
+	StandSortCPU    = "cpu"
+	StandSortMemory = "memory"
+)
+
+// pageOfStandsByResources orders the stands by CPU or memory in use (stands without an observation always last) and
+// cuts the requested page.
+func pageOfStandsByResources(all []PlatformStandView, filter StandsFilter) []PlatformStandView {
+	metric := func(v PlatformStandView) int64 {
+		if filter.SortBy == StandSortCPU {
+			return v.Resources.CPUMillicores
+		}
+		return v.Resources.MemoryBytes
+	}
+	desc := filter.SortDir != "asc"
+	sort.SliceStable(all, func(i, j int) bool {
+		ki, kj := all[i].Resources.Known, all[j].Resources.Known
+		if ki != kj {
+			return ki
+		}
+		if desc {
+			return metric(all[i]) > metric(all[j])
+		}
+		return metric(all[i]) < metric(all[j])
+	})
+	from := min((filter.Page-1)*filter.PageSize, len(all))
+	to := min(from+filter.PageSize, len(all))
+	return all[from:to]
 }
 
 // ListStandEvents lists the events that have stands, for the table's filter.
@@ -232,4 +285,18 @@ func (f *flexInt) UnmarshalJSON(data []byte) error {
 	}
 	*f = flexInt(number)
 	return nil
+}
+
+// StandFacets counts the stands per value of one field (status, kind or event) under the other filters of the table.
+func (u *InfrastructureUseCase) StandFacets(ctx context.Context, field string, filter StandsFilter) (map[string]int64, error) {
+	if !slices.Contains(platformStandRepo.StandFacetFields(), field) {
+		return nil, ErrUnknownFacetField
+	}
+	counts, err := u.stands.StandFacet(ctx, field, platformStandRepo.Filter{
+		EventID: filter.EventID, Statuses: filter.Statuses, Kind: filter.Kind, Search: filter.Search,
+	})
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the stands").Err()
+	}
+	return counts, nil
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -350,9 +351,11 @@ func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregi
 	if err = checkBlobs(ctx, client, append([]Descriptor{in.Config}, in.Layers...)); err != nil {
 		return CreateImageResult{}, err
 	}
-	if err = u.checkConfig(ctx, client, in.Config, len(in.Layers)); err != nil {
+	configBody, err := u.checkConfig(ctx, client, in.Config, len(in.Layers))
+	if err != nil {
 		return CreateImageResult{}, err
 	}
+	u.keepServiceConfig(ctx, manifest.Digest, configBody)
 	// Tags carry the whole digest, so another digest's row with this tag is a bug: refuse rather than re-point a
 	// tag another image may be served by (the tag collector keeps such tags as well). The pre-check gives the clear
 	// answer; UNIQUE (tag) on the row write closes the race with a concurrent upload (ErrTagTaken).
@@ -412,17 +415,34 @@ func checkBlobs(ctx context.Context, client *ociregistry.Client, blobs []Descrip
 	return nil
 }
 
-// checkConfig reads the config blob (at most MaxImageConfigBytes) and checks it.
-func (u *ImageRegistryUseCase) checkConfig(ctx context.Context, client *ociregistry.Client, config Descriptor, layers int) error {
+// checkConfig reads the config blob (at most MaxImageConfigBytes), checks it and returns its body.
+func (u *ImageRegistryUseCase) checkConfig(ctx context.Context, client *ociregistry.Client, config Descriptor, layers int) ([]byte, error) {
 	body := []byte(nil)
 	if config.Size <= imageRegistryModel.MaxImageConfigBytes {
 		var err error
 		body, err = client.GetBlob(ctx, config.Digest, imageRegistryModel.MaxImageConfigBytes)
 		if err != nil && !errors.Is(err, ociregistry.ErrBlobTooLarge) {
-			return Unavailable(err, pushTokenName)
+			return nil, Unavailable(err, pushTokenName)
 		}
 	}
-	return imageRegistryModel.CheckImageConfig(body, layers)
+	return body, imageRegistryModel.CheckImageConfig(body, layers)
+}
+
+// keepServiceConfig stores what the image runs (entrypoint, cmd, user, working directory) next to the platform image, by its
+// manifest digest, so a lab with a bootstrap can be told what to start after it. A failure is only logged: the image is
+// usable, and a task that needs the configuration is refused at its start with the device named.
+func (u *ImageRegistryUseCase) keepServiceConfig(ctx context.Context, digest string, configBody []byte) {
+	if u.configs == nil {
+		return
+	}
+	service, err := exerciseModel.ParseImageService(configBody)
+	if err != nil {
+		log.Warn().Err(err).Str("digest", digest).Msg("image config: the start configuration of the image cannot be read")
+		return
+	}
+	if err = u.configs.Save(ctx, digest, service, u.now()); err != nil {
+		log.Warn().Err(err).Str("digest", digest).Msg("image config: the start configuration of the image was not stored")
+	}
 }
 
 // dropUpload removes an upload whose bytes are no longer needed. Best effort: what a failure leaves, the upload

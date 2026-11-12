@@ -254,8 +254,6 @@ WITH batch AS (
     DELETE FROM notification_user_settings WHERE user_id IN (SELECT id FROM batch)
 ), dispatches AS (
     DELETE FROM notification_dispatches WHERE recipient_user_id IN (SELECT id FROM batch)
-), envelopes AS (
-    DELETE FROM secret_envelopes WHERE recipient_user_id IN (SELECT id FROM batch)
 ), idempotency AS (
     DELETE FROM request_idempotency WHERE owner_id IN (SELECT id FROM batch)
 ), managers AS (

@@ -22,6 +22,8 @@ const (
 	// NotificationTypeEmailChanged is the security notice to the OLD address
 	// after the account email was changed (and Google unlinked).
 	NotificationTypeEmailChanged NotificationType = "email_changed"
+	// NotificationTypeGoogleLinkCode carries the one-time code that confirms linking a Google account to this one.
+	NotificationTypeGoogleLinkCode NotificationType = "google_link_code"
 	// NotificationTypeAccountInactivityWarning warns an inactive account's
 	// owner before the retention job deletes the account.
 	NotificationTypeAccountInactivityWarning NotificationType = "account_inactivity_warning"

@@ -42,8 +42,12 @@ var pathArg = map[string]int{
 var publicRoutes = map[string]bool{
 	"POST pub/sign-in":                   true, // recaptcha-gated credential entry
 	"POST pub/sign-up":                   true, // recaptcha-gated registration entry
+	"GET pub/last-email":                 true, // the browser's own cookie, nothing else
+	"DELETE pub/last-email":              true, // clears the browser's own cookie
 	"GET pub/setup":                      true, // setup-token flow (context)
 	"POST pub/setup":                     true, // setup-token flow (complete)
+	"POST passkeys/begin":                true, // recaptcha-gated passkey sign-in start (one-time server challenge)
+	"POST passkeys/finish":               true, // passkey sign-in: authorized by the signed assertion over that challenge
 	"POST password/reset-request":        true, // recaptcha-gated password reset request
 	"POST password/reset":                true, // password reset with emailed code
 	"GET password/policy":                true, // static password complexity policy (config, no user data)
@@ -51,6 +55,10 @@ var publicRoutes = map[string]bool{
 	"GET google/register":                true, // google oauth registration redirect
 	"GET google/setup":                   true, // google oauth setup-link redirect (email must match)
 	"GET google/callback":                true, // google oauth callback (state cookie double-submit)
+	"GET pending/":                       true, // pending Google link: the ticket cookie (single-use, 10 minutes) is the credential
+	"POST pending/code":                  true, // pending Google link: ticket cookie; per-recipient mail quota
+	"POST pending/confirm":               true, // pending Google link: ticket cookie plus the password or the mailed code
+	"DELETE pending/":                    true, // pending Google link: ticket cookie; gives the link up
 	"POST pub/account/email/confirm":     true, // authorized by the single-use emailed code itself
 	"GET pub/avatar/:id":                 true, // public avatar proxy (bucket stays private)
 	"GET server/key":                     true, // render secret (event-frontend server only)

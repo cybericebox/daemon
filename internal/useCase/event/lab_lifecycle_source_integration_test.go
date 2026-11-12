@@ -27,6 +27,10 @@ func publishLifecycleSource(t *testing.T, f *standFixture, set sharedSet) uuid.U
 		t.Fatal(err)
 	}
 	version.Variants[0].Tasks[0].Name = "Updated source"
+	// The new version changes what the Lab runs, so the stands of the prepared teams must be recreated.
+	if len(version.Variants[0].Topology.Devices) > 0 {
+		version.Variants[0].Topology.Devices[0].Image = "registry.test/updated:2"
+	}
 	next, err := exercises.UpsertDraft(ctx, version.ExerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +39,7 @@ func publishLifecycleSource(t *testing.T, f *standFixture, set sharedSet) uuid.U
 		t.Fatal(err)
 	}
 	f.sets.topology[next.ID] = f.sets.topology[previous]
-	f.sets.links[next.ID] = f.sets.links[previous]
+	f.sets.variants[next.ID] = f.sets.variants[previous]
 	return next.ID
 }
 func requireTerminalSourcePreserved(t *testing.T, f *standFixture, set sharedSet, before eventLabModel.Lab, expectedSolves int) {

@@ -212,10 +212,12 @@ UPDATE exercise_import_jobs
 SET generation = generation + 1,
     owner_event_id = $1, options = $2, plan_hash = $3,
     state = 'running', exercise_ids = '{}', results = '[]', error = NULL,
-    stage = 'unpacking', images_done = 0, images_total = 0, tasks_done = 0, tasks_total = 0,
+    stage = 'queued', images_done = 0, images_total = 0, tasks_done = 0, tasks_total = 0,
     bytes_pushed = 0, bytes_total = 0, updated_at = $4
 WHERE id = $5 AND generation = $6
-  AND (state = 'failed' OR (state = 'running' AND updated_at < $7))
+  AND (state = 'failed'
+       OR (state = 'running' AND stage <> 'queued' AND updated_at < $7)
+       OR (state = 'running' AND stage = 'queued' AND updated_at < $8))
 RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id, generation, options, plan_hash, results
 `
 
@@ -227,9 +229,10 @@ type RestartExerciseImportJobParams struct {
 	ID                 uuid.UUID     `json:"id"`
 	ExpectedGeneration int64         `json:"expected_generation"`
 	StaleBefore        time.Time     `json:"stale_before"`
+	QueuedStaleBefore  time.Time     `json:"queued_stale_before"`
 }
 
-// Only the observed failed/stale attempt may be replaced. Old queued arguments
+// Only the observed failed/stale attempt may be replaced (a queued one is stale much later than a started one). Old queued arguments
 // normalize generation zero to the migrated generation one in the worker.
 func (q *Queries) RestartExerciseImportJob(ctx context.Context, arg RestartExerciseImportJobParams) (ExerciseImportJob, error) {
 	row := q.db.QueryRow(ctx, restartExerciseImportJob,
@@ -240,6 +243,7 @@ func (q *Queries) RestartExerciseImportJob(ctx context.Context, arg RestartExerc
 		arg.ID,
 		arg.ExpectedGeneration,
 		arg.StaleBefore,
+		arg.QueuedStaleBefore,
 	)
 	var i ExerciseImportJob
 	err := row.Scan(

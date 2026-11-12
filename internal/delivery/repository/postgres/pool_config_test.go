@@ -35,18 +35,37 @@ func TestNewPoolConfigTakesSizeAndLifetimes(t *testing.T) {
 }
 
 func TestPoolBudgetStatesTheArithmetic(t *testing.T) {
-	want := "DB pools: main=32 job=8 per_replica=40 (with N replicas need N×40+20 ≤ max_connections)"
-	if got := poolBudget(32, 8); got != want {
+	want := "DB connections: main=24 job=8 lock_sessions=8 per_replica=40 (with N replicas need N×40+20 ≤ max_connections)"
+	if got := poolBudget(24, 8); got != want {
 		t.Fatalf("poolBudget = %q, want %q", got, want)
 	}
 }
 
-// One replica plus the reserved room must fit the server: 32+8+20 = 60.
+// One replica plus the reserved room must fit the server: 24+8+8 lock sessions+20 = 60.
 func TestPoolBudgetExceeded(t *testing.T) {
 	cases := map[int]bool{200: false, 60: false, 59: true, 40: true}
 	for maxConnections, want := range cases {
-		if got := poolBudgetExceeded(32, 8, maxConnections); got != want {
+		if got := poolBudgetExceeded(24, 8, maxConnections); got != want {
 			t.Errorf("max_connections=%d: exceeded = %t, want %t", maxConnections, got, want)
+		}
+	}
+}
+
+// A pool is worth a warning when nearly full, or when statements waited or gave up for a connection.
+func TestPoolUsageSaturated(t *testing.T) {
+	cases := map[string]struct {
+		u    PoolUsage
+		want bool
+	}{
+		"idle":          {PoolUsage{Max: 24, Acquired: 3}, false},
+		"nearly full":   {PoolUsage{Max: 24, Acquired: 20}, true},
+		"waited":        {PoolUsage{Max: 24, Acquired: 5, Waited: 2}, true},
+		"gave up":       {PoolUsage{Max: 24, Acquired: 5, Gave: 1}, true},
+		"below the 80%": {PoolUsage{Max: 24, Acquired: 19}, false},
+	}
+	for name, c := range cases {
+		if got := c.u.Saturated(); got != c.want {
+			t.Errorf("%s: saturated = %t, want %t", name, got, c.want)
 		}
 	}
 }

@@ -31,10 +31,18 @@ func archiveReason(t *testing.T, err error) string {
 	return reason
 }
 
-func TestImportExerciseArchive_StatusRequired(t *testing.T) {
-	archive := mustExerciseArchive(t, `{"name":"no status"}`,
-		`[{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]},{"variants":[{"tasks":[{"name":"t"}]}]}]`)
-	require.Equal(t, "versions[2].status: required", archiveReason(t, importArchive(t, archive, "")))
+// The status decides nothing (an import is always a draft), so it may be left out; a name that is no status is refused.
+func TestImportExerciseArchive_StatusUnknownRefused(t *testing.T) {
+	archive := mustExerciseArchive(
+		t,
+		`{"name":"bad status"}`,
+		`[{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]},{"status":"bogus","variants":[{"tasks":[{"name":"t"}]}]}]`,
+	)
+	require.Equal(
+		t,
+		`versions[2].status: unknown value "bogus"`,
+		archiveReason(t, importArchive(t, archive, "")),
+	)
 }
 
 func TestImportExerciseArchive_NoVersionsInvalid(t *testing.T) {
@@ -42,23 +50,12 @@ func TestImportExerciseArchive_NoVersionsInvalid(t *testing.T) {
 	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions")
 }
 
-func TestImportExerciseArchive_TwoDraftsInvalid(t *testing.T) {
-	archive := mustExerciseArchive(t, `{"name":"two drafts"}`,
-		`[{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]},{"status":"draft","variants":[{"tasks":[{"name":"t"}]}]}]`)
-	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions[2].status")
-}
-
-func TestImportExerciseArchive_TwoPublishedInvalid(t *testing.T) {
-	archive := mustExerciseArchive(t, `{"name":"two published"}`, `[{"status":"published"},{"status":"published"}]`)
-	require.Contains(t, archiveReason(t, importArchive(t, archive, "")), "versions[2].status")
-}
-
-const secretVersions = `[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","env_vars":[{"name":"K","value":"plain","secret":true}]}]}}]}]`
+const secretVersions = `[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","bootstrap":{"env":[{"name":"K","value":"plain","secret":true}]}}]}}]}]`
 
 func TestImportExerciseArchive_PlaintextSecretNeedsProtectedArchive(t *testing.T) {
 	archive := mustExerciseArchive(t, `{"name":"secret"}`, secretVersions)
 	reason := archiveReason(t, importArchive(t, archive, ""))
-	require.Contains(t, reason, "versions[1].variants[1].topology.devices[1].env_vars[1]")
+	require.Contains(t, reason, "versions[1].variants[1].topology.devices[1].bootstrap.env[1]")
 }
 
 // A password typed for an archive that was not protected must not let a plaintext secret in.
@@ -69,8 +66,8 @@ func TestImportExerciseArchive_PasswordForUnprotectedArchiveKeepsSecretGuard(t *
 
 func TestExpandExerciseArchiveBundle_PasswordOnlyForProtectedSource(t *testing.T) {
 	files := map[string][]byte{
-		"a/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
-		"b/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
+		"b/exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 	}
 	plain, err := exercise.BuildArchiveV1(files)
 	require.NoError(t, err)

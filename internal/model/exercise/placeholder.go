@@ -100,8 +100,10 @@ type Placeholder struct {
 	Port   int    `json:"port,omitempty"`   // 1..65535; 0 = the scheme default
 	Path   string `json:"path,omitempty"`   // starts with "/"; no spaces or quotes
 
-	// External link (Kind == PlaceholderExternalLink)
-	DeviceName string `json:"device_name,omitempty"`
+	// External link (Kind == PlaceholderExternalLink): a link to one access entry of the device. Access is the kind of the
+	// entry (empty = http). The device must have an entry of that kind; vnc and rdp validate and resolve to nothing yet.
+	DeviceName string     `json:"device_name,omitempty"`
+	Access     AccessKind `json:"access,omitempty"`
 }
 
 // validateInlinePlaceholderRefs checks only explicit Lexical variable nodes.
@@ -170,7 +172,11 @@ func (t Topology) validatePlaceholders(phs []Placeholder) error {
 			return ErrPlaceholderInvalid.WithContext("placeholder", string(p.Kind)).Err()
 		}
 		if missingNode {
-			return ErrPlaceholderNode.WithContext("placeholder", string(p.Kind)).Err()
+			failure := ErrPlaceholderNode.WithContext("placeholder", string(p.Kind))
+			if p.Kind == PlaceholderExternalLink {
+				failure = failure.WithPublicContext("device", p.DeviceName).WithPublicContext("access", string(p.EffectiveAccess()))
+			}
+			return failure.Err()
 		}
 	}
 	return nil
@@ -199,9 +205,20 @@ func classifyPlaceholder(t Topology, byName map[string]Device, p Placeholder) (b
 			return true, false
 		}
 	case PlaceholderExternalLink:
+		if !p.EffectiveAccess().Valid() {
+			return true, false
+		}
 		d, ok := byName[p.DeviceName]
-		return false, !ok || d.External == nil
+		return false, !ok || !d.HasAccess(p.EffectiveAccess())
 	default:
 		return true, false
 	}
+}
+
+// EffectiveAccess is the access kind an external.link placeholder points to (http when it names none).
+func (p Placeholder) EffectiveAccess() AccessKind {
+	if p.Access == "" {
+		return AccessHTTP
+	}
+	return p.Access
 }

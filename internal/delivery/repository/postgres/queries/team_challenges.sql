@@ -196,7 +196,13 @@ WHERE tc.event_id = sqlc.arg(event_id)
    WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id AND lb.readiness=1
     AND l.desired_state='Running' AND l.logical_closed_at IS NULL AND l.actual_state='Running' AND l.runtime_ready
     AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision
-    AND (cfg.task_reveal_mode='as_ready' OR (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)))))
+    AND (cfg.task_reveal_mode='as_ready'
+     OR (cfg.task_reveal_mode='all_ready' AND (
+        (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)
+        -- A team outside the cohort (admitted after the cohort was fixed at the start) never waits for the others:
+        -- it gets each task as soon as its own Lab is ready. The moderators team is not a participant and waits.
+        OR (barrier.event_exercise_id IS NOT NULL AND NOT tc.event_team_id = ANY(barrier.eligible_team_ids)
+            AND NOT EXISTS(SELECT 1 FROM event_teams own WHERE own.id=tc.event_team_id AND own.moderators))))))))
 RETURNING tc.event_team_id;
 
 -- name: ListTeamChallengesForRefresh :many
@@ -343,3 +349,15 @@ WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND tc.variant_index < sqlc.arg(variant_count)::integer
 ORDER BY tc.created_at DESC, tc.id DESC
 LIMIT 1;
+
+-- name: ListTeamChallengeCopies :many
+-- Every team copy of the tasks of one event set, with the team name, for the organizers' "copies differ" check.
+SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
+       (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators,
+       event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS team_name
+FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+ORDER BY ec.order_index, team.name, tc.id;

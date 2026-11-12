@@ -9,6 +9,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
+
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,6 +51,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/requestIdempotencyRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/revealDeclineRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/scoreboardRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
@@ -59,6 +62,7 @@ import (
 	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -76,10 +80,12 @@ import (
 // (each now including its list/count shapes), so the use case holds no postgres.*
 // types. The gomock Querier and the real Queries both satisfy it structurally.
 type IRepository interface {
+	eventCopyQueries
 	participantPreviewRepo.Queries
 	platformSettingsRepo.Queries
 	eventLabAllocationRepo.Queries
 	eventLabRevealRepo.Queries
+	revealDeclineRepo.Queries
 	eventLabGroupRepo.Queries
 	eventLabRetentionRepo.Queries
 	userRepo.Queries
@@ -250,11 +256,57 @@ type EventUseCase struct {
 	tagListener TagListener
 	// resources is the platform's device resources settings (zero: the owner's defaults, see resourcePolicy);
 	// elevations reads the approved elevations of exercises (nil: none exist).
-	resources  resourcesModel.Policy
-	elevations ApprovalStore
+	resources resourcesModel.Policy
+	// autoRecreate counts the automatic recreations of failed Labs (nil: off).
+	autoRecreate AutoRecreateStore
+	waitDetails  WaitDetailStore
+	// standVariables pins the variables of a team's stand (nil: drawn on every build).
+	standVariables StandVariableStore
+	// labChecks limits the manual runs of checks (nil: a manual run is refused).
+	labChecks LabCheckStore
+	// revealDecline keeps the teams declined from a cohort (nil: off).
+	revealDecline RevealDeclineStore
+	elevations    ApprovalStore
+}
+
+// AutoRecreateStore counts the automatic recreations of failed team Labs. Nil: a failed Lab is not recreated by itself.
+type AutoRecreateStore interface {
+	Candidates(ctx context.Context, eventID uuid.UUID, now time.Time) ([]autoRecreateRepo.Candidate, error)
+	Track(ctx context.Context, teamID, exerciseID uuid.UUID, reason string, now time.Time) error
+	Bump(ctx context.Context, teamID, exerciseID uuid.UUID, reason string, now time.Time) error
+	Reset(ctx context.Context, teamID, exerciseID uuid.UUID) error
+	ResetTeam(ctx context.Context, teamID uuid.UUID) error
+}
+
+// WaitDetailStore keeps what a waiting stand Lab needs and what the event reservation has left. Nil: not kept.
+type WaitDetailStore interface {
+	Set(ctx context.Context, bindingID uuid.UUID, d eventStandModel.WaitDetail, now time.Time) error
+	Clear(ctx context.Context, bindingID uuid.UUID) error
+}
+
+// StandVariableStore keeps the variables of the infrastructure drawn once for a team's stand of an event exercise, so a lab
+// that is rebuilt or reset gets the same values. Nil: they are drawn on every build.
+type StandVariableStore interface {
+	Stand(ctx context.Context, teamID, eventExerciseID uuid.UUID) (map[string]string, error)
+	PinStand(ctx context.Context, teamID, eventExerciseID uuid.UUID, drawn map[string]string, now time.Time) (map[string]string, error)
+}
+
+// RevealDeclineStore keeps the teams declined from a task's cohort for lack of room. Nil: nobody is declined.
+type RevealDeclineStore interface {
+	Decline(ctx context.Context, eventID, setID, teamID uuid.UUID, reason string, now time.Time) error
 }
 
 type Dependencies struct {
+	// WaitDetails keeps the need and the room of a waiting Lab; nil keeps nothing.
+	WaitDetails WaitDetailStore
+	// StandVariables pins the variables of the infrastructure per team and event exercise; nil draws them on every build.
+	StandVariables StandVariableStore
+	// LabChecks limits the manual runs of checks per team and task; nil refuses a manual run.
+	LabChecks LabCheckStore
+	// RevealDecline keeps the teams declined from a cohort; nil switches the decline off (the cohort is all or nothing).
+	RevealDecline RevealDeclineStore
+	// AutoRecreate counts the automatic recreations of failed Labs; nil switches them off.
+	AutoRecreate                               AutoRecreateStore
 	PreviewLabs                                PreviewTestLabs
 	LabLifecycleBatch                          int32
 	LabLifecycleRetryMin, LabLifecycleRetryMax time.Duration
@@ -379,6 +431,11 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		results:                  eventResultRepo.New(deps.Repo),
 		scoreboard:               scoreboardRepo.New(deps.Repo),
 		labBindings:              labBindingRepo.New(deps.Repo),
+		autoRecreate:             deps.AutoRecreate,
+		waitDetails:              deps.WaitDetails,
+		standVariables:           deps.StandVariables,
+		labChecks:                deps.LabChecks,
+		revealDecline:            deps.RevealDecline,
 		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),
 		labAccessSyncs:           labAccessSyncRepo.New(deps.Repo),

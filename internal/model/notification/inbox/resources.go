@@ -44,6 +44,3 @@ func ResourceAlarmRef(id uuid.UUID) string { return "resource_alarm:" + id.Strin
 func LabWithdrawalRef(agentID uuid.UUID, group string, series int64) string {
 	return "lab_withdrawn:" + agentID.String() + ":" + group + ":" + strconv.FormatInt(series, 10)
 }
-
-// CPUThrottleRef ties every admin's copy of the throttling alert of one device in one lab run together.
-func CPUThrottleRef(labRun, device string) string { return "cpu_throttle:" + labRun + "/" + device }

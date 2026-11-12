@@ -8,9 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	platformSettingsUseCase "github.com/cybericebox/daemon/internal/useCase/platformSettings"
 )
 
@@ -39,6 +41,16 @@ type (
 		GetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
 		SaveTestRunSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
 		ResetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetNodeProfileSettings(
+			ctx context.Context,
+		) (platformSettingsUseCase.NodeProfilesView, error)
+		SaveNodeProfileSettings(
+			ctx context.Context,
+			in platformSettingsModel.Values,
+		) (platformSettingsUseCase.NodeProfilesView, error)
+		ResetNodeProfileSettings(
+			ctx context.Context,
+		) (platformSettingsUseCase.NodeProfilesView, error)
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -61,12 +73,19 @@ type settingResponse struct {
 	Key                string          `json:"Key"`
 	Value              json.RawMessage `json:"Value"      swaggertype:"object"`
 	RequiredPermission string          `json:"RequiredPermission"`
-	CreatedAt          time.Time       `json:"CreatedAt"`
-	UpdatedAt          time.Time       `json:"UpdatedAt"`
+	// Description explains the key in each interface language; null for a key the platform does not know.
+	Description *platformSettingsModel.Description `json:"Description"`
+	CreatedAt   time.Time                          `json:"CreatedAt"`
+	UpdatedAt   time.Time                          `json:"UpdatedAt"`
 }
 
 func toResponse(s *platformSettingsModel.PlatformSetting) settingResponse {
+	var description *platformSettingsModel.Description
+	if d, ok := platformSettingsModel.DescribeKey(s.Key); ok {
+		description = &d
+	}
 	return settingResponse{
+		Description:        description,
 		ID:                 s.ID,
 		Key:                s.Key,
 		Value:              s.Value,
@@ -168,6 +187,10 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 		return
 	}
 
+	before, _ := h.useCase.GetPlatformSetting(
+		ctx,
+		ctx.Param("key"),
+	) // absent before: a creation, every field is new
 	s, err := h.useCase.UpsertPlatformSetting(
 		ctx, platformSettingsUseCase.UpsertInput{
 			Key:                ctx.Param("key"),
@@ -179,5 +202,15 @@ func (h *Handler) upsertSetting(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	audit.SetChanges(ctx, adminAuditUseCase.Diff(settingFields(before), settingFields(s)))
 	response.AbortWithData(ctx, toResponse(s))
+}
+
+// settingFields are the parts of a setting an administrator edits. The audit records only which of them changed,
+// never the values: the reader of the audit may not be allowed to read the setting.
+func settingFields(s *platformSettingsModel.PlatformSetting) map[string]any {
+	if s == nil {
+		return nil
+	}
+	return map[string]any{"Value": s.Value, "RequiredPermission": s.RequiredPermission}
 }

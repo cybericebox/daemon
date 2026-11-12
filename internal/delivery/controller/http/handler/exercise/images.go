@@ -70,6 +70,55 @@ func (h *Handler) checkImages(ctx *gin.Context) {
 	response.AbortWithData(ctx, toImageAvailability(av))
 }
 
+type imageServiceResponse struct {
+	Image string `json:"Image"`
+	// Known is false when the platform has no start configuration for the image (see imageServices); the rest is then empty.
+	Known      bool     `json:"Known"`
+	Entrypoint []string `json:"Entrypoint"`
+	Cmd        []string `json:"Cmd"`
+	User       string   `json:"User"`
+	WorkingDir string   `json:"WorkingDir"`
+}
+
+func toImageServices(in []imageRegistryUseCase.ImageServiceInfo) []imageServiceResponse {
+	out := make([]imageServiceResponse, 0, len(in))
+	for _, i := range in {
+		out = append(out, imageServiceResponse{
+			Image: i.Image, Known: i.Known, Entrypoint: nonNil(i.Service.Entrypoint), Cmd: nonNil(i.Service.Cmd),
+			User: i.Service.User, WorkingDir: i.Service.WorkingDir,
+		})
+	}
+	return out
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// imageServices godoc
+// @Summary  What the images themselves run (entrypoint, cmd, user, working directory)
+// @Description  Same access as saving the draft; the same body as images/check. The editor shows these as the default of a device's command, arguments and terminal user. One entry per distinct non-empty image, in the order sent. Known is true only for a platform image (platform:<name>@sha256:...) whose start configuration was read when it was published, so an image the author just uploaded is known as soon as its reference is returned. Known is false (the other fields empty) for an image by reference to an external registry (nothing reads its config), for a platform image published before the configuration was kept, and when the read fails; then the device needs its own command when it has bootstrap files or a script. No registry call is made, the answer is immediate.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string              true  "exercise ID"
+// @Param    body  body  checkImagesRequest  true  "images"
+// @Success  200  {object}  response.Response{data=[]imageServiceResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Router   /exercises/{id}/images/service [post]
+func (h *Handler) imageServices(ctx *gin.Context) {
+	var req checkImagesRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toImageServices(h.useCase.ImageServices(ctx, req.Images)))
+}
+
 // Image upload through the site (a `docker save` archive read in the browser): which blobs the platform registry
 // lacks → each missing blob through the chunked upload (Purpose "image-blob", never completed) → a push of the
 // upload queued (202 pushing; the push runs in the background) → its state polled until present or failed → the

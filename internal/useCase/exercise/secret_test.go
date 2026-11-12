@@ -58,11 +58,19 @@ func draftVariantsWithID(id uuid.UUID, envValue string, secretFlag bool) []exerc
 			Name:       "Find the flag",
 			Difficulty: exerciseModel.DifficultyEasy,
 		}},
-		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{
-			ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer,
-			Image:   "img",
-			EnvVars: []exerciseModel.EnvVar{{Name: "DB_PASS", Value: envValue, Secret: secretFlag}},
-		}}},
+		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{
+			{
+				ID:    uuid.Must(uuid.NewV7()),
+				Name:  "web",
+				Type:  exerciseModel.DeviceTypeContainer,
+				Image: "img",
+				Bootstrap: exerciseModel.Bootstrap{
+					Env: []exerciseModel.EnvVar{
+						{Name: "DB_PASS", Value: envValue, Secret: secretFlag},
+					},
+				},
+			},
+		}},
 	}}
 }
 
@@ -236,8 +244,8 @@ func TestSaveDraft_TwoVariants_NoCrossContamination(t *testing.T) {
 		t.Fatalf("want 2 stored variants, got %d", len(stored))
 	}
 
-	gotA := stored[0].Topology.Devices[0].EnvVars[0].Value
-	gotB := stored[1].Topology.Devices[0].EnvVars[0].Value
+	gotA := stored[0].Topology.Devices[0].Bootstrap.Env[0].Value
+	gotB := stored[1].Topology.Devices[0].Bootstrap.Env[0].Value
 
 	// B must keep its OWN original ciphertext, byte-for-byte — no re-encryption.
 	if gotB != priorCipherB {
@@ -307,14 +315,22 @@ func TestSaveDraft_VariantsReordered_SecretsFollowID(t *testing.T) {
 	if stored[0].ID != idB {
 		t.Fatalf("stored[0] must be variant B, got id %v", stored[0].ID)
 	}
-	if got := stored[0].Topology.Devices[0].EnvVars[0].Value; got != priorCipherB {
-		t.Fatalf("variant B must keep its own ciphertext despite the position swap: want %q, got %q", priorCipherB, got)
+	if got := stored[0].Topology.Devices[0].Bootstrap.Env[0].Value; got != priorCipherB {
+		t.Fatalf(
+			"variant B must keep its own ciphertext despite the position swap: want %q, got %q",
+			priorCipherB,
+			got,
+		)
 	}
 	if stored[1].ID != idA {
 		t.Fatalf("stored[1] must be variant A, got id %v", stored[1].ID)
 	}
-	if got := stored[1].Topology.Devices[0].EnvVars[0].Value; got != priorCipherA {
-		t.Fatalf("variant A must keep its own ciphertext despite the position swap: want %q, got %q", priorCipherA, got)
+	if got := stored[1].Topology.Devices[0].Bootstrap.Env[0].Value; got != priorCipherA {
+		t.Fatalf(
+			"variant A must keep its own ciphertext despite the position swap: want %q, got %q",
+			priorCipherA,
+			got,
+		)
 	}
 }
 
@@ -360,11 +376,19 @@ func TestSaveDraft_LegacySourceWithoutVariantIDs_KeepsSecrets(t *testing.T) {
 	if len(stored) != 2 {
 		t.Fatalf("want 2 stored variants, got %d", len(stored))
 	}
-	if got := stored[0].Topology.Devices[0].EnvVars[0].Value; got != priorCipherA {
-		t.Fatalf("legacy variant at position 0 must carry its stored ciphertext: want %q, got %q", priorCipherA, got)
+	if got := stored[0].Topology.Devices[0].Bootstrap.Env[0].Value; got != priorCipherA {
+		t.Fatalf(
+			"legacy variant at position 0 must carry its stored ciphertext: want %q, got %q",
+			priorCipherA,
+			got,
+		)
 	}
-	if got := stored[1].Topology.Devices[0].EnvVars[0].Value; got != priorCipherB {
-		t.Fatalf("legacy variant at position 1 must carry its stored ciphertext: want %q, got %q", priorCipherB, got)
+	if got := stored[1].Topology.Devices[0].Bootstrap.Env[0].Value; got != priorCipherB {
+		t.Fatalf(
+			"legacy variant at position 1 must carry its stored ciphertext: want %q, got %q",
+			priorCipherB,
+			got,
+		)
 	}
 	// The transition save must also mint ids so the NEXT save merges by ID.
 	if stored[0].ID == uuid.Nil || stored[1].ID == uuid.Nil {
@@ -408,10 +432,14 @@ func TestSaveDraft_LegacySource_AddedVariantStoresEmpty(t *testing.T) {
 	if len(stored) != 2 {
 		t.Fatalf("want 2 stored variants, got %d", len(stored))
 	}
-	if got := stored[0].Topology.Devices[0].EnvVars[0].Value; got != priorCipher {
-		t.Fatalf("existing position must carry the legacy ciphertext: want %q, got %q", priorCipher, got)
+	if got := stored[0].Topology.Devices[0].Bootstrap.Env[0].Value; got != priorCipher {
+		t.Fatalf(
+			"existing position must carry the legacy ciphertext: want %q, got %q",
+			priorCipher,
+			got,
+		)
 	}
-	if got := stored[1].Topology.Devices[0].EnvVars[0].Value; got != "" {
+	if got := stored[1].Topology.Devices[0].Bootstrap.Env[0].Value; got != "" {
 		t.Fatalf("added variant has nothing to merge — blank-keep must store empty, got %q", got)
 	}
 }

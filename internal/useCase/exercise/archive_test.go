@@ -28,7 +28,7 @@ func TestArchiveV1_RoundTripAndChecksum(t *testing.T) {
 
 func TestProtectedZipArchive_RoundTripRejectsWrongPassword(t *testing.T) {
 	protected, err := exercise.BuildProtectedArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 		"files/a.txt":   []byte("private attachment"),
 	}, "strong password")
 	require.NoError(t, err)
@@ -41,9 +41,9 @@ func TestProtectedZipArchive_RoundTripRejectsWrongPassword(t *testing.T) {
 
 func TestExpandExerciseArchiveBundle_RestoresFolderArchives(t *testing.T) {
 	bundle, err := exercise.BuildArchiveV1(map[string][]byte{
-		"first/exercise.json":  []byte(`{"schema":"cib-exercise/1"}`),
+		"first/exercise.json":  []byte(`{"schema":"cib-exercise/1.0"}`),
 		"first/files/a.txt":    []byte("a"),
-		"second/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
+		"second/exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`),
 	})
 	require.NoError(t, err)
 	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "", exercise.DefaultLimits())
@@ -88,7 +88,7 @@ func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 // mustExerciseArchive wraps schema-1 exercise and versions JSON fragments into a zip.
 func mustExerciseArchive(t *testing.T, exerciseJSON, versionsJSON string) []byte {
 	t.Helper()
-	payload := `{"schema":"cib-exercise/1","exercise":` + exerciseJSON + `,"versions":` + versionsJSON + `}`
+	payload := `{"schema":"cib-exercise/1.0","exercise":` + exerciseJSON + `,"versions":` + versionsJSON + `}`
 	archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(payload)})
 	require.NoError(t, err)
 	return archive
@@ -111,16 +111,6 @@ func TestImportExerciseArchive_AcceptsIncompleteDraft(t *testing.T) {
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
-}
-
-func TestImportExerciseArchive_RejectsUnpublishablePublishedVersion(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, `{"name":"broken"}`, `[{"status":"published"}]`)
-	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
-
-	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
-	require.ErrorIs(t, err, exerciseModel.ErrVersionNoVariants.Err())
 }
 
 func TestExportExerciseArchive_OmitsRegenerateFlags(t *testing.T) {
@@ -163,66 +153,14 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 	require.Equal(t, "Before refactor", doc.Versions[0].Label)
 }
 
-func TestImportExerciseArchive_RestoresLabel(t *testing.T) {
+func TestImportExerciseArchive_PublishedDocumentImportsAsDraft(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, `{"name":"labelled"}`, `[{"status":"checkpoint","label":"Before refactor"}]`)
-	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
-			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
-		})
-	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			if arg.Label != "Before refactor" {
-				t.Fatalf("label must survive import: %+v", arg)
-			}
-			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Label: arg.Label, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
-		})
-	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
-
-	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
-	require.NoError(t, err)
-}
-
-func TestImportExerciseArchive_EnforcesLabelInvariant(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	longLabel := strings.Repeat("a", 600)
-	archive := mustExerciseArchive(t, `{"name":"labelled"}`,
-		`[{"status":"draft","label":"must not survive import"},{"status":"checkpoint","label":"`+longLabel+`"}]`)
-	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
-			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
-		})
-	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
-		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			switch arg.Status {
-			case string(exerciseModel.VersionStatusDraft):
-				if arg.Label != "" {
-					t.Fatalf("draft label must be forced to empty on import, got %q", arg.Label)
-				}
-			case string(exerciseModel.VersionStatusCheckpoint):
-				if got := len([]rune(arg.Label)); got != 500 {
-					t.Fatalf("checkpoint label must be truncated to 500 runes, got %d", got)
-				}
-			default:
-				t.Fatalf("unexpected version status %q", arg.Status)
-			}
-			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Label: arg.Label, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
-		})
-	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
-	uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
-
-	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
-	require.NoError(t, err)
-}
-
-func TestImportExerciseArchive_Schema1Published(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, `{"name":"Опублікована"}`, `[{"status":"published","variants":[{"tasks":[{
-		"name":"Тест","difficulty":"easy","flag":["ICE{x}"],
+	archive := mustExerciseArchive(
+		t,
+		`{"name":"Опублікована"}`,
+		`[{"status":"published","variants":[{"tasks":[{
+		"name":"Тест","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{x}"]}},
 		"description":{"root":{"type":"text","text":"Опис"}},
 		"hints":[{"text":"підказка"}]}]}]}]`)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -231,7 +169,7 @@ func TestImportExerciseArchive_Schema1Published(t *testing.T) {
 		})
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			require.Equal(t, string(exerciseModel.VersionStatusPublished), arg.Status)
+			require.Equal(t, string(exerciseModel.VersionStatusDraft), arg.Status, "a document marked published still lands as a draft")
 			var variants []exerciseModel.Variant
 			require.NoError(t, json.Unmarshal(arg.Variants, &variants))
 			task := variants[0].Tasks[0]
@@ -260,7 +198,7 @@ func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
 	require.NoError(t, err)
 	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(string(files["exercise.json"]), "{\n  \"schema\": \"cib-exercise/1\","))
+	require.True(t, strings.HasPrefix(string(files["exercise.json"]), "{\n  \"schema\": \"cib-exercise/1.0\","))
 	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, "portable", parsed.Exercise.Name)
@@ -269,7 +207,7 @@ func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
 func TestImportExerciseArchive_V2AttachmentUploaded(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	doc := "schema: cib-exercise/1\nexercise:\n  name: З файлами\nversions:\n  - status: draft\n    variants:\n      - tasks:\n" +
+	doc := "schema: cib-exercise/1.0\nexercise:\n  name: З файлами\nversions:\n  - status: draft\n    variants:\n      - tasks:\n" +
 		"          - name: перше\n            attachments:\n              - {file: files/dump.bin, name: Дамп.pcap}\n" +
 		"          - name: друге\n            attachments:\n              - {file: shared/copy.bin}\n"
 	archive, err := exercise.BuildArchiveNoManifest(map[string][]byte{

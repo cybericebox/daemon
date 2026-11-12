@@ -44,6 +44,7 @@ func TestImportJobLifecycle(t *testing.T) {
 // A running import silent for longer than its job may run reads as failed (interrupted).
 func TestImportJobStaleReadsFailed(t *testing.T) {
 	j := exerciseModel.NewImportJob(jobID, jobUser, jobSource, exerciseModel.ImportSourceFile, uuid.NullUUID{}, jobT0)
+	j.Report(exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageUnpacking}, jobT0) // a worker started it
 	state, failure := j.Current(jobT0.Add(exerciseModel.ImportJobStaleAfter))
 	require.Equal(t, exerciseModel.ImportJobRunning, state)
 	require.Nil(t, failure)
@@ -51,13 +52,14 @@ func TestImportJobStaleReadsFailed(t *testing.T) {
 	require.Equal(t, exerciseModel.ImportJobFailed, state)
 	require.NotNil(t, failure)
 	require.Equal(t, exerciseModel.ErrArchiveImportInterrupted.Err().StatusCode().FullCode(), failure.Code)
-	require.Greater(t, exerciseModel.ImportJobStaleAfter, exerciseModel.ImportJobTimeout)
+	require.Equal(t, 2*time.Minute, exerciseModel.ImportJobStaleAfter, "four beats of 30 s")
 	require.True(t, j.Restart(uuid.NullUUID{}, jobT0.Add(exerciseModel.ImportJobStaleAfter+time.Second)), "an interrupted import may run again")
 }
 
 func TestImportJobProgress(t *testing.T) {
 	j := exerciseModel.NewImportJob(jobID, jobUser, jobSource, exerciseModel.ImportSourceUpload, uuid.NullUUID{}, jobT0)
-	require.Equal(t, exerciseModel.ImportStageUnpacking, j.Stage(jobT0), "a new import is unpacking")
+	require.Equal(t, exerciseModel.ImportStageQueued, j.Stage(jobT0), "a new import waits for a worker")
+	require.Equal(t, exerciseModel.ImportJobQueued, j.ShownState(jobT0))
 
 	p := exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageImages, ImagesDone: 3, ImagesTotal: 7, TasksTotal: 12, BytesPushed: 300, BytesTotal: 700}
 	require.True(t, j.Report(p, jobT0.Add(time.Minute)))
@@ -81,9 +83,30 @@ func TestImportJobProgressFailedAndRestart(t *testing.T) {
 	require.Equal(t, 1, j.Progress.ImagesDone, "a failed import keeps how far it came")
 
 	require.True(t, j.Restart(uuid.NullUUID{}, jobT0.Add(2*time.Minute)))
-	require.Equal(t, exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageUnpacking}, j.Progress)
+	require.Equal(t, exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageQueued}, j.Progress)
 
 	// An interrupted import reads as failed whatever stage it was left in.
 	j.Report(exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageTasks}, jobT0.Add(3*time.Minute))
 	require.Equal(t, exerciseModel.ImportStageFailed, j.Stage(jobT0.Add(3*time.Minute).Add(exerciseModel.ImportJobStaleAfter+time.Second)))
+}
+
+// An import that waits in the queue has no heartbeat to miss: it is queued, not interrupted, until the queue has surely
+// lost it; once a worker has started it, the heartbeat window applies.
+func TestImportJobQueuedIsNotInterrupted(t *testing.T) {
+	j := exerciseModel.NewImportJob(jobID, jobUser, jobSource, exerciseModel.ImportSourceFile, uuid.NullUUID{}, jobT0)
+	late := jobT0.Add(exerciseModel.ImportJobStaleAfter + time.Hour)
+	state, failure := j.Current(late)
+	require.Equal(t, exerciseModel.ImportJobRunning, state)
+	require.Nil(t, failure)
+	require.Equal(t, exerciseModel.ImportJobQueued, j.ShownState(late))
+	require.False(t, j.Restart(uuid.NullUUID{}, late), "a waiting import is not run a second time")
+
+	gone := jobT0.Add(exerciseModel.ImportQueuedStaleAfter + time.Second)
+	state, _ = j.Current(gone)
+	require.Equal(t, exerciseModel.ImportJobFailed, state, "a queue that lost the job does not hold it forever")
+
+	j.Report(exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageUnpacking}, jobT0)
+	require.Equal(t, exerciseModel.ImportJobRunning, j.ShownState(jobT0))
+	state, _ = j.Current(late)
+	require.Equal(t, exerciseModel.ImportJobFailed, state, "a started import without a heartbeat is interrupted")
 }

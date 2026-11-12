@@ -12,7 +12,7 @@ func TestDefaultsAreTheDocumentedOnes(t *testing.T) {
 	if c.SignInMaxFailures != 5 || c.SignInFailureWindow != 15*time.Minute || c.SignInLockBase != time.Minute || c.SignInLockMax != 15*time.Minute {
 		t.Fatalf("sign-in defaults: %+v", c)
 	}
-	if c.AccountMailGap != time.Minute || c.AccountMailPerHour != 3 || c.EmailChangesPerHour != 5 {
+	if c.AccountMailGap != time.Minute || c.AccountMailPerHour != 5 || c.EmailChangesPerHour != 5 {
 		t.Fatalf("mail defaults: %+v", c)
 	}
 	if c.AccountActions != 20 || c.LiveScreenPerMinute != 600 {

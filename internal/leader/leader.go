@@ -36,6 +36,10 @@ type Config struct {
 	Retry time.Duration
 	// Check is how often the leader checks that its session lives; 5 seconds by default.
 	Check time.Duration
+	// AliveTimeout is how long one check may take before the session counts as lost; 5 seconds by default. It is
+	// independent of Check: a short Check must not make a slow answer (a busy host, a slow network) look like a
+	// lost session, which would hand the leadership away while the lock is still held.
+	AliveTimeout time.Duration
 }
 
 type Elector struct {
@@ -49,6 +53,9 @@ func New(lock Lock, cfg Config) *Elector {
 	}
 	if cfg.Check <= 0 {
 		cfg.Check = defaultInterval
+	}
+	if cfg.AliveTimeout <= 0 {
+		cfg.AliveTimeout = defaultInterval
 	}
 	return &Elector{lock: lock, cfg: cfg}
 }
@@ -93,7 +100,7 @@ wait:
 		case <-done:
 			break wait
 		case <-ticker.C:
-			check, stop := context.WithTimeout(ctx, e.cfg.Check)
+			check, stop := context.WithTimeout(ctx, e.cfg.AliveTimeout)
 			err := held.Alive(check)
 			stop()
 			if err != nil && ctx.Err() == nil {

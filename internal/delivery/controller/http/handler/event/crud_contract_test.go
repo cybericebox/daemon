@@ -26,6 +26,7 @@ type eventCRUDContractUC struct {
 	updateInput  eventUseCase.UpdateEventInput
 	listFilter   eventUseCase.ListEventsFilter
 	archiveCalls int
+	facetField   string
 	deleteCalls  int
 	config       eventUseCase.EventConfigView
 	configInput  eventUseCase.UpdateConfigInput
@@ -79,6 +80,10 @@ func (allowEventCRUD) RequirePermission(rbac.Permission) gin.HandlerFunc {
 }
 
 func testEventCRUDRouter(u *eventCRUDContractUC, actor uuid.UUID) *gin.Engine {
+	return testEventCRUDRouterFor(u, actor)
+}
+
+func testEventCRUDRouterFor(u eventHandler.IUseCase, actor uuid.UUID) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(response.WithErrorHandler)

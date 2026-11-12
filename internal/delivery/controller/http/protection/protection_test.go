@@ -457,8 +457,11 @@ func TestDeAuthenticate_ClearsOnlySessionCookie(t *testing.T) {
 	}
 
 	cookies := w.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("want exactly 1 cleared cookie, got %d: %+v", len(cookies), cookies)
+	if len(cookies) != 2 {
+		t.Fatalf("want the session cookie and the sign-in hint cleared, got %d: %+v", len(cookies), cookies)
+	}
+	if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge >= 0 {
+		t.Errorf("sign-in hint must be cleared with the session, got %+v", hint)
 	}
 	if cookies[0].Name != authModel.SessionCookie {
 		t.Errorf("cleared cookie name: want %q, got %q", authModel.SessionCookie, cookies[0].Name)
@@ -497,6 +500,33 @@ func TestAudit_RecordsTheStatusTheClientGets(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].ResponseStatus != code {
 		t.Fatalf("audit must record the final status %d, got %+v", code, entries)
+	}
+}
+
+// The fields a handler says it changed travel with the audit entry.
+func TestAudit_CarriesTheChangesTheHandlerRecorded(t *testing.T) {
+	entries, code := auditRun(
+		t,
+		rbac.RoleAdmin,
+		rbac.PermUsersStatusWrite,
+		http.MethodPost,
+		"/users/:id/status",
+		"/users/abc/status",
+		func(c *gin.Context) {
+			audit.SetChanges(
+				c,
+				adminAuditUseCase.Diff(
+					map[string]any{"Status": "active"},
+					map[string]any{"Status": "blocked"},
+					"Status",
+				),
+			)
+			c.Status(http.StatusOK)
+		},
+	)
+	if code != http.StatusOK || len(entries) != 1 || len(entries[0].Changes) != 1 ||
+		entries[0].Changes[0].Field != "Status" || entries[0].Changes[0].After != "blocked" {
+		t.Fatalf("client %d, entries %+v", code, entries)
 	}
 }
 
@@ -897,5 +927,119 @@ func TestAuditRecordSurvivesACancelledRequest(t *testing.T) {
 	r.ServeHTTP(httptest.NewRecorder(), req)
 	if len(uc.auditEntries) != 1 || uc.auditCtxErr != nil {
 		t.Fatalf("entries %d, audit context error %v", len(uc.auditEntries), uc.auditCtxErr)
+	}
+}
+
+// The hint is for the landing page: parent domain, readable by scripts, no personal data.
+func TestAuthenticate_SetsSignedInHint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := newProt(&fakeUseCase{})
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: "analytics:denied,functional:granted"})
+
+	p.Authenticate(ctx, "session-value")
+
+	hint := findCookie(w, protection.SignedInHintCookie)
+	if hint == nil {
+		t.Fatal("sign-in must set the hint cookie")
+	}
+	if hint.Value != "1" || !hint.Secure || hint.HttpOnly || hint.SameSite != http.SameSiteLaxMode {
+		t.Errorf("hint attributes wrong: %+v", hint)
+	}
+	if hint.Domain != "example.test" {
+		t.Errorf("hint must sit on the parent domain, got %q", hint.Domain)
+	}
+	if sc := findCookie(w, authModel.SessionCookie); hint.MaxAge != sc.MaxAge {
+		t.Errorf("hint lives as long as the session cookie: %d vs %d", hint.MaxAge, sc.MaxAge)
+	}
+}
+
+func TestSignedInHint_ClearedWhenTheSessionIsDead(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, cookies := range map[string][]*http.Cookie{
+		"revoked or expired session":  {{Name: authModel.SessionCookie, Value: "stale"}},
+		"session cookie already gone": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newProt(&fakeUseCase{sessionErr: errAuthFailed})
+			r := gin.New()
+			r.Use(response.WithErrorHandler, p.RequireAPIHost, p.RequirePermission(rbac.PermSelf))
+			r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+			req := httptest.NewRequest(http.MethodGet, "/x", nil)
+			req.Host = "api.example.test"
+			req.AddCookie(&http.Cookie{Name: protection.SignedInHintCookie, Value: "1"})
+			for _, c := range cookies {
+				req.AddCookie(c)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("want 401, got %d", w.Code)
+			}
+			if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge >= 0 {
+				t.Fatalf("a 401 must clear the hint, got %+v", hint)
+			}
+		})
+	}
+}
+
+func TestSignedInHint_RefreshedWithTheReissuedSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUseCase{
+		sessionResult: &authUseCase.SessionAuthResult{Claims: authModel.AuthClaims{UserID: uid, SessionID: sid, Role: rbac.RoleUser}},
+		reissue:       "fresh",
+	}
+	p := newProt(uc)
+	r := gin.New()
+	r.Use(response.WithErrorHandler, p.RequireAPIHost, p.RequirePermission(rbac.PermSelf))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Host = "api.example.test"
+	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "old"})
+	req.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: "functional:granted"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge < 0 {
+		t.Fatalf("a re-issue extends the hint too, got %+v", hint)
+	}
+}
+
+// The hint is a functional cookie: without functional consent (absent cookie, the old analytics-only format, denied) it
+// is not set, and one left from before the consent was withdrawn is removed at the next sign-in.
+func TestSignedInHint_NeedsFunctionalConsent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, consent := range []string{"", "analytics:granted", "analytics:granted,functional:denied", "xfunctional:granted", "functional:granted2"} {
+		t.Run("consent="+consent, func(t *testing.T) {
+			p := newProt(&fakeUseCase{})
+			w := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(w)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			if consent != "" {
+				ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: consent})
+			}
+			p.Authenticate(ctx, "session-value")
+			if hint := findCookie(w, protection.SignedInHintCookie); hint != nil {
+				t.Fatalf("no hint without functional consent, got %+v", hint)
+			}
+			if findCookie(w, authModel.SessionCookie) == nil {
+				t.Fatal("the session itself does not depend on the consent")
+			}
+
+			w = httptest.NewRecorder()
+			ctx, _ = gin.CreateTestContext(w)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			if consent != "" {
+				ctx.Request.AddCookie(&http.Cookie{Name: protection.ConsentCookie, Value: consent})
+			}
+			ctx.Request.AddCookie(&http.Cookie{Name: protection.SignedInHintCookie, Value: "1"})
+			p.Authenticate(ctx, "session-value")
+			if hint := findCookie(w, protection.SignedInHintCookie); hint == nil || hint.MaxAge >= 0 {
+				t.Fatalf("a hint left after the consent was withdrawn is removed, got %+v", hint)
+			}
+		})
 	}
 }

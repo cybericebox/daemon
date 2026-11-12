@@ -213,44 +213,44 @@ func TestValidateStructure_GatewayEndpointPort(t *testing.T) {
 	}
 }
 
-func TestValidateStructure_FlagTargetCannotOverwriteDeviceEnv(t *testing.T) {
+func TestValidateStructure_BootstrapEnvNamesAreUniquePerDevice(t *testing.T) {
 	device := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	device.EnvVars = []exerciseModel.EnvVar{{Name: "FLAG", Value: "static-value"}}
-	task := validTask()
-	task.LinkedDeviceID = uuid.NullUUID{UUID: device.ID, Valid: true}
-	task.DeviceFlagVar = "FLAG"
-	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}}, task)}}
-	if err := version.ValidateStructure(); !errors.Is(err, exerciseModel.ErrFlagEnvironmentConflict.Err()) {
-		t.Fatalf("flag target conflict = %v", err)
+	device.Bootstrap.Env = []exerciseModel.EnvVar{
+		{Name: "FLAG", Value: "a"},
+		{Name: "FLAG", Value: "b"},
+	}
+	version := exerciseModel.ExerciseVersion{
+		Variants: []exerciseModel.Variant{
+			publishVariant(
+				exerciseModel.Topology{Devices: []exerciseModel.Device{device}},
+				validTask(),
+			),
+		},
+	}
+	if err := version.ValidateStructure(); !errors.Is(
+		err,
+		exerciseModel.ErrDeviceRuntimeInvalid.Err(),
+	) {
+		t.Fatalf("a repeated env name = %v", err)
 	}
 }
 
-func TestValidateStructure_TasksCannotShareOneFlagTarget(t *testing.T) {
-	device := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	first := validTask()
-	first.LinkedDeviceID = uuid.NullUUID{UUID: device.ID, Valid: true}
-	first.DeviceFlagVar = "FLAG"
-	second := validTask()
-	second.Name = "Find the other flag"
-	second.LinkedDeviceID = first.LinkedDeviceID
-	second.DeviceFlagVar = first.DeviceFlagVar
-	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}}, first, second)}}
-	if err := version.ValidateStructure(); !errors.Is(err, exerciseModel.ErrFlagEnvironmentConflict.Err()) {
-		t.Fatalf("duplicate task target conflict = %v", err)
+func TestValidateStructure_SameEnvNameOnDifferentDevices(t *testing.T) {
+	first := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
+	second := dev("api", exerciseModel.DeviceTypeContainer, "eth0")
+	first.Bootstrap.Env = []exerciseModel.EnvVar{{Name: "FLAG", Value: "{{task.one}}"}}
+	second.Bootstrap.Env = []exerciseModel.EnvVar{{Name: "FLAG", Value: "{{task.two}}"}}
+	one, two := validTask(), validTask()
+	one.Key, two.Key, two.Name = "one", "two", "Find the other flag"
+	version := exerciseModel.ExerciseVersion{
+		Variants: []exerciseModel.Variant{
+			publishVariant(
+				exerciseModel.Topology{Devices: []exerciseModel.Device{first, second}},
+				one,
+				two,
+			),
+		},
 	}
-}
-
-func TestValidateStructure_SameFlagVarOnDifferentDevices(t *testing.T) {
-	firstDevice := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	secondDevice := dev("api", exerciseModel.DeviceTypeContainer, "eth0")
-	first := validTask()
-	first.LinkedDeviceID = uuid.NullUUID{UUID: firstDevice.ID, Valid: true}
-	first.DeviceFlagVar = "FLAG"
-	second := validTask()
-	second.Name = "Find the other flag"
-	second.LinkedDeviceID = uuid.NullUUID{UUID: secondDevice.ID, Valid: true}
-	second.DeviceFlagVar = "FLAG"
-	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{firstDevice, secondDevice}}, first, second)}}
 	if err := version.ValidateStructure(); err != nil {
 		t.Fatalf("independent device variables must remain valid: %v", err)
 	}
@@ -442,36 +442,42 @@ func TestValidateForPublish_ForwardingPorts(t *testing.T) {
 	}
 }
 
-func TestValidateForPublish_FlagDeviceLink(t *testing.T) {
+func TestValidateForPublish_BootstrapSubstitutionMustResolve(t *testing.T) {
 	web := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{web}}
-
-	linked := validTask()
-	linked.LinkedDeviceID = uuid.NullUUID{UUID: web.ID, Valid: true}
-	linked.DeviceFlagVar = "FLAG"
-	okV := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(topo, linked)}}
-	if err := okV.ValidateForPublish(); err != nil {
-		t.Fatalf("linked flag to existing device must pass: %v", err)
+	topo := func(value string) exerciseModel.Topology {
+		device := web
+		device.Bootstrap.Env = []exerciseModel.EnvVar{{Name: "FLAG", Value: value}}
+		return exerciseModel.Topology{Devices: []exerciseModel.Device{device}}
 	}
-
-	ghost := validTask()
-	ghost.LinkedDeviceID = uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}
-	ghost.DeviceFlagVar = "FLAG"
-	badV := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(topo, ghost)}}
-	if !errors.Is(badV.ValidateForPublish(), exerciseModel.ErrFlagDeviceUnresolved.Err()) {
-		t.Fatal("flag linked to a ghost device must fail")
+	task := validTask()
+	task.Key = "flag"
+	okV := exerciseModel.ExerciseVersion{
+		Variants: []exerciseModel.Variant{publishVariant(topo("{{task.flag}}"), task)},
+	}
+	if err := okV.ValidateForPublish(); err != nil {
+		t.Fatalf("a substitution of an existing task must pass: %v", err)
+	}
+	badV := exerciseModel.ExerciseVersion{
+		Variants: []exerciseModel.Variant{publishVariant(topo("{{task.ghost}}"), task)},
+	}
+	if !errors.Is(badV.ValidateForPublish(), exerciseModel.ErrSubstitutionUnresolved.Err()) {
+		t.Fatal("a substitution of an unknown task must fail")
 	}
 }
 
-func TestValidateForPublish_LinkedDeviceAcceptsMixedCandidates(t *testing.T) {
+func TestValidateForPublish_DeliveredTaskAcceptsMixedCandidates(t *testing.T) {
 	web := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
+	web.Bootstrap.Env = []exerciseModel.EnvVar{{Name: "FLAG", Value: "{{task.flag}}"}}
 	linked := validTask()
-	linked.LinkedDeviceID = uuid.NullUUID{UUID: web.ID, Valid: true}
-	linked.DeviceFlagVar = "FLAG"
-	linked.Flag = []string{"ICE{fixed}", `template:ICE{\d}`}
-	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{web}}, linked)}}
+	linked.Key = "flag"
+	linked.Check = exerciseModel.FlagCheck("ICE{fixed}", `template:ICE{\d}`)
+	version := exerciseModel.ExerciseVersion{
+		Variants: []exerciseModel.Variant{
+			publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{web}}, linked),
+		},
+	}
 	if err := version.ValidateForPublish(); err != nil {
-		t.Fatalf("linked task should accept mixed candidates: %v", err)
+		t.Fatalf("a delivered task should accept mixed candidates: %v", err)
 	}
 }
 
@@ -621,6 +627,39 @@ func TestValidateStructure_DevicePersistence(t *testing.T) {
 		forwarding.Persistence = &exerciseModel.DevicePersistence{Enabled: true}
 		if err := validate(forwarding); !errors.Is(err, exerciseModel.ErrDevicePersistenceInvalid.Err()) {
 			t.Fatalf("%s must not keep state: %v", typ, err)
+		}
+	}
+}
+
+// Persistence is offered on the container profile only; absent or enabled:false stays valid on every profile.
+func TestValidateStructure_PersistenceRefusedOnMicroVMAndVM(t *testing.T) {
+	validate := func(device exerciseModel.Device) error {
+		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}})}}
+		return version.ValidateStructure()
+	}
+	for _, profile := range []exerciseModel.NodeProfile{exerciseModel.NodeProfileMicroVM, exerciseModel.NodeProfileVM} {
+		device := dev("db", exerciseModel.DeviceTypeContainer)
+		device.Profile = profile
+		for name, persistence := range map[string]*exerciseModel.DevicePersistence{
+			"absent": nil, "disabled": {Enabled: false}, "disabled with debounce": {Debounce: "5s"},
+		} {
+			device.Persistence = persistence
+			if err := validate(device); err != nil {
+				t.Fatalf("%s on %s must stay valid: %v", name, profile, err)
+			}
+		}
+		device.Persistence = &exerciseModel.DevicePersistence{Enabled: true}
+		err := validate(device)
+		if !errors.Is(err, exerciseModel.ErrNodeProfilePersistence.Err()) {
+			t.Fatalf("%s: persistence must be refused: %v", profile, err)
+		}
+	}
+	for _, profile := range []exerciseModel.NodeProfile{"", exerciseModel.NodeProfileContainer} {
+		device := dev("db", exerciseModel.DeviceTypeContainer)
+		device.Profile = profile
+		device.Persistence = &exerciseModel.DevicePersistence{Enabled: true}
+		if err := validate(device); err != nil {
+			t.Fatalf("container %q keeps persistence: %v", profile, err)
 		}
 	}
 }

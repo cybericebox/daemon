@@ -63,22 +63,6 @@ func New(eventID, exerciseID, versionID uuid.UUID, mode VariantMode, fixedVarian
 	return EventExercise{ID: uuid.Must(uuid.NewV7()), EventID: eventID, ExerciseID: exerciseID, ExerciseVersionID: versionID, VariantMode: mode, FixedVariantIndex: fixed, Revision: 1, Status: StatusActive, CreatedAt: now, CreatedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}}, nil
 }
 
-// NewReplacement builds the next immutable revision for the same catalog
-// exercise. It deliberately cannot change event identity or the participation
-// variant policy while correcting content.
-func NewReplacement(previous EventExercise, versionID uuid.UUID, now time.Time, by uuid.UUID) (EventExercise, error) {
-	if previous.Status != StatusActive {
-		return EventExercise{}, ErrEventExerciseNotActive.Err()
-	}
-	next, err := New(previous.EventID, previous.ExerciseID, versionID, previous.VariantMode, previous.FixedVariantIndex, now, by)
-	if err != nil {
-		return EventExercise{}, err
-	}
-	next.Revision = previous.Revision + 1
-	next.ReplacesID = &previous.ID
-	return next, nil
-}
-
 // EnsureActive guards every change of an attachment: only the active one of
 // an event may switch source, be detached or have its board edited.
 func (e EventExercise) EnsureActive() error {

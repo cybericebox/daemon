@@ -19,27 +19,38 @@ import (
 // cannot use up the quota of an unrelated one. Only mail the account itself
 // triggers is limited; invitations sent by an organizer or admin are not.
 const (
-	mailKindSignUp      = "sign-up"
-	mailKindReset       = "password-reset"
-	mailKindEmailChange = "email-change"
+	mailKindSignUp = "sign-up"
+	mailKindReset  = "password-reset"
 )
 
 type authLimits struct {
 	signInAccount    *ratelimit.Lockout // by normalized address
 	passwordGuess    *ratelimit.Lockout // by user id: old-password / current-password checks
 	mail             *ratelimit.Recipient
+	mailRequests     *ratelimit.Recipient // by normalized address, every kind of sign-in mail together
 	emailChangeUsers *ratelimit.Window
-	mailGap          time.Duration
+	dataExport       *ratelimit.Window // by user id
 }
 
 func newAuthLimits() *authLimits {
 	c := limits.Get()
 	return &authLimits{
-		signInAccount:    ratelimit.NewLockout(c.SignInMaxFailures, c.SignInFailureWindow, c.SignInLockBase, c.SignInLockMax),
-		passwordGuess:    ratelimit.NewLockout(c.SignInMaxFailures, c.SignInFailureWindow, c.SignInLockBase, c.SignInLockMax),
+		signInAccount: ratelimit.NewLockout(
+			c.SignInMaxFailures,
+			c.SignInFailureWindow,
+			c.SignInLockBase,
+			c.SignInLockMax,
+		),
+		passwordGuess: ratelimit.NewLockout(
+			c.SignInMaxFailures,
+			c.SignInFailureWindow,
+			c.SignInLockBase,
+			c.SignInLockMax,
+		),
 		mail:             ratelimit.NewRecipient(c.AccountMailGap, c.AccountMailPerHour),
+		mailRequests:     ratelimit.NewRecipient(c.AccountMailGap, c.AccountMailPerHour),
 		emailChangeUsers: ratelimit.NewWindow(c.EmailChangesPerHour, time.Hour),
-		mailGap:          c.AccountMailGap,
+		dataExport:       ratelimit.NewWindow(1, dataExportInterval),
 	}
 }
 
@@ -56,4 +67,18 @@ func tooManyRequests(wait time.Duration) error {
 // that must not reveal anything stay silent when it is false.
 func (u *AuthUseCase) mailAllowed(kind, address string) bool {
 	return u.limits.mail.Allow(kind, normalizeEmail(address))
+}
+
+// requestMail is the front door of every request that can make the platform mail an address a sign-in message
+// (sign-up, password reset, email change, and their resends): at most one in AccountMailGap and AccountMailPerHour
+// an hour, counted for all kinds together. It runs before any account lookup and is keyed on the address alone,
+// so the refusal (429 with RetryAfterSeconds) says nothing about whether an account exists.
+//
+// The returned release gives the request back when what followed failed before anything was accepted.
+func (u *AuthUseCase) requestMail(address string) (func(), error) {
+	ok, wait, release := u.limits.mailRequests.Take(normalizeEmail(address))
+	if !ok {
+		return nil, tooManyRequests(wait)
+	}
+	return release, nil
 }

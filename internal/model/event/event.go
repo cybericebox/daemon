@@ -253,12 +253,6 @@ func (e *Event) UpdateScoringProfile(profile ScoringProfile, force bool, staticP
 	return nil
 }
 
-func legacyWindowLifecycle(availableFrom, archiveAt time.Time) (Lifecycle, error) {
-	finishAt := archiveAt
-	withdrawAt := archiveAt.Add(time.Microsecond)
-	return NewLifecycle(JoinPolicyLockedAtStart, availableFrom, availableFrom, &finishAt, &withdrawAt, nil)
-}
-
 // Status derives the lifecycle position. Archived is checked first so an
 // early Archive (ArchiveAt moved to now, possibly before AvailableFrom) reads
 // as Archived rather than Pending.

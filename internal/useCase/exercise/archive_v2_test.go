@@ -10,7 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-const v2Header = `{"schema":"cib-exercise/1",`
+const v2Header = `{"schema":"cib-exercise/1.0",`
 
 func publicContext(t *testing.T, err error) map[string]any {
 	t.Helper()
@@ -46,7 +46,8 @@ func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
 		{"status", string(version.Status), string(exerciseModel.VersionStatusPublished)},
 		{"difficulty", string(variant.Tasks[0].Difficulty), string(exerciseModel.DifficultyHard)},
 		{"hint level", string(variant.Tasks[0].Hints[0].Level), string(exerciseModel.HintLevelSteps)},
-		{"device type", string(device.Type), string(exerciseModel.DeviceTypeContainer)},
+		{"device type (former container reads as a node)", string(device.Type), string(exerciseModel.DeviceTypeNode)},
+		{"device profile", string(device.Profile), string(exerciseModel.NodeProfileContainer)},
 		{"security preset", string(device.SecurityPreset), string(exerciseModel.SecurityPresetExtended)},
 		{"ip type", string(device.Interfaces[0].IP.Type), string(exerciseModel.IPConfigTypeStatic)},
 		{"endpoint kind", string(variant.Topology.Connections[0].Endpoints[0].Kind), string(exerciseModel.EndpointVPN)},
@@ -79,7 +80,7 @@ func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 	for name, payload := range map[string]string{
 		"trailing data":  v2Header + `"exercise":{"name":"x"}} {}`,
 		"unknown nested": v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"linked":1}]}]}`,
-		"not json":       `schema: cib-exercise/1`,
+		"not json":       `schema: cib-exercise/1.0`,
 		"wrong schema":   `{"schema":"cib-exercise/2","exercise":{"name":"x"}}`,
 		"missing schema": `{"exercise":{"name":"x"}}`,
 	} {
@@ -90,7 +91,7 @@ func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 }
 
 func TestToParsed_ResolvesDeviceNames(t *testing.T) {
-	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","linked_device":"%s"}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
+	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","check":{"state":{"conditions":[{"device":"%s","file":{"path":"/etc/app"}}]}}}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
 	parsed, err := mustDecodeV2(t, strings.Replace(doc, "%s", "web", 1)).toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -103,9 +104,8 @@ func TestToParsed_ResolvesDeviceNames(t *testing.T) {
 	if got := variant.Topology.Connections[0].Endpoints[0].DeviceID; got != deviceID {
 		t.Fatalf("endpoint device = %v, want %v", got, deviceID)
 	}
-	linked := variant.Tasks[0].LinkedDeviceID
-	if !linked.Valid || linked.UUID != deviceID {
-		t.Fatalf("linked device = %+v, want %v", linked, deviceID)
+	if got := variant.Tasks[0].Check.State.Conditions[0].DeviceID; got != deviceID {
+		t.Fatalf("condition device = %v, want %v", got, deviceID)
 	}
 	if variant.ID == uuid.Nil {
 		t.Fatal("id-less variant gets a fresh id")
@@ -118,7 +118,7 @@ func TestToParsed_ResolvesDeviceNames(t *testing.T) {
 
 func TestToParsed_IgnoresTaskAndVersionIDs(t *testing.T) {
 	const id = "0192f0a0-0000-7000-8000-000000000001"
-	doc := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"id":"`+id+`","name":"x"},"versions":[{"id":"`+id+`","status":"draft","variants":[{"id":"`+id+`","tasks":[{"id":"`+id+`","name":"t","difficulty":"easy"}]}]}]}`)
+	doc := mustDecodeV2(t, `{"schema":"cib-exercise/1.0","exercise":{"id":"`+id+`","name":"x"},"versions":[{"id":"`+id+`","status":"draft","variants":[{"id":"`+id+`","tasks":[{"id":"`+id+`","name":"t","difficulty":"easy"}]}]}]}`)
 	parsed, err := doc.toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -133,7 +133,7 @@ func TestToParsed_IgnoresTaskAndVersionIDs(t *testing.T) {
 	if variant.Tasks[0].ID != uuid.FromStringOrNil(id) {
 		t.Fatalf("task id = %v, want the given one", variant.Tasks[0].ID)
 	}
-	bad := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"id":"not-a-uuid"}]}]}`)
+	bad := mustDecodeV2(t, `{"schema":"cib-exercise/1.0","exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"id":"not-a-uuid"}]}]}`)
 	if _, err = bad.toParsed(nil); !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
 		t.Fatalf("bad variant id err = %v, want ErrArchiveInvalid", err)
 	}
@@ -193,7 +193,7 @@ func TestArchiveImageV2_MarshalWritesString(t *testing.T) {
 }
 
 const minimalDoc = `{
-  "schema": "cib-exercise/1",
+  "schema": "cib-exercise/1.0",
   "exercise": {"name": "Тест-завдання"},
   "versions": [{"status": "draft", "variants": [{"tasks": [{"name": "Тест", "difficulty": "easy"}]}]}]
 }`
@@ -225,7 +225,7 @@ func TestParseExerciseArchive_Schema1JSON(t *testing.T) {
 }
 
 func TestParseExerciseArchive_Schema1JSONWithComments(t *testing.T) {
-	commented := "// header\n{\n  \"schema\": \"cib-exercise/1\", /* brand/version */\n  \"exercise\": {\"name\": \"Тест-завдання\"}, // name\n" +
+	commented := "// header\n{\n  \"schema\": \"cib-exercise/1.0\", /* brand/version */\n  \"exercise\": {\"name\": \"Тест-завдання\"}, // name\n" +
 		"  \"versions\": [{\"status\": \"draft\", \"variants\": [{\"tasks\": [{\"name\": \"Тест\", \"difficulty\": \"easy\"}]}]}]\n}"
 	plain, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "", DefaultLimits())
 	if err != nil {
@@ -244,7 +244,7 @@ func TestParseExerciseArchive_Schema1JSONWithComments(t *testing.T) {
 }
 
 func TestParseExerciseArchive_BothDocumentsRejected(t *testing.T) {
-	data := schemaArchive(t, map[string]string{"exercise.json": minimalDoc, "exercise.yaml": "schema: cib-exercise/1\n"})
+	data := schemaArchive(t, map[string]string{"exercise.json": minimalDoc, "exercise.yaml": "schema: cib-exercise/1.0\n"})
 	_, err := ParseExerciseArchive(data, "", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveBothDocuments.Err()) {
 		t.Fatalf("err = %v, want ErrArchiveBothDocuments", err)
@@ -273,7 +273,7 @@ func TestParseExerciseArchive_SchemaRequired(t *testing.T) {
 			continue
 		}
 		ctx := publicContext(t, err)
-		if ctx["expected"] != "cib-exercise/1" {
+		if ctx["expected"] != "cib-exercise/1.0" {
 			t.Errorf("%s: context = %v", name, ctx)
 		}
 	}

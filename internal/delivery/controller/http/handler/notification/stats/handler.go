@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	statsUseCase "github.com/cybericebox/daemon/internal/useCase/notification/stats"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
 
@@ -32,6 +35,13 @@ type (
 		) ([]dispatchModel.DispatchDetail, int64, error)
 		GetDispatch(ctx context.Context, id uuid.UUID) (*dispatchModel.DispatchDetail, error)
 		GetStats(ctx context.Context, since time.Time) (*dispatchModel.Stats, error)
+		DispatchFacets(
+			ctx context.Context,
+			field string,
+			f dispatchModel.ListDispatchesFilter,
+		) (map[string]int64, error)
+		ResendDispatches(ctx context.Context, ids []uuid.UUID) []statsUseCase.ResendResult
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 	}
 
 	dispatchResponse struct {
@@ -101,7 +111,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead),
 	)
 	dispatches.GET("", h.listDispatches)
+	dispatches.GET("facets", h.dispatchFacets)
 	dispatches.GET(":id", h.getDispatch)
+	router.POST(
+		"dispatches/resend",
+		h.prot.RequirePermission(rbac.PermNotificationsBroadcast),
+		h.resendDispatches,
+	)
 }
 
 func toDispatchResponse(d dispatchModel.DispatchInfo) dispatchResponse {
@@ -195,11 +211,22 @@ func (h *Handler) getStats(ctx *gin.Context) {
 // @Param    channel    query  string  false  "target channel (email, in_app)"
 // @Param    result     query  string  false  "target status (done, error)"
 // @Param    transport  query  string  false  "email route (event, platform, env)"
+// @Param    recipient  query  string  false  "part of the recipient email or name"
+// @Param    from       query  string  false  "created at or after (RFC 3339)"
+// @Param    to         query  string  false  "created before (RFC 3339)"
 // @Param    limit   query  int     false  "page size (default 50)"
 // @Param    cursor  query  string  false  "last dispatch ID from the previous cursor page"
+// @Param    page      query  int     false  "page number: switches to the page-number mode (OffsetPage answer)"
+// @Param    pageSize  query  int     false  "page size of the page-number mode (default 50)"
+// @Param    sortBy    query  string  false  "type | recipient | event | status | created (page-number mode)"
+// @Param    sortDir   query  string  false  "asc | desc (page-number mode)"
 // @Success  200  {object}  response.Response{data=pagination.CursorPage[dispatchDetailResponse]}
 // @Router   /notifications/dispatches [get]
 func (h *Handler) listDispatches(ctx *gin.Context) {
+	if ctx.Query("page") != "" || ctx.Query("pageSize") != "" || ctx.Query("sortBy") != "" {
+		h.listDispatchesPage(ctx)
+		return
+	}
 	f, limit, ok := ParseJournalFilter(ctx)
 	if !ok {
 		return
@@ -225,6 +252,14 @@ func ParseJournalFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, i
 			}
 		}
 	}
+	for _, key := range []string{"from", "to"} {
+		if raw := ctx.Query(key); raw != "" {
+			if _, err := time.Parse(time.RFC3339, raw); err != nil {
+				response.AbortWithBadRequest(ctx, fmt.Errorf("invalid %s: %w", key, err))
+				return dispatchModel.ListDispatchesFilter{}, 0, false
+			}
+		}
+	}
 	limit := parseInt(ctx.Query("limit"), 50)
 	if limit < 1 || limit > pagination.MaxPageSize {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("limit must be between 1 and %d", pagination.MaxPageSize))
@@ -235,6 +270,9 @@ func ParseJournalFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, i
 		Status:    ctx.Query("status"),
 		User:      ctx.Query("user"),
 		Event:     ctx.Query("event"),
+		Recipient: strings.TrimSpace(ctx.Query("recipient")),
+		From:      ctx.Query("from"),
+		To:        ctx.Query("to"),
 		Channel:   ctx.Query("channel"),
 		Result:    ctx.Query("result"),
 		Transport: ctx.Query("transport"),
@@ -293,4 +331,92 @@ func parseInt(s string, def int) int {
 		return def
 	}
 	return v
+}
+
+// listDispatchesPage answers the log in the page-number mode: page, pageSize and a sort, with the total.
+func (h *Handler) listDispatchesPage(ctx *gin.Context) {
+	f, ok := parseJournalPageFilter(ctx)
+	if !ok {
+		return
+	}
+	var page pagination.OffsetParams
+	if err := ctx.ShouldBindQuery(&page); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err := page.Validate(); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	f.Limit, f.Offset = int32(
+		page.PageSize,
+	), int32(
+		page.Offset(),
+	) //nolint:gosec // bounded by Validate
+	rows, total, err := h.useCase.ListDispatches(ctx.Request.Context(), f)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	items := make([]dispatchDetailResponse, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, toDetailResponse(r))
+	}
+	response.AbortWithData(ctx, pagination.NewOffsetPage(items, total, page.Page, page.PageSize))
+}
+
+// journalSortColumns are the columns of the page-number mode a log can be sorted by.
+var journalSortColumns = map[string]bool{
+	"type":      true,
+	"recipient": true,
+	"event":     true,
+	"status":    true,
+	"created":   true,
+}
+
+// parseJournalPageFilter reads the filters of the log and the sort of the page-number mode.
+func parseJournalPageFilter(ctx *gin.Context) (dispatchModel.ListDispatchesFilter, bool) {
+	f, _, ok := ParseJournalFilter(ctx)
+	if !ok {
+		return f, false
+	}
+	f.Cursor = ""
+	f.SortBy, f.SortDir = ctx.Query("sortBy"), ctx.Query("sortDir")
+	if f.SortBy != "" && !journalSortColumns[f.SortBy] ||
+		f.SortDir != "" && f.SortDir != "asc" && f.SortDir != "desc" {
+		response.AbortWithBadRequest(ctx, errors.New("sortBy or sortDir is not valid"))
+		return f, false
+	}
+	return f, true
+}
+
+// dispatchFacets godoc
+// @Summary  Facet counts of the notification log
+// @Description How many dispatches have each value of field under the same filters as the list (type, status, event, channel, result, transport, user, recipient, from, to) except the field's own.
+// @Tags     notification-stats
+// @Produce  json
+// @Param    field  query  string  true  "type | status | event | channel | result | transport"
+// @Success  200  {object}  response.Response{data=dispatchFacetResponse}
+// @Router   /notifications/dispatches/facets [get]
+func (h *Handler) dispatchFacets(ctx *gin.Context) {
+	f, _, ok := ParseJournalFilter(ctx)
+	if !ok {
+		return
+	}
+	counts, err := h.useCase.DispatchFacets(ctx.Request.Context(), ctx.Query("field"), f)
+	if errors.Is(err, statsUseCase.ErrUnknownFacetField) {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, dispatchFacetResponse{Counts: counts})
+}
+
+type dispatchFacetResponse struct {
+	// Counts maps a value of the field to the number of dispatches with it; values with none are absent.
+	Counts map[string]int64 `json:"Counts"`
 }

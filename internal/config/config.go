@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -238,7 +239,7 @@ type (
 		// MaxConns sizes the pool requests and use cases share. A statement waits at most AcquireTimeout for a
 		// free connection, then the request is answered 503 (Retry-After) instead of queueing until the client
 		// gives up. Connections are replaced after MaxConnLifetime and closed after MaxConnIdleTime unused.
-		MaxConns        int           `env:"MAX_CONNS"          envDefault:"32"`
+		MaxConns        int           `env:"MAX_CONNS"          envDefault:"24"`
 		AcquireTimeout  time.Duration `env:"ACQUIRE_TIMEOUT"    envDefault:"3s"`
 		MaxConnLifetime time.Duration `env:"MAX_CONN_LIFETIME"  envDefault:"30m"`
 		MaxConnIdleTime time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
@@ -369,6 +370,20 @@ type (
 		InternalPort string `env:"INTERNAL_PORT"`
 		// HTTP3 is the optional HTTP/3 (QUIC, UDP) listener next to the HTTPS one (HTTP_SERVER_HTTP3_*).
 		HTTP3 HTTP3Config `envPrefix:"HTTP3_"`
+		// ProxyProtocolFrom are the networks (CIDRs or addresses) whose connections to the HTTPS listener may carry a
+		// PROXY protocol v2 header with the real client address (HTTP_SERVER_PROXY_PROTOCOL_FROM): the edge
+		// Envoy in front of the daemon. The header is optional for them; any other peer's header is read and
+		// discarded. Empty (default) is off: the listener is not wrapped and the connection address is used.
+		ProxyProtocolFrom []string `env:"PROXY_PROTOCOL_FROM"`
+		// ProxyProtocolSecret (HTTP_SERVER_PROXY_PROTOCOL_SECRET) is the shared secret the edge puts in the custom
+		// TLV 0xE0 of the PROXY header; the daemon takes the header's address only from a trusted peer whose TLV equals
+		// this or ProxyProtocolSecretNext (rotation: the edge switches to the new value, then the old one is
+		// dropped). Empty: the TLV is not required (the list alone decides) and a warning is logged at start.
+		ProxyProtocolSecret     string `env:"PROXY_PROTOCOL_SECRET"`
+		ProxyProtocolSecretNext string `env:"PROXY_PROTOCOL_SECRET_NEXT"`
+		// ProxyProtocolSecretTLV is the PROXY v2 TLV type that carries the secret (HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV):
+		// 224 (0xE0), within the custom range 224-239.
+		ProxyProtocolSecretTLV int `env:"PROXY_PROTOCOL_SECRET_TLV" envDefault:"224"`
 	}
 
 	// HTTP3Config is the HTTP/3 listener: it serves the same handler with the same certificate as the HTTPS
@@ -509,11 +524,11 @@ type LimitsConfig struct {
 	SignInFailureWindow time.Duration `env:"SIGN_IN_FAILURE_WINDOW" envDefault:"15m"`
 	SignInLockBase      time.Duration `env:"SIGN_IN_LOCK_BASE"      envDefault:"1m"`
 	SignInLockMax       time.Duration `env:"SIGN_IN_LOCK_MAX"       envDefault:"15m"`
-	// AccountMailGap is the least time between two account mails of one kind
-	// (sign-up confirmation, password reset, email change) to one address;
-	// AccountMailPerHour caps them per kind and hour.
+	// AccountMailGap is the least time between two requests of account mail
+	// (sign-up confirmation, password reset, email change, and their resends) for one address;
+	// AccountMailPerHour caps them per hour, all kinds together.
 	AccountMailGap     time.Duration `env:"ACCOUNT_MAIL_GAP"      envDefault:"1m"`
-	AccountMailPerHour int           `env:"ACCOUNT_MAIL_PER_HOUR" envDefault:"3"`
+	AccountMailPerHour int           `env:"ACCOUNT_MAIL_PER_HOUR" envDefault:"5"`
 	// EmailChangesPerHour bounds the email-change mails one account can cause.
 	EmailChangesPerHour int `env:"EMAIL_CHANGES_PER_HOUR" envDefault:"5"`
 	// AccountActions requests per AccountActionsWindow of one signed-in user on
@@ -679,12 +694,59 @@ func (c HTTPControllerConfig) Validate() error {
 // TLSEnabled reports whether the TLS listener runs: the certificate and the key are both set.
 func (c HTTPServerConfig) TLSEnabled() bool { return c.TLS.CertFile != "" && c.TLS.KeyFile != "" }
 
+// MinProxyProtocolSecretLen is the shortest PROXY protocol secret accepted.
+const MinProxyProtocolSecretLen = 16
+
+// ParseProxyProtocolFrom reads HTTP_SERVER_PROXY_PROTOCOL_FROM: each entry is a CIDR or a bare address (a /32 or
+// /128). Addresses are unmapped, so an IPv4-mapped IPv6 entry means the IPv4 one.
+func ParseProxyProtocolFrom(entries []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(entry)
+			if addrErr != nil {
+				return nil, fmt.Errorf(
+					"HTTP_SERVER_PROXY_PROTOCOL_FROM: %q is not an address or a CIDR",
+					entry,
+				)
+			}
+			prefix = netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen())
+		}
+		out = append(out, prefix.Masked())
+	}
+	return out, nil
+}
+
 // ClientAuthOn reports whether client certificates are asked for (optional or require).
 func (c HTTPServerConfig) ClientAuthOn() bool {
 	return c.TLSEnabled() && (c.TLS.ClientAuth == "optional" || c.TLS.ClientAuth == "require")
 }
 
 func (c HTTPServerConfig) validate() error {
+	if _, err := ParseProxyProtocolFrom(c.ProxyProtocolFrom); err != nil {
+		return err
+	}
+	if c.ProxyProtocolSecretTLV != 0 &&
+		(c.ProxyProtocolSecretTLV < 224 || c.ProxyProtocolSecretTLV > 239) {
+		return errors.New(
+			"HTTP_SERVER_PROXY_PROTOCOL_SECRET_TLV must be in the custom range 224-239",
+		)
+	}
+	if c.ProxyProtocolSecret == "" && c.ProxyProtocolSecretNext != "" {
+		return errors.New(
+			"HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT needs HTTP_SERVER_PROXY_PROTOCOL_SECRET",
+		)
+	}
+	for name, secret := range map[string]string{"HTTP_SERVER_PROXY_PROTOCOL_SECRET": c.ProxyProtocolSecret, "HTTP_SERVER_PROXY_PROTOCOL_SECRET_NEXT": c.ProxyProtocolSecretNext} {
+		if secret != "" && len(secret) < MinProxyProtocolSecretLen {
+			return fmt.Errorf("%s must be at least %d characters", name, MinProxyProtocolSecretLen)
+		}
+	}
 	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
 		return errors.New("HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE must be set together")
 	}

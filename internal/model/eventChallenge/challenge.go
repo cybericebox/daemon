@@ -154,7 +154,11 @@ func SnapshotForTask(task exerciseModel.Task) (json.RawMessage, error) {
 		// Placeholders let the participant view fill the description's inline
 		// values (subnets, IPs, links) from the team's lab status.
 		Placeholders []exerciseModel.Placeholder `json:"placeholders,omitempty"`
-	}{Name: strings.TrimSpace(task.Name), Description: task.Description, Difficulty: task.Difficulty, Attachments: task.Attachments, Placeholders: task.Placeholders})
+		// Answer is how the participant answers (never the expected value): its type, the hint shown inside the
+		// field and the compare options. A task checked by a lab state has none.
+		Answer *SnapshotAnswer `json:"answer,omitempty"`
+	}{Name: strings.TrimSpace(task.Name), Description: task.Description, Difficulty: task.Difficulty, Attachments: task.Attachments, Placeholders: task.Placeholders,
+		Answer: snapshotAnswerOf(task)})
 	if err != nil {
 		return nil, err
 	}
@@ -195,3 +199,59 @@ func (c *EventChallenge) SetMaxFlagAttempts(limit *int32) error {
 }
 
 func (c *EventChallenge) SetPublished(published bool) { c.Published = published }
+
+// SnapshotAnswer is the part of a task's answer a participant may know, pinned with the task: the type (flag or
+// text), the hint shown inside the answer field and the options the typed value is compared under. The expected
+// value is never here.
+type SnapshotAnswer struct {
+	Type       exerciseModel.AnswerType `json:"type"`
+	InputHint  string                   `json:"input_hint,omitempty"`
+	IgnoreCase bool                     `json:"ignore_case,omitempty"`
+	NoTrim     bool                     `json:"no_trim,omitempty"`
+}
+
+// SnapshotAnswerFor is the answer options of a task as a pinned snapshot would carry them (a flag when it has none).
+func SnapshotAnswerFor(task exerciseModel.Task) SnapshotAnswer {
+	if answer := snapshotAnswerOf(task); answer != nil {
+		return *answer
+	}
+	return SnapshotAnswer{Type: exerciseModel.AnswerTypeFlag}
+}
+
+func snapshotAnswerOf(task exerciseModel.Task) *SnapshotAnswer {
+	answer := task.Check.Answer
+	if answer == nil {
+		return nil
+	}
+	return &SnapshotAnswer{
+		Type:       answer.Type,
+		InputHint:  answer.InputHint,
+		IgnoreCase: answer.IgnoreCase,
+		NoTrim:     !answer.TrimEffective(),
+	}
+}
+
+// AnswerOfSnapshot reads the answer options out of a pinned snapshot; a snapshot made before them is a flag.
+func AnswerOfSnapshot(snapshot json.RawMessage) SnapshotAnswer {
+	var value struct {
+		Answer *SnapshotAnswer `json:"answer"`
+	}
+	if json.Unmarshal(snapshot, &value) != nil || value.Answer == nil {
+		return SnapshotAnswer{Type: exerciseModel.AnswerTypeFlag}
+	}
+	return *value.Answer
+}
+
+// Matches compares what a participant typed with the expected value pinned for their team. trimmed is the typed
+// value with its edge spaces dropped (the form every answer is stored in) and raw the value as typed; a text answer
+// that keeps its edge spaces is compared raw.
+func (a SnapshotAnswer) Matches(expected, trimmed, raw string) bool {
+	if a.Type != exerciseModel.AnswerTypeText {
+		return challengeAttempt.FlagMatches(expected, trimmed)
+	}
+	typed := trimmed
+	if a.NoTrim {
+		typed = raw
+	}
+	return challengeAttempt.AnswerMatches(expected, typed, a.IgnoreCase, !a.NoTrim)
+}

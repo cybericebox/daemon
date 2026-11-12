@@ -75,6 +75,95 @@ func (q *Queries) CountEvents(ctx context.Context, search string) (int64, error)
 	return count, err
 }
 
+const countEventsFacet = `-- name: CountEventsFacet :many
+SELECT v.value::text AS value, count(*)::bigint AS total
+FROM events
+CROSS JOIN LATERAL (
+    SELECT unnest(CASE $1::text
+        WHEN 'status' THEN ARRAY[CASE WHEN archive_at IS NOT NULL AND archive_at <= $2::timestamptz THEN 'archived'
+         WHEN available_from > $2::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > $2::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= $2::timestamptz THEN 'withdrawn'
+         WHEN start_at > $2::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $2::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= $2::timestamptz) THEN 'finished'
+         ELSE 'started' END]
+        WHEN 'infrastructure' THEN ARRAY[events.infrastructure_allowed::text]
+        WHEN 'organizer' THEN COALESCE((SELECT array_agg(m.user_id::text) FROM event_managers m WHERE m.event_id = events.id), ARRAY[]::text[])
+        ELSE ARRAY[]::text[] END) AS value) v
+WHERE ($3::text = '' OR tag ILIKE '%' || $3::text || '%'
+    OR internal_name ILIKE '%' || $3::text || '%')
+  AND ($4::text = '' OR
+    CASE WHEN archive_at IS NOT NULL AND archive_at <= $2::timestamptz THEN 'archived'
+         WHEN available_from > $2::timestamptz THEN 'not_available'
+         WHEN NOT lifecycle_configured OR publish_at > $2::timestamptz THEN 'not_published'
+         WHEN withdraw_at IS NOT NULL AND withdraw_at <= $2::timestamptz THEN 'withdrawn'
+         WHEN start_at > $2::timestamptz THEN 'published'
+         WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $2::timestamptz)
+           OR (finish_at IS NOT NULL AND finish_at <= $2::timestamptz) THEN 'finished'
+         ELSE 'started' END = $4::text)
+  AND ($5::timestamptz IS NULL OR start_at >= $5::timestamptz)
+  AND ($6::timestamptz IS NULL OR start_at < $6::timestamptz)
+  AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $7::uuid))
+  AND ($8::text = '' OR infrastructure_allowed = ($8::text = 'true'))
+  AND ($9::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $2::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $2::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $2::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
+GROUP BY v.value
+ORDER BY v.value
+`
+
+type CountEventsFacetParams struct {
+	Field            string             `json:"field"`
+	Now              time.Time          `json:"now"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
+}
+
+type CountEventsFacetRow struct {
+	Value string `json:"value"`
+	Total int64  `json:"total"`
+}
+
+// How many events have each value of a field under the other filters of the table (the caller leaves the faceted
+// field's own filter empty). field: status, infrastructure or organizer (an event counts once per manager).
+func (q *Queries) CountEventsFacet(ctx context.Context, arg CountEventsFacetParams) ([]CountEventsFacetRow, error) {
+	rows, err := q.db.Query(ctx, countEventsFacet,
+		arg.Field,
+		arg.Now,
+		arg.Search,
+		arg.Status,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.OrganizerID,
+		arg.Infrastructure,
+		arg.NeedsReservation,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountEventsFacetRow{}
+	for rows.Next() {
+		var i CountEventsFacetRow
+		if err := rows.Scan(&i.Value, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countEventsPage = `-- name: CountEventsPage :one
 SELECT count(*)
 FROM events
@@ -89,16 +178,39 @@ WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 'finished'
          ELSE 'started' END = $2::text)
+  AND ($4::timestamptz IS NULL OR start_at >= $4::timestamptz)
+  AND ($5::timestamptz IS NULL OR start_at < $5::timestamptz)
+  AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $6::uuid))
+  AND ($7::text = '' OR infrastructure_allowed = ($7::text = 'true'))
+  AND ($8::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $3::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $3::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $3::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
 `
 
 type CountEventsPageParams struct {
-	Search string    `json:"search"`
-	Status string    `json:"status"`
-	Now    time.Time `json:"now"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	Now              time.Time          `json:"now"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
 }
 
 func (q *Queries) CountEventsPage(ctx context.Context, arg CountEventsPageParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countEventsPage, arg.Search, arg.Status, arg.Now)
+	row := q.db.QueryRow(ctx, countEventsPage,
+		arg.Search,
+		arg.Status,
+		arg.Now,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.OrganizerID,
+		arg.Infrastructure,
+		arg.NeedsReservation,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -367,6 +479,162 @@ func (q *Queries) InsertEventScoringPopulation(ctx context.Context, arg InsertEv
 	return i, err
 }
 
+const listEventCounts = `-- name: ListEventCounts :many
+SELECT e.id                                                                      AS event_id,
+       (SELECT count(*) FROM event_participants p WHERE p.event_id = e.id AND p.status = 2)::bigint AS participants,
+       (SELECT count(*) FROM event_teams t WHERE t.event_id = e.id AND NOT t.moderators AND NOT t.individual)::bigint AS teams,
+       (SELECT count(*) FROM event_team_stands s JOIN event_teams t ON t.id = s.event_team_id
+        WHERE s.event_id = e.id AND NOT t.moderators AND s.status = 2)::bigint                      AS stands_ready,
+       (SELECT count(*) FROM event_team_stands s JOIN event_teams t ON t.id = s.event_team_id
+        WHERE s.event_id = e.id AND NOT t.moderators)::bigint                                       AS stands_total
+FROM events e
+WHERE e.id = ANY ($1::uuid[])
+`
+
+type ListEventCountsRow struct {
+	EventID      uuid.UUID `json:"event_id"`
+	Participants int64     `json:"participants"`
+	Teams        int64     `json:"teams"`
+	StandsReady  int64     `json:"stands_ready"`
+	StandsTotal  int64     `json:"stands_total"`
+}
+
+// The counters of the admin events table for one page of events, in one query: approved participants, teams (not the
+// moderators team, not the single-member teams of an individual event) and the stands of those teams (ready / all).
+func (q *Queries) ListEventCounts(ctx context.Context, eventIds []uuid.UUID) ([]ListEventCountsRow, error) {
+	rows, err := q.db.Query(ctx, listEventCounts, eventIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventCountsRow{}
+	for rows.Next() {
+		var i ListEventCountsRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.Participants,
+			&i.Teams,
+			&i.StandsReady,
+			&i.StandsTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventOrganizers = `-- name: ListEventOrganizers :many
+SELECT u.id, COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)::text AS name, u.email
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND EXISTS (SELECT 1 FROM event_managers m WHERE m.user_id = u.id)
+ORDER BY lower(COALESCE(NULLIF(btrim(u.first_name || ' ' || u.last_name), ''), u.email)), u.id
+`
+
+type ListEventOrganizersRow struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+}
+
+// Everyone who manages at least one event, for the organizer filter.
+func (q *Queries) ListEventOrganizers(ctx context.Context) ([]ListEventOrganizersRow, error) {
+	rows, err := q.db.Query(ctx, listEventOrganizers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventOrganizersRow{}
+	for rows.Next() {
+		var i ListEventOrganizersRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventScheduleChanges = `-- name: ListEventScheduleChanges :many
+SELECT change.id, change.event_id, change.changed_at, change.changed_by, change.by_application, change.db_role, change.old_join_policy, change.new_join_policy, change.old_publish_at, change.new_publish_at, change.old_start_at, change.new_start_at, change.old_finish_at, change.new_finish_at, change.old_withdraw_at, change.new_withdraw_at, change.old_manual_finished_at, change.new_manual_finished_at,
+       COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''), person.email, '')::text AS changed_by_name
+FROM event_schedule_changes change
+LEFT JOIN users person ON person.id = change.changed_by
+WHERE change.event_id = $1
+ORDER BY change.changed_at DESC, change.id DESC
+LIMIT 200
+`
+
+type ListEventScheduleChangesRow struct {
+	ID                  uuid.UUID          `json:"id"`
+	EventID             uuid.UUID          `json:"event_id"`
+	ChangedAt           time.Time          `json:"changed_at"`
+	ChangedBy           uuid.NullUUID      `json:"changed_by"`
+	ByApplication       bool               `json:"by_application"`
+	DbRole              string             `json:"db_role"`
+	OldJoinPolicy       int16              `json:"old_join_policy"`
+	NewJoinPolicy       int16              `json:"new_join_policy"`
+	OldPublishAt        time.Time          `json:"old_publish_at"`
+	NewPublishAt        time.Time          `json:"new_publish_at"`
+	OldStartAt          time.Time          `json:"old_start_at"`
+	NewStartAt          time.Time          `json:"new_start_at"`
+	OldFinishAt         pgtype.Timestamptz `json:"old_finish_at"`
+	NewFinishAt         pgtype.Timestamptz `json:"new_finish_at"`
+	OldWithdrawAt       pgtype.Timestamptz `json:"old_withdraw_at"`
+	NewWithdrawAt       pgtype.Timestamptz `json:"new_withdraw_at"`
+	OldManualFinishedAt pgtype.Timestamptz `json:"old_manual_finished_at"`
+	NewManualFinishedAt pgtype.Timestamptz `json:"new_manual_finished_at"`
+	ChangedByName       string             `json:"changed_by_name"`
+}
+
+// The latest changes of the event's schedule (who, when, from what to what), newest first.
+func (q *Queries) ListEventScheduleChanges(ctx context.Context, eventID uuid.UUID) ([]ListEventScheduleChangesRow, error) {
+	rows, err := q.db.Query(ctx, listEventScheduleChanges, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventScheduleChangesRow{}
+	for rows.Next() {
+		var i ListEventScheduleChangesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.ChangedAt,
+			&i.ChangedBy,
+			&i.ByApplication,
+			&i.DbRole,
+			&i.OldJoinPolicy,
+			&i.NewJoinPolicy,
+			&i.OldPublishAt,
+			&i.NewPublishAt,
+			&i.OldStartAt,
+			&i.NewStartAt,
+			&i.OldFinishAt,
+			&i.NewFinishAt,
+			&i.OldWithdrawAt,
+			&i.NewWithdrawAt,
+			&i.OldManualFinishedAt,
+			&i.NewManualFinishedAt,
+			&i.ChangedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventsCursor = `-- name: ListEventsCursor :many
 SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, infrastructure_allowed, landing_draft, static_points
 FROM events
@@ -489,12 +757,21 @@ WHERE ($1::text = '' OR tag ILIKE '%' || $1::text || '%'
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 'finished'
          ELSE 'started' END = $2::text)
+  AND ($4::timestamptz IS NULL OR start_at >= $4::timestamptz)
+  AND ($5::timestamptz IS NULL OR start_at < $5::timestamptz)
+  AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM event_managers m WHERE m.event_id = events.id AND m.user_id = $6::uuid))
+  AND ($7::text = '' OR infrastructure_allowed = ($7::text = 'true'))
+  AND ($8::text = '' OR (infrastructure_allowed AND lifecycle_configured
+       AND (archive_at IS NULL OR archive_at > $3::timestamptz)
+       AND (manual_finished_at IS NULL OR manual_finished_at > $3::timestamptz)
+       AND (finish_at IS NULL OR finish_at > $3::timestamptz)
+       AND NOT EXISTS (SELECT 1 FROM resource_reservations r WHERE r.event_id = events.id AND r.kind = 'event' AND r.canceled_at IS NULL)))
 ORDER BY
-  CASE WHEN $4::text = 'tag' AND $5::text = 'asc' THEN lower(tag) END ASC,
-  CASE WHEN $4::text = 'tag' AND $5::text = 'desc' THEN lower(tag) END DESC,
-  CASE WHEN $4::text = 'name' AND $5::text = 'asc' THEN lower(internal_name) END ASC,
-  CASE WHEN $4::text = 'name' AND $5::text = 'desc' THEN lower(internal_name) END DESC,
-  CASE WHEN $4::text = 'status' AND $5::text = 'asc' THEN
+  CASE WHEN $9::text = 'tag' AND $10::text = 'asc' THEN lower(tag) END ASC,
+  CASE WHEN $9::text = 'tag' AND $10::text = 'desc' THEN lower(tag) END DESC,
+  CASE WHEN $9::text = 'name' AND $10::text = 'asc' THEN lower(internal_name) END ASC,
+  CASE WHEN $9::text = 'name' AND $10::text = 'desc' THEN lower(internal_name) END DESC,
+  CASE WHEN $9::text = 'status' AND $10::text = 'asc' THEN
     CASE WHEN archive_at IS NOT NULL AND archive_at <= $3::timestamptz THEN 6
          WHEN available_from > $3::timestamptz THEN 0
          WHEN NOT lifecycle_configured OR publish_at > $3::timestamptz THEN 1
@@ -503,7 +780,7 @@ ORDER BY
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 4
          ELSE 3 END END ASC,
-  CASE WHEN $4::text = 'status' AND $5::text = 'desc' THEN
+  CASE WHEN $9::text = 'status' AND $10::text = 'desc' THEN
     CASE WHEN archive_at IS NOT NULL AND archive_at <= $3::timestamptz THEN 6
          WHEN available_from > $3::timestamptz THEN 0
          WHEN NOT lifecycle_configured OR publish_at > $3::timestamptz THEN 1
@@ -512,24 +789,37 @@ ORDER BY
          WHEN (manual_finished_at IS NOT NULL AND manual_finished_at <= $3::timestamptz)
            OR (finish_at IS NOT NULL AND finish_at <= $3::timestamptz) THEN 4
          ELSE 3 END END DESC,
-  CASE WHEN $4::text = 'availableFrom' AND $5::text = 'asc' THEN available_from END ASC,
-  CASE WHEN $4::text = 'availableFrom' AND $5::text = 'desc' THEN available_from END DESC,
-  CASE WHEN $4::text = 'archiveAt' AND $5::text = 'asc' THEN archive_at END ASC NULLS LAST,
-  CASE WHEN $4::text = 'archiveAt' AND $5::text = 'desc' THEN archive_at END DESC NULLS LAST,
-  CASE WHEN $4::text = 'updated' AND $5::text = 'asc' THEN updated_at END ASC,
-  CASE WHEN $4::text = 'updated' AND $5::text = 'desc' THEN updated_at END DESC,
+  CASE WHEN $9::text = 'availableFrom' AND $10::text = 'asc' THEN available_from END ASC,
+  CASE WHEN $9::text = 'availableFrom' AND $10::text = 'desc' THEN available_from END DESC,
+  CASE WHEN $9::text = 'archiveAt' AND $10::text = 'asc' THEN archive_at END ASC NULLS LAST,
+  CASE WHEN $9::text = 'archiveAt' AND $10::text = 'desc' THEN archive_at END DESC NULLS LAST,
+  CASE WHEN $9::text = 'updated' AND $10::text = 'asc' THEN updated_at END ASC,
+  CASE WHEN $9::text = 'updated' AND $10::text = 'desc' THEN updated_at END DESC,
+  CASE WHEN $9::text = 'start' AND $10::text = 'asc' THEN start_at END ASC,
+  CASE WHEN $9::text = 'start' AND $10::text = 'desc' THEN start_at END DESC,
+  CASE WHEN $9::text = 'participants' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END ASC,
+  CASE WHEN $9::text = 'participants' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_participants x WHERE x.event_id = events.id AND x.status = 2) END DESC,
+  CASE WHEN $9::text = 'teams' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END ASC,
+  CASE WHEN $9::text = 'teams' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_teams x WHERE x.event_id = events.id AND NOT x.moderators AND NOT x.individual) END DESC,
+  CASE WHEN $9::text = 'stands' AND $10::text = 'asc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END ASC,
+  CASE WHEN $9::text = 'stands' AND $10::text = 'desc' THEN (SELECT count(*) FROM event_team_stands x JOIN event_teams t ON t.id = x.event_team_id WHERE x.event_id = events.id AND NOT t.moderators AND x.status = 2) END DESC,
   created_at DESC, id DESC
-LIMIT $7 OFFSET $6
+LIMIT $12 OFFSET $11
 `
 
 type ListEventsPageParams struct {
-	Search    string    `json:"search"`
-	Status    string    `json:"status"`
-	Now       time.Time `json:"now"`
-	SortBy    string    `json:"sort_by"`
-	SortDir   string    `json:"sort_dir"`
-	OffsetVal int32     `json:"offset_val"`
-	LimitVal  int32     `json:"limit_val"`
+	Search           string             `json:"search"`
+	Status           string             `json:"status"`
+	Now              time.Time          `json:"now"`
+	StartFrom        pgtype.Timestamptz `json:"start_from"`
+	StartTo          pgtype.Timestamptz `json:"start_to"`
+	OrganizerID      uuid.NullUUID      `json:"organizer_id"`
+	Infrastructure   string             `json:"infrastructure"`
+	NeedsReservation string             `json:"needs_reservation"`
+	SortBy           string             `json:"sort_by"`
+	SortDir          string             `json:"sort_dir"`
+	OffsetVal        int32              `json:"offset_val"`
+	LimitVal         int32              `json:"limit_val"`
 }
 
 func (q *Queries) ListEventsPage(ctx context.Context, arg ListEventsPageParams) ([]Event, error) {
@@ -537,6 +827,11 @@ func (q *Queries) ListEventsPage(ctx context.Context, arg ListEventsPageParams) 
 		arg.Search,
 		arg.Status,
 		arg.Now,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.OrganizerID,
+		arg.Infrastructure,
+		arg.NeedsReservation,
 		arg.SortBy,
 		arg.SortDir,
 		arg.OffsetVal,

@@ -195,16 +195,16 @@ func (r *Repository) ListGroups(ctx context.Context, f errorJournalUseCase.Group
 		kinds = append(kinds, string(k))
 	}
 	query := likeEscape(f.Query)
-	from, to := tsPtr(f.From), tsPtr(f.To)
+	from, to, newSince := tsPtr(f.From), tsPtr(f.To), tsPtr(f.NewSince)
 	rows, err := r.q.ListErrorGroups(ctx, postgres.ListErrorGroupsParams{
-		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query, Request: f.Request,
+		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, NewSince: newSince, Query: query, Request: f.Request,
 		LimitVal: int32(f.Limit), OffsetVal: int32(f.Offset),
 	})
 	if err != nil {
 		return nil, 0, err
 	}
 	total, err := r.q.CountErrorGroups(ctx, postgres.CountErrorGroupsParams{
-		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query, Request: f.Request,
+		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, NewSince: newSince, Query: query, Request: f.Request,
 	})
 	if err != nil {
 		return nil, 0, err

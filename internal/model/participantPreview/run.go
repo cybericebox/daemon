@@ -30,8 +30,21 @@ func NewRun(event, user, selection uuid.UUID, now time.Time) Run {
 	return Run{ID: uuid.Must(uuid.NewV7()), EventID: event, UserID: user, SelectionID: selection, CreatedAt: now, ExpiresAt: now.Add(2 * time.Hour), Flags: map[string]string{}, Solved: map[string]time.Time{}, Hints: map[string]map[string]time.Time{}}
 }
 func (r *Run) Check(task uuid.UUID, flag string, now time.Time) (bool, bool) {
+	return r.CheckWith(
+		task,
+		now,
+		func(expected string) bool { return challengeAttempt.FlagMatches(expected, flag) },
+	)
+}
+
+// CheckWith is Check with the compare given by the caller (a text answer has options).
+func (r *Run) CheckWith(
+	task uuid.UUID,
+	now time.Time,
+	matches func(expected string) bool,
+) (bool, bool) {
 	expected, ok := r.Flags[task.String()]
-	if !ok || !r.ExpiresAt.After(now) || !challengeAttempt.FlagMatches(expected, flag) {
+	if !ok || !r.ExpiresAt.After(now) || !matches(expected) {
 		return false, false
 	}
 	return true, r.MarkSolved(task, now)

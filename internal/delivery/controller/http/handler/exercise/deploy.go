@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
 type deployListItem struct {
@@ -65,6 +66,33 @@ type (
 		Name   string `json:"Name"`
 	}
 
+	// deployStateTaskResponse is a task checked by the state of the lab, as the author of the test sees it. Mode is "once"
+	// (Solved once every check has passed once, and it stays so) or "continuous" (Solved while every check passes now; it
+	// may go back, and FirstSolvedAt keeps the first time). Known: every check has a result. Manual: ManualRun is allowed.
+	deployStateTaskResponse struct {
+		TaskID        string                      `json:"TaskID"`
+		Key           string                      `json:"Key"`
+		Mode          string                      `json:"Mode"`
+		Manual        bool                        `json:"Manual"`
+		Solved        bool                        `json:"Solved"`
+		SolvedAt      *time.Time                  `json:"SolvedAt"`
+		FirstSolvedAt *time.Time                  `json:"FirstSolvedAt"`
+		Known         bool                        `json:"Known"`
+		Checks        []deployCheckDetailResponse `json:"Checks"`
+	}
+
+	// deployCheckDetailResponse is one laboratory check with its last result. Detail and Value come from the device and are for
+	// the author only: they may hold what a participant must find themselves.
+	deployCheckDetailResponse struct {
+		ID            string     `json:"ID"`
+		Known         bool       `json:"Known"`
+		Passed        bool       `json:"Passed"`
+		FirstPassedAt *time.Time `json:"FirstPassedAt"`
+		ChangedAt     *time.Time `json:"ChangedAt"`
+		Value         string     `json:"Value"`
+		Detail        string     `json:"Detail"`
+	}
+
 	deployStatusResponse struct {
 		Phase        string                 `json:"Phase"`
 		Ready        bool                   `json:"Ready"`
@@ -73,6 +101,11 @@ type (
 		VPNConfig    string                 `json:"VPNConfig,omitempty"`
 		Devices      []deployDeviceResponse `json:"Devices,omitempty"`
 		Access       []deployAccessResponse `json:"Access,omitempty"`
+		// VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the
+		// exercise forbids them but the agent of the node cannot enforce the block: show a warning, never "blocked").
+		VPNReverse string `json:"VPNReverse,omitempty"`
+		// ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).
+		ReverseConnections bool `json:"ReverseConnections"`
 		// VPNConnected: the author's VPN client shook hands within the last three minutes.
 		VPNConnected bool `json:"VPNConnected"`
 		// Queue is set while the lab waits in the launch queue (Phase Queued); otherwise null.
@@ -81,8 +114,11 @@ type (
 		// the VPN or gateway image. Empty when fine.
 		ImageWarning      string `json:"ImageWarning"`
 		GroupImageWarning string `json:"GroupImageWarning"`
-		// SolvedTaskIDs are the tasks the author has already checked correctly.
+		// SolvedTaskIDs are the tasks the author has already checked correctly, and the state tasks whose checks pass.
 		SolvedTaskIDs []string `json:"SolvedTaskIDs"`
+		// StateTasks is where every task checked by the state of the lab stands (author only, with the details of the checks);
+		// absent for a variant without such tasks.
+		StateTasks []deployStateTaskResponse `json:"StateTasks,omitempty"`
 		// VPNLastHandshake is the client's last handshake; absent when it never connected.
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
 		// VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.
@@ -116,10 +152,16 @@ type (
 		Ready bool   `json:"Ready"`
 		// Reason is the container waiting/termination reason (ImagePullBackOff, ...); empty while healthy.
 		Reason string `json:"Reason"`
+		// Limit is the code of a resource limit the device hits ("device_cpu_limit": more than half of its CPU periods
+		// are throttled; the frontend says «device hits the CPU limit»); absent when none. Only the test run reports it.
+		Limit string `json:"Limit,omitempty"`
 		// Scheduling is the pod's way through the scheduler queue; null when it does not track the device.
 		Scheduling *labview.SchedulingResponse `json:"Scheduling"`
 		// Snapshot is null for a device without state persistence.
 		Snapshot *labview.SnapshotResponse `json:"Snapshot"`
+		// Bootstrap is the device's bootstrap (Phase pending, done or failed, its attempts and the author's reason); absent for a
+		// device without one.
+		Bootstrap *labview.BootstrapResponse `json:"Bootstrap,omitempty"`
 	}
 
 	rescueDeviceRequest struct {
@@ -153,6 +195,20 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		Queue: labview.Queue(s.Queue), ImageWarning: s.ImageWarning, GroupImageWarning: s.GroupImageWarning,
 	}
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
+	for _, task := range s.StateTasks {
+		item := deployStateTaskResponse{
+			TaskID: task.TaskID.String(), Key: task.Key, Mode: string(task.Mode), Manual: task.Manual, Solved: task.Solved,
+			SolvedAt: task.SolvedAt, FirstSolvedAt: task.FirstSolvedAt, Known: task.Known, Checks: []deployCheckDetailResponse{},
+		}
+		for _, c := range task.Checks {
+			item.Checks = append(item.Checks, deployCheckDetailResponse{
+				ID: c.ID, Known: c.Known, Passed: c.Passed, FirstPassedAt: c.FirstPassedAt, ChangedAt: c.ChangedAt, Value: c.Value, Detail: c.Detail,
+			})
+		}
+		out.StateTasks = append(out.StateTasks, item)
+	}
+	out.ReverseConnections = s.ReverseConnections
+	out.VPNReverse = s.VPNReverse
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
 	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt
@@ -161,7 +217,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		out.VPNLastHandshake = &t
 	}
 	for _, d := range s.Devices {
-		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot)})
+		out.Devices = append(out.Devices, deployDeviceResponse{Name: d.Name, Ready: d.Ready, Reason: d.Reason, Limit: d.LimitNotice(), Scheduling: labview.Scheduling(d.Scheduling), Snapshot: labview.Snapshot(d.Snapshot), Bootstrap: labview.Bootstrap(d.Bootstrap)})
 	}
 	for _, a := range s.Access {
 		out.Access = append(out.Access, deployAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})
@@ -325,6 +381,47 @@ func (h *Handler) checkDeploy(ctx *gin.Context) {
 	response.AbortWithData(ctx, deployCheckResponse{Correct: correct})
 }
 
+type deployRunChecksResponse struct {
+	// Asked: the laboratory was asked to run the checks of the task now. The result comes with the next status.
+	Asked bool `json:"Asked"`
+}
+
+// runDeployChecks godoc
+// @Summary  Run the checks of a state task of a test deploy now
+// @Description Asks the laboratory to run the checks of one task checked by the state of the lab. Only a task that allows a manual run; at most 3 asks a minute per task (429 with Retry-After). The answer only says the request was recorded: read the result from the deploy status. Author of the deploy only.
+// @Tags     exercises
+// @Produce  json
+// @Param    deployID  path  string  true  "test deployment id"
+// @Param    taskID    path  string  true  "task id"
+// @Success  200  {object}  response.Response{data=deployRunChecksResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Failure  429  {object}  response.Response
+// @Router   /exercises/deploys/{deployID}/tasks/{taskID}/run-checks [post]
+func (h *Handler) runDeployChecks(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	deployID, err := uuid.FromString(ctx.Param("deployID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx)
+		return
+	}
+	taskID, err := uuid.FromString(ctx.Param("taskID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx)
+		return
+	}
+	if err = h.useCase.RunTestDeployChecks(ctx, claims.UserID, deployID, taskID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, deployRunChecksResponse{Asked: true})
+}
+
 // listDeploys godoc
 // @Summary  List the caller's test deploys
 // @Description Only the caller's own, until they are removed: a deploy whose lease is over but is not removed yet has Expired=true (it still runs and can be ended). Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.
@@ -388,7 +485,11 @@ func (h *Handler) extendDeploy(ctx *gin.Context) {
 
 type deployLinkRequest struct {
 	Device string `json:"Device" binding:"required"`
-	Port   int32  `json:"Port"`
+	// Port is the web port from the deploy status (access http).
+	Port int32 `json:"Port"`
+	// Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link opens the
+	// device's own console host (the url of its terminal access entry). 404 (33518) when the lab cannot give a console link.
+	Access string `json:"Access,omitempty" enums:"http,terminal"`
 }
 
 type deployLinkResponse struct {
@@ -423,7 +524,16 @@ func (h *Handler) deployLink(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx)
 		return
 	}
-	link, err := h.useCase.OpenTestDeployLink(ctx, claims.UserID, deployID, req.Device, req.Port)
+	var link labaccess.Link
+	switch req.Access {
+	case "", string(exerciseModel.AccessHTTP):
+		link, err = h.useCase.OpenTestDeployLink(ctx, claims.UserID, deployID, req.Device, req.Port)
+	case string(exerciseModel.AccessTerminal):
+		link, err = h.useCase.OpenTestDeployConsoleLink(ctx, claims.UserID, deployID, req.Device)
+	default:
+		response.AbortWithBadRequest(ctx)
+		return
+	}
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

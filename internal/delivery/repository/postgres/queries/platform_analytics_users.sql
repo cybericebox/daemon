@@ -99,3 +99,46 @@ SELECT r.id, r.first_name, r.last_name, r.email, r.role, r.events_joined, r.last
                  WHERE a.effective_correct), 0)::bigint AS solves
 FROM ranked r
 ORDER BY r.events_joined DESC, r.last_seen DESC NULLS LAST, r.id;
+
+-- name: ListPlatformUsersPeoplePage :many
+-- Every account that joined an event (approved, the moderators team excluded), filtered by a search over the name and
+-- the email, sorted by a column and cut to one page; total is the size of the filtered list. Solves are the distinct
+-- team tasks with an effectively correct attempt of the account. Per-user data: super_admin only.
+WITH joined AS (
+    SELECT p.user_id, count(*)::bigint AS events_joined
+    FROM event_participants p
+    LEFT JOIN event_teams t ON t.id = p.team_id
+    WHERE p.status = 2 AND NOT COALESCE(t.moderators, false)
+    GROUP BY p.user_id
+), solved AS (
+    SELECT a.user_id, count(DISTINCT a.team_challenge_id)::bigint AS solves
+    FROM effective_challenge_attempts a
+    JOIN event_teams t ON t.id = a.event_team_id AND NOT t.moderators
+    WHERE a.effective_correct
+    GROUP BY a.user_id
+), people AS (
+    SELECT u.id, u.first_name, u.last_name, u.email, u.role, j.events_joined, COALESCE(s.solves, 0)::bigint AS solves, u.last_seen
+    FROM joined j
+    JOIN users u ON u.id = j.user_id AND u.deleted_at IS NULL
+    LEFT JOIN solved s ON s.user_id = u.id
+    WHERE (sqlc.arg(search)::text = '' OR u.email ILIKE '%' || sqlc.arg(search)::text || '%'
+           OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
+)
+SELECT p.id, p.first_name, p.last_name, p.email, p.role, p.events_joined, p.solves, p.last_seen,
+       count(*) OVER ()::bigint AS total
+FROM people p
+ORDER BY
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(COALESCE(NULLIF(btrim(p.first_name || ' ' || p.last_name), ''), p.email)) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(COALESCE(NULLIF(btrim(p.first_name || ' ' || p.last_name), ''), p.email)) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'email' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(p.email) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'email' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(p.email) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'role' AND sqlc.arg(sort_dir)::text = 'asc' THEN p.role END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'role' AND sqlc.arg(sort_dir)::text = 'desc' THEN p.role END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'eventsJoined' AND sqlc.arg(sort_dir)::text = 'asc' THEN p.events_joined END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'eventsJoined' AND sqlc.arg(sort_dir)::text = 'desc' THEN p.events_joined END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'solves' AND sqlc.arg(sort_dir)::text = 'asc' THEN p.solves END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'solves' AND sqlc.arg(sort_dir)::text = 'desc' THEN p.solves END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'lastSeen' AND sqlc.arg(sort_dir)::text = 'asc' THEN p.last_seen END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'lastSeen' AND sqlc.arg(sort_dir)::text = 'desc' THEN p.last_seen END DESC,
+  p.events_joined DESC, p.last_seen DESC NULLS LAST, p.id
+LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);

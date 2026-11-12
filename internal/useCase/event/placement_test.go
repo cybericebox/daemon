@@ -182,7 +182,7 @@ func TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan(t *testing.T) {
 	need, err := u.eventPlacementNeed(context.Background(), eventID)
 	require.NoError(t, err)
 	assert.Equal(t, infraModel.PlacementNeed{
-		Device: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}, LabDevices: 2,
+		Device: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}, LabDevices: 2, Profiles: exerciseModel.NodeProfileSet(0).Add(exerciseModel.NodeProfileContainer),
 		Plan: infraModel.GroupPlan{MaxUsers: 6, InternetLabs: 1, MaxActiveLabs: 1, AllowedRelations: 6},
 	}, need)
 	// A second read in the TTL is served from the cache (no more query expectations).
@@ -245,4 +245,49 @@ func TestResourcePlanCountsTheModeratorsTeamOnceWithoutALimit(t *testing.T) {
 			assert.Equal(t, "current", plan.TeamsBasis)
 		})
 	}
+}
+
+// The profiles a group's agent must run are those of the planned variants: a pinned variant counts alone.
+func TestPlanTaskCollectsTheNodeProfilesOfThePlannedVariants(t *testing.T) {
+	policy := resourcesModel.DefaultPolicy()
+	plain := variant(false, container("web", ""))
+	box := variant(
+		false,
+		exerciseModel.Device{
+			ID:      uuid.Must(uuid.NewV7()),
+			Name:    "box",
+			Type:    exerciseModel.DeviceTypeNode,
+			Profile: exerciseModel.NodeProfileMicroVM,
+		},
+	)
+	exerciseID := uuid.Must(uuid.NewV7())
+
+	perTeam := eventExerciseModel.EventExercise{
+		ExerciseID:  exerciseID,
+		VariantMode: eventExerciseModel.VariantModePerTeam,
+	}
+	task := planTask(policy, perTeam, []exerciseModel.Variant{plain, box}, nil)
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{
+			exerciseModel.NodeProfileContainer,
+			exerciseModel.NodeProfileMicroVM,
+		},
+		task.profiles.List(),
+	)
+
+	zero := int32(0)
+	fixed := eventExerciseModel.EventExercise{
+		ExerciseID:        exerciseID,
+		VariantMode:       eventExerciseModel.VariantModeFixed,
+		FixedVariantIndex: &zero,
+	}
+	assert.Equal(
+		t,
+		[]exerciseModel.NodeProfile{exerciseModel.NodeProfileContainer},
+		planTask(policy, fixed, []exerciseModel.Variant{plain, box}, nil).profiles.List(),
+	)
+
+	in := planInputs{profiles: task.profiles}
+	assert.Equal(t, task.profiles, in.placementNeed().Profiles)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	errorJournalModel "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 )
 
@@ -29,6 +30,7 @@ type fakeUseCase struct {
 	saved    errorJournalUseCase.SettingsInput
 	status   errorJournalModel.Status
 	events   chan errorJournalUseCase.StreamEvent
+	audited  []adminAuditUseCase.Entry
 }
 
 func (f *fakeUseCase) ListErrorGroups(_ context.Context, fl errorJournalUseCase.GroupFilter) ([]errorJournalModel.Group, int64, error) {
@@ -64,6 +66,10 @@ func (f *fakeUseCase) SaveErrorJournalSettings(ctx context.Context, in errorJour
 }
 func (f *fakeUseCase) SendErrorJournalTest(context.Context) ([]errorJournalUseCase.TestResult, error) {
 	return []errorJournalUseCase.TestResult{{Channel: "telegram", Target: "1", OK: false, Error: "blocked"}}, nil
+}
+func (f *fakeUseCase) RecordAdminAction(_ context.Context, e adminAuditUseCase.Entry) error {
+	f.audited = append(f.audited, e)
+	return nil
 }
 func (f *fakeUseCase) ErrorJournalStream() (<-chan errorJournalUseCase.StreamEvent, func()) {
 	return f.events, func() {}
@@ -118,6 +124,9 @@ func TestEveryRouteIsGatedAndWritesNeedTheWritePermission(t *testing.T) {
 		{http.MethodPut, "/api/admin/errors/settings", rbac.PermPlatformErrorsWrite},
 		{http.MethodPost, "/api/admin/errors/settings/test", rbac.PermPlatformErrorsWrite},
 		{http.MethodPatch, "/api/admin/errors/" + id + "/status", rbac.PermPlatformErrorsWrite},
+		{http.MethodPost, "/api/admin/errors/bulk/resolve", rbac.PermPlatformErrorsWrite},
+		{http.MethodPost, "/api/admin/errors/bulk/ignore", rbac.PermPlatformErrorsWrite},
+		{http.MethodPost, "/api/admin/errors/bulk/reopen", rbac.PermPlatformErrorsWrite},
 	}
 	for _, rt := range routes {
 		r, _, gate := setup(t)
@@ -251,4 +260,53 @@ func TestStreamSendsErrorGroupEventsAndHeartbeats(t *testing.T) {
 	assert.Equal(t, "http_5xx", ev.Group.Kind)
 	require.NotNil(t, ev.Sample)
 	assert.Equal(t, "req-1", ev.Sample.RequestID)
+}
+
+func TestBulkStatusAnswersPerGroupAndAuditsEach(t *testing.T) {
+	r, uc, _ := setup(t)
+	known := uuid.Must(uuid.NewV7())
+	uc.groups = []errorJournalModel.Group{{ID: known, Status: errorJournalModel.StatusOpen}}
+	ids := []uuid.UUID{known, known, uuid.Must(uuid.NewV7())}
+	body, err := json.Marshal(map[string]any{"GroupIDs": ids})
+	require.NoError(t, err)
+
+	w := call(r, http.MethodPost, "/api/admin/errors/bulk/ignore", string(body))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var env struct {
+		Data struct {
+			Results []struct {
+				GroupID uuid.UUID `json:"GroupID"`
+				Ok      bool      `json:"Ok"`
+			} `json:"Results"`
+		} `json:"Data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Results, 2, "a repeated id is handled once")
+	assert.Equal(t, errorJournalModel.StatusIgnored, uc.status)
+	assert.Len(t, uc.audited, 2)
+	assert.Equal(t, "errorGroup:"+known.String(), uc.audited[0].Target)
+
+	for _, bad := range []string{`{}`, `{"GroupIDs":[]}`, `nope`} {
+		assert.Equal(
+			t,
+			http.StatusBadRequest,
+			call(r, http.MethodPost, "/api/admin/errors/bulk/resolve", bad).Code,
+			bad,
+		)
+	}
+	call(r, http.MethodPost, "/api/admin/errors/bulk/reopen", string(body))
+	assert.Equal(t, errorJournalModel.StatusOpen, uc.status)
+}
+
+func TestSampleCarriesTheDispatchOfAMailFailure(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
+	with := sampleOf(errorJournalModel.Sample{Details: map[string]string{"dispatch_id": id.String()}})
+	if with.DispatchID == nil || *with.DispatchID != id {
+		t.Fatalf("dispatch id = %v", with.DispatchID)
+	}
+	for _, details := range []map[string]string{nil, {"dispatch_id": "not-a-uuid"}, {"other": "x"}} {
+		if got := sampleOf(errorJournalModel.Sample{Details: details}); got.DispatchID != nil {
+			t.Fatalf("no dispatch for %v: %v", details, got.DispatchID)
+		}
+	}
 }

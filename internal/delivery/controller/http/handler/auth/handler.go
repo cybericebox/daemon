@@ -12,7 +12,10 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/limits"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	passkeyModel "github.com/cybericebox/daemon/internal/model/passkey"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	tablePrefsModel "github.com/cybericebox/daemon/internal/model/tablePrefs"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -57,7 +60,11 @@ type (
 		) error
 		GetGoogleLoginURL(redirect, loginHint string) (string, string, error)
 		GetGoogleSetupURL(ctx context.Context, setupToken, redirect string) (string, string, error)
-		StartGoogleLink(ctx context.Context, userID uuid.UUID, currentPassword string) (string, string, error)
+		StartGoogleLink(
+			ctx context.Context,
+			userID uuid.UUID,
+			currentPassword string,
+		) (string, string, error)
 		GoogleAuth(
 			ctx context.Context,
 			code, state string,
@@ -68,17 +75,33 @@ type (
 			code, state string,
 			meta authModel.SessionMetadata,
 		) (authUseCase.GoogleRegistrationResult, error)
-		LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken, code, state string) (string, error)
+		LinkGoogleToSetupFromOAuth(
+			ctx context.Context,
+			setupToken, code, state string,
+		) (string, error)
+		SessionEmail(ctx context.Context, sessionCookie string) (string, error)
+		GoogleLinkPendingOf(ctx context.Context, ticket string) (authUseCase.GoogleLinkPending, error)
+		SendGoogleLinkCode(ctx context.Context, ticket string) (authUseCase.GoogleLinkCodeSent, error)
+		ConfirmGoogleLink(ctx context.Context, ticket, password, code string, meta authModel.SessionMetadata) (string, string, error)
+		CancelGoogleLink(ctx context.Context, ticket string) error
 
 		// slice 4a — account self-management
 		GetAccount(ctx context.Context, userID uuid.UUID) (*authUseCase.AccountInfo, error)
 		GetSelfProfile(ctx context.Context, userID uuid.UUID) (*authUseCase.UserInfo, error)
+		GetTablePrefs(ctx context.Context, userID uuid.UUID, key string) (*tablePrefsModel.Prefs, error)
+		SaveTablePrefs(ctx context.Context, userID uuid.UUID, key string, prefs tablePrefsModel.Prefs) (tablePrefsModel.Prefs, error)
+		ResetTablePrefs(ctx context.Context, userID uuid.UUID, key string) error
+		ExportMyData(ctx context.Context, userID uuid.UUID) (*userModel.DataExport, error)
 		UpdateAccountProfile(
 			ctx context.Context,
 			userID uuid.UUID,
 			firstName, lastName string,
 		) error
-		RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail, currentPassword string) error
+		RequestEmailChange(
+			ctx context.Context,
+			userID uuid.UUID,
+			newEmail, currentPassword string,
+		) error
 		ConfirmEmailChange(ctx context.Context, code string) error
 		UnlinkGoogle(ctx context.Context, userID uuid.UUID, currentPassword string) error
 		DeleteAccount(ctx context.Context, userID uuid.UUID, currentPassword string) error
@@ -86,6 +109,28 @@ type (
 			ctx context.Context,
 			sessionCookieValue, code, state string,
 		) error
+
+		// passkeys (WebAuthn)
+		BeginPasskeySignIn(ctx context.Context) (authUseCase.PasskeyCeremony, error)
+		PasskeySignIn(
+			ctx context.Context,
+			ceremonyID, redirect string,
+			assertion []byte,
+			meta authModel.SessionMetadata,
+		) (string, string, error)
+		BeginPasskeyRegistration(
+			ctx context.Context,
+			userID uuid.UUID,
+			currentPassword string,
+		) (authUseCase.PasskeyCeremony, error)
+		FinishPasskeyRegistration(
+			ctx context.Context,
+			userID uuid.UUID,
+			ceremonyID, name string,
+			credential []byte,
+		) (passkeyModel.Passkey, error)
+		ListPasskeys(ctx context.Context, userID uuid.UUID) ([]passkeyModel.Passkey, error)
+		RemovePasskey(ctx context.Context, userID, passkeyID uuid.UUID, currentPassword string) error
 
 		// avatars (S3-backed)
 		UploadAvatar(
@@ -109,7 +154,12 @@ type (
 )
 
 func NewAuthAPIHandler(useCase IUseCase, prot IProtection, cfg config.AuthConfig) *Handler {
-	return &Handler{useCase: useCase, prot: prot, hosts: cfg.Hosts, oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds())}
+	return &Handler{
+		useCase:           useCase,
+		prot:              prot,
+		hosts:             cfg.Hosts,
+		oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds()),
+	}
 }
 
 // The public auth routes carry no request-rate guard: a flood is bounded by the use case's per-account
@@ -123,8 +173,16 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	pub := public.Group("auth")
 	pub.POST("sign-in", h.prot.RequireCaptcha("signIn"), h.signIn)
 	pub.POST("sign-up", h.prot.RequireCaptcha("signUp"), h.signUp)
+	pub.GET("last-email", h.getLastEmail)
+	pub.DELETE("last-email", h.forgetLastEmail)
 	pub.GET("setup", h.getSetup)
 	pub.POST("setup", h.completeSetup)
+
+	// Passkey sign-in: the ceremony start is behind the captcha like the other sign-in forms; the finish is
+	// bound to a one-time server challenge and verified by signature.
+	passkeys := pub.Group("passkeys/sign-in")
+	passkeys.POST("begin", h.prot.RequireCaptcha("passkeySignIn"), h.passkeySignInBegin)
+	passkeys.POST("finish", h.passkeySignInFinish)
 
 	password := pub.Group("password")
 	password.GET("policy", h.passwordPolicy)
@@ -137,6 +195,12 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	google.GET("register", h.googleRegisterRedirect)
 	google.GET("setup", h.googleSetupRedirect)
 	google.GET("callback", h.googleCallback)
+	// The pending link of a Google sign-in whose owner is not confirmed yet (the ticket is in a cookie).
+	pending := google.Group("pending")
+	pending.GET("", h.googleLinkPending)
+	pending.POST("code", h.prot.RequireCaptcha("googleLinkCode"), h.googleLinkSendCode)
+	pending.POST("confirm", h.googleLinkConfirm)
+	pending.DELETE("", h.googleLinkCancel)
 
 	sec := secured.Group("auth")
 	self := h.prot.RequirePermission(rbac.PermSelf)
@@ -148,11 +212,25 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	// slice 4a — account self-management
 	sec.GET("account", self, h.getAccount)
 	sec.GET("me", self, h.getSelfProfile)
+	sec.GET("account/export", self, h.exportMyData)
+	sec.GET("account/table-prefs/:tableKey", self, h.getTablePrefs)
+	sec.PUT("account/table-prefs/:tableKey", self, h.saveTablePrefs)
+	sec.DELETE("account/table-prefs/:tableKey", self, h.resetTablePrefs)
 	sec.PATCH("account/profile", self, h.updateProfile)
-	sec.POST("account/email", self, selfCheck, h.requestEmailChange)
+	sec.POST(
+		"account/email",
+		self,
+		selfCheck,
+		h.prot.RequireCaptcha("emailChange"),
+		h.requestEmailChange,
+	)
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)
+	sec.GET("passkeys", self, h.listPasskeys)
+	sec.POST("passkeys/registration/begin", self, selfCheck, h.passkeyRegistrationBegin)
+	sec.POST("passkeys/registration/finish", self, h.passkeyRegistrationFinish)
+	sec.DELETE("passkeys/:id", self, h.removePasskey)
 	sec.POST("google/link", self, h.googleLink)
 	sec.DELETE("google/link", self, h.unlinkGoogle)
 

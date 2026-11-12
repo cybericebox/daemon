@@ -14,9 +14,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
@@ -29,6 +31,7 @@ import (
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
 	"github.com/cybericebox/daemon/pkg/labaccess"
@@ -75,6 +78,13 @@ type (
 		SetEventInfrastructure(ctx context.Context, id uuid.UUID, allowed bool, by uuid.UUID) (eventUseCase.EventView, error)
 		UpdateEventScoringProfile(ctx context.Context, id uuid.UUID, in eventUseCase.UpdateEventScoringProfileInput, updatedBy uuid.UUID) (eventUseCase.EventScoringProfileView, error)
 		ArchiveEvent(ctx context.Context, id uuid.UUID, updatedBy uuid.UUID) (eventUseCase.EventView, error)
+		RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
+		EventFacets(
+			ctx context.Context,
+			field string,
+			f eventUseCase.ListEventsFilter,
+		) (map[string]int64, error)
+		ListEventOrganizers(ctx context.Context) ([]eventRepo.Organizer, error)
 		DeleteEvent(ctx context.Context, id uuid.UUID) error
 
 		GetEventConfig(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventConfigView, error)
@@ -132,6 +142,33 @@ type (
 		InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, noEmail bool) ([]eventUseCase.ParticipantInvitationResult, error)
 		ResendParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) (eventUseCase.ParticipantInvitationResult, error)
 		RevokeParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) error
+		AcceptParticipantInvitationFor(
+			ctx context.Context,
+			eventID, userID, by uuid.UUID,
+		) (eventUseCase.JoinInfoView, error)
+		ChangeParticipantInvitationEmail(
+			ctx context.Context,
+			eventID, userID, by uuid.UUID,
+			newEmail string,
+			noEmail bool,
+		) (eventUseCase.ParticipantInvitationResult, error)
+		GetEventReadiness(
+			ctx context.Context,
+			eventID uuid.UUID,
+		) (eventUseCase.ReadinessView, error)
+		GetTeamCopies(
+			ctx context.Context,
+			eventID, eventExerciseID uuid.UUID,
+		) (eventUseCase.TeamCopiesView, error)
+		SyncTeamCopies(
+			ctx context.Context,
+			eventID, eventExerciseID uuid.UUID,
+		) (eventUseCase.TeamCopiesView, error)
+		ListEventScheduleChanges(
+			ctx context.Context,
+			eventID uuid.UUID,
+		) ([]eventUseCase.ScheduleChangeView, error)
+		MoveParticipantToTeam(ctx context.Context, eventID, userID, toTeamID uuid.UUID) error
 		GetTeamProfile(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.TeamProfileView, error)
 		SetTeamAdmission(ctx context.Context, eventID, teamID uuid.UUID, admittedManually bool) (eventUseCase.TeamView, error)
 		SetTeamHidden(ctx context.Context, eventID, teamID uuid.UUID, hidden bool) (eventUseCase.TeamView, error)
@@ -167,6 +204,7 @@ type (
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
 		ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in eventUseCase.ReplaceEventExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		UpdateEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
+		PreviewEventExerciseUpdate(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID) (eventUseCase.EventExerciseUpdatePreview, error)
 		ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		RevertEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		DetachEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, confirmed bool, by uuid.UUID) error
@@ -252,6 +290,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.GET(":id/preview-picture/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(previewMedia))
 		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(contentMedia))
 		ev.POST("", h.prot.RequirePermission(rbac.PermEventsWrite), h.create)
+		ev.POST("bulk/archive", h.prot.RequirePermission(rbac.PermEventsWrite), h.bulkArchive)
+		ev.GET("facets", h.prot.RequirePermission(rbac.PermEventsRead), h.facets)
+		ev.GET("organizers", h.prot.RequirePermission(rbac.PermEventsRead), h.organizers)
 
 		ev.GET(":id", h.prot.RequirePermission(rbac.PermEventsRead), h.get)
 		ev.PUT(":id", h.prot.RequirePermission(rbac.PermEventsWrite), h.update)
@@ -341,6 +382,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.GET("forms/:formID/deliveries", h.requireRead, h.listFormDeliveries)
 		manage.POST("forms/:formID/deliveries", h.requireManage, h.assignForm)
 		manage.GET("lifecycle", h.requireRead, h.getLifecycle)
+		manage.GET("lifecycle/changes", h.requireRead, h.listScheduleChanges)
+		manage.GET("readiness", h.requireRead, h.getReadiness)
 		manage.PUT("lifecycle", h.requireManage, h.updateLifecycle)
 		manage.GET("scoring", h.requireRead, h.getScoringProfile)
 		manage.PUT("scoring", h.requireManage, h.updateScoringProfile)
@@ -350,6 +393,17 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("teams/:teamID/invitations", h.requireManage, h.inviteParticipants)
 		manage.POST("participants/:userID/invitation/resend", h.requireManage, h.resendInvitation)
 		manage.DELETE("participants/:userID/invitation", h.requireManage, h.revokeInvitation)
+		manage.POST(
+			"participants/:userID/invitation/accept",
+			h.requireManage,
+			h.acceptInvitationFor,
+		)
+		manage.PUT(
+			"participants/:userID/invitation/email",
+			h.requireManage,
+			h.changeInvitationEmail,
+		)
+		manage.PUT("participants/:userID/team/:teamID", h.requireManage, h.moveParticipantToTeam)
 		manage.GET("list-columns/:list", h.requireRead, h.getListColumns)
 		manage.PUT("list-columns/:list", h.requireManage, h.putListColumns)
 		// Viewers read the journal without submitted answers and expected flags.
@@ -418,6 +472,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("exercises", h.requireManage, h.attachExercise)
 		manage.POST("exercises/:exerciseID/replace", h.requireManage, h.replaceEventExercise)
 		manage.POST("exercises/:exerciseID/update", h.requireManage, h.updateEventExercise)
+		manage.POST("exercises/:exerciseID/update/preview", h.requireManage, h.previewEventExerciseUpdate)
 		manage.POST("exercises/:exerciseID/fork", h.requireManage, h.forkEventExercise)
 		manage.POST("exercises/:exerciseID/revert", h.requireManage, h.revertEventExercise)
 		manage.DELETE("exercises/:exerciseID", h.requireManage, h.detachEventExercise)
@@ -427,6 +482,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/hints", h.requireManage, h.updateChallengeHintCosts)
 		manage.GET("hint-unlocks", h.requireRead, h.listHintUnlocks)
 		manage.GET("exercises/:exerciseID/challenges", h.requireRead, h.listEventChallenges)
+		manage.GET("exercises/:exerciseID/team-copies", h.requireRead, h.getTeamCopies)
+		manage.POST("exercises/:exerciseID/team-copies/sync", h.requireManage, h.syncTeamCopies)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID", h.requireManage, h.updateEventChallenge)
 		manage.PUT("exercises/:exerciseID/challenges/scoring", h.requireManage, h.bulkUpdateChallengeScoring)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/relations", h.requireManage, h.updateEventChallengeRelations)
@@ -529,7 +586,7 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 			tags = []string{}
 		}
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
-			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
+			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, UsesConsole: item.UsesConsole, Attached: item.Attached,
 			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy,
 			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames),
 			MatchedCount: item.MatchedCount, AvailableCount: item.AvailableCount})
@@ -1585,10 +1642,15 @@ func (h *Handler) list(ctx *gin.Context) {
 			response.AbortWithBadRequest(ctx, err)
 			return
 		}
-		res, err := h.useCase.ListEvents(ctx, eventUseCase.ListEventsFilter{
+		filter := eventUseCase.ListEventsFilter{
 			Search: ctx.Query("search"), Status: ctx.Query("status"), Page: page.Page, PageSize: page.PageSize,
 			SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
-		})
+		}
+		if err = parseEventListFilters(ctx, &filter); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+		res, err := h.useCase.ListEvents(ctx, filter)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
@@ -1642,10 +1704,14 @@ func (h *Handler) create(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	v, err := h.useCase.CreateEvent(ctx, eventUseCase.CreateEventInput{
+	input := eventUseCase.CreateEventInput{
 		Tag: req.Tag, Name: req.Name, AvailableFrom: req.AvailableFrom, ArchiveAt: nullableRequestTime(req.ArchiveAt), CreatedBy: claims.UserID,
 		InfrastructureAllowed: req.InfrastructureAllowed,
-	})
+	}
+	if req.CopyFromEventID != nil {
+		input.CopyFromEventID = *req.CopyFromEventID
+	}
+	v, err := h.useCase.CreateEvent(ctx, input)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -1699,6 +1765,7 @@ func (h *Handler) update(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	before, _ := h.useCase.GetEvent(ctx, id) // only to record what changes
 	v, err := h.useCase.UpdateEvent(ctx, id, eventUseCase.UpdateEventInput{
 		Tag: req.Tag, Name: req.Name, AvailableFrom: req.AvailableFrom, ArchiveAt: nullableRequestTime(req.ArchiveAt),
 	}, claims.UserID)
@@ -1706,6 +1773,17 @@ func (h *Handler) update(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	audit.SetChanges(
+		ctx,
+		adminAuditUseCase.Diff(
+			eventEditableFields(before),
+			eventEditableFields(v),
+			"Tag",
+			"Name",
+			"AvailableFrom",
+			"ArchiveAt",
+		),
+	)
 	response.AbortWithData(ctx, toResponse(v))
 }
 
@@ -2073,7 +2151,7 @@ func parseEventExerciseParams(ctx *gin.Context) (eventID, exerciseID, userID uui
 // updateEventExercise godoc
 // @Summary «Оновити»: switch the attachment in place to the latest (or given) published version, keeping event overrides
 // @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
-// @Description Teams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.
+// @Description Board challenges keep their rows (id, group, order, points, publication, team copies): a task is the same by id or, when a re-import re-issued the ids, by name. Only labs whose content the new version changes are recreated (topology of the team variant, flag links); labs not started yet are re-prepared in place; the rest is kept. Recreating labs that exist needs RecreateStands=true at any time: otherwise nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams. Call .../update/preview first for the dry run. A finished event keeps its Labs.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -2112,6 +2190,37 @@ func bindRecreateStands(ctx *gin.Context) (recreateStandsRequest, bool) {
 		}
 	}
 	return req, true
+}
+
+// previewEventExerciseUpdate godoc
+// @Summary Dry run of «Оновити до нової версії»: what the update would do, nothing is changed
+// @Description Returns how many stands of how many teams would be recreated (StandsRecreated, TeamsAffected, Teams), how many labs are re-prepared in place because they have not started (StandsReset) or are kept as they are (StandsKept), the tasks added, removed or kept under a new task id, removed tasks with attempts that block the update, and whether the reservation is short. RequiresConfirmation is true when the update recreates running stands: repeat the update with RecreateStands=true only after the organizer confirmed.
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param id path string true "event ID"
+// @Param exerciseID path string true "event exercise attachment ID"
+// @Param body body updateEventExerciseRequest false "target version (default: latest published)"
+// @Success 200 {object} response.Response{data=eventExerciseUpdatePreviewResponse}
+// @Router /events/{id}/manage/exercises/{exerciseID}/update/preview [post]
+func (h *Handler) previewEventExerciseUpdate(ctx *gin.Context) {
+	eventID, exerciseID, _, ok := parseEventExerciseParams(ctx)
+	if !ok {
+		return
+	}
+	var req updateEventExerciseRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+	}
+	value, err := h.useCase.PreviewEventExerciseUpdate(ctx, eventID, exerciseID, req.ExerciseVersionID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toEventExerciseUpdatePreviewResponse(value))
 }
 
 // forkEventExercise godoc
@@ -2261,4 +2370,17 @@ func nonNilStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// eventEditableFields are the fields the event update changes, for the audit "before and after".
+func eventEditableFields(v eventUseCase.EventView) map[string]any {
+	if v.ID == uuid.Nil {
+		return nil
+	}
+	return map[string]any{
+		"Tag":           v.Tag,
+		"Name":          v.Name,
+		"AvailableFrom": v.AvailableFrom,
+		"ArchiveAt":     v.ArchiveAt,
+	}
 }

@@ -20,6 +20,7 @@ type AdminAuditLog struct {
 	ResponseStatus int32     `json:"response_status"`
 	CreatedAt      time.Time `json:"created_at"`
 	Target         string    `json:"target"`
+	Changes        []byte    `json:"changes"`
 }
 
 type AppSetting struct {
@@ -819,6 +820,21 @@ type File struct {
 	CreatedBy   uuid.NullUUID `json:"created_by"`
 }
 
+type GoogleLinkTicket struct {
+	ID           uuid.UUID          `json:"id"`
+	TicketHash   string             `json:"ticket_hash"`
+	UserID       uuid.UUID          `json:"user_id"`
+	GoogleID     string             `json:"google_id"`
+	GoogleEmail  string             `json:"google_email"`
+	GoogleName   string             `json:"google_name"`
+	ReturnTo     string             `json:"return_to"`
+	CodeHash     string             `json:"code_hash"`
+	CodeSentAt   pgtype.Timestamptz `json:"code_sent_at"`
+	CodeAttempts int32              `json:"code_attempts"`
+	CreatedAt    time.Time          `json:"created_at"`
+	ExpiresAt    time.Time          `json:"expires_at"`
+}
+
 type ImageBlobPush struct {
 	Digest    string    `json:"digest"`
 	State     string    `json:"state"`
@@ -884,6 +900,10 @@ type LabBinding struct {
 	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
 	FailureReason    pgtype.Text        `json:"failure_reason"`
 	LabID            uuid.NullUUID      `json:"lab_id"`
+	FailedAt         pgtype.Timestamptz `json:"failed_at"`
+	RetryAttempts    int32              `json:"retry_attempts"`
+	WaitReason       string             `json:"wait_reason"`
+	WaitSince        pgtype.Timestamptz `json:"wait_since"`
 }
 
 type LabMonitoringCurrent struct {
@@ -1194,20 +1214,6 @@ type ResourceTestLabHold struct {
 	GroupName          string        `json:"group_name"`
 }
 
-type SecretEnvelope struct {
-	ID              uuid.UUID          `json:"id"`
-	Purpose         string             `json:"purpose"`
-	KeyVersion      int32              `json:"key_version"`
-	SignalType      string             `json:"signal_type"`
-	FieldPath       string             `json:"field_path"`
-	ScopeEventID    uuid.UUID          `json:"scope_event_id"`
-	RecipientUserID uuid.NullUUID      `json:"recipient_user_id"`
-	Ciphertext      string             `json:"ciphertext"`
-	WrappedDataKey  string             `json:"wrapped_data_key"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-}
-
 type Session struct {
 	ID        uuid.UUID `json:"id"`
 	UserID    uuid.UUID `json:"user_id"`
@@ -1314,6 +1320,23 @@ type User struct {
 	InactivityWarnedAt   pgtype.Timestamptz `json:"inactivity_warned_at"`
 	PersonalDataPurgedAt pgtype.Timestamptz `json:"personal_data_purged_at"`
 	InvitationSentAt     pgtype.Timestamptz `json:"invitation_sent_at"`
+}
+
+type UserPasskey struct {
+	ID             uuid.UUID          `json:"id"`
+	UserID         uuid.UUID          `json:"user_id"`
+	CredentialID   []byte             `json:"credential_id"`
+	PublicKey      []byte             `json:"public_key"`
+	SignCount      int64              `json:"sign_count"`
+	Aaguid         []byte             `json:"aaguid"`
+	Transports     []string           `json:"transports"`
+	UserVerified   bool               `json:"user_verified"`
+	BackupEligible bool               `json:"backup_eligible"`
+	BackupState    bool               `json:"backup_state"`
+	Name           string             `json:"name"`
+	CreatedAt      time.Time          `json:"created_at"`
+	LastUsedAt     pgtype.Timestamptz `json:"last_used_at"`
+	CompromisedAt  pgtype.Timestamptz `json:"compromised_at"`
 }
 
 type UserProvider struct {

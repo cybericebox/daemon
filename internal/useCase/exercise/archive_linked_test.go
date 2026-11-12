@@ -29,7 +29,7 @@ var (
 // linkedArchive wraps one version (status, variants JSON) and extra files into a zip.
 func linkedArchive(t *testing.T, status, variants string, files map[string]string) []byte {
 	t.Helper()
-	contents := map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1","exercise":{"name":"Пов'язані"},` +
+	contents := map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Пов'язані"},` +
 		`"versions":[{"status":"` + status + `","variants":` + variants + `}]}`)}
 	for name, body := range files {
 		contents[name] = []byte(body)
@@ -41,11 +41,11 @@ func linkedArchive(t *testing.T, status, variants string, files map[string]strin
 
 // fullBase is a complete base variant with two tasks.
 const fullBase = `{"id":"0192f0a0-0000-7000-8000-00000000b001","note":"основний","tasks":[
-	{"id":"0192f0a0-0000-7000-8000-00000000b011","name":"Перше","difficulty":"easy","flag":["ICE{base-1}"],
+	{"id":"0192f0a0-0000-7000-8000-00000000b011","name":"Перше","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{base-1}"]}},
 	 "description":"Знайди мережу {{net}}","placeholders":[{"key":"net","kind":"vpn.subnet"}],
-	 "hints":[{"text":"підказка","level":"steps"}],"linked_device":"web","device_flag_var":"FLAG",
+	 "hints":[{"text":"підказка","level":"steps"}],
 	 "attachments":[{"file":"files/base.txt"}]},
-	{"id":"0192f0a0-0000-7000-8000-00000000b012","name":"Друге","difficulty":"hard","flag":["ICE{base-2}"]}],
+	{"id":"0192f0a0-0000-7000-8000-00000000b012","name":"Друге","difficulty":"hard","check":{"answer":{"type":"flag","values":["ICE{base-2}"]}}}],
 	"topology":{"vpn":{"enabled":true},"devices":[{"name":"web","type":"container","image":"nginx:1.27"}]}}`
 
 func errorContext(t *testing.T, err error) map[string]any {
@@ -58,8 +58,8 @@ func errorContext(t *testing.T, err error) map[string]any {
 func TestToParsed_LinkedVariantKeepsOnlyOwnParts(t *testing.T) {
 	archive := linkedArchive(t, "draft", `[`+fullBase+`,
 		{"linked_to":1,"id":"0192f0a0-0000-7000-8000-00000000b002","index":2,"note":"згенеровано",
-		 "tasks":[{"id":"0192f0a0-0000-7000-8000-00000000b011","flag":["ICE{own-1}"],"attachments":[{"file":"files/own.txt","name":"мій.txt"}]},
-		          {"flag":["ICE{own-2}"]}]},
+		 "tasks":[{"id":"0192f0a0-0000-7000-8000-00000000b011","check":{"answer":{"values":["ICE{own-1}"]}},"attachments":[{"file":"files/own.txt","name":"мій.txt"}]},
+		          {"check":{"answer":{"values":["ICE{own-2}"]}}}]},
 		{"linked_to":1}]`, map[string]string{"files/base.txt": "base", "files/own.txt": "own"})
 	parsed, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
 	require.NoError(t, err)
@@ -75,13 +75,21 @@ func TestToParsed_LinkedVariantKeepsOnlyOwnParts(t *testing.T) {
 	require.Len(t, linked.Tasks, 2)
 	first := linked.Tasks[0]
 	require.Equal(t, linkedTaskOne, first.ID)
-	require.Equal(t, []string{"ICE{own-1}"}, first.Flag)
+	require.Equal(t, []string{"ICE{own-1}"}, first.Check.AnswerValues())
 	require.Len(t, first.Attachments, 1)
 	require.Equal(t, "мій.txt", first.Attachments[0].Name)
 	require.Equal(t, "files/own.txt", parsed.FilePaths[first.Attachments[0].FileID])
-	first.Flag, first.Attachments, first.ID = nil, nil, uuid.Nil
+	first.Check, first.Attachments, first.ID = exerciseModel.Check{}, nil, uuid.Nil
 	require.Equal(t, exerciseModel.Task{}, first, "only the own parts are mapped")
-	require.Equal(t, exerciseModel.Task{Flag: []string{"ICE{own-2}"}}, linked.Tasks[1])
+	require.Equal(
+		t,
+		exerciseModel.Task{
+			Check: exerciseModel.Check{
+				Answer: &exerciseModel.AnswerCheck{Values: []string{"ICE{own-2}"}},
+			},
+		},
+		linked.Tasks[1],
+	)
 
 	// Absent tasks: one empty task per base task; an id-less variant gets a fresh id.
 	bare := variants[2]
@@ -118,7 +126,7 @@ func TestDecodeArchiveV2_LinkedVariantForbiddenField(t *testing.T) {
 	}
 	for key, value := range taskValues {
 		cases["task "+key] = struct{ variant, field string }{
-			`{"linked_to":1,"tasks":[{"flag":["ICE{x}"],"` + key + `":` + value + `},{}]}`,
+			`{"linked_to":1,"tasks":[{"check":{"answer":{"values":["ICE{x}"]}},"` + key + `":` + value + `},{}]}`,
 			"versions[1].variants[2].tasks[1]." + key,
 		}
 	}
@@ -158,11 +166,20 @@ func TestToParsed_LinkedToInvalid(t *testing.T) {
 func TestToParsed_LinkedTaskCountMismatch(t *testing.T) {
 	files := map[string]string{"files/base.txt": "base"}
 	cases := map[string]struct{ linked, field string }{
-		"fewer tasks":  {`{"linked_to":1,"tasks":[{"flag":["ICE{x}"]}]}`, "versions[1].variants[2].tasks"},
-		"more tasks":   {`{"linked_to":1,"tasks":[{},{},{}]}`, "versions[1].variants[2].tasks"},
-		"empty list":   {`{"linked_to":1,"tasks":[]}`, "versions[1].variants[2].tasks"},
-		"other task":   {`{"linked_to":1,"tasks":[{},{"id":"` + linkedTaskElse.String() + `"}]}`, "versions[1].variants[2].tasks[2].id"},
-		"swapped task": {`{"linked_to":1,"tasks":[{"id":"` + linkedTaskTwo.String() + `"},{}]}`, "versions[1].variants[2].tasks[1].id"},
+		"fewer tasks": {
+			`{"linked_to":1,"tasks":[{"check":{"answer":{"values":["ICE{x}"]}}}]}`,
+			"versions[1].variants[2].tasks",
+		},
+		"more tasks": {`{"linked_to":1,"tasks":[{},{},{}]}`, "versions[1].variants[2].tasks"},
+		"empty list": {`{"linked_to":1,"tasks":[]}`, "versions[1].variants[2].tasks"},
+		"other task": {
+			`{"linked_to":1,"tasks":[{},{"id":"` + linkedTaskElse.String() + `"}]}`,
+			"versions[1].variants[2].tasks[2].id",
+		},
+		"swapped task": {
+			`{"linked_to":1,"tasks":[{"id":"` + linkedTaskTwo.String() + `"},{}]}`,
+			"versions[1].variants[2].tasks[1].id",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -202,7 +219,7 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	archive := linkedArchive(t, "draft", `[`+fullBase+`,
-		{"linked_to":1,"note":"згенеровано","tasks":[{"flag":["ICE{own}"],"attachments":[{"file":"files/own.txt"}]},{}]}]`,
+		{"linked_to":1,"note":"згенеровано","tasks":[{"check":{"answer":{"values":["ICE{own}"]}},"attachments":[{"file":"files/own.txt"}]},{}]}]`,
 		map[string]string{"files/base.txt": "base", "files/own.txt": "own"})
 	media := newFakeMedia()
 	var written []exerciseModel.Variant
@@ -223,8 +240,8 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 		require.Equal(t, inherited.ID, own.ID)
 		require.Equal(t, inherited.Name, own.Name)
 		require.Equal(t, inherited.Difficulty, own.Difficulty)
-		require.Equal(t, inherited.DeviceFlagVar, own.DeviceFlagVar)
-		require.Equal(t, inherited.LinkedDeviceID, own.LinkedDeviceID)
+		require.Equal(t, inherited.Key, own.Key)
+		require.Equal(t, inherited.Check.Kind(), own.Check.Kind())
 		if len(inherited.Description) == 0 {
 			require.Empty(t, own.Description)
 		} else {
@@ -233,8 +250,8 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 		require.JSONEq(t, mustJSON(t, inherited.Hints), mustJSON(t, own.Hints))
 		require.JSONEq(t, mustJSON(t, inherited.Placeholders), mustJSON(t, own.Placeholders))
 	}
-	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Flag)
-	require.Nil(t, linked.Tasks[1].Flag)
+	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Check.AnswerValues())
+	require.Nil(t, linked.Tasks[1].Check.AnswerValues())
 	require.Empty(t, linked.Tasks[1].Attachments)
 	require.Len(t, linked.Tasks[0].Attachments, 1)
 	uploaded := map[uuid.UUID]string{}
@@ -245,15 +262,19 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	require.Equal(t, "base", uploaded[base.Tasks[0].Attachments[0].FileID])
 }
 
-func TestImportExerciseArchive_LinkedSameFlagRejected(t *testing.T) {
-	variants := `[{"tasks":[{"name":"Тест","difficulty":"easy","flag":["ICE{same}"],
+func TestImportExerciseArchive_LinkedSameFlagIsAPublishRule(t *testing.T) {
+	variants := `[{"tasks":[{"name":"Тест","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{same}"]}},
 		"description":{"root":{"type":"text","text":"Опис"}}}]},
-		{"linked_to":1,"tasks":[{"flag":["ICE{same}"]}]}]`
+		{"linked_to":1,"tasks":[{"check":{"answer":{"values":["ICE{same}"]}}}]}]`
+	// The distinct-flags rule is a publish rule: an archive marked published imports as a draft and passes.
 	t.Run("published", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		expectImport(q, func(written []exerciseModel.Variant) {
+			require.Equal(t, uuid.NullUUID{UUID: written[0].ID, Valid: true}, written[1].LinkedTo)
+		})
 		uc := newTestExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 		_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "published", variants, nil)})
-		require.ErrorIs(t, err, exerciseModel.ErrLinkedFlagsNotDistinct.Err())
+		require.NoError(t, err)
 	})
 	t.Run("draft", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
@@ -296,8 +317,8 @@ func TestExportExerciseArchive_LinkedVariantCompact(t *testing.T) {
 	linked := doc.Versions[0].Variants[1]
 	require.Equal(t, []string{"id", "index", "note", "linked_to", "tasks"}, objectKeys(t, linked))
 	require.JSONEq(t, fmt.Sprintf(`{"id":%q,"index":2,"note":"згенеровано","linked_to":1,"tasks":[
-		{"id":%q,"flag":["ICE{one}"],"attachments":[{"file":"files/v1/shared/common.bin"},{"file":"files/v1/variant-2/shared/copy1.txt"}]},
-		{"id":%q,"flag":["ICE{two}"],"attachments":[{"file":"files/v1/variant-2/shared/copy1.txt","name":"copy2.txt"}]}]}`,
+		{"id":%q,"check":{"answer":{"values":["ICE{one}"]}},"attachments":[{"file":"files/v1/shared/common.bin"},{"file":"files/v1/variant-2/shared/copy1.txt"}]},
+		{"id":%q,"check":{"answer":{"values":["ICE{two}"]}},"attachments":[{"file":"files/v1/variant-2/shared/copy1.txt","name":"copy2.txt"}]}]}`,
 		exportID(2), exportID(10), exportID(11)), string(linked))
 
 	// The base stays whole; a link to a variant outside the version is written as a full variant without it.
@@ -345,8 +366,8 @@ func TestToParsed_LinkedTaskIDAgainstInvalidBaseID(t *testing.T) {
 // The ids and placeholder keys the import gives the base reach its linked variant (the second sync).
 func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-	variants := `[{"linked_to":2,"tasks":[{"flag":["ICE{own}"]}]},
-		{"tasks":[{"name":"Тест","difficulty":"easy","flag":["ICE{base}"],"placeholders":[{"kind":"vpn.subnet"}],
+	variants := `[{"linked_to":2,"tasks":[{"check":{"answer":{"values":["ICE{own}"]}}}]},
+		{"tasks":[{"name":"Тест","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{base}"]}},"placeholders":[{"kind":"vpn.subnet"}],
 		  "hints":[{"text":"підказка"}]}]}]`
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
@@ -360,7 +381,7 @@ func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
 	require.NotEqual(t, uuid.Nil, base.Tasks[0].ID)
 	require.Equal(t, base.Tasks[0].ID, linked.Tasks[0].ID)
 	require.Equal(t, base.Tasks[0].Hints[0].ID, linked.Tasks[0].Hints[0].ID)
-	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Flag)
+	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Check.AnswerValues())
 }
 
 // A weight is carried by a whole variant and by a linked variant's compact form.
@@ -398,6 +419,8 @@ func TestExportThenImport_VariantWeights(t *testing.T) {
 func TestToParsed_VariantWeightOutOfRange(t *testing.T) {
 	cases := map[string]struct{ variants, path string }{
 		"whole too big":   {`[{"weight":101,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"whole zero":      {`[{"weight":0,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
+		"linked zero":     {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":0}]`, "versions[1].variants[2].weight"},
 		"whole negative":  {`[{"weight":-1,"tasks":[{"name":"t"}]}]`, "versions[1].variants[1].weight"},
 		"linked too big":  {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":500}]`, "versions[1].variants[2].weight"},
 		"linked negative": {`[{"tasks":[{"name":"t"}]},{"linked_to":1,"weight":-2}]`, "versions[1].variants[2].weight"},
@@ -515,14 +538,30 @@ func TestToParsed_DeviceEnvVarCap(t *testing.T) {
 		vars = append(vars, fmt.Sprintf(`{"name":"V%d","value":"x"}`, i))
 	}
 	variant := func(n int) string {
-		return `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[` + strings.Join(vars[:n], ",") + `]}]}}]`
+		return `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","bootstrap":{"env":[` + strings.Join(
+			vars[:n],
+			",",
+		) + `]}}]}}]`
 	}
 	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars), nil), "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", variant(exerciseModel.MaxDeviceEnvVars+1), nil), "", exercise.DefaultLimits())
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
-	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[1].topology.devices[1].env_vars has more than 64")
+	require.Contains(
+		t,
+		errorContext(t, err)["reason"],
+		"versions[1].variants[1].topology.devices[1].bootstrap.env has more than 64",
+	)
 	// The server-side origin of a secret is not a key of the document.
-	_, err = exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","env_vars":[{"name":"A","value":"x","origin":"o"}]}]}}]`, nil), "", exercise.DefaultLimits())
+	_, err = exercise.ParseExerciseArchive(
+		linkedArchive(
+			t,
+			"draft",
+			`[{"tasks":[{"name":"t"}],"topology":{"devices":[{"name":"web","type":"container","bootstrap":{"env":[{"name":"A","value":"x","origin":"o"}]}}]}}]`,
+			nil,
+		),
+		"",
+		exercise.DefaultLimits(),
+	)
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 }

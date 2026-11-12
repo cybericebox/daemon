@@ -6,16 +6,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	userHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/user"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
@@ -33,6 +36,11 @@ type fakeUC struct {
 	statusCaller  uuid.UUID
 	deleteCaller  uuid.UUID
 	inviteCaller  uuid.UUID
+	bulkResults   []authUseCase.BulkUserResult
+	bulkAction    string
+	facetField    string
+	facetFilter   authUseCase.UsersFilter
+	audited       []adminAuditUseCase.Entry
 	listFilter    authUseCase.UsersFilter
 	entries       []authUseCase.InviteEntry
 	entryResults  []authUseCase.InviteEntryResult
@@ -68,7 +76,7 @@ func (f *fakeUC) GetUserStats(_ context.Context) (authUseCase.UserStats, error) 
 	return f.stats, nil
 }
 func (f *fakeUC) GetUser(_ context.Context, _ uuid.UUID) (*authUseCase.UserDetail, error) {
-	return &authUseCase.UserDetail{}, nil
+	return &authUseCase.UserDetail{Role: "user", Status: userModel.UserStatusActive}, nil
 }
 func (f *fakeUC) UpdateUserRole(ctx context.Context, _ uuid.UUID, _ rbac.Role) error {
 	if caller, ok := rbac.CurrentUserSessionFromContext(ctx); ok {
@@ -420,5 +428,189 @@ func TestListUsersIncludesEmailConfirmationForRecipientSearch(t *testing.T) {
 				t.Fatalf("missing confirmation metadata: %s", w.Body.String())
 			}
 		})
+	}
+}
+
+func (f *fakeUC) ListUserParticipations(
+	context.Context,
+	uuid.UUID,
+) ([]authUseCase.UserParticipationView, error) {
+	return []authUseCase.UserParticipationView{{EventName: "CTF", Role: "captain"}}, nil
+}
+func (f *fakeUC) EndUserSessions(context.Context, uuid.UUID) error      { return f.updateErr }
+func (f *fakeUC) ResendUserInvitation(context.Context, uuid.UUID) error { return f.updateErr }
+
+func (f *fakeUC) BulkUserAction(
+	_ context.Context,
+	action string,
+	_ []uuid.UUID,
+) ([]authUseCase.BulkUserResult, error) {
+	f.bulkAction = action
+	return f.bulkResults, nil
+}
+func (f *fakeUC) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {
+	f.audited = append(f.audited, entry)
+	return nil
+}
+
+func TestBulkReportsEachUserAndAuditsEachOne(t *testing.T) {
+	uid, ok1, bad := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUC{
+		bulkResults: []authUseCase.BulkUserResult{
+			{UserID: ok1},
+			{UserID: bad, Err: authModel.ErrInsufficientPermission.Err()},
+		},
+	}
+	r := newEngine(uc, uid)
+
+	body := `{"UserIDs":["` + ok1.String() + `","` + bad.String() + `"]}`
+	w := httptest.NewRecorder()
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(http.MethodPost, "/api/users/bulk/block", strings.NewReader(body)),
+	)
+
+	if w.Code != http.StatusOK || uc.bulkAction != authUseCase.BulkBlock {
+		t.Fatalf("status = %d action = %q body = %s", w.Code, uc.bulkAction, w.Body.String())
+	}
+	var out struct {
+		Data struct {
+			Results []struct {
+				UserID uuid.UUID
+				Ok     bool
+				Code   string
+			}
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	res := out.Data.Results
+	if len(res) != 2 || !res[0].Ok || res[1].Ok || res[1].Code == "" || res[0].UserID != ok1 {
+		t.Fatalf("results = %+v", res)
+	}
+	if len(uc.audited) != 2 || uc.audited[0].Target != "user:"+ok1.String() ||
+		uc.audited[1].Target != "user:"+bad.String() ||
+		uc.audited[0].ResponseStatus != http.StatusOK ||
+		uc.audited[1].ResponseStatus != http.StatusForbidden ||
+		uc.audited[0].ActorID != uid {
+		t.Fatalf("audit = %+v", uc.audited)
+	}
+}
+
+func TestListUsersRejectsUnknownFilters(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	r := newEngine(&fakeUC{}, uid)
+	for _, query := range []string{"signIn=sms", "emailConfirmed=maybe", "inactiveDays=0", "inactiveDays=abc"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(
+			w,
+			httptest.NewRequest(http.MethodGet, "/api/users?page=1&pageSize=10&"+query, nil),
+		)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d", query, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/users?page=1&pageSize=10&signIn=google&emailConfirmed=true&inactiveDays=30",
+			nil,
+		),
+	)
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid filters: status = %d body = %s", w.Code, w.Body.String())
+	}
+}
+
+func (f *fakeUC) UserFacets(
+	_ context.Context,
+	field string,
+	filter authUseCase.UsersFilter,
+) (map[string]int64, error) {
+	f.facetField, f.facetFilter = field, filter
+	return map[string]int64{"password": 3}, nil
+}
+
+func TestUserFacetsReadTheFieldAndTheOtherFilters(t *testing.T) {
+	uc := &fakeUC{}
+	r := newEngine(uc, uuid.Must(uuid.NewV7()))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(
+		w,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/users/facets?field=signIn&role=user&status=active&emailConfirmed=true&inactiveDays=30",
+			nil,
+		),
+	)
+
+	if w.Code != http.StatusOK || uc.facetField != "signIn" || uc.facetFilter.Status != "active" ||
+		uc.facetFilter.EmailConfirmed != "true" ||
+		uc.facetFilter.InactiveDays != 30 ||
+		len(uc.facetFilter.Roles) != 1 ||
+		!strings.Contains(w.Body.String(), `"password":3`) {
+		t.Fatalf(
+			"status = %d field = %q filter = %+v body = %s",
+			w.Code,
+			uc.facetField,
+			uc.facetFilter,
+			w.Body.String(),
+		)
+	}
+	for _, target := range []string{"/api/users/facets", "/api/users/facets?field=picture", "/api/users/facets?field=role&signIn=sms"} {
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d", target, w.Code)
+		}
+	}
+}
+
+// A role or status change is recorded as the old and the new value; a refused change records nothing.
+func TestRoleAndStatusChangesAreRecordedForTheAudit(t *testing.T) {
+	uid, targetID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var recorded []adminAuditUseCase.Change
+	run := func(uc *fakeUC, path, body string) int {
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(response.WithErrorHandler, injectIdentity(uid), func(ctx *gin.Context) {
+			ctx.Next()
+			recorded = audit.Changes(ctx)
+		})
+		userHandler.NewUserAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
+		req := httptest.NewRequest(
+			http.MethodPatch,
+			"/api/users/"+targetID.String()+path,
+			bytes.NewBufferString(body),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := run(&fakeUC{}, "/role", `{"Role":"admin"}`); code != http.StatusOK {
+		t.Fatalf("role: %d", code)
+	}
+	if len(recorded) != 1 || recorded[0].Field != "Role" || recorded[0].Before != "user" ||
+		recorded[0].After != "admin" {
+		t.Fatalf("role change = %+v", recorded)
+	}
+	if code := run(&fakeUC{}, "/status", `{"Status":"blocked"}`); code != http.StatusOK {
+		t.Fatalf("status: %d", code)
+	}
+	if len(recorded) != 1 || recorded[0].Field != "Status" || recorded[0].After != "blocked" {
+		t.Fatalf("status change = %+v", recorded)
+	}
+	if code := run(
+		&fakeUC{updateErr: authModel.ErrCannotAssignRole.Err()},
+		"/role",
+		`{"Role":"super_admin"}`,
+	); code != http.StatusForbidden ||
+		len(recorded) != 0 {
+		t.Fatalf("a refused change records nothing: %d %+v", code, recorded)
 	}
 }

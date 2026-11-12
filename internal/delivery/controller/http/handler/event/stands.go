@@ -78,6 +78,33 @@ type standLabResponse struct {
 	ChallengeName string    `json:"ChallengeName"`
 	Status        string    `json:"Status"`
 	Reason        string    `json:"Reason"`
+	// WaitReason is the code of what a pending lab waits for (cluster_reservation, snapshot_quota,
+	// persistence_unavailable, ...), "" when nothing; WaitSince since when.
+	WaitReason string     `json:"WaitReason"`
+	WaitSince  *time.Time `json:"WaitSince"`
+	// RetryAttempts counts the automatic retries after failures.
+	RetryAttempts int32 `json:"RetryAttempts"`
+	// Wait is what the lab needs and what the event's reservation has left; null when none was recorded.
+	Wait *standWaitResponse `json:"Wait"`
+}
+
+// standWaitResponse: the need and the room of a lab waiting for room (CPU in millicores, memory and storage in bytes;
+// the storage fields are set when the snapshot quota is the short room).
+type standWaitResponse struct {
+	NeedCPUMillicores int64 `json:"NeedCPUMillicores"`
+	NeedMemoryBytes   int64 `json:"NeedMemoryBytes"`
+	HaveCPUMillicores int64 `json:"HaveCPUMillicores"`
+	HaveMemoryBytes   int64 `json:"HaveMemoryBytes"`
+	NeedStorageBytes  int64 `json:"NeedStorageBytes"`
+	HaveStorageBytes  int64 `json:"HaveStorageBytes"`
+}
+
+func toStandWaitResponse(d *eventStandModel.WaitDetail) *standWaitResponse {
+	if d == nil {
+		return nil
+	}
+	return &standWaitResponse{NeedCPUMillicores: d.NeedCPUMillicores, NeedMemoryBytes: d.NeedMemoryBytes, HaveCPUMillicores: d.HaveCPUMillicores,
+		HaveMemoryBytes: d.HaveMemoryBytes, NeedStorageBytes: d.NeedStorageBytes, HaveStorageBytes: d.HaveStorageBytes}
 }
 
 type standSettingsRequest struct {
@@ -106,6 +133,8 @@ type standLabStatusResponse struct {
 	ImageWarning      string                   `json:"ImageWarning"`
 	GroupImageWarning string                   `json:"GroupImageWarning"`
 	Devices           []labview.DeviceResponse `json:"Devices"`
+	// VPNReverse: blocked, allowed or not_enforced (see the infrastructure test lab status); absent when unknown.
+	VPNReverse string `json:"VPNReverse,omitempty"`
 }
 
 type standLabAccessResponse struct {
@@ -143,7 +172,19 @@ func toStandTeamResponse(v eventUseCase.StandTeamView) standTeamResponse {
 		Queue: labview.StandQueue(v.Launch), ImageWarning: v.Launch.ImageWarning,
 		ReservationEndsAt: v.ReservationEndsAt, ReservationEnded: v.ReservationEnded}
 	for _, lab := range v.Labs {
-		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason})
+		out.Labs = append(
+			out.Labs,
+			standLabResponse{
+				ChallengeID:   lab.ChallengeID,
+				ChallengeName: lab.ChallengeName,
+				Status:        labReadinessString(lab.Readiness),
+				Reason:        lab.Reason,
+				WaitReason:    lab.WaitReason,
+				WaitSince:     lab.WaitSince,
+				Wait:          toStandWaitResponse(lab.Wait),
+				RetryAttempts: lab.RetryAttempts,
+			},
+		)
 	}
 	return out
 }
@@ -177,7 +218,7 @@ func teamChallengeReadinessString(r teamChallengeModel.Readiness) string {
 func toStandLabStatusResponse(v exerciseModel.LabDeployStatus) standLabStatusResponse {
 	live := labview.Status(v)
 	out := standLabStatusResponse{Phase: v.Phase, Ready: v.Ready, VPNCIDR: v.VPNCIDR, InternetCIDR: v.InternetCIDR, Access: make([]standLabAccessResponse, 0, len(v.Access)),
-		Queue: live.Queue, ImageWarning: live.ImageWarning, GroupImageWarning: live.GroupImageWarning, Devices: live.Devices}
+		Queue: live.Queue, ImageWarning: live.ImageWarning, GroupImageWarning: live.GroupImageWarning, Devices: live.Devices, VPNReverse: v.VPNReverse}
 	for _, a := range v.Access {
 		out.Access = append(out.Access, standLabAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})
 	}

@@ -83,8 +83,19 @@ func (u *EventUseCase) AttachExercise(ctx context.Context, eventID uuid.UUID, in
 
 // attachableVersion loads a version an event may pin: published (or, for
 // reverting, once published), of an active exercise available to the event,
-// with infrastructure only when the event allows it.
+// with infrastructure only when the event allows it, and without a task checked by the state of
+// the lab (that kind belongs to the Academy: an attach, an update to a newer version and a revert all refuse it).
 func (u *EventUseCase) attachableVersion(ctx context.Context, eventID, versionID uuid.UUID, currentOnly bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
+	return u.loadAvailableVersion(ctx, eventID, versionID, currentOnly, true)
+}
+
+// versionOfAvailableExercise is attachableVersion without the state-task rule: for what only shows a version (a preview of a
+// catalog exercise) or acts on a version that is attached already (a fork).
+func (u *EventUseCase) versionOfAvailableExercise(ctx context.Context, eventID, versionID uuid.UUID, currentOnly bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
+	return u.loadAvailableVersion(ctx, eventID, versionID, currentOnly, false)
+}
+
+func (u *EventUseCase) loadAvailableVersion(ctx context.Context, eventID, versionID uuid.UUID, currentOnly, forbidStateTasks bool) (exerciseModel.ExerciseVersion, exerciseModel.Exercise, error) {
 	version, err := u.exercises.GetVersion(ctx, versionID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -113,6 +124,11 @@ func (u *EventUseCase) attachableVersion(ctx context.Context, eventID, versionID
 	}
 	if !available {
 		return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, eventExerciseModel.ErrEventExerciseNotAvailable.Err()
+	}
+	if forbidStateTasks {
+		if err = version.RequireNoStateTasks(); err != nil {
+			return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, err
+		}
 	}
 	if err = u.requireInfrastructureForVersion(ctx, eventID, version); err != nil {
 		return exerciseModel.ExerciseVersion{}, exerciseModel.Exercise{}, err
@@ -201,7 +217,7 @@ type PublishedExerciseTaskPreview struct {
 // GetPublishedExercisePreviewForEvent shows the tasks of one variant of a
 // version the event may attach (E5: not only variant 0).
 func (u *EventUseCase) GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (PublishedExercisePreview, error) {
-	version, entry, err := u.attachableVersion(ctx, eventID, versionID, false)
+	version, entry, err := u.versionOfAvailableExercise(ctx, eventID, versionID, false)
 	if err != nil {
 		return PublishedExercisePreview{}, err
 	}
@@ -373,7 +389,7 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		return EventExerciseView{}, eventExerciseModel.ErrEventExerciseNoForkSource.Err()
 	}
 	if existing, findErr := u.exercises.FindEventFork(ctx, eventID, source.ID); findErr == nil {
-		version, entry, versionErr := u.attachableVersion(ctx, eventID, existing.PublishedVersionID.UUID, true)
+		version, entry, versionErr := u.versionOfAvailableExercise(ctx, eventID, existing.PublishedVersionID.UUID, true)
 		if versionErr != nil {
 			return EventExerciseView{}, versionErr
 		}
@@ -576,10 +592,6 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get pinned version").Err()
 	}
 	tasks := version.Variants[link.CanonicalVariant(len(version.Variants))].Tasks
-	taskByID := make(map[uuid.UUID]exerciseModel.Task, len(tasks))
-	for _, task := range tasks {
-		taskByID[task.ID] = task
-	}
 	challenges := eventChallengeRepo.New(repo)
 	board, err := challenges.List(ctx, link.ID)
 	if err != nil {
@@ -589,16 +601,26 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 	for _, challenge := range board {
 		setShown = setShown || challenge.Published
 	}
-	existing := make(map[uuid.UUID]bool, len(board))
-	removed, kept := make([]uuid.UUID, 0), make([]uuid.UUID, 0, len(board))
+	// A challenge stays whenever the new version has the same task (by id, or by name when a re-import re-issued
+	// the ids): its row, group, order, points, publication and team copies are kept, only the content is refreshed.
+	match := matchBoardTasks(board, tasks)
+	// What each kept task required in the version pinned until now: a task whose `requires` changed gets the new ones.
+	refs := make([]challengeRef, len(board))
+	for i, challenge := range board {
+		refs[i] = challengeRef{ID: challenge.ID, TaskID: challenge.TaskID}
+	}
+	wasRequiring := previousRequires(refs, previous, link.CanonicalVariant(len(previous.Variants)))
 	for i := range board {
-		existing[board[i].TaskID] = true
-		task, found := taskByID[board[i].TaskID]
-		if !found {
-			removed = append(removed, board[i].ID)
+		task, stays := match.Tasks[board[i].ID]
+		if !stays {
 			continue
 		}
-		kept = append(kept, board[i].ID)
+		if board[i].TaskID != task.ID {
+			if _, err = challenges.UpdateTask(ctx, board[i].ID, link.ID, task.ID); err != nil {
+				return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to repoint event challenge").Err()
+			}
+			board[i].TaskID = task.ID
+		}
 		if err = board[i].RefreshContent(task); err != nil {
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to snapshot event challenge").Err()
 		}
@@ -606,16 +628,13 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event challenge").Err()
 		}
 	}
+	removed := match.Removed
 	// A task cannot leave a set of a stage that has opened, and none can join one of a closed stage.
-	added := false
-	for _, task := range tasks {
-		added = added || !existing[task.ID]
-	}
 	stage, err := u.stageOfSet(ctx, eventStageRepo.New(repo), link)
 	if err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
-	if err = eventModel.CheckSetChange(stage, added, len(removed) > 0, now); err != nil {
+	if err = eventModel.CheckSetChange(stage, len(match.Added) > 0, len(removed) > 0, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
 	attempted, err := challenges.WithAttempts(ctx, removed)
@@ -632,10 +651,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 	if err != nil {
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read challenge order").Err()
 	}
-	for _, task := range tasks {
-		if existing[task.ID] {
-			continue
-		}
+	for _, task := range match.Added {
 		order++
 		challenge, newErr := eventChallengeModel.New(link.ID, task, order, now)
 		if newErr != nil {
@@ -647,7 +663,23 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
 	}
-	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, terminalLabs, now); err != nil {
+	// The `requires` of the document: for a new task, and for a kept task whose requires differ from the version before.
+	added := make(map[uuid.UUID]bool, len(match.Added))
+	for _, task := range match.Added {
+		added[task.ID] = true
+	}
+	changedTask := make(map[uuid.UUID]bool, len(board))
+	for challengeID, task := range match.Tasks {
+		if requiresChanged(wasRequiring[challengeID], task.Requires) {
+			changedTask[task.ID] = true
+		}
+	}
+	if err = applyDocumentRequires(ctx, challenges, link.ID, tasks, func(task exerciseModel.Task) bool {
+		return (added[task.ID] && len(task.Requires) > 0) || changedTask[task.ID]
+	}); err != nil {
+		return eventExerciseModel.EventExercise{}, err
+	}
+	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, match.Repointed, terminalLabs, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
 	switched, err := attachments.UpdateSource(ctx, eventID, link.ID, version.ExerciseID, version.ID)
@@ -670,7 +702,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 // longer exists), new snapshot and hint texts; the flag of an unsolved static
 // task is re-resolved only when its flag source changed (lab-injected flags
 // stay with the running Lab).
-func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, terminalLabs map[uuid.UUID]bool, now time.Time) error {
+func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, repointed map[uuid.UUID]uuid.UUID, terminalLabs map[uuid.UUID]bool, now time.Time) error {
 	taskOf := make(map[uuid.UUID]uuid.UUID, len(board))
 	ids := make([]uuid.UUID, 0, len(board))
 	for _, challenge := range board {
@@ -742,9 +774,13 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		}
 		hints := teamHints(task)
 		changed := !jsonEqual(snapshot, row.Snapshot) || !slices.Equal(hints, row.Hints)
-		if !row.Solved && !task.LinkedDeviceID.Valid {
-			oldTask, hadTask := findTask(previous, row.VariantIndex, taskID)
-			if !hadTask || variantIndex != row.VariantIndex || !slices.Equal(oldTask.Flag, task.Flag) {
+		if !row.Solved && !deliveredIntoLab(next, variantIndex, task) {
+			previousTaskID := taskID
+			if old, moved := repointed[row.EventChallengeID]; moved {
+				previousTaskID = old
+			}
+			oldTask, hadTask := findTask(previous, row.VariantIndex, previousTaskID)
+			if !hadTask || variantIndex != row.VariantIndex || !sameAnswerSource(oldTask, task) {
 				if row.ExpectedFlag, err = flags.issue(ctx, variantIndex, task); err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 				}
@@ -758,7 +794,37 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	return nil
 }
 
-func findTask(version exerciseModel.ExerciseVersion, variant int32, taskID uuid.UUID) (exerciseModel.Task, bool) {
+// deliveredIntoLab: the task's value reaches the team's lab through a bootstrap, so the value stored for the team is
+// the one the lab holds and a version switch must not re-issue it.
+func deliveredIntoLab(
+	version exerciseModel.ExerciseVersion,
+	variant int32,
+	task exerciseModel.Task,
+) bool {
+	if variant < 0 || int(variant) >= len(version.Variants) {
+		return false
+	}
+	_, delivered := version.Variants[variant].DeliveredTaskKeys()[task.Key]
+	return delivered
+}
+
+// sameAnswerSource: two tasks draw their value from the same answer (type and values).
+func sameAnswerSource(a, b exerciseModel.Task) bool {
+	if (a.Check.Answer == nil) != (b.Check.Answer == nil) {
+		return false
+	}
+	if a.Check.Answer == nil {
+		return true
+	}
+	return a.Check.Answer.Type == b.Check.Answer.Type &&
+		slices.Equal(a.Check.Answer.Values, b.Check.Answer.Values)
+}
+
+func findTask(
+	version exerciseModel.ExerciseVersion,
+	variant int32,
+	taskID uuid.UUID,
+) (exerciseModel.Task, bool) {
 	if variant < 0 || int(variant) >= len(version.Variants) {
 		return exerciseModel.Task{}, false
 	}
@@ -833,6 +899,11 @@ func (u *EventUseCase) DetachEventExercise(ctx context.Context, eventID, eventEx
 	if err != nil {
 		return err
 	}
+	// The stands of a set that leaves the event go with it: no Lab keeps pointing at a missing or detached set.
+	closedLabs, err := u.closeSetLabsInTransaction(txCtx, txRepo, eventID, link.ID, time.Now())
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to close laboratories of the detached set").Err()
+	}
 	challenges := eventChallengeRepo.New(txRepo)
 	if keep {
 		if _, err = attachments.Detach(txCtx, eventID, link.ID, by, time.Now()); err != nil {
@@ -863,6 +934,10 @@ func (u *EventUseCase) DetachEventExercise(ctx context.Context, eventID, eventEx
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to detach event exercise").Err()
 	}
+	u.deleteClosedSetLabs(ctx, closedLabs)
+	if len(closedLabs) > 0 {
+		u.wakeLabLifecycle(ctx)
+	}
 	if u.supportsLabAccessPolicy() {
 		return u.RequestEventLabAccessSyncs(ctx, eventID)
 	}
@@ -885,7 +960,8 @@ func materializeChallenges(ctx context.Context, repo IRepository, link eventExer
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
 	}
-	return nil
+	// The `requires` of the document become the prerequisites of the board.
+	return applyDocumentRequires(ctx, challenges, link.ID, version.Variants[link.CanonicalVariant(len(version.Variants))].Tasks, nil)
 }
 
 // requireInfrastructureForVersion keeps exercises with a lab topology off

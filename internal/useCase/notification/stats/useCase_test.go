@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -32,6 +33,13 @@ func (f *fakeRepo) ListDispatches(ctx context.Context, a postgres.ListDispatches
 }
 func (f *fakeRepo) CountDispatches(ctx context.Context, a postgres.CountDispatchesParams) (int64, error) {
 	return f.countDispatch(ctx, a)
+}
+
+func (f *fakeRepo) FacetDispatches(
+	context.Context,
+	postgres.FacetDispatchesParams,
+) ([]postgres.FacetDispatchesRow, error) {
+	return []postgres.FacetDispatchesRow{{Key: "done", Count: 2}, {Key: "pending", Count: 1}}, nil
 }
 func (f *fakeRepo) ListDispatchTargets(ctx context.Context, id uuid.UUID) ([]postgres.NotificationDispatchTarget, error) {
 	return f.listTargets(ctx, id)
@@ -200,4 +208,59 @@ func TestListDispatches_UserFilter_EmptyPassesEmpty(t *testing.T) {
 
 func (f *fakeRepo) CreateDispatchIfAbsent(context.Context, postgres.CreateDispatchIfAbsentParams) (int64, error) {
 	panic("unexpected dispatch write in stats")
+}
+
+type fakeResender struct {
+	calls []uuid.UUID
+	fail  map[uuid.UUID]error
+}
+
+func (f *fakeResender) ResendDispatch(_ context.Context, id uuid.UUID) error {
+	f.calls = append(f.calls, id)
+	return f.fail[id]
+}
+
+func TestResendDispatches_OneResultPerDistinctIDAndFailuresDoNotStopTheRest(t *testing.T) {
+	a, b, c := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	boom := errors.New("not failed")
+	resender := &fakeResender{fail: map[uuid.UUID]error{b: boom}}
+	uc := NewNotificationStatsUseCase(Dependencies{Repo: &fakeRepo{}, Resender: resender})
+
+	got := uc.ResendDispatches(context.Background(), []uuid.UUID{a, b, a, c})
+	if len(got) != 3 || got[0].DispatchID != a || got[1].DispatchID != b || got[2].DispatchID != c {
+		t.Fatalf("results keep the request order without duplicates: %+v", got)
+	}
+	if got[0].Err != nil || !errors.Is(got[1].Err, boom) || got[2].Err != nil {
+		t.Fatalf("errors: %+v", got)
+	}
+	if len(resender.calls) != 3 {
+		t.Fatalf("a duplicate id is resent once: %v", resender.calls)
+	}
+
+	unwired := NewNotificationStatsUseCase(Dependencies{Repo: &fakeRepo{}})
+	if res := unwired.ResendDispatches(context.Background(), []uuid.UUID{a}); res[0].Err == nil {
+		t.Fatal("without a resender every item fails")
+	}
+}
+
+func TestDispatchFacetsCountsAndRefusesUnknownFields(t *testing.T) {
+	uc := NewNotificationStatsUseCase(Dependencies{Repo: &fakeRepo{}})
+	counts, err := uc.DispatchFacets(
+		context.Background(),
+		"status",
+		dispatchModel.ListDispatchesFilter{},
+	)
+	if err != nil || counts["done"] != 2 || counts["pending"] != 1 {
+		t.Fatalf("counts = %v err = %v", counts, err)
+	}
+	if _, err = uc.DispatchFacets(
+		context.Background(),
+		"password",
+		dispatchModel.ListDispatchesFilter{},
+	); !errors.Is(
+		err,
+		ErrUnknownFacetField,
+	) {
+		t.Fatalf("an unknown field is refused: %v", err)
+	}
 }

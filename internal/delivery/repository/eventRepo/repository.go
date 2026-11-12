@@ -37,7 +37,20 @@ type Queries interface {
 	ListEventsCursor(ctx context.Context, arg postgres.ListEventsCursorParams) ([]postgres.Event, error)
 	ListEventsPage(ctx context.Context, arg postgres.ListEventsPageParams) ([]postgres.Event, error)
 	CountEventsPage(ctx context.Context, arg postgres.CountEventsPageParams) (int64, error)
+	CountEventsFacet(
+		ctx context.Context,
+		arg postgres.CountEventsFacetParams,
+	) ([]postgres.CountEventsFacetRow, error)
+	ListEventOrganizers(ctx context.Context) ([]postgres.ListEventOrganizersRow, error)
+	ListEventCounts(
+		ctx context.Context,
+		eventIds []uuid.UUID,
+	) ([]postgres.ListEventCountsRow, error)
 	CountEvents(ctx context.Context, search string) (int64, error)
+	ListEventScheduleChanges(
+		ctx context.Context,
+		eventID uuid.UUID,
+	) ([]postgres.ListEventScheduleChangesRow, error)
 }
 
 func (r *Repository) ListDueForScoringPopulation(ctx context.Context, now time.Time) ([]postgres.ListEventsDueForScoringPopulationRow, error) {
@@ -64,6 +77,13 @@ type PageParams struct {
 	Now     time.Time
 	Limit   int32
 	Offset  int32
+	// StartFrom / StartTo bound the event start (to is exclusive); OrganizerID keeps the events the user manages;
+	// Infrastructure is "", "true" or "false".
+	StartFrom, StartTo *time.Time
+	OrganizerID        uuid.NullUUID
+	Infrastructure     string
+	// NeedsReservation "true" keeps the events that run stands, have not finished and have no active reservation.
+	NeedsReservation string
 }
 
 type Repository struct {
@@ -100,8 +120,18 @@ func (r *Repository) ListCursor(ctx context.Context, p ListParams) ([]eventModel
 
 func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.Event, error) {
 	rows, err := r.q.ListEventsPage(ctx, postgres.ListEventsPageParams{
-		Search: p.Search, Status: p.Status, SortBy: p.SortBy, SortDir: p.SortDir,
-		Now: p.Now, LimitVal: p.Limit, OffsetVal: p.Offset,
+		Search:           p.Search,
+		Status:           p.Status,
+		SortBy:           p.SortBy,
+		SortDir:          p.SortDir,
+		Now:              p.Now,
+		LimitVal:         p.Limit,
+		OffsetVal:        p.Offset,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
 	})
 	if err != nil {
 		return nil, err
@@ -113,8 +143,50 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]eventModel.E
 	return out, nil
 }
 
-func (r *Repository) CountPage(ctx context.Context, search, status string, now time.Time) (int64, error) {
-	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{Search: search, Status: status, Now: now})
+func (r *Repository) CountPage(ctx context.Context, p PageParams) (int64, error) {
+	return r.q.CountEventsPage(ctx, postgres.CountEventsPageParams{
+		Search:           p.Search,
+		Status:           p.Status,
+		Now:              p.Now,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
+	})
+}
+
+func optionalTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+// Counts are the counters of one event in the admin table.
+type Counts struct {
+	Participants, Teams, StandsReady, StandsTotal int64
+}
+
+// CountsOf reads the counters of many events at once (one query).
+func (r *Repository) CountsOf(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Counts, error) {
+	out := make(map[uuid.UUID]Counts, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListEventCounts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.EventID] = Counts{
+			Participants: row.Participants,
+			Teams:        row.Teams,
+			StandsReady:  row.StandsReady,
+			StandsTotal:  row.StandsTotal,
+		}
+	}
+	return out, nil
 }
 
 // Count returns the number of events matching the search filter.
@@ -337,4 +409,123 @@ func nullablePGTime(value *time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return pgtype.Timestamptz{Time: *value, Valid: true}
+}
+
+// ScheduleChange is one recorded change of an event's schedule.
+type ScheduleChange struct {
+	ID        uuid.UUID
+	ChangedAt time.Time
+	// ChangedBy is the account the application stored as the editor (nil: unknown); ChangedByName its name or
+	// email. ByApplication false: the row changed without the application stamping the event (a hand edit); then
+	// ChangedBy is only the previous editor and DBRole says who connected.
+	ChangedBy                        *uuid.UUID
+	ChangedByName                    string
+	ByApplication                    bool
+	DBRole                           string
+	OldJoinPolicy, NewJoinPolicy     int16
+	OldPublishAt, NewPublishAt       time.Time
+	OldStartAt, NewStartAt           time.Time
+	OldFinishAt, NewFinishAt         *time.Time
+	OldWithdrawAt, NewWithdrawAt     *time.Time
+	OldManualFinish, NewManualFinish *time.Time
+}
+
+// ScheduleChanges lists the latest changes of the event's schedule, newest first.
+func (r *Repository) ScheduleChanges(
+	ctx context.Context,
+	eventID uuid.UUID,
+) ([]ScheduleChange, error) {
+	rows, err := r.q.ListEventScheduleChanges(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ScheduleChange, 0, len(rows))
+	for _, row := range rows {
+		change := ScheduleChange{
+			ID:            row.ID,
+			ChangedAt:     row.ChangedAt,
+			ChangedByName: row.ChangedByName,
+			ByApplication: row.ByApplication,
+			DBRole:        row.DbRole,
+			OldJoinPolicy: row.OldJoinPolicy,
+			NewJoinPolicy: row.NewJoinPolicy,
+			OldPublishAt:  row.OldPublishAt,
+			NewPublishAt:  row.NewPublishAt,
+			OldStartAt:    row.OldStartAt,
+			NewStartAt:    row.NewStartAt,
+			OldFinishAt: timestamptzPtr(
+				row.OldFinishAt,
+			),
+			NewFinishAt: timestamptzPtr(row.NewFinishAt),
+			OldWithdrawAt: timestamptzPtr(
+				row.OldWithdrawAt,
+			),
+			NewWithdrawAt: timestamptzPtr(row.NewWithdrawAt),
+			OldManualFinish: timestamptzPtr(
+				row.OldManualFinishedAt,
+			),
+			NewManualFinish: timestamptzPtr(row.NewManualFinishedAt),
+		}
+		if row.ChangedBy.Valid {
+			id := row.ChangedBy.UUID
+			change.ChangedBy = &id
+		}
+		out = append(out, change)
+	}
+	return out, nil
+}
+
+func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
+}
+
+// Facet counts the events per value of a field (status, infrastructure, organizer) under the filters of the table;
+// the caller has already left the field's own filter empty.
+func (r *Repository) Facet(
+	ctx context.Context,
+	field string,
+	p PageParams,
+) (map[string]int64, error) {
+	rows, err := r.q.CountEventsFacet(ctx, postgres.CountEventsFacetParams{
+		Field:            field,
+		Now:              p.Now,
+		Search:           p.Search,
+		Status:           p.Status,
+		StartFrom:        optionalTimestamptz(p.StartFrom),
+		StartTo:          optionalTimestamptz(p.StartTo),
+		OrganizerID:      p.OrganizerID,
+		Infrastructure:   p.Infrastructure,
+		NeedsReservation: p.NeedsReservation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Value] = row.Total
+	}
+	return out, nil
+}
+
+// Organizer is someone who manages at least one event.
+type Organizer struct {
+	UserID      uuid.UUID
+	Name, Email string
+}
+
+// Organizers lists everyone who manages at least one event.
+func (r *Repository) Organizers(ctx context.Context) ([]Organizer, error) {
+	rows, err := r.q.ListEventOrganizers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Organizer, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Organizer{UserID: row.ID, Name: row.Name, Email: row.Email})
+	}
+	return out, nil
 }

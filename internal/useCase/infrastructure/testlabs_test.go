@@ -233,7 +233,7 @@ func TestGetTestLabDetailNamesTheTopologyDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := detail.Topology["web"]; got != (TopologyDevice{Name: "web", Type: exerciseModel.DeviceTypeContainer}) {
+	if got := detail.Topology["web"]; got != (TopologyDevice{Name: "web", Type: exerciseModel.DeviceTypeNode}) {
 		t.Fatalf("web = %+v", got)
 	}
 	if got := detail.Topology[hexName]; got != (TopologyDevice{Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch}) {

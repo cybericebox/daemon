@@ -295,6 +295,23 @@ func newImportFixture(t *testing.T) *importFixture {
 		f.jobs[p.ID] = j
 		return 1, nil
 	}).AnyTimes()
+	dismissed := map[uuid.UUID]time.Time{}
+	q.EXPECT().ListOpenExerciseImportJobs(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, user uuid.UUID) ([]postgres.ExerciseImportJob, error) {
+		var out []postgres.ExerciseImportJob
+		for _, j := range f.jobs {
+			if at, ok := dismissed[j.ID]; j.CreatedBy == user && (j.State == "running" || j.State == "failed") && !(ok && !at.Before(j.UpdatedAt)) {
+				out = append(out, j)
+			}
+		}
+		return out, nil
+	}).AnyTimes()
+	q.EXPECT().DismissExerciseImportJob(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.DismissExerciseImportJobParams) (int64, error) {
+		if f.jobs[p.JobID].CreatedBy != p.CreatedBy {
+			return 0, nil
+		}
+		dismissed[p.JobID] = p.DismissedAt
+		return 1, nil
+	}).AnyTimes()
 	q.EXPECT().LockExerciseImportUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.MediaUpload, error) {
 		up, ok := f.sources.uploads[id]
 		if !ok {
@@ -383,7 +400,7 @@ func imageTask(name string, devices ...[2]string) []byte {
 		out = append(out, device)
 	}
 	b, _ := json.Marshal(map[string]any{
-		"schema": "cib-exercise/1", "exercise": map[string]any{"name": name},
+		"schema": "cib-exercise/1.0", "exercise": map[string]any{"name": name},
 		"versions": []any{map[string]any{"status": "draft", "variants": []any{map[string]any{"topology": map[string]any{"devices": out}}}}},
 	})
 	return b
@@ -722,9 +739,11 @@ func TestArchiveImportPasswordIsSealed(t *testing.T) {
 	require.Equal(t, webReference(), f.writtenImages(t)["web"])
 }
 
-// A job cut off by its context still ends recorded as failed.
-func TestRunArchiveImportCancelledRecordsFailed(t *testing.T) {
+// The daemon stopping (context cancelled) leaves the import running and goes back to River, which resumes it after
+// the start: nothing is recorded as failed.
+func TestRunArchiveImportShutdownResumesAfterRestart(t *testing.T) {
 	f := newImportFixture(t)
+	f.expectCreation(t)
 	f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
 		"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
 		"images/web.tar": webImageTar,
@@ -734,6 +753,80 @@ func TestRunArchiveImportCancelledRecordsFailed(t *testing.T) {
 	f.images.failPushAt = 1
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	require.Error(t, f.uc.RunArchiveImport(ctx, f.queued[0]), "River retries a stopped import")
+	view, err := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
+	require.NoError(t, err)
+	require.Equal(t, exerciseModel.ImportJobRunning, view.State, "not failed")
+	require.Zero(t, f.updates, "no outcome written")
+
+	// after the start the same job runs from the beginning and completes
+	f.images.failPushAt = 0
+	require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
+	view, err = f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
+	require.NoError(t, err)
+	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
+}
+
+// A running import writes a heartbeat even when no count moves, so a slow stage is not read as interrupted.
+func TestRunArchiveImportWritesHeartbeat(t *testing.T) {
+	exercise.SetImportHeartbeat(t, 5*time.Millisecond)
+	f := newImportFixture(t)
+	f.expectCreation(t)
+	bundleOfTwoImageTasks(t, f)
+	f.onCreate = func() { time.Sleep(100 * time.Millisecond) }
+	view := f.startAndRun(t)
+	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
+	steps := stepsOf(f.progress)
+	repeats := 0
+	for i := 1; i < len(steps); i++ {
+		if steps[i] == steps[i-1] {
+			repeats++
+		}
+	}
+	require.GreaterOrEqual(t, repeats, 3, "beats repeat the progress: %v", steps)
+}
+
+// A running import silent for the heartbeat window is listed as failed (interrupted) with the reason, can be closed,
+// and shows again once it is run again.
+func TestOpenImportsListFailedAndDismiss(t *testing.T) {
+	f := newImportFixture(t)
+	ctx := context.Background()
+	jobID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000d1")
+	f.jobs[jobID] = postgres.ExerciseImportJob{ID: jobID, CreatedBy: importer, State: "running", Generation: 1, UpdatedAt: importJobT0, Stage: "images"}
+
+	got, err := f.uc.RunningArchiveImports(ctx, importer)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, exerciseModel.ImportJobRunning, got[0].State)
+	require.ErrorContains(t, f.uc.DismissArchiveImport(ctx, jobID, importer), "still running")
+
+	f.now = f.now.Add(exerciseModel.ImportJobStaleAfter + time.Second)
+	got, err = f.uc.RunningArchiveImports(ctx, importer)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, exerciseModel.ImportJobFailed, got[0].State)
+	require.Equal(t, exerciseModel.ImportStageFailed, got[0].Stage)
+	require.Equal(t, exerciseModel.ErrArchiveImportInterrupted.Err().StatusCode().FullCode(), got[0].Error.Code)
+
+	require.ErrorIs(t, f.uc.DismissArchiveImport(ctx, jobID, otherUser), exerciseModel.ErrImportJobNotFound.Err())
+	require.NoError(t, f.uc.DismissArchiveImport(ctx, jobID, importer))
+	got, err = f.uc.RunningArchiveImports(ctx, importer)
+	require.NoError(t, err)
+	require.Empty(t, got, "a closed row is not listed")
+}
+
+// A job whose time ran out (deadline) still ends recorded as failed.
+func TestRunArchiveImportCancelledRecordsFailed(t *testing.T) {
+	f := newImportFixture(t)
+	f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
+		"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
+		"images/web.tar": webImageTar,
+	}), mediaModel.UploadPurposeExerciseArchive)
+	start, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+	require.NoError(t, err)
+	f.images.failPushAt = 1
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
 	require.NoError(t, f.uc.RunArchiveImport(ctx, f.queued[0]))
 	view, err := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
 	require.NoError(t, err)
@@ -885,6 +978,7 @@ func TestImportJobReportsStageAndCounts(t *testing.T) {
 	require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
 
 	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 0}, // the start of the worker
 		{"unpacking", 0, 0, 0, 2},
 		{"images", 0, 2, 0, 2},
 		{"images", 1, 2, 0, 2},
@@ -915,6 +1009,7 @@ func TestImportJobProgressIsThrottled(t *testing.T) {
 	view := f.startAndRun(t)
 	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
 	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 0}, // the start of the worker
 		{"unpacking", 0, 0, 0, 2},
 		{"images", 0, 2, 0, 2},
 		{"tasks", 2, 2, 0, 2}, // the stage change writes the counts held back
@@ -959,11 +1054,9 @@ func TestImportEndIsAnnouncedToTheStarter(t *testing.T) {
 func TestRunningArchiveImportsListsTheCallersRunningJobs(t *testing.T) {
 	f := newImportFixture(t)
 	jobID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000c9")
-	f.q.EXPECT().ListRunningExerciseImportJobs(gomock.Any(), postgres.ListRunningExerciseImportJobsParams{
-		CreatedBy: importer, StaleBefore: importJobT0.Add(-exerciseModel.ImportJobStaleAfter),
-	}).Return([]postgres.ExerciseImportJob{{
+	f.jobs[jobID] = postgres.ExerciseImportJob{
 		ID: jobID, CreatedBy: importer, State: "running", UpdatedAt: importJobT0, Stage: "images", ImagesDone: 1, ImagesTotal: 3, TasksTotal: 4,
-	}}, nil)
+	}
 	got, err := f.uc.RunningArchiveImports(context.Background(), importer)
 	require.NoError(t, err)
 	require.Len(t, got, 1)

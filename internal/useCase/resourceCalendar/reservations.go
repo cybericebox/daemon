@@ -53,7 +53,8 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 		start = e.Lifecycle.StartAt.Add(-lead)
 		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil {
 			eventEnd = *finish
-			end = eventEnd.Add(max(tail, u.cfg.TailGap))
+			// The tail is only the default end; the end may be as early as the event end.
+			end = eventEnd.Add(tail)
 		}
 	}
 	if in.WindowStart != nil {
@@ -61,12 +62,24 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 	}
 	if in.WindowEnd != nil {
 		end = *in.WindowEnd
+	} else if withdraw := withdrawAt(e); withdraw != nil && end.After(*withdraw) {
+		// The default end (event end + tail) never passes the withdrawal; a fixed end that does is refused below.
+		end = *withdraw
 	}
 	if start.IsZero() || end.IsZero() {
 		return calModel.Window{}, 0, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
 	}
 	w, err := calModel.NewWindow(start, end)
 	if err != nil {
+		return calModel.Window{}, 0, err
+	}
+	if withdraw := withdrawAt(e); in.WindowEnd == nil && withdraw != nil && w.End.After(*withdraw) {
+		// The slot rounding of a default end must not push it past the withdrawal.
+		if floor := calModel.SlotFloor(*withdraw); floor.After(w.Start) {
+			w.End = floor
+		}
+	}
+	if err = u.requireWindowBounds(e, w); err != nil {
 		return calModel.Window{}, 0, err
 	}
 	if !eventEnd.IsZero() {
@@ -125,8 +138,8 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			// Teams is the admin's maximum: the reserve is granted for it and does not follow the registrations.
 			teams = existing.Teams
 			buffer, dynamic, tail = existing.BufferPercent, existing.Dynamic, existing.TailGap
-			if l := startLead(e, existing); l > 0 {
-				lead = l
+			if l := startLead(e, existing); l > lead {
+				lead = l // a reservation that starts earlier keeps it; the lead is never shorter than the minimum
 			}
 		}
 		if in.StartLead != nil {
@@ -197,12 +210,14 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 				return calModel.ErrNotEnoughReserved.Err()
 			}
 		}
-		if err = u.requireHeldCoverage(ctx, s, now, r); err != nil {
-			return err
-		}
 		view, conflicts, covered, planErr := u.placeAndCheck(ctx, s, r, existing != nil, states, settings.TestPool, now)
 		if planErr != nil {
 			return planErr
+		}
+		// Held compute is checked against the NEW placement: the old Unplaced of a reservation that is resized to
+		// the real team count must not refuse its own correction.
+		if err = u.requireHeldCoverage(ctx, s, now, r); err != nil {
+			return err
 		}
 		view.StartLead = startLead(e, r)
 		result = ReservationResult{Reservation: view, Conflicts: conflicts}
@@ -390,6 +405,7 @@ func (u *ResourceCalendarUseCase) reservationView(r *calModel.Reservation, state
 	if v.Alarms == nil {
 		v.Alarms = []AlarmView{}
 	}
+	v.PlacedTeams, v.UnplacedReason = r.PlacedTeams(), r.UnplacedReason(usedAgents(states))
 	v.Parts = []PartView{}
 	for _, sh := range r.Placement {
 		v.Placement = append(v.Placement, ShareView{AgentID: sh.AgentID, AgentName: names[sh.AgentID], Units: sh.Units})

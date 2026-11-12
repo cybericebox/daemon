@@ -365,11 +365,6 @@ func parseFooterDoc(raw []byte) (node, string) {
 	return root, ""
 }
 
-func rootChildren(raw []byte) any {
-	root, _ := parseFooterDoc(raw)
-	return root["children"]
-}
-
 // checkFooterNodes describes what is wrong with a node list, or "".
 func checkFooterNodes(children any, depth int, count *int) string {
 	list, ok := children.([]any)

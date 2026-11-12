@@ -3,6 +3,7 @@ package adminAudit
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 type IRepository interface {
 	CreateAdminAuditLog(context.Context, postgres.CreateAdminAuditLogParams) error
 	ListAdminAuditLog(context.Context, postgres.ListAdminAuditLogParams) ([]postgres.AdminAuditLog, error)
+	CountAdminAuditLog(context.Context, postgres.CountAdminAuditLogParams) (int64, error)
 }
 
 type Entry struct {
@@ -27,6 +29,9 @@ type Entry struct {
 	// Target names the object the action addressed (route ids); empty when the
 	// route template already says everything.
 	Target string
+	// Changes are the fields the action changed (before and after); secrets lose their values here, at the
+	// point of writing, whatever the caller passed.
+	Changes []Change
 }
 
 type UseCase struct{ repo IRepository }
@@ -36,9 +41,20 @@ func New(repo IRepository) *UseCase { return &UseCase{repo: repo} }
 // RecordAdminAction deliberately stores route templates and response metadata only:
 // request bodies can contain passwords, tokens, challenge answers, and VPN material.
 func (u *UseCase) RecordAdminAction(ctx context.Context, entry Entry) error {
+	changes, err := json.Marshal(sanitize(entry.Changes))
+	if err != nil {
+		return err
+	}
 	return u.repo.CreateAdminAuditLog(ctx, postgres.CreateAdminAuditLogParams{
-		ID: uuid.Must(uuid.NewV7()), ActorID: entry.ActorID, Permission: entry.Permission,
-		Method: entry.Method, Route: entry.Route, ResponseStatus: int32(entry.ResponseStatus), CreatedAt: time.Now(), Target: entry.Target,
+		ID:             uuid.Must(uuid.NewV7()),
+		ActorID:        entry.ActorID,
+		Permission:     entry.Permission,
+		Method:         entry.Method,
+		Route:          entry.Route,
+		ResponseStatus: int32(entry.ResponseStatus), //nolint:gosec // an HTTP status
+		CreatedAt:      time.Now(),
+		Target:         entry.Target,
+		Changes:        changes,
 	})
 }
 
@@ -88,31 +104,11 @@ func (u *UseCase) ListAdminActions(ctx context.Context, f Filter) (Page, error) 
 	if limit > MaxPageSize {
 		limit = MaxPageSize
 	}
-	params := postgres.ListAdminAuditLogParams{
-		ActorID:    f.ActorID,
-		Permission: text(f.Permission),
-		Route:      text(f.Route),
-		Method:     text(strings.ToUpper(f.Method)),
-		TargetKind: text(f.TargetKind),
-		TargetID:   text(f.TargetID),
-		StatusMin:  pgtype.Int4{Int32: f.StatusMin, Valid: f.StatusMin > 0},
-		StatusMax:  pgtype.Int4{Int32: f.StatusMax, Valid: f.StatusMax > 0},
-		LimitVal:   limit + 1, // one more than the page: whether there is a next one
+	params, err := listParams(f)
+	if err != nil {
+		return Page{}, err
 	}
-	if f.From != nil {
-		params.FromAt = pgtype.Timestamptz{Time: *f.From, Valid: true}
-	}
-	if f.To != nil {
-		params.ToAt = pgtype.Timestamptz{Time: *f.To, Valid: true}
-	}
-	if f.Cursor != "" {
-		at, id, err := decodeCursor(f.Cursor)
-		if err != nil {
-			return Page{}, err
-		}
-		params.CursorCreatedAt = pgtype.Timestamptz{Time: at, Valid: true}
-		params.CursorID = uuid.NullUUID{UUID: id, Valid: true}
-	}
+	params.LimitVal = limit + 1 // one more than the page: whether there is a next one
 	rows, err := u.repo.ListAdminAuditLog(ctx, params)
 	if err != nil {
 		return Page{}, err
@@ -124,6 +120,88 @@ func (u *UseCase) ListAdminActions(ctx context.Context, f Filter) (Page, error) 
 		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
+}
+
+// CountAdminActions is how many journal rows the filter matches, ignoring its cursor and limit.
+func (u *UseCase) CountAdminActions(ctx context.Context, f Filter) (int64, error) {
+	params, err := listParams(f)
+	if err != nil {
+		return 0, err
+	}
+	return u.repo.CountAdminAuditLog(ctx, postgres.CountAdminAuditLogParams{
+		ActorID:    params.ActorID,
+		Permission: params.Permission,
+		Route:      params.Route,
+		Method:     params.Method,
+		StatusMin:  params.StatusMin,
+		StatusMax:  params.StatusMax,
+		FromAt:     params.FromAt,
+		ToAt:       params.ToAt,
+		TargetKind: params.TargetKind,
+		TargetID:   params.TargetID,
+	})
+}
+
+// MaxExportRows bounds one CSV export of the journal.
+const MaxExportRows = 100000
+
+// ExportAdminActions hands every journal row matching the filter (newest first, at most MaxExportRows) to emit.
+// The cursor and limit of the filter are ignored. truncated is true when more rows matched than were emitted.
+func (u *UseCase) ExportAdminActions(
+	ctx context.Context,
+	f Filter,
+	emit func(postgres.AdminAuditLog) error,
+) (bool, error) {
+	f.Cursor, f.Limit = "", MaxPageSize
+	emitted := 0
+	for {
+		page, listErr := u.ListAdminActions(ctx, f)
+		if listErr != nil {
+			return false, listErr
+		}
+		for _, row := range page.Items {
+			if emitted == MaxExportRows {
+				return true, nil
+			}
+			if err := emit(row); err != nil {
+				return false, err
+			}
+			emitted++
+		}
+		if page.NextCursor == "" {
+			return false, nil
+		}
+		f.Cursor = page.NextCursor
+	}
+}
+
+// listParams turns the filter into query parameters (everything except the limit).
+func listParams(f Filter) (postgres.ListAdminAuditLogParams, error) {
+	params := postgres.ListAdminAuditLogParams{
+		ActorID:    f.ActorID,
+		Permission: text(f.Permission),
+		Route:      text(f.Route),
+		Method:     text(strings.ToUpper(f.Method)),
+		TargetKind: text(f.TargetKind),
+		TargetID:   text(f.TargetID),
+		StatusMin:  pgtype.Int4{Int32: f.StatusMin, Valid: f.StatusMin > 0},
+		StatusMax:  pgtype.Int4{Int32: f.StatusMax, Valid: f.StatusMax > 0},
+	}
+	if f.From != nil {
+		params.FromAt = pgtype.Timestamptz{Time: *f.From, Valid: true}
+	}
+	if f.To != nil {
+		params.ToAt = pgtype.Timestamptz{Time: *f.To, Valid: true}
+	}
+	if f.Cursor != "" {
+		at, id, err := decodeCursor(f.Cursor)
+		if err != nil {
+			return params, err
+		}
+		params.CursorCreatedAt = pgtype.Timestamptz{Time: at, Valid: true}
+		params.CursorID = uuid.NullUUID{UUID: id, Valid: true}
+	}
+	return params, nil
 }
 
 func text(v string) pgtype.Text { return pgtype.Text{String: v, Valid: v != ""} }

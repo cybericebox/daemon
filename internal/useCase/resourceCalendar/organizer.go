@@ -2,12 +2,13 @@ package resourceCalendarUseCase
 
 import (
 	"context"
-	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	"sort"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 )
@@ -63,7 +64,10 @@ func (u *ResourceCalendarUseCase) GetEventResources(ctx context.Context, eventID
 	}
 	view.Reserved = true
 	view.From, view.To, view.Teams, view.Allocated = r.Window.Start, r.Window.End, r.Teams, r.Size
-	view.BufferPercent, view.Dynamic = r.BufferPercent, r.Dynamic
+	view.BufferPercent, view.Dynamic, view.Unplaced = r.BufferPercent, r.Dynamic, r.Unplaced
+	if view.Units, err = u.organizerUnits(ctx, r); err != nil {
+		return OrganizerReservationView{}, err
+	}
 
 	view.Free = Amount{CPUMillicores: max(r.Size.CPUMillicores-view.InUse.CPUMillicores, 0), MemoryBytes: max(r.Size.MemoryBytes-view.InUse.MemoryBytes, 0)}
 	states, err := u.agentStates(ctx, now)
@@ -116,6 +120,18 @@ func (u *ResourceCalendarUseCase) RequestResourceChange(ctx context.Context, eve
 		if size == nil && in.Dynamic == nil && in.WindowStart == nil && in.WindowEnd == nil && (in.SizeSnapshotQuotaBytes != nil || in.DynamicSnapshotQuotaBytes != nil) {
 			current := r.Size
 			size = &current
+		}
+		if (in.WindowStart != nil || in.WindowEnd != nil) && r.EventID != nil {
+			wanted := r.Window
+			if in.WindowStart != nil {
+				wanted.Start = *in.WindowStart
+			}
+			if in.WindowEnd != nil {
+				wanted.End = *in.WindowEnd
+			}
+			if err = u.requireReservationBounds(ctx, *r.EventID, wanted); err != nil {
+				return err
+			}
 		}
 		c, err := calModel.NewChangeRequest(r, by, size, in.Dynamic, in.WindowStart, in.WindowEnd, in.Reason, now)
 		if err != nil {
@@ -240,6 +256,11 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 			if aErr := u.applyChange(r, *c, now); aErr != nil {
 				return aErr
 			}
+			if r.EventID != nil {
+				if wErr := u.requireReservationBounds(ctx, *r.EventID, r.Window); wErr != nil {
+					return wErr
+				}
+			}
 
 			if u.usage != nil {
 				usage, e := u.usage.Usage(ctx, now)
@@ -346,4 +367,48 @@ func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calMode
 		}
 	}
 	return nil
+}
+
+// organizerUnits lists the team units that have a place in the reservation with the state of their part.
+func (u *ResourceCalendarUseCase) organizerUnits(
+	ctx context.Context,
+	r *calModel.Reservation,
+) ([]OrganizerUnitView, error) {
+	units, err := u.store.Units(ctx, r.ID)
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the units of the reservation")
+	}
+	parts, err := u.store.PartsOfCalendars(ctx, []uuid.UUID{r.ID})
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the cluster reservation parts")
+	}
+	byAgent := map[uuid.UUID]calModel.Part{}
+	for _, p := range parts {
+		if !p.Retired() {
+			byAgent[p.AgentID] = p
+		}
+	}
+	out := make([]OrganizerUnitView, 0, len(units))
+	for unit, agent := range units {
+		team, ok := calModel.TeamOfUnit(unit)
+		if !ok {
+			continue
+		}
+		item := OrganizerUnitView{TeamID: team}
+		if p, has := byAgent[agent]; has {
+			switch p.Status.Phase {
+			case calModel.PartEnded:
+				item.Ended = true
+			case calModel.PartEnding:
+				endsAt := p.Window.End
+				if p.Status.EndsAt != nil {
+					endsAt = *p.Status.EndsAt
+				}
+				item.EndsAt = &endsAt
+			}
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TeamID.String() < out[j].TeamID.String() })
+	return out, nil
 }

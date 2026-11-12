@@ -8,7 +8,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/labAccessSyncRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -140,6 +142,12 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 	return errors.Join(errs...)
 }
 
+// awaitingCreation: an object the agent does not know yet, for a lab that never got an agent identity, is a lab
+// still being created (the group is made first), not a failure.
+func awaitingCreation(agentUID string, agentGeneration int64, err error) bool {
+	return agentUID == "" && agentGeneration == 0 && errors.Is(err, infraModel.ErrAgentObjectNotFound)
+}
+
 // errLifecycleUnsupported: the lab's agent does not advertise the command the
 // lab's intent needs. The lab keeps running until destroyed; it is no failure.
 var errLifecycleUnsupported = errors.New("lab lifecycle command unsupported by the agent")
@@ -167,6 +175,11 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 			return err
 		}
 		if !adopted {
+			if u.labStopUnsupported(ctx, lab) {
+				// An agent without lifecycle capabilities gives no creation receipt and cannot stop the lab:
+				// it runs until it is destroyed with its group. Not a failure to chase every pass.
+				return errLifecycleUnsupported
+			}
 			return fmt.Errorf("original lab birth identity unavailable")
 		}
 		current, err := u.labs.Get(ctx, lab.ID)
@@ -230,6 +243,11 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 	o, err := port.ObserveLab(ctx, l.Ref)
 	if err != nil {
 		if u.settleGoneGroup(ctx, l.Ref.Group, l.AgentUID != "" && l.AgentGeneration > 0, err) {
+			return nil
+		}
+		if awaitingCreation(l.AgentUID, l.AgentGeneration, err) {
+			// The lab or its group is being created in this very second: a waiting state, looked at again by the next pass.
+			log.Debug().Err(err).Str("lab_id", l.ID.String()).Str("lab_group", l.Ref.Group).Str("lab", l.Ref.Lab).Msg("Lab lifecycle waits for the agent to create the lab")
 			return nil
 		}
 		return err

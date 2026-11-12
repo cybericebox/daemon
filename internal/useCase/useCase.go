@@ -9,6 +9,8 @@ import (
 	"github.com/cybericebox/daemon/internal/advisory"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/delivery/repository/autoRecreateRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/dashboardRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventActivityRepo"
@@ -20,8 +22,11 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/instanceValueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/jobQueueRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labCheckRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
@@ -30,9 +35,11 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/revealDeclineRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/delivery/repository/waitDetailRepo"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -43,6 +50,7 @@ import (
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	"github.com/cybericebox/daemon/internal/session"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	adminDashboardUseCase "github.com/cybericebox/daemon/internal/useCase/adminDashboard"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -103,6 +111,7 @@ type (
 		*pulseUseCase.PulseUseCase
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
+		*adminDashboardUseCase.Dashboard
 		*imageRegistryUseCase.ImageRegistryUseCase
 		// InboxRequests raises the staff inbox requests that come from the monitoring (the CPU throttling alert).
 		InboxRequests *inboxUseCase.RequestRouter
@@ -234,6 +243,8 @@ func (t testDeployExpiry) ScheduleTestDeployRemovalCheck(ctx context.Context, ow
 }
 
 func NewUseCase(deps Dependencies) *UseCase {
+	// Which node profiles an agent can run now: the fleet knows, a test double without it reports none.
+	profiles, _ := deps.LabAgent.(platformSettingsUseCase.IProfileAvailability)
 	// The platform settings come first: the retention periods, the archive limits and the test run leases saved in
 	// them are read live by the use cases below (the env values are their defaults).
 	platformSettingsUC := platformSettingsUseCase.NewPlatformSettingsUseCase(
@@ -242,6 +253,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			RetentionDefaults: deps.RetentionPolicy,
 			TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
 			MaxUploadBytes:    deps.MediaConfig.MaxUploadBytes,
+			Profiles:          profiles,
 		},
 	)
 
@@ -299,6 +311,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
+			AutoRecreate:             autoRecreateRepo.New(deps.Repo.Pool()),
+			WaitDetails:              waitDetailRepo.New(deps.Repo.Pool()),
+			StandVariables:           instanceValueRepo.New(deps.Repo.Pool()),
+			LabChecks:                labCheckRepo.New(deps.Repo.Pool()),
+			RevealDecline:            revealDeclineRepo.New(deps.Repo),
 			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
 			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
 			LabLifecycleRetryMax:     deps.LabLifecycleConfig.RetryMax,
@@ -385,9 +402,14 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
 		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
+		Configs: imageRegistryRepo.NewImageConfigs(deps.Repo.Pool()),
 	})
 	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
 	exerciseUC.SetImageAccess(imageRegistryUC)
+	// A bootstrap file of the archive is read from the file store when a lab is built.
+	exerciseUC.SetFileReader(mediaUC)
+	// The results of the laboratory checks, shown to the author of a test and asked for on demand.
+	exerciseUC.SetLabChecks(labCheckRepo.New(deps.Repo.Pool()))
 	// Task archives naming device image files import in the background: images pushed through the registry use
 	// case, the archive read where it lies, the password sealed with the platform cipher.
 	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{
@@ -530,7 +552,9 @@ func NewUseCase(deps Dependencies) *UseCase {
 		emailTemplateUC,
 		emailUseCase.NewNotificationEmailPresetUseCase(deps.Repo, mediaUC),
 		inAppUseCase.NewNotificationInAppTemplateUseCase(deps.Repo),
-		statsUseCase.NewNotificationStatsUseCase(statsUseCase.Dependencies{Repo: deps.Repo}),
+		statsUseCase.NewNotificationStatsUseCase(
+			statsUseCase.Dependencies{Repo: deps.Repo, Resender: notificationDispatcher},
+		),
 		mediaUC,
 		exerciseUC,
 		eventUC,
@@ -541,11 +565,12 @@ func NewUseCase(deps Dependencies) *UseCase {
 		mailUC,
 		retentionUC,
 		eventAnalyticsUseCase.New(eventAnalyticsUseCase.Dependencies{
-			Store:       eventAnalyticsRepo.New(deps.Repo),
-			Events:      eventRepo.New(deps.Repo),
-			Configs:     eventConfigRepo.New(deps.Repo),
-			Memberships: eventManagerRepo.New(deps.Repo),
-			LabTraffic:  labTrafficRepo.New(deps.Repo),
+			Store:        eventAnalyticsRepo.New(deps.Repo),
+			Events:       eventRepo.New(deps.Repo),
+			Configs:      eventConfigRepo.New(deps.Repo),
+			Memberships:  eventManagerRepo.New(deps.Repo),
+			LabTraffic:   labTrafficRepo.New(deps.Repo),
+			Reservations: calendarUC,
 		}),
 		platformAnalyticsUseCase.New(platformAnalyticsUseCase.Dependencies{Store: platformAnalyticsRepo.New(deps.Repo), TestLabResources: testLabsUC.TotalResources}),
 		broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
@@ -558,6 +583,10 @@ func NewUseCase(deps Dependencies) *UseCase {
 		pulseUseCase.New(pulseUseCase.Dependencies{Banners: bannerUC, Freeze: eventUC, Inbox: inboxUC}),
 		journalUC,
 		calendarUC,
+		adminDashboardUseCase.New(
+			dashboardRepo.New(deps.Repo),
+			platformAnalyticsRepo.New(deps.Repo),
+		),
 		imageRegistryUC,
 		inboxRequests,
 	}

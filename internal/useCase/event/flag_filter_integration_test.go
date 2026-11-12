@@ -93,8 +93,17 @@ func TestFlagFilters_IssueDistinctAndRebuildOnTeamLimitChange(t *testing.T) {
 		if value, newErr = exercises.Create(ctx, value); newErr != nil {
 			t.Fatal(newErr)
 		}
-		variant := exerciseModel.Variant{Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Find the flag", Description: json.RawMessage(`{"blocks":[]}`),
-			Difficulty: exerciseModel.DifficultyEasy, Flag: []string{candidate}}}}
+		variant := exerciseModel.Variant{
+			Tasks: []exerciseModel.Task{
+				{
+					ID:          uuid.Must(uuid.NewV7()),
+					Name:        "Find the flag",
+					Description: json.RawMessage(`{"blocks":[]}`),
+					Difficulty:  exerciseModel.DifficultyEasy,
+					Check:       exerciseModel.FlagCheck(candidate),
+				},
+			},
+		}
 		variant.Topology.Devices = []exerciseModel.Device{}
 		draft, draftErr := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
 		if draftErr != nil {

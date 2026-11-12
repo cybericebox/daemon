@@ -9,7 +9,7 @@ import (
 // Error-code convention: see internal/model/auth/errors.go. Enforced by
 // `make lint-errors`.
 //
-// UserObjectCode — next free detail code: 6
+// UserObjectCode — next free detail code: 7
 var (
 	ErrUserNotFound = err.ErrObjectNotFound.WithObjectCode(model.UserObjectCode).
 			WithMessage("User not found").WithDetailCode(1)
@@ -34,4 +34,8 @@ var (
 	// invitation may have none yet).
 	ErrUserNameRequired = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).
 				WithMessage("First and last name are required").WithDetailCode(5)
+	// ErrUserNotIncomplete: only an unfinished registration can be invited again.
+	ErrUserNotIncomplete = err.ErrConflict.WithObjectCode(model.UserObjectCode).
+				WithMessage("The registration of this account is already finished").
+				WithDetailCode(6)
 )

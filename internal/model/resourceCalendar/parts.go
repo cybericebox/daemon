@@ -31,6 +31,16 @@ const (
 // TeamUnit is the unit of a team of an event.
 func TeamUnit(team uuid.UUID) string { return teamUnitPrefix + team.String() }
 
+// TeamOfUnit reads the team out of a team unit key.
+func TeamOfUnit(unit string) (uuid.UUID, bool) {
+	rest, ok := strings.CutPrefix(unit, teamUnitPrefix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.FromString(rest)
+	return id, err == nil
+}
+
 // PreviewUnit is the unit of an organizer's preview group inside an event reservation.
 func PreviewUnit(owner uuid.UUID) string { return previewUnitPrefix + owner.String() }
 

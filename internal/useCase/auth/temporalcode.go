@@ -45,6 +45,16 @@ func validTemporalCode(code string) bool {
 // createTemporalCode generates a random opaque code, stores it with the typed
 // JSON data and a TTL, and returns the raw code.
 func (u *AuthUseCase) createTemporalCode(ctx context.Context, codeType int32, data any) (string, error) {
+	return u.createTemporalCodeTTL(ctx, codeType, data, u.cfg.TemporalCodeTTL)
+}
+
+// createTemporalCodeTTL is createTemporalCode with its own lifetime (a passkey ceremony lives minutes, not an hour).
+func (u *AuthUseCase) createTemporalCodeTTL(
+	ctx context.Context,
+	codeType int32,
+	data any,
+	ttl time.Duration,
+) (string, error) {
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to marshal temporal code data").Err()
@@ -57,7 +67,7 @@ func (u *AuthUseCase) createTemporalCode(ctx context.Context, codeType int32, da
 	code := hex.EncodeToString(buf)
 
 	if err = u.codes.Create(ctx, temporalCodeModel.NewCode(
-		tools.NewUUIDv7(), hashTemporalCode(code), codeType, dataBytes, time.Now().Add(u.cfg.TemporalCodeTTL),
+		tools.NewUUIDv7(), hashTemporalCode(code), codeType, dataBytes, time.Now().Add(ttl),
 	)); err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to create temporal code").Err()
 	}

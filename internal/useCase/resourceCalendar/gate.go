@@ -77,3 +77,31 @@ func (u *ResourceCalendarUseCase) HoldsStorageForAllTeams(ctx context.Context, e
 	}
 	return nil
 }
+
+// EventPlacement says how many teams of the event's reservation have an agent and why the rest have none.
+type EventPlacement struct {
+	Teams, Placed, Unplaced int
+	// Reason is calModel.Unplaced* (no_agents, device_too_large, no_capacity); empty when all are placed.
+	Reason string
+}
+
+// EventPlacement reads the placement of the event's active reservation; found is false when it has none.
+// The stand engine uses it to tell why a lab waits instead of waiting silently.
+func (u *ResourceCalendarUseCase) EventPlacement(ctx context.Context, eventID uuid.UUID) (EventPlacement, bool, error) {
+	r, err := u.store.GetEventReservation(ctx, eventID)
+	if err != nil {
+		if notFound(err) {
+			return EventPlacement{}, false, nil
+		}
+		return EventPlacement{}, false, platformErr(err, "Failed to read the event reservation")
+	}
+	out := EventPlacement{Teams: r.Teams, Placed: r.PlacedTeams(), Unplaced: r.Unplaced}
+	if r.Unplaced > 0 {
+		states, err := u.agentStates(ctx, u.now().UTC())
+		if err != nil {
+			return out, true, err
+		}
+		out.Reason = r.UnplacedReason(usedAgents(states))
+	}
+	return out, true, nil
+}

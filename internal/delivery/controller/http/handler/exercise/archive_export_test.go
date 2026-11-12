@@ -13,7 +13,7 @@ import (
 
 // Two exercises with one name export as one zip: folders Веб/ and Веб_2/, one root manifest.
 func TestExport_SeveralTasksOneZip(t *testing.T) {
-	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	single, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

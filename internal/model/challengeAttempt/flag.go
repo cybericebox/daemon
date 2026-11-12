@@ -18,3 +18,19 @@ func FlagMatches(expected, submitted string) bool {
 	e, s := sha256.Sum256([]byte(expected)), sha256.Sum256([]byte(submitted))
 	return subtle.ConstantTimeCompare(e[:], s[:]) == 1
 }
+
+// AnswerMatches is FlagMatches for a typed answer with options: trim drops the spaces at the edges of both sides,
+// ignoreCase compares without case. A flag answer uses FlagMatches. An empty side never matches.
+func AnswerMatches(expected, submitted string, ignoreCase, trim bool) bool {
+	if trim {
+		expected, submitted = strings.TrimSpace(expected), strings.TrimSpace(submitted)
+	}
+	if ignoreCase {
+		expected, submitted = strings.ToLower(expected), strings.ToLower(submitted)
+	}
+	if expected == "" || submitted == "" {
+		return false
+	}
+	e, s := sha256.Sum256([]byte(expected)), sha256.Sum256([]byte(submitted))
+	return subtle.ConstantTimeCompare(e[:], s[:]) == 1
+}

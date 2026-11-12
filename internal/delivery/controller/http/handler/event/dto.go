@@ -29,6 +29,19 @@ type eventResponse struct {
 	InfrastructureAllowed bool      `json:"InfrastructureAllowed"`
 	CreatedAt             time.Time `json:"CreatedAt"`
 	UpdatedAt             time.Time `json:"UpdatedAt"`
+	// StartAt / FinishAt: the schedule (null until it is configured; FinishAt null without a finish).
+	StartAt  *time.Time `json:"StartAt"`
+	FinishAt *time.Time `json:"FinishAt"`
+	// Counts is set in the page (offset) list only.
+	Counts *eventCountsResponse `json:"Counts"`
+}
+
+type eventCountsResponse struct {
+	Participants int64 `json:"Participants"`
+	Teams        int64 `json:"Teams"`
+	// StandsReady of StandsTotal: the stands of the teams (the moderators team excluded).
+	StandsReady int64 `json:"StandsReady"`
+	StandsTotal int64 `json:"StandsTotal"`
 }
 
 type createEventRequest struct {
@@ -38,6 +51,9 @@ type createEventRequest struct {
 	ArchiveAt     *time.Time `json:"ArchiveAt"`
 	// InfrastructureAllowed omitted defaults to Laboratory availability.
 	InfrastructureAllowed *bool `json:"InfrastructureAllowed"`
+	// CopyFromEventID copies the settings, theme, pages, organizers and task sets (unpublished) of that event; never
+	// participants, teams, invitations, results, stands, the reservation or analytics.
+	CopyFromEventID *uuid.UUID `json:"CopyFromEventID"`
 }
 
 type setInfrastructureRequest struct {
@@ -138,6 +154,11 @@ type lifecycleResponse struct {
 	Status         string                     `json:"Status"`
 	UpdatedAt      time.Time                  `json:"UpdatedAt"`
 	Infrastructure infrastructurePlanResponse `json:"Infrastructure"`
+	// ReservationShortenedTo is set only in the answer to a schedule change that ended the event's reservation
+	// earlier (the withdrawal is before the old end): the new end of the reservation, where the labs are stopped and
+	// deleted. RunningLabs is how many labs ran at that moment. The UI confirms before saving.
+	ReservationShortenedTo *time.Time `json:"ReservationShortenedTo" extensions:"x-nullable"`
+	RunningLabs            int32      `json:"RunningLabs"`
 }
 
 type infrastructurePlanResponse struct {
@@ -290,6 +311,9 @@ func toLifecycleResponse(v eventUseCase.EventLifecycleView) lifecycleResponse {
 		Status:         lifecycleStatusToString(v.Status),
 		UpdatedAt:      v.UpdatedAt,
 		Infrastructure: toInfrastructurePlanResponse(v.Infrastructure),
+
+		ReservationShortenedTo: v.ReservationShortenedTo,
+		RunningLabs:            v.RunningLabs,
 	}
 	if v.Configured {
 		result.PublishAt = &v.PublishAt
@@ -356,6 +380,20 @@ func toResponse(v eventUseCase.EventView) eventResponse {
 		LifecycleStatus:       lifecycleStatusToString(v.LifecycleStatus),
 		InfrastructureAllowed: v.InfrastructureAllowed,
 		CreatedAt:             v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		StartAt: v.StartAt, FinishAt: v.FinishAt,
+		Counts: toEventCountsResponse(v.Counts),
+	}
+}
+
+func toEventCountsResponse(c *eventUseCase.EventCountsView) *eventCountsResponse {
+	if c == nil {
+		return nil
+	}
+	return &eventCountsResponse{
+		Participants: c.Participants,
+		Teams:        c.Teams,
+		StandsReady:  c.StandsReady,
+		StandsTotal:  c.StandsTotal,
 	}
 }
 
@@ -488,6 +526,10 @@ type teamInvitationResponse struct {
 	Email            string     `json:"Email"`
 	CreatedAt        time.Time  `json:"CreatedAt"`
 	InvitationSentAt *time.Time `json:"InvitationSentAt"`
+	// InvitationExpired: the person can no longer accept it; InvitationAwaitingPublication: the event is not
+	// published yet and the invitation becomes acceptable at publication (not expired).
+	InvitationExpired             bool `json:"InvitationExpired"`
+	InvitationAwaitingPublication bool `json:"InvitationAwaitingPublication"`
 }
 
 type teamResponse struct {
@@ -541,7 +583,7 @@ type attachExerciseRequest struct {
 
 type replaceEventExerciseRequest struct {
 	ExerciseVersionID uuid.UUID `json:"ExerciseVersionID"`
-	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	// RecreateStands confirms recreating running stand Labs (the preview says whether the update does).
 	RecreateStands bool `json:"RecreateStands"`
 }
 
@@ -573,10 +615,13 @@ type eventExerciseResponse struct {
 	UpdateAvailable     bool                       `json:"UpdateAvailable"`
 	Fork                *eventExerciseForkResponse `json:"Fork"`
 	Infrastructure      bool                       `json:"Infrastructure"`
-	VariantCount        int32                      `json:"VariantCount"`
-	ChallengeCount      int32                      `json:"ChallengeCount"`
-	PublishedCount      int32                      `json:"PublishedCount"`
-	HasAttempts         bool                       `json:"HasAttempts"`
+	// UsesConsole: some device of the pinned version has a console (terminal access) in the participant's browser. Not
+	// meant for events; nothing bans it.
+	UsesConsole    bool  `json:"UsesConsole"`
+	VariantCount   int32 `json:"VariantCount"`
+	ChallengeCount int32 `json:"ChallengeCount"`
+	PublishedCount int32 `json:"PublishedCount"`
+	HasAttempts    bool  `json:"HasAttempts"`
 	// Resources is the total of the pinned version: the least and the most it needs over its variants (equal for
 	// one variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the
 	// platform frame (a badge). NoAgentFits: no laboratory that is used can run it (never names one).
@@ -634,10 +679,41 @@ type eventExerciseForkResponse struct {
 	SourceUpdateAvailable     bool       `json:"SourceUpdateAvailable"`
 }
 
+type eventExerciseUpdateTeamResponse struct {
+	ID   uuid.UUID `json:"ID"`
+	Name string    `json:"Name"`
+}
+
+type eventExerciseUpdatePreviewResponse struct {
+	TargetVersionID      uuid.UUID                         `json:"TargetVersionID"`
+	StandsRecreated      int                               `json:"StandsRecreated"`
+	TeamsAffected        int                               `json:"TeamsAffected"`
+	StandsReset          int                               `json:"StandsReset"`
+	StandsKept           int                               `json:"StandsKept"`
+	Teams                []eventExerciseUpdateTeamResponse `json:"Teams"`
+	TasksAdded           []string                          `json:"TasksAdded"`
+	TasksRemoved         []string                          `json:"TasksRemoved"`
+	TasksRepointed       []string                          `json:"TasksRepointed"`
+	TasksBlocking        []string                          `json:"TasksBlocking"`
+	RequiresConfirmation bool                              `json:"RequiresConfirmation"`
+	ReservationShort     bool                              `json:"ReservationShort"`
+}
+
+func toEventExerciseUpdatePreviewResponse(v eventUseCase.EventExerciseUpdatePreview) eventExerciseUpdatePreviewResponse {
+	out := eventExerciseUpdatePreviewResponse{TargetVersionID: v.TargetVersionID, StandsRecreated: v.StandsRecreated, TeamsAffected: v.TeamsAffected,
+		StandsReset: v.StandsReset, StandsKept: v.StandsKept, Teams: make([]eventExerciseUpdateTeamResponse, 0, len(v.Teams)),
+		TasksAdded: nonNilStrings(v.TasksAdded), TasksRemoved: nonNilStrings(v.TasksRemoved), TasksRepointed: nonNilStrings(v.TasksRepointed), TasksBlocking: nonNilStrings(v.TasksBlocking),
+		RequiresConfirmation: v.RequiresConfirmation, ReservationShort: v.ReservationShort}
+	for _, team := range v.Teams {
+		out.Teams = append(out.Teams, eventExerciseUpdateTeamResponse{ID: team.ID, Name: team.Name})
+	}
+	return out
+}
+
 type updateEventExerciseRequest struct {
 	// ExerciseVersionID nil = the exercise's latest published version.
 	ExerciseVersionID *uuid.UUID `json:"ExerciseVersionID"`
-	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	// RecreateStands confirms recreating running stand Labs (the preview says whether the update does).
 	RecreateStands bool `json:"RecreateStands"`
 }
 
@@ -688,6 +764,8 @@ type publishedExerciseChoiceResponse struct {
 	// Scope: catalog | event (the event's own exercise).
 	Scope          string `json:"Scope"`
 	Infrastructure bool   `json:"Infrastructure"`
+	// UsesConsole: some device of the published version has a console (terminal access). Not meant for events.
+	UsesConsole bool `json:"UsesConsole"`
 	// Attached: the event already uses it (or its fork family).
 	Attached bool `json:"Attached"`
 	// Resources is the total of the published version (min and max over its variants); ResourceHeavy: an
@@ -925,7 +1003,18 @@ func toTeamResponse(v eventUseCase.TeamView) teamResponse {
 	}
 	invitations := make([]teamInvitationResponse, 0, len(v.PendingInvitations))
 	for _, i := range v.PendingInvitations {
-		invitations = append(invitations, teamInvitationResponse{UserID: i.UserID, Name: i.Name, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt})
+		invitations = append(
+			invitations,
+			teamInvitationResponse{
+				UserID:                        i.UserID,
+				Name:                          i.Name,
+				Email:                         i.Email,
+				CreatedAt:                     i.CreatedAt,
+				InvitationSentAt:              i.InvitationSentAt,
+				InvitationExpired:             i.InvitationExpired,
+				InvitationAwaitingPublication: i.InvitationAwaitingPublication,
+			},
+		)
 	}
 	extra := v.ExtraFields
 	if extra == nil {
@@ -985,7 +1074,7 @@ func (r updateEventChallengeRelationsRequest) toInput() eventUseCase.UpdateEvent
 func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResponse {
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
-		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
+		Infrastructure: v.Infrastructure, UsesConsole: v.UsesConsole, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
 		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames), Tags: nonNilStrings(v.Tags)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
 	if v.FlagsRepeat != nil {

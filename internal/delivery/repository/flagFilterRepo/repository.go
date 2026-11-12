@@ -11,6 +11,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagfilter"
 )
 
@@ -84,7 +85,7 @@ func (r *Repository) EventIssued(ctx context.Context, eventID uuid.UUID) (map[Ke
 
 // TaskFlags are the flag candidates of pinned versions: version id, then
 // variant position, then task id.
-type TaskFlags map[uuid.UUID][]map[uuid.UUID][]string
+type TaskFlags map[uuid.UUID][]map[uuid.UUID]exerciseModel.AnswerCheck
 
 // VersionTaskFlags reads the candidates of the tasks of pinned versions.
 func (r *Repository) VersionTaskFlags(ctx context.Context, versionIDs []uuid.UUID) (TaskFlags, error) {
@@ -99,18 +100,20 @@ func (r *Repository) VersionTaskFlags(ctx context.Context, versionIDs []uuid.UUI
 	for _, row := range rows {
 		var variants []struct {
 			Tasks []struct {
-				ID   uuid.UUID `json:"id"`
-				Flag []string  `json:"flag"`
+				ID     uuid.UUID                  `json:"id"`
+				Answer *exerciseModel.AnswerCheck `json:"answer"`
 			} `json:"tasks"`
 		}
 		if err = json.Unmarshal(row.Variants, &variants); err != nil {
 			return nil, err
 		}
-		list := make([]map[uuid.UUID][]string, len(variants))
+		list := make([]map[uuid.UUID]exerciseModel.AnswerCheck, len(variants))
 		for i, variant := range variants {
-			list[i] = make(map[uuid.UUID][]string, len(variant.Tasks))
+			list[i] = make(map[uuid.UUID]exerciseModel.AnswerCheck, len(variant.Tasks))
 			for _, task := range variant.Tasks {
-				list[i][task.ID] = task.Flag
+				if task.Answer != nil {
+					list[i][task.ID] = *task.Answer
+				}
 			}
 		}
 		out[row.VersionID] = list

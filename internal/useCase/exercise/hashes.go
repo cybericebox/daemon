@@ -45,8 +45,8 @@ func (u *ExerciseUseCase) secretValueGroups(variants []exerciseModel.Variant) []
 	for vi, variant := range variants {
 		out[vi] = make([][]int, len(variant.Topology.Devices))
 		for di, device := range variant.Topology.Devices {
-			out[vi][di] = make([]int, len(device.EnvVars))
-			for ei, env := range device.EnvVars {
+			out[vi][di] = make([]int, len(device.Bootstrap.Env))
+			for ei, env := range device.Bootstrap.Env {
 				if !env.Secret || env.Value == "" {
 					continue
 				}
