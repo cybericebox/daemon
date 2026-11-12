@@ -188,3 +188,41 @@ func TestTheAgentsProxyLimitsCapTheLinkAndTheSession(t *testing.T) {
 		t.Fatal("a negative session ttl must be rejected")
 	}
 }
+
+// The console link: the token is signed with the terminal host and the handoff carries the console page as `next`.
+func TestConsoleSessionIsSignedForTheTerminalHost(t *testing.T) {
+	sk := testSigningKey(t)
+	issuer, err := New(Config{TokenTTL: 30 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, next, err := ConsoleSession(webURL, "t-0190-lab", "db-1")
+	if err != nil || access != "https://terminal.challenges.example.com/" || next != "/?device=db-1&lab=t-0190-lab" {
+		t.Fatalf("access = %q next = %q err = %v", access, next, err)
+	}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	link, err := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: access, Next: next}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(link.URL)
+	if err != nil || parsed.Host != "terminal.challenges.example.com" || parsed.Path != AuthPath || parsed.Query().Get("next") != next {
+		t.Fatalf("link = %s err = %v", link.URL, err)
+	}
+	var got claims
+	if _, err = jwt.ParseWithClaims(link.Token, &got, func(*jwt.Token) (any, error) { return sk.Key.Public(), nil },
+		jwt.WithTimeFunc(func() time.Time { return now })); err != nil || got.Host != TerminalHost {
+		t.Fatalf("host claim = %q err = %v", got.Host, err)
+	}
+	// A web link has no next; a lab with no web address cannot say the base domain.
+	plain, _ := issuer.Issue(sk, Session{Group: "g", Client: "p-1", AccessURL: webURL}, now)
+	if u, _ := url.Parse(plain.URL); u.Query().Has("next") {
+		t.Fatalf("a web link must not carry next: %s", plain.URL)
+	}
+	if _, _, err = ConsoleSession("", "lab", "d"); err == nil {
+		t.Fatal("no base address must be an error")
+	}
+	if _, _, err = ConsoleSession("https://localhost/", "lab", "d"); err == nil {
+		t.Fatal("a single-label host has no base domain")
+	}
+}

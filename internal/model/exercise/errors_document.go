@@ -89,6 +89,10 @@ var (
 				WithHTTPCode(http.StatusTooManyRequests)
 	// ErrBootstrapTooLarge: a bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB in
 	// all; device, field, file (the file's path in the device) and limit (bytes) say where and how much.
+	// ErrTestDeployNoConsole: the lab cannot give a console link (it does not have the device, or it cannot say its base domain).
+	ErrTestDeployNoConsole = err.ErrObjectNotFound.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("The console of the device is not available").
+				WithDetailCode(18)
 	ErrBootstrapTooLarge = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
 				WithMessage("A bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB").
 				WithDetailCode(17)

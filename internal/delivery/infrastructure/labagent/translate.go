@@ -224,9 +224,11 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 		}
 		spec.Connections = append(spec.Connections, conn)
 	}
-	var checksErr error
-	if build.Checks, checksErr = buildLabChecks(checks); checksErr != nil {
-		return LabBuild{}, checksErr
+	if len(checks) > 0 {
+		var checksErr error
+		if build.Checks, checksErr = buildLabChecks(checks); checksErr != nil {
+			return LabBuild{}, checksErr
+		}
 	}
 	build.VPNReverseSent = spec.VPN.ReverseConnections
 
@@ -272,8 +274,8 @@ func buildDevice(d exerciseModel.Device, labName string) labDevice {
 	if d.Persistence != nil {
 		out.Persistence = &labPersistence{Enabled: d.Persistence.Enabled, Debounce: d.Persistence.Debounce}
 	}
-	if port, protocol, ok := d.HTTPAccess(); ok {
-		out.Exposure = &labExposure{Web: &labWeb{Port: port, Protocol: protocol}}
+	if web, ok := d.HTTPAccess(); ok {
+		out.Exposure = &labExposure{Web: &labWeb{Port: web.Port, Protocol: web.Protocol}}
 	}
 	return out
 }
@@ -417,12 +419,9 @@ func buildDeviceBootstrap(d exerciseModel.Device) *labpb.DeviceBootstrap {
 	return out
 }
 
-// buildLabChecks maps the checks of a lab; nil when there are none. The observation of each part is mapped in
+// buildLabChecks maps the checks of a lab (at least one). The observation of each part is mapped in
 // checks_parts.go; a kind the laboratory contract has no message for is an error, never a part left out.
 func buildLabChecks(checks []exerciseModel.LabCheck) (*labpb.LabChecks, error) {
-	if len(checks) == 0 {
-		return nil, nil
-	}
 	out := &labpb.LabChecks{}
 	for _, c := range checks {
 		check := &labpb.Check{

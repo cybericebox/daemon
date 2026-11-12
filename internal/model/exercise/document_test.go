@@ -506,12 +506,12 @@ func TestAccessFieldAndReaders(t *testing.T) {
 	device := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeNode, Access: []exerciseModel.Access{
 		{Kind: exerciseModel.AccessTerminal}, {Kind: exerciseModel.AccessHTTP, Port: 8080},
 	}}
-	port, protocol, ok := device.HTTPAccess()
+	web, ok := device.HTTPAccess()
 	require.True(t, ok)
-	require.EqualValues(t, 8080, port)
-	require.Equal(t, "http", protocol, "an entry without a protocol is http")
+	require.EqualValues(t, 8080, web.Port)
+	require.Equal(t, "http", web.Protocol, "an entry without a protocol is http")
 	require.True(t, device.HasAccess(exerciseModel.AccessTerminal))
-	_, _, ok = exerciseModel.Device{}.HTTPAccess()
+	_, ok = exerciseModel.Device{}.HTTPAccess()
 	require.False(t, ok)
 
 	device.Access[1].Port = 0

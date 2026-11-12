@@ -165,5 +165,5 @@ func TestBuildLabChecks_RefusesWhatTheContractLacks(t *testing.T) {
 	}
 	out, err := buildLabChecks(check(exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/x", Contains: "a"}}))
 	require.NoError(t, err)
-	require.Len(t, out.Items[0].Parts, 1)
+	require.Len(t, out.GetItems()[0].GetParts(), 1)
 }

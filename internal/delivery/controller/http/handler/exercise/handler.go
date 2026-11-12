@@ -85,6 +85,7 @@ type (
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
 		RunTestDeployChecks(ctx context.Context, userID, deployID, taskID uuid.UUID) error
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
+		OpenTestDeployConsoleLink(ctx context.Context, userID, deployID uuid.UUID, device string) (labaccess.Link, error)
 		PreviewArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.PreviewArchiveInput) (exerciseUseCase.ArchiveImportPreview, error)
 		CommitArchiveImport(context.Context, exerciseUseCase.Actor, exerciseUseCase.CommitArchiveInput) (exerciseUseCase.ArchiveImportStart, error)
 		ImportRawArchive(context.Context, exerciseUseCase.Actor, exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ArchiveImportStart, error)

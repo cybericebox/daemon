@@ -726,6 +726,39 @@ func TestOpenTestDeployLink_IssuesTheAuthorsLinkUntilTheLeaseEnds(t *testing.T) 
 	}
 }
 
+// The console link is signed for the terminal host and carries the console page as next; a device the lab does not have has none.
+func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) {
+	expires := time.Now().Add(90 * time.Minute)
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), LabName: "l-one", CreatedBy: userID, ExpiresAt: expires}, nil).AnyTimes()
+	sessions := &fakeSessions{}
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: true,
+		Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}},
+		Access:  []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"}}}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
+
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.got.AccessURL != "https://terminal.challenges.example.com/" || sessions.got.Next != "/?device=db&lab=l-one" ||
+		sessions.got.Group != "t-"+deployID.String() || !sessions.got.ExpiresAt.Equal(expires) {
+		t.Fatalf("session: %+v", sessions.got)
+	}
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "ghost"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+		t.Fatalf("want no console, got %v", err)
+	}
+	infra.status.Access = nil
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNoConsole.Err()) {
+		t.Fatalf("a lab with no web address cannot say its base domain: %v", err)
+	}
+	infra.status.Ready = false
+	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); !errors.Is(err, exerciseModel.ErrTestDeployNotReady.Err()) {
+		t.Fatalf("want not ready, got %v", err)
+	}
+}
+
 func TestOpenTestDeployLink_RefusesNotReadyExpiredAndUnknownDevice(t *testing.T) {
 	uc, sessions, userID, deployID := openSessionFixture(t, false, time.Now().Add(time.Hour))
 	if _, err := uc.OpenTestDeployLink(context.Background(), userID, deployID, "web", 80); !errors.Is(err, exerciseModel.ErrTestDeployNotReady.Err()) {

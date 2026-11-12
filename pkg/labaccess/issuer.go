@@ -81,6 +81,9 @@ type Session struct {
 	// AccessURL is the device URL from the lab status (https://<device>-<code>.<base>/...).
 	// The link is built on its origin; its first host label is the token's host.
 	AccessURL string
+	// Next is where the proxy sends the browser after the handoff, the value of the `next` query key of the link (a path with
+	// its query, for example the console page of a device: see ConsoleSession). Empty: the proxy's default.
+	Next string
 	// ExpiresAt is the wanted end of the session (the event's effective finish
 	// plus a buffer, or a test deploy's lease end). Zero, or a time that is not in
 	// the future, means the fallback TTL.
@@ -170,6 +173,10 @@ func (i *Issuer) Issue(sk SigningKey, s Session, now time.Time) (Link, error) {
 	if err != nil {
 		return Link{}, fmt.Errorf("sign lab access token: %w", err)
 	}
-	link := url.URL{Scheme: origin.Scheme, Host: origin.Host, Path: AuthPath, RawQuery: url.Values{"t": {signed}}.Encode()}
+	query := url.Values{"t": {signed}}
+	if s.Next != "" {
+		query.Set("next", s.Next)
+	}
+	link := url.URL{Scheme: origin.Scheme, Host: origin.Host, Path: AuthPath, RawQuery: query.Encode()}
 	return Link{URL: link.String(), Token: signed, ExpiresAt: end}, nil
 }

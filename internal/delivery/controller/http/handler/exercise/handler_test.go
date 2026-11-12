@@ -76,6 +76,7 @@ type fakeUC struct {
 	imageScope            imageRegistryUseCase.Scope
 	checkedImages         []string
 	services              []imageRegistryUseCase.ImageServiceInfo
+	consoleDevice         string
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
 	// access overrides what AuthorizeExercise grants (nil: full, flags included).
@@ -314,6 +315,10 @@ func (f *fakeUC) RunTestDeployChecks(_ context.Context, _, deployID, taskID uuid
 	return f.err
 }
 func (f *fakeUC) OpenTestDeployLink(_ context.Context, _, _ uuid.UUID, _ string, _ int32) (labaccess.Link, error) {
+	return f.sessionLink, f.err
+}
+func (f *fakeUC) OpenTestDeployConsoleLink(_ context.Context, _, _ uuid.UUID, device string) (labaccess.Link, error) {
+	f.consoleDevice = device
 	return f.sessionLink, f.err
 }
 func (f *fakeUC) ArchiveLimits(context.Context) exerciseModel.ArchiveLimits {
@@ -2057,6 +2062,24 @@ func TestDeployLink_ReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil || !env.Data.ExpiresAt.Equal(expires) || env.Data.URL != uc.sessionLink.URL {
 		t.Fatalf("body: %s err=%v", w.Body.String(), err)
+	}
+}
+
+func TestDeployLink_AccessTerminalOpensTheConsole(t *testing.T) {
+	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://terminal.challenges.example.com/_auth?t=signed", Token: "signed"}}
+	r := newEngine(uc, uuid.Must(uuid.NewV7()))
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String()+"/link", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := post(`{"Device":"db","Access":"terminal"}`); code != http.StatusOK || uc.consoleDevice != "db" {
+		t.Fatalf("terminal: status %d device %q", code, uc.consoleDevice)
+	}
+	if code := post(`{"Device":"db","Access":"vnc"}`); code != http.StatusBadRequest {
+		t.Fatalf("an access kind with no link: status %d", code)
 	}
 }
 

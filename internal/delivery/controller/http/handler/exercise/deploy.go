@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
 type deployListItem struct {
@@ -484,7 +485,11 @@ func (h *Handler) extendDeploy(ctx *gin.Context) {
 
 type deployLinkRequest struct {
 	Device string `json:"Device" binding:"required"`
-	Port   int32  `json:"Port"`
+	// Port is the web port from the deploy status (access http).
+	Port int32 `json:"Port"`
+	// Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link is signed for
+	// the terminal host and opens the console page of the device. 404 (33518) when the lab cannot give a console link.
+	Access string `json:"Access,omitempty" enums:"http,terminal"`
 }
 
 type deployLinkResponse struct {
@@ -519,7 +524,16 @@ func (h *Handler) deployLink(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx)
 		return
 	}
-	link, err := h.useCase.OpenTestDeployLink(ctx, claims.UserID, deployID, req.Device, req.Port)
+	var link labaccess.Link
+	switch req.Access {
+	case "", string(exerciseModel.AccessHTTP):
+		link, err = h.useCase.OpenTestDeployLink(ctx, claims.UserID, deployID, req.Device, req.Port)
+	case string(exerciseModel.AccessTerminal):
+		link, err = h.useCase.OpenTestDeployConsoleLink(ctx, claims.UserID, deployID, req.Device)
+	default:
+		response.AbortWithBadRequest(ctx)
+		return
+	}
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

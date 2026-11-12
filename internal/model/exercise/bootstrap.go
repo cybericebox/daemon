@@ -153,17 +153,13 @@ func (d Device) HasAccess(kind AccessKind) bool {
 	return ok
 }
 
-// HTTPAccess is the web access of the device: its port and protocol (http when the entry leaves it out).
-func (d Device) HTTPAccess() (port int32, protocol string, ok bool) {
+// HTTPAccess is the web access of the device: its http entry with the protocol filled in (http when the entry leaves it out).
+func (d Device) HTTPAccess() (Access, bool) {
 	a, ok := d.AccessOf(AccessHTTP)
-	if !ok {
-		return 0, "", false
+	if ok && a.Protocol == "" {
+		a.Protocol = "http"
 	}
-	protocol = a.Protocol
-	if protocol == "" {
-		protocol = "http"
-	}
-	return a.Port, protocol, true
+	return a, ok
 }
 
 // validateAccess checks the access list of a node: known kinds, at most one entry of each, the keys each kind allows.

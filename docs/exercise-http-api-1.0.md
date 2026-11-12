@@ -245,6 +245,11 @@ Access: [ {Kind: "http", Port: 8080, Protocol: "http"},        // Protocol http 
   (absolute path) and `User` optional, no `Port`/`Protocol`; the entry being there means the console is on (there is no
   `Enabled`). Kinds `vnc` and `rdp`: `Port` required, nothing else.
 - A wrong entry answers 23506 with `field` = `access[N].kind` / `.port` / `.protocol` / `.command` / `.user`.
+- **Placeholder `external.link`** keeps its name and gains `Access` (`http` \| `terminal` \| `vnc` \| `rdp`, empty = `http`): the
+  link points to that access entry of `DeviceName`. The device must have an entry of that kind, otherwise the placeholder is
+  refused (the placeholder-node error, public context `device` and `access`); an unknown kind is a malformed placeholder.
+  Resolving the link is not done by the daemon today (the editor and the board build it); `terminal` resolves to the console
+  page of the device once the laboratory gives it, `vnc` and `rdp` resolve to nothing yet.
 - `http` is what `External` was: the web link of a device, the `external.link` placeholder, the readiness port. A device with no
   `http` entry has no web link (the placeholder is refused as before).
 - `vnc` and `rdp` are accepted and stored, but nothing serves them: the catalog shows them as unavailable, and a lab that needs
@@ -254,6 +259,12 @@ Access: [ {Kind: "http", Port: 8080, Protocol: "http"},        // Protocol http 
 - **A console is not meant for events.** Nothing bans it: `UsesConsole` (bool) is returned on the catalog card of an exercise
   (`ExerciseScope`), on the event's catalog choice (`publishedExerciseChoice`) and on the event's attached exercise, so the
   event side can show it. A ban would go next to `RequireNoStateTasks` in `loadAvailableVersion` (event_exercise.go).
+- **Console link of a test lab**: `POST /exercises/deploys/{deployID}/link` takes `Access` (`http` default, or `terminal`). With
+  `terminal` the link is `https://terminal.<base>/_auth?t=<token signed for the host "terminal">&next=/?lab=<lab>&device=<device>`
+  (the host is the constant `labaccess.TerminalHost`, the laboratory's chart value `terminal.host`; the base domain is taken from
+  the web address of any device of the lab). `Port` is ignored. 404 (33518) when the lab does not have the device or has no web
+  address to say its base domain: the console is then not available. 400 for any other `Access`. The same helper
+  (`labaccess.ConsoleSession`) is for the participant and moderator console links.
 - Stored versions: migration 0225 turns `external` and `terminal` into `access` (a terminal that was off leaves no entry).
 
 ## What an image itself runs: `POST /exercises/{id}/images/service`

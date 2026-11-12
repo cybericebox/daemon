@@ -296,6 +296,9 @@ type placeholderDTO struct {
 	Port        int    `json:"Port,omitempty"`
 	Path        string `json:"Path,omitempty"`
 	DeviceName  string `json:"DeviceName,omitempty"`
+	// Access (external.link only): the access entry of the device the link points to, http | terminal | vnc | rdp; empty =
+	// http. The device must have an entry of that kind. vnc and rdp are accepted and resolve to nothing yet.
+	Access string `json:"Access,omitempty" enums:"http,terminal,vnc,rdp"`
 }
 
 type taskDTO struct {
@@ -930,7 +933,7 @@ func (d taskDTO) toDomain() exerciseModel.Task {
 			Kind: exerciseModel.PlaceholderKind(p.Kind), IPReference: p.IPReference,
 			Octets1to3: p.Octets1to3, LastOctet: p.LastOctet, ShowMask: p.ShowMask,
 			AsLink: p.AsLink, Scheme: p.Scheme, Port: p.Port, Path: p.Path,
-			DeviceName: p.DeviceName,
+			DeviceName: p.DeviceName, Access: exerciseModel.AccessKind(p.Access),
 		})
 	}
 	return out
@@ -1260,7 +1263,7 @@ func taskToDTO(t exerciseModel.Task) taskDTO {
 		out.Placeholders = append(out.Placeholders, placeholderDTO{
 			Key:  p.Key,
 			Kind: string(p.Kind), IPReference: p.IPReference, Octets1to3: p.Octets1to3,
-			LastOctet: p.LastOctet, ShowMask: p.ShowMask, DeviceName: p.DeviceName,
+			LastOctet: p.LastOctet, ShowMask: p.ShowMask, DeviceName: p.DeviceName, Access: string(p.Access),
 			AsLink: p.AsLink, Scheme: p.Scheme, Port: p.Port, Path: p.Path,
 		})
 	}

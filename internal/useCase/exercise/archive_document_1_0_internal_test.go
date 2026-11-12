@@ -111,11 +111,11 @@ func TestToParsed_CheckShape(t *testing.T) {
 			reason(t, state(`{"device":"ghost","file":{"path":"/x"}}`)),
 			`no single device named "ghost"`,
 		)
-		require.Contains(t, reason(t, state(`{"device":"web"}`)), "exactly one of file and custom")
+		require.Contains(t, reason(t, state(`{"device":"web"}`)), "exactly one observation")
 		require.Contains(
 			t,
 			reason(t, state(`{"device":"web","file":{"path":"/x"},"custom":{"run":"true"}}`)),
-			"exactly one of file and custom",
+			"exactly one observation",
 		)
 	})
 	t.Run("interval takes a duration or 0", func(t *testing.T) {

@@ -354,6 +354,7 @@
   "32807": "Registry credentials not found",
   "32818": "The uploaded layer was not found",
   "33304": "Passkey not found",
+  "33518": "The console of the device is not available",
   "40211": "Event already has its own template for this notification type",
   "40903": "Exercise with this name already exists",
   "41102": "Event with this tag already exists",

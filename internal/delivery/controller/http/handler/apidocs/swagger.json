@@ -40185,10 +40185,19 @@
                 "Device"
             ],
             "properties": {
+                "Access": {
+                    "description": "Access is http (default) or terminal: the console of the device. For terminal Port is ignored and the link is signed for\nthe terminal host and opens the console page of the device. 404 (33518) when the lab cannot give a console link.",
+                    "type": "string",
+                    "enum": [
+                        "http",
+                        "terminal"
+                    ]
+                },
                 "Device": {
                     "type": "string"
                 },
                 "Port": {
+                    "description": "Port is the web port from the deploy status (access http).",
                     "type": "integer"
                 }
             }
@@ -41727,6 +41736,16 @@
         "exercise.placeholderDTO": {
             "type": "object",
             "properties": {
+                "Access": {
+                    "description": "Access (external.link only): the access entry of the device the link points to, http | terminal | vnc | rdp; empty =\nhttp. The device must have an entry of that kind. vnc and rdp are accepted and resolve to nothing yet.",
+                    "type": "string",
+                    "enum": [
+                        "http",
+                        "terminal",
+                        "vnc",
+                        "rdp"
+                    ]
+                },
                 "AsLink": {
                     "type": "boolean"
                 },

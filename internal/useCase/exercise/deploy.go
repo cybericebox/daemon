@@ -910,32 +910,9 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 // an event. The link is short-lived and fetched fresh on every click; the
 // platform sets no cookie on the lab domain.
 func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error) {
-	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
+	deploy, status, now, err := u.readyOwnedDeploy(ctx, userID, deployID)
 	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return labaccess.Link{}, exerciseModel.ErrTestDeployNotFound.Err()
-		}
-		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
-	}
-	if err = requireLab(deploy); err != nil {
 		return labaccess.Link{}, err
-	}
-	if u.infra == nil || u.sessions == nil {
-		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
-	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
-		return labaccess.Link{}, err
-	}
-	now := time.Now()
-	if !deploy.ExpiresAt.After(now) {
-		return labaccess.Link{}, exerciseModel.ErrTestDeployNotFound.Err()
-	}
-	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
-	if err != nil {
-		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
-	}
-	if !status.Ready {
-		return labaccess.Link{}, exerciseModel.ErrTestDeployNotReady.Err()
 	}
 	accessURL, ok := status.WebURL(device, port)
 	if !ok {
@@ -946,6 +923,64 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the test laboratory web link").Err()
 	}
 	return link, nil
+}
+
+// OpenTestDeployConsoleLink is the same for the console of one device (the `terminal` access entry): the token is signed for
+// the terminal host and the handoff opens the console page of the device (labaccess.ConsoleSession). A lab that cannot say
+// its base domain (it has no web address at all) or a device the lab does not have answers ErrTestDeployNoConsole: the
+// console is then not available.
+func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID, deployID uuid.UUID, device string) (labaccess.Link, error) {
+	deploy, status, now, err := u.readyOwnedDeploy(ctx, userID, deployID)
+	if err != nil {
+		return labaccess.Link{}, err
+	}
+	if !slices.ContainsFunc(status.Devices, func(d exerciseModel.LabDeployedDevice) bool { return d.Name == device }) || len(status.Access) == 0 {
+		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
+	}
+	accessURL, next, err := labaccess.ConsoleSession(status.Access[0].URL, deploy.LabName, device)
+	if err != nil {
+		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
+	}
+	link, err := u.sessions.Issue(ctx, labaccess.Session{Group: deploy.GroupName, Client: testClientName(userID), AccessURL: accessURL, Next: next, ExpiresAt: deploy.ExpiresAt}, now)
+	if err != nil {
+		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the test laboratory console link").Err()
+	}
+	return link, nil
+}
+
+// readyOwnedDeploy loads the author's own test deploy and its status, refusing one that is gone, expired or not ready.
+func (u *ExerciseUseCase) readyOwnedDeploy(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, exerciseModel.LabDeployStatus, time.Time, error) {
+	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return deploy, exerciseModel.LabDeployStatus{}, time.Time{}, exerciseModel.ErrTestDeployNotFound.Err()
+		}
+		return deploy, exerciseModel.LabDeployStatus{}, time.Time{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	fail := func(failure error) (exerciseModel.TestDeploy, exerciseModel.LabDeployStatus, time.Time, error) {
+		return deploy, exerciseModel.LabDeployStatus{}, time.Time{}, failure
+	}
+	if err = requireLab(deploy); err != nil {
+		return fail(err)
+	}
+	if u.infra == nil || u.sessions == nil {
+		return fail(infraModel.ErrInfrastructureUnavailable.Err())
+	}
+	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
+		return fail(err)
+	}
+	now := time.Now()
+	if !deploy.ExpiresAt.After(now) {
+		return fail(exerciseModel.ErrTestDeployNotFound.Err())
+	}
+	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
+	if err != nil {
+		return fail(model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err())
+	}
+	if !status.Ready {
+		return fail(exerciseModel.ErrTestDeployNotReady.Err())
+	}
+	return deploy, status, now, nil
 }
 
 // DestroyDeployTest tears a test deploy down: its Lab, and the author's whole group with the VPN
