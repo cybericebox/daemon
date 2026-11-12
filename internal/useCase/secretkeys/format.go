@@ -5,6 +5,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/cybericebox/daemon/pkg/secret"
 )
 
 // Write prints the report for an operator: the loaded key ids per family, then per column how many values each key
@@ -17,7 +19,11 @@ func (r Report) Write(w io.Writer) {
 	fmt.Fprintf(w, "Check: %s\n\nLoaded keys (the first one seals):\n", mode)
 	for _, f := range []Family{FamilyPlatform, FamilyVPN, FamilyExercise} {
 		if ids := r.Keys[f]; len(ids) > 0 {
-			fmt.Fprintf(w, "  %-9s %s\n", f, strings.Join(ids, ", "))
+			labels := make([]string, len(ids))
+			for i, id := range ids {
+				labels[i] = keyLabel(id)
+			}
+			fmt.Fprintf(w, "  %-9s %s\n", f, strings.Join(labels, ", "))
 		} else {
 			fmt.Fprintf(w, "  %-9s no key configured\n", f)
 		}
@@ -34,7 +40,7 @@ func (r Report) Write(w io.Writer) {
 		sort.Strings(ids)
 		parts := make([]string, 0, len(ids)+1)
 		for _, id := range ids {
-			parts = append(parts, fmt.Sprintf("key %s: %d", id, c.ByKey[id]))
+			parts = append(parts, fmt.Sprintf("key %s: %d", keyLabel(id), c.ByKey[id]))
 		}
 		if c.Legacy > 0 {
 			parts = append(parts, fmt.Sprintf("no key id (older form): %d", c.Legacy))
@@ -59,6 +65,14 @@ func (r Report) Write(w io.Writer) {
 		return
 	}
 	fmt.Fprintln(w, "\nRESULT: every stored value opens with the loaded keys.")
+}
+
+// keyLabel tells a key derived from the master key (its id says so and names the master version) from an explicit one.
+func keyLabel(id string) string {
+	if master, derived := secret.IsDerivedID(id); derived {
+		return fmt.Sprintf("%s (derived from master %s)", id, master)
+	}
+	return id + " (explicit)"
 }
 
 func (p Problem) describe() string {

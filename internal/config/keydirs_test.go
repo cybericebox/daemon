@@ -23,30 +23,30 @@ func keyDir(t *testing.T, current string, keys map[string]string) string {
 	return dir
 }
 
-func TestResolveKeyDirsReplacesTheVariableOfEachFamily(t *testing.T) {
+func TestResolveKeysReplacesTheVariableOfEachFamily(t *testing.T) {
 	var c Config
 	c.Platform.SecretsKey = dirKeyA // a stale variable: the directory wins
 	c.Platform.SecretsKeyDir = keyDir(t, "k2", map[string]string{"k1": dirKeyA, "k2": dirKeyB})
 	c.VPN.SecretsKey = dirKeyB // no directory: the variable stays
 	c.Auth.SessionEncryptionKeyDir = keyDir(t, "s1", map[string]string{"s1": dirKeyA})
 
-	require.NoError(t, c.ResolveKeyDirs())
+	require.NoError(t, c.ResolveKeys())
 	require.Equal(t, "k2:"+dirKeyB+",k1:"+dirKeyA, c.Platform.SecretsKey)
 	require.Equal(t, dirKeyB, c.VPN.SecretsKey)
 	require.Equal(t, "s1:"+dirKeyA, c.Auth.SessionEncryptionKey)
 	require.Empty(t, c.Exercise.SecretsKey)
 }
 
-func TestResolveKeyDirsNamesTheSettingOfABadDirectory(t *testing.T) {
+func TestResolveKeysNamesTheSettingOfABadDirectory(t *testing.T) {
 	var c Config
 	c.Exercise.SecretsKey = dirKeyA
 	c.Exercise.SecretsKeyDir = filepath.Join(t.TempDir(), "missing")
-	err := c.ResolveKeyDirs()
+	err := c.ResolveKeys()
 	require.ErrorContains(t, err, "EXERCISE_SECRETS_KEY_DIR")
 	require.Equal(t, dirKeyA, c.Exercise.SecretsKey, "no silent change of the key on a failure")
 
 	c.Exercise.SecretsKeyDir = keyDir(t, "nope", map[string]string{"k1": dirKeyA})
-	require.ErrorContains(t, c.ResolveKeyDirs(), "EXERCISE_SECRETS_KEY_DIR")
+	require.ErrorContains(t, c.ResolveKeys(), "EXERCISE_SECRETS_KEY_DIR")
 }
 
 func TestSecretsGuardModes(t *testing.T) {

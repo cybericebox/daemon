@@ -76,8 +76,13 @@ func run() error {
 			MinSpecialCharacters: cfg.Auth.Password.MinSpecialCharacters,
 		}}),
 	}
+	// The key comes from the same loader as the daemon's (master key, key directories): see config.ResolveKeys.
 	if key := cfg.Exercise.SecretsKey; key != "" {
-		deps.Cipher, _ = secret.New(key)
+		cipher, err := secret.New(key)
+		if err != nil {
+			return fmt.Errorf("the exercise secrets key: %w", err)
+		}
+		deps.Cipher = cipher
 	}
 	seeder := seed.New(deps)
 	opts := seed.Options{
