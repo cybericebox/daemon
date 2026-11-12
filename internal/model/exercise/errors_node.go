@@ -22,4 +22,9 @@ var (
 	// ErrNodeProfileVMUnsupported: the VM profile is in the model only and cannot be run yet.
 	ErrNodeProfileVMUnsupported = err.ErrConflict.WithObjectCode(model.NodeProfileObjectCode).
 					WithMessage("The VM profile cannot be run yet").WithDetailCode(4)
+	// ErrNodeProfilePersistence: state persistence is not offered for the microvm and vm profiles. The context field is
+	// "persistence" (the device's persistence block) next to device and profile.
+	ErrNodeProfilePersistence = err.ErrInvalidData.WithObjectCode(model.NodeProfileObjectCode).
+					WithMessage("State persistence is not available for devices with the microvm or vm profile").
+					WithDetailCode(5)
 )

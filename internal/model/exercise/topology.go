@@ -307,6 +307,12 @@ func (t Topology) validateStructure() error {
 				WithPublicContext("profile", string(d.Profile)).
 				Err()
 		}
+		if d.Persistence != nil && d.Persistence.Enabled && d.EffectiveProfile() != "" && d.EffectiveProfile() != NodeProfileContainer {
+			return ErrNodeProfilePersistence.WithPublicContext("device", d.Name).
+				WithPublicContext("profile", string(d.Profile)).
+				WithPublicContext("field", "persistence").
+				Err()
+		}
 		if reason := invalidPersistence(d); reason != "" {
 			return ErrDevicePersistenceInvalid.WithContext("device", d.Name).WithContext("reason", reason).Err()
 		}

@@ -271,6 +271,7 @@
   "23002": "A linked variant must differ from its base variant",
   "23101": "Unknown node profile, or a profile on a device that is not a node",
   "23102": "The platform does not support this node profile",
+  "23105": "State persistence is not available for devices with the microvm or vm profile",
   "23201": "This device name is reserved by the platform",
   "23302": "Passkey request expired, try again",
   "23303": "Passkey limit reached",

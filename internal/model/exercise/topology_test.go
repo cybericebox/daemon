@@ -631,6 +631,39 @@ func TestValidateStructure_DevicePersistence(t *testing.T) {
 	}
 }
 
+// Persistence is offered on the container profile only; absent or enabled:false stays valid on every profile.
+func TestValidateStructure_PersistenceRefusedOnMicroVMAndVM(t *testing.T) {
+	validate := func(device exerciseModel.Device) error {
+		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}})}}
+		return version.ValidateStructure()
+	}
+	for _, profile := range []exerciseModel.NodeProfile{exerciseModel.NodeProfileMicroVM, exerciseModel.NodeProfileVM} {
+		device := dev("db", exerciseModel.DeviceTypeContainer)
+		device.Profile = profile
+		for name, persistence := range map[string]*exerciseModel.DevicePersistence{
+			"absent": nil, "disabled": {Enabled: false}, "disabled with debounce": {Debounce: "5s"},
+		} {
+			device.Persistence = persistence
+			if err := validate(device); err != nil {
+				t.Fatalf("%s on %s must stay valid: %v", name, profile, err)
+			}
+		}
+		device.Persistence = &exerciseModel.DevicePersistence{Enabled: true}
+		err := validate(device)
+		if !errors.Is(err, exerciseModel.ErrNodeProfilePersistence.Err()) {
+			t.Fatalf("%s: persistence must be refused: %v", profile, err)
+		}
+	}
+	for _, profile := range []exerciseModel.NodeProfile{"", exerciseModel.NodeProfileContainer} {
+		device := dev("db", exerciseModel.DeviceTypeContainer)
+		device.Profile = profile
+		device.Persistence = &exerciseModel.DevicePersistence{Enabled: true}
+		if err := validate(device); err != nil {
+			t.Fatalf("container %q keeps persistence: %v", profile, err)
+		}
+	}
+}
+
 func TestValidateStructure_DeviceWaitReadyFile(t *testing.T) {
 	validate := func(device exerciseModel.Device) error {
 		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}})}}
