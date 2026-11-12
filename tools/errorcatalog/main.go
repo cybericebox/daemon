@@ -85,7 +85,7 @@ var declRe = regexp.MustCompile(`(?sU)(\w+)\s*=\s*err\.(\w+)\.\s*WithObjectCode\
 var msgRe = regexp.MustCompile(`WithMessage\(\s*"((?:[^"\\]|\\.)*)"`)
 
 func main() {
-	out, err := generate("internal/model", "pkg/ipam")
+	out, err := generate("internal/model")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "errorcatalog:", err)
 		os.Exit(1)
