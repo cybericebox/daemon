@@ -22,8 +22,8 @@ import (
 
 // Token sealing contexts: a ciphertext opens only as the token it was sealed as.
 const (
-	pushContext = "image-registry:push"
-	pullContext = "image-registry:pull"
+	PushContext = "image-registry:push"
+	PullContext = "image-registry:pull"
 )
 
 type (
@@ -194,10 +194,10 @@ func (u *ImageRegistryUseCase) platformToken(ctx context.Context, push bool) (im
 	var token string
 	if !push {
 		// a pull token that does not open counts as not set: the push token pulls too
-		token = u.open(s.PullTokenCiphertext, pullContext)
+		token = u.open(s.PullTokenCiphertext, PullContext)
 	}
 	if token == "" {
-		token = u.open(s.PushTokenCiphertext, pushContext)
+		token = u.open(s.PushTokenCiphertext, PushContext)
 	}
 	if token == "" {
 		return imageRegistryModel.Settings{}, "", nil

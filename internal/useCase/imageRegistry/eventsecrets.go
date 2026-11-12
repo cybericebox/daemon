@@ -11,9 +11,9 @@ import (
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 )
 
-// eventSecretContext binds a sealed token to its secret: a ciphertext copied
+// EventSecretContext binds a sealed token to its secret: a ciphertext copied
 // to another secret does not open.
-func eventSecretContext(id uuid.UUID) string { return "event-registry:" + id.String() }
+func EventSecretContext(id uuid.UUID) string { return "event-registry:" + id.String() }
 
 type (
 	// EventSecretView is an organizer registry secret as «Панель заходу» sees
@@ -76,7 +76,7 @@ func (u *ImageRegistryUseCase) CreateEventRegistrySecret(ctx context.Context, ev
 	if in.Token == "" {
 		return EventSecretView{}, imageRegistryModel.ErrEventSecretTokenMissing.Err()
 	}
-	ct, err := u.seal(in.Token, eventSecretContext(s.ID))
+	ct, err := u.seal(in.Token, EventSecretContext(s.ID))
 	if err != nil {
 		return EventSecretView{}, err
 	}
@@ -113,7 +113,7 @@ func (u *ImageRegistryUseCase) UpdateEventRegistrySecret(ctx context.Context, ev
 		return EventSecretView{}, imageRegistryModel.ErrEventSecretTokenRequired.Err()
 	}
 	if in.Token != "" {
-		ct, sealErr := u.seal(in.Token, eventSecretContext(s.ID))
+		ct, sealErr := u.seal(in.Token, EventSecretContext(s.ID))
 		if sealErr != nil {
 			return EventSecretView{}, sealErr
 		}
@@ -157,7 +157,7 @@ func (u *ImageRegistryUseCase) EventRegistrySecretsForDeploy(ctx context.Context
 	secrets := make([]imageRegistryModel.EventSecret, 0, len(all))
 	tokens := make(map[uuid.UUID]string, len(all))
 	for _, s := range all {
-		token := u.open(s.TokenCiphertext, eventSecretContext(s.ID))
+		token := u.open(s.TokenCiphertext, EventSecretContext(s.ID))
 		if token == "" {
 			continue
 		}

@@ -1498,7 +1498,7 @@ func (u *ExerciseUseCase) decryptTopologySecrets(variantID uuid.UUID, topo exerc
 			if u.cipher == nil {
 				return exerciseModel.Topology{}, exerciseModel.ErrSecretsNotConfigured.Err()
 			}
-			pt, err := u.cipher.DecryptWithContext(envs[ei].Value, envSecretContext(variantID, d.Name, envs[ei].Name))
+			pt, err := u.cipher.DecryptWithContext(envs[ei].Value, EnvSecretContext(variantID, d.Name, envs[ei].Name))
 			if err != nil {
 				return exerciseModel.Topology{}, model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt secret env var").Err()
 			}

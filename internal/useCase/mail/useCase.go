@@ -277,7 +277,7 @@ func (u *MailUseCase) connection(cfg mailModel.SMTPConfig, plainPassword string)
 		if u.cipher == nil {
 			return email.Config{}, mailModel.ErrSecretsUnavailable.Err()
 		}
-		plain, err := u.cipher.DecryptWithContext(cfg.PasswordCiphertext, passwordContext(cfg.ID))
+		plain, err := u.cipher.DecryptWithContext(cfg.PasswordCiphertext, PasswordContext(cfg.ID))
 		if err != nil {
 			return email.Config{}, model.ErrPlatform.WithError(err).WithMessage("Stored SMTP password cannot be decrypted").Err()
 		}
@@ -297,15 +297,15 @@ func (u *MailUseCase) seal(id uuid.UUID, password string) (string, error) {
 	if u.cipher == nil {
 		return "", mailModel.ErrSecretsUnavailable.Err()
 	}
-	ciphertext, err := u.cipher.EncryptWithContext([]byte(password), passwordContext(id))
+	ciphertext, err := u.cipher.EncryptWithContext([]byte(password), PasswordContext(id))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to seal SMTP password").Err()
 	}
 	return ciphertext, nil
 }
 
-// passwordContext binds ciphertext to its row: a copied value fails to open.
-func passwordContext(id uuid.UUID) []byte {
+// PasswordContext binds ciphertext to its row: a copied value fails to open.
+func PasswordContext(id uuid.UUID) []byte {
 	return []byte(fmt.Sprintf("mail.smtp:%s", id))
 }
 

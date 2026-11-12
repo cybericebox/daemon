@@ -51,14 +51,14 @@ func (u *ImageRegistryUseCase) toView(s imageRegistryModel.Settings, found bool)
 		return SettingsView{SecretsKeyMissing: u.cipher == nil}
 	}
 	at := s.UpdatedAt
-	pushSet := u.open(s.PushTokenCiphertext, pushContext) != ""
+	pushSet := u.open(s.PushTokenCiphertext, PushContext) != ""
 	return SettingsView{
 		Configured:        s.Configured() && pushSet,
 		Provider:          string(s.Provider),
 		Account:           s.Account,
 		Repository:        s.Repository,
 		PushTokenSet:      pushSet,
-		PullTokenSet:      u.open(s.PullTokenCiphertext, pullContext) != "",
+		PullTokenSet:      u.open(s.PullTokenCiphertext, PullContext) != "",
 		SecretsKeyMissing: u.cipher == nil,
 		UpdatedAt:         &at,
 		PushCheck:         toCheckView(s.PushCheck),
@@ -107,7 +107,7 @@ func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in
 	// read the possibly new repository). A kept one that no longer opens is dropped.
 	pull, dropKeptPull := in.PullToken, false
 	if pull == "" && !in.ClearPullToken && sameAccount && prev.PullTokenCiphertext != "" {
-		pull = u.open(prev.PullTokenCiphertext, pullContext)
+		pull = u.open(prev.PullTokenCiphertext, PullContext)
 		dropKeptPull = pull == ""
 	}
 	if pull != "" {
@@ -121,12 +121,12 @@ func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in
 	}
 	var pushCT, pullCT string
 	if in.PushToken != "" {
-		if pushCT, err = u.seal(in.PushToken, pushContext); err != nil {
+		if pushCT, err = u.seal(in.PushToken, PushContext); err != nil {
 			return SettingsView{}, err
 		}
 	}
 	if in.PullToken != "" {
-		if pullCT, err = u.seal(in.PullToken, pullContext); err != nil {
+		if pullCT, err = u.seal(in.PullToken, PullContext); err != nil {
 			return SettingsView{}, err
 		}
 	}
@@ -213,7 +213,7 @@ func (u *ImageRegistryUseCase) pushToken(prev imageRegistryModel.Settings, sameA
 		return given, nil
 	}
 	if sameAccount {
-		if t := u.open(prev.PushTokenCiphertext, pushContext); t != "" {
+		if t := u.open(prev.PushTokenCiphertext, PushContext); t != "" {
 			return t, nil
 		}
 	}
