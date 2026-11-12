@@ -33,13 +33,6 @@ func (v *Variant) NormalizeTaskKeys() {
 	}
 }
 
-// NormalizeTaskKeys applies Variant.NormalizeTaskKeys to every variant of a set.
-func NormalizeTaskKeys(variants []Variant) {
-	for i := range variants {
-		variants[i].NormalizeTaskKeys()
-	}
-}
-
 // ValidateDocument checks one variant against the document contract without asking for completeness (no
 // description, no hint texts): task keys and requires, the check of each task, the variables and every
 // substitution. The runtime keys of a device are checked with the topology (validateStructure).

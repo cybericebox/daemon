@@ -48,11 +48,3 @@ func CurrentUserSessionFromContext(ctx context.Context) (Claims, bool) {
 	}
 	return Claims{}, false
 }
-
-func MustCurrentUserSessionFromContext(ctx context.Context) Claims {
-	claims, ok := CurrentUserSessionFromContext(ctx)
-	if !ok {
-		panic("no current user session in context")
-	}
-	return claims
-}

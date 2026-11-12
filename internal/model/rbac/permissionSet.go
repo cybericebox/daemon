@@ -19,12 +19,3 @@ func (p permissionSet) InheritRoles(roles ...Role) permissionSet {
 	p.inherits = append(p.inherits, roles...)
 	return p
 }
-
-func (p permissionSet) AddPermissions(permissions ...Permission) permissionSet {
-	p.permissions = append(p.permissions, permissions...)
-	return p
-}
-
-func (p permissionSet) Permissions() []Permission {
-	return p.permissions
-}

@@ -33,15 +33,6 @@ type Load map[uuid.UUID]Amount
 // add puts a on top of the load of agent id.
 func (l Load) add(id uuid.UUID, a Amount) { l[id] = l[id].Add(a) }
 
-// Clone copies the load.
-func (l Load) Clone() Load {
-	out := make(Load, len(l))
-	for k, v := range l {
-		out[k] = v
-	}
-	return out
-}
-
 // Free is the room left on the agent under a load; never negative.
 func (a Agent) Free(load Amount) Amount {
 	return Amount{CPUMillicores: max(a.Capacity.CPUMillicores-load.CPUMillicores, 0), MemoryBytes: max(a.Capacity.MemoryBytes-load.MemoryBytes, 0)}
