@@ -59,7 +59,8 @@ type (
 		SecurityPreset string         `json:"securityPreset,omitempty"`
 		Resources      *labResources  `json:"resources,omitempty"`
 		Interfaces     []labInterface `json:"interfaces,omitempty"`
-		Exposure       *labExposure   `json:"exposure,omitempty"`
+		// Access is the ways to reach the device in the browser (http, terminal, vnc, rdp), one entry per kind.
+		Access []labAccess `json:"access,omitempty"`
 		// Persistence is the per-device state-persistence request; immutable once the lab exists.
 		Persistence *labPersistence `json:"persistence,omitempty"`
 		// WaitReadyFile: the device is Ready only once /run/ready exists inside the container.
@@ -67,8 +68,6 @@ type (
 		// Service is what the launcher runs after the bootstrap (contract 1.5); only for a device that has a bootstrap
 		// list or a command of its own.
 		Service *labService `json:"service,omitempty"`
-		// Terminal is the browser terminal of the device (contract 1.5).
-		Terminal *labTerminal `json:"terminal,omitempty"`
 	}
 
 	labService struct {
@@ -78,10 +77,14 @@ type (
 		WorkingDir string   `json:"workingDir,omitempty"`
 	}
 
-	labTerminal struct {
-		Enabled bool     `json:"enabled,omitempty"`
-		Command []string `json:"command,omitempty"`
-		User    string   `json:"user,omitempty"`
+	// labAccess is one entry of the device's access list: kind http | terminal | vnc | rdp. http, vnc and rdp take a port
+	// (http also a protocol); terminal takes a command (empty = /bin/sh) and a user (empty = the image's user).
+	labAccess struct {
+		Kind     string   `json:"kind"`
+		Port     int32    `json:"port,omitempty"`
+		Protocol string   `json:"protocol,omitempty"`
+		Command  []string `json:"command,omitempty"`
+		User     string   `json:"user,omitempty"`
 	}
 
 	labPersistence struct {
@@ -128,15 +131,6 @@ type (
 		MemoryRequest string `json:"memoryRequest,omitempty"`
 		CPULimit      string `json:"cpuLimit,omitempty"`
 		MemoryLimit   string `json:"memoryLimit,omitempty"`
-	}
-
-	labExposure struct {
-		Web *labWeb `json:"web,omitempty"`
-	}
-
-	labWeb struct {
-		Port     int32  `json:"port"`
-		Protocol string `json:"protocol,omitempty"`
 	}
 
 	labConnection struct {
@@ -274,9 +268,7 @@ func buildDevice(d exerciseModel.Device, labName string) labDevice {
 	if d.Persistence != nil {
 		out.Persistence = &labPersistence{Enabled: d.Persistence.Enabled, Debounce: d.Persistence.Debounce}
 	}
-	if web, ok := d.HTTPAccess(); ok {
-		out.Exposure = &labExposure{Web: &labWeb{Port: web.Port, Protocol: web.Protocol}}
-	}
+	out.Access = buildAccess(d)
 	return out
 }
 
@@ -293,13 +285,21 @@ func withRuntime(out labDevice, d exerciseModel.Device) (labDevice, error) {
 	if service != nil {
 		out.Service = &labService{Command: service.Command, Args: service.Args, User: service.User, WorkingDir: service.WorkingDir}
 	}
-	if terminal, ok := d.AccessOf(exerciseModel.AccessTerminal); ok {
-		out.Terminal = &labTerminal{Enabled: true, User: terminal.User}
-		if terminal.Command != "" {
-			out.Terminal.Command = []string{terminal.Command}
-		}
-	}
 	return out, nil
+}
+
+// buildAccess maps the access list of a device, one entry per kind as the document has it. The http protocol is written as the
+// document has it (empty = http, the default of the laboratory); a terminal command is one shell, so a one-item list.
+func buildAccess(d exerciseModel.Device) []labAccess {
+	var out []labAccess
+	for _, a := range d.Access {
+		entry := labAccess{Kind: string(a.Kind), Port: a.Port, Protocol: a.Protocol, User: a.User}
+		if a.Command != "" {
+			entry.Command = []string{a.Command}
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // buildInterface maps IP config. IPConfigType values line up 1:1 with the

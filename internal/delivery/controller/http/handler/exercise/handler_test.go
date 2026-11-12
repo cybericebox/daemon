@@ -2498,7 +2498,7 @@ func TestElevationCardCapacityHistoryAndPendingCount(t *testing.T) {
 func TestCapabilities_CarryTheLabBlockWithoutNamingALab(t *testing.T) {
 	uc := &fakeUC{capabilities: exerciseUseCase.LabCapabilitiesView{
 		LabCapabilities: infraModel.CapabilitiesOf([]*infraModel.AgentFeatures{
-			{Checks: &infraModel.ChecksFeature{Enabled: true}, Terminal: &infraModel.TerminalFeature{Enabled: true}, Bootstrap: &infraModel.BootstrapFeature{}},
+			{Checks: &infraModel.ChecksFeature{Enabled: true}, Access: &infraModel.AccessFeature{HTTP: true, Terminal: true}, Bootstrap: &infraModel.BootstrapFeature{}},
 			nil,
 		}),
 		Profiles: map[string]infraModel.Availability{"container": infraModel.AvailabilityAll, "microvm": infraModel.AvailabilityNone, "vm": infraModel.AvailabilityNone},

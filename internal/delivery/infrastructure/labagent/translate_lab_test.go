@@ -120,7 +120,7 @@ func TestBuildLab_NoBootstrapNoChecksIsTheOldLab(t *testing.T) {
 	var spec labSpec
 	require.NoError(t, json.Unmarshal(build.SpecJSON, &spec))
 	require.Nil(t, spec.Devices[0].Service, "the image decides: nothing is told")
-	require.Nil(t, spec.Devices[0].Terminal)
+	require.Empty(t, spec.Devices[0].Access)
 }
 
 func TestBuildLab_ServiceUnknownRefusesAndNamesTheDevice(t *testing.T) {
@@ -142,28 +142,63 @@ func TestBuildLab_DoesNotPutSecretsInTheSpec(t *testing.T) {
 	}
 }
 
-// A condition the laboratory contract has no message for is an error that names it; a part is never left out silently.
-// The kinds are mapped in checks_parts.go when the contract carries them.
-func TestBuildLabChecks_RefusesWhatTheContractLacks(t *testing.T) {
+// Every observation maps to its laboratory message with the keys the contract expects; the expectations of a kind are only
+// carried to the lab as the contract lists them. A condition with no observation is an error, never a part left out.
+func TestBuildLabChecks_MapsEveryObservation(t *testing.T) {
+	yes, no := true, false
 	check := func(c exerciseModel.Condition) []exerciseModel.LabCheck {
 		return []exerciseModel.LabCheck{{ID: "s:1", Device: "web", Parts: []exerciseModel.LabCheckPart{{Condition: c}}}}
 	}
-	for name, c := range map[string]exerciseModel.Condition{
-		"directory":     {Directory: &exerciseModel.DirectoryObservation{Path: "/srv"}},
-		"process":       {Process: &exerciseModel.ProcessObservation{Name: "nginx"}},
-		"port":          {Port: &exerciseModel.PortObservation{Port: 80}},
-		"kernel_param":  {KernelParam: &exerciseModel.KernelParamObservation{Name: "a.b", Equals: "1"}},
-		"request":       {Request: &exerciseModel.RequestObservation{Protocol: "tcp", Port: 80}},
-		"permission":    {Permission: &exerciseModel.PermissionObservation{User: "u", Path: "/p", Read: new(bool)}},
-		"file checksum": {File: &exerciseModel.FileObservation{Path: "/x", Checksum: strings.Repeat("a", 64)}},
-		"file type":     {File: &exerciseModel.FileObservation{Path: "/x", Type: "symlink"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := buildLabChecks(check(c))
-			require.ErrorIs(t, err, exerciseModel.ErrRuntimeNotSupported.Err())
-		})
+	part := func(c exerciseModel.Condition) *labpb.CheckPart {
+		out, err := buildLabChecks(check(c))
+		require.NoError(t, err)
+		return out.GetItems()[0].GetParts()[0]
 	}
-	out, err := buildLabChecks(check(exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/x", Contains: "a"}}))
-	require.NoError(t, err)
-	require.Len(t, out.GetItems()[0].GetParts(), 1)
+
+	file := part(exerciseModel.Condition{File: &exerciseModel.FileObservation{Path: "/x", Type: "symlink", Checksum: strings.Repeat("A", 64)}}).GetFile()
+	require.Equal(t, "symlink", file.GetType())
+	require.Equal(t, strings.Repeat("a", 64), file.GetChecksum(), "the lab wants lower-case hex")
+
+	dir := part(exerciseModel.Condition{Directory: &exerciseModel.DirectoryObservation{Path: "/srv", Mode: "0750", Owner: "www", HasEntries: []string{"a"}, LacksEntries: []string{"b"}}}).GetDirectory()
+	require.Equal(t, "/srv", dir.GetPath())
+	require.True(t, dir.GetExists(), "exists is true unless the author said false")
+	require.EqualValues(t, 0o750, dir.GetMode())
+	require.Equal(t, []string{"a"}, dir.GetHasEntries())
+	require.Equal(t, []string{"b"}, dir.GetLacksEntries())
+	gone := part(exerciseModel.Condition{Directory: &exerciseModel.DirectoryObservation{Path: "/srv", Exists: &no}}).GetDirectory()
+	require.False(t, gone.GetExists())
+
+	proc := part(exerciseModel.Condition{Process: &exerciseModel.ProcessObservation{Name: "nginx", User: "www", Running: &no}}).GetProcess()
+	require.Equal(t, "nginx", proc.GetName())
+	require.Nil(t, proc.Matches, "a key not written is not sent")
+	require.False(t, proc.GetRunning())
+
+	port := part(exerciseModel.Condition{Port: &exerciseModel.PortObservation{Port: 8080, Protocol: "udp", Listening: &yes, Address: "127.0.0.1", Process: "nginx"}}).GetPort()
+	require.EqualValues(t, 8080, port.GetPort())
+	require.Equal(t, "udp", port.GetProtocol())
+	require.Equal(t, "127.0.0.1", port.GetAddress())
+
+	kernel := part(exerciseModel.Condition{KernelParam: &exerciseModel.KernelParamObservation{Name: "net.ipv4.ip_forward", Equals: "1"}}).GetKernelParam()
+	require.Equal(t, "net.ipv4.ip_forward", kernel.GetName())
+	require.Equal(t, "1", kernel.GetEquals())
+	require.Nil(t, kernel.Matches)
+
+	request := part(exerciseModel.Condition{Request: &exerciseModel.RequestObservation{Protocol: "http", Port: 80, Method: "HEAD", Path: "/h", Status: 204, BodyContains: "ok"}}).GetRequest()
+	require.Equal(t, "HEAD", request.GetMethod())
+	require.EqualValues(t, 204, request.GetStatus())
+	require.Equal(t, "ok", request.GetBodyContains())
+	plain := part(exerciseModel.Condition{Request: &exerciseModel.RequestObservation{Protocol: "tcp", Port: 5432}}).GetRequest()
+	require.Nil(t, plain.Status, "no status written: the lab's default of 200 applies")
+
+	permission := part(exerciseModel.Condition{Permission: &exerciseModel.PermissionObservation{User: "www", Path: "/etc/shadow", Read: &no, Write: &no}}).GetPermission()
+	require.Equal(t, "www", permission.GetUser())
+	require.False(t, permission.GetRead())
+	require.Nil(t, permission.Execute)
+
+	custom := part(exerciseModel.Condition{Custom: &exerciseModel.CustomObservation{Run: "true"}}).GetCustom()
+	require.Equal(t, "true", custom.GetScript())
+	require.Empty(t, custom.GetUser(), "an empty user is nobody in the lab; the daemon writes no default")
+
+	_, err := buildLabChecks(check(exerciseModel.Condition{}))
+	require.ErrorIs(t, err, exerciseModel.ErrRuntimeNotSupported.Err())
 }

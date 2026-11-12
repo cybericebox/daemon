@@ -934,6 +934,10 @@ func (u *ExerciseUseCase) OpenTestDeployConsoleLink(ctx context.Context, userID,
 	if err != nil {
 		return labaccess.Link{}, err
 	}
+	// No laboratory that is used serves a console (its option is off or its component is missing): not available.
+	if u.LabCapabilities(ctx).Access["terminal"] == infraModel.AvailabilityNone {
+		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
+	}
 	if !slices.ContainsFunc(status.Devices, func(d exerciseModel.LabDeployedDevice) bool { return d.Name == device }) || len(status.Access) == 0 {
 		return labaccess.Link{}, exerciseModel.ErrTestDeployNoConsole.Err()
 	}

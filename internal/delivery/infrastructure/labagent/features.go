@@ -104,7 +104,7 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		PersistenceUnavailable: infraModel.ParseUnavailableReason(p.GetUnavailableReason()),
 		LifecycleUnavailable:   infraModel.ParseUnavailableReason(life.GetUnavailableReason()),
 		Checks:                 checksFeatureOf(r.GetChecks()),
-		Terminal:               terminalFeatureOf(r.GetTerminal()),
+		Access:                 accessFeatureOf(r.GetAccess()),
 		Bootstrap:              bootstrapFeatureOf(r.GetBootstrap()),
 		VPN:                    vpnFeatureOf(r.GetVpn()),
 	}
@@ -118,6 +118,7 @@ func checksFeatureOf(c *labpb.ChecksFeature) *infraModel.ChecksFeature {
 	return &infraModel.ChecksFeature{
 		Enabled: c.GetEnabled(), MaxChecksPerLab: c.GetMaxChecksPerLab(), MaxPartsPerCheck: c.GetMaxPartsPerCheck(),
 		MaxTimeLimitSeconds: c.GetMaxTimeLimitSeconds(), MaxScheduleSeconds: c.GetMaxScheduleSeconds(), MaxDetailBytes: c.GetMaxDetailBytes(),
+		Observations: append([]string(nil), c.GetObservations()...),
 	}
 }
 
@@ -128,11 +129,11 @@ func vpnFeatureOf(v *labpb.VPNFeature) *infraModel.VPNFeature {
 	return &infraModel.VPNFeature{ReverseConnections: v.GetReverseConnections()}
 }
 
-func terminalFeatureOf(t *labpb.TerminalFeature) *infraModel.TerminalFeature {
-	if t == nil {
+func accessFeatureOf(a *labpb.AccessFeature) *infraModel.AccessFeature {
+	if a == nil {
 		return nil
 	}
-	return &infraModel.TerminalFeature{Enabled: t.GetEnabled()}
+	return &infraModel.AccessFeature{HTTP: a.GetHttp(), Terminal: a.GetTerminal(), VNC: a.GetVnc(), RDP: a.GetRdp()}
 }
 
 func bootstrapFeatureOf(b *labpb.BootstrapFeature) *infraModel.BootstrapFeature {

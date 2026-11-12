@@ -67,8 +67,9 @@ expression is quoted. The built-in observations (all but `Custom`) run nothing o
 A wrong key answers 23505 with `field` = `check.state.conditions[N].<observation>.<key>` (for example
 `check.state.conditions[2].port.port`); none or several observations answer `...conditions[N].observation`. A laboratory that
 does not offer an observation kind the task uses is refused with 73512 and `options` = `checks.observation.<kind>`
-(`checks.observation.file.type` / `file.checksum` for those two file keys); until the laboratory contract carries the new
-kinds, a laboratory reports only `file` and `custom`. Nothing is dropped silently.
+(`checks.observation.file.type` / `file.checksum` for those two file keys); the laboratory lists the kinds its checker runs
+(`ChecksFeature.observations`); one that lists none is the first generation and runs `file` and `custom` only. The file keys
+`file.type` and `file.checksum` come with a listed `file`. Nothing is dropped silently.
 
 ### Device (nodes only; a switch or hub with any of these is refused)
 
@@ -431,7 +432,7 @@ LabCapabilities: {
   neither warns nor disables on `unknown`.
 - **Meaning per key.** `Observations`: the kinds of a state check the checker runs, plus the two file keys; an agent that lists
   none is a first-generation checker and runs `file` and `custom` only. `Access`: `http` is always served, `terminal` when the
-  terminal option is on, `vnc` and `rdp` are always `none` (accepted by the schema, not served). `Profiles`: the platform
+  laboratory reports it served (`AccessFeature.terminal`: the option is on and the component is there), `vnc` and `rdp` are always `none` (accepted by the schema, not served). `Profiles`: the platform
   setting «Профілі вузлів» (`all` when ticked, else `none`), the same for every laboratory. `Bootstrap`: device initialization
   (files, script) and the service command. `Checks`: state checks are switched on. `VPNReverse`: `topology.vpn.reverse_connections`
   can be enforced.
@@ -466,3 +467,15 @@ reads these texts, so an answer or an infrastructure value would be shown to eve
 document. `0` is refused: on a save with 400 (binding) and on import with the archive-invalid error whose reason names
 `versions[V].variants[N].weight`. To stop giving a variant out, delete it. Stored data from before the rule may hold 0 (a draft
 saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without `Weight`, so the editor saves it back without one. No data migration is needed.
+
+## Laboratory contract mapping (device access, observations)
+
+- The device goes to the laboratory with `access[]` {kind, port, protocol, command[], user} (the terminal command is a one-item list);
+  `exposure` and `terminal` are gone from the message. A lab that does not serve a kind the exercise needs is refused (73512
+  `terminal`, 73509 `access.vnc` / `access.rdp`).
+- Features: `Features.Access` {HTTP, Terminal, VNC, RDP} replaces `Terminal`; an agent that reports none serves http only.
+  `GET /infrastructure/agents` keeps `TerminalEnabled` (now: the terminal is served).
+- Every observation is sent to the laboratory in its own message; expected values are resolved in the daemon and kept by the
+  laboratory's checker. `custom.user` empty is `nobody` in the laboratory; the daemon writes no default. A `file` checksum is sent in lower case.
+- The console link uses the constant host `terminal` (`labaccess.TerminalHost`): the laboratory does not report its terminal host.
+  The console link is refused (33518) when no laboratory that is used serves a console.

@@ -31,3 +31,11 @@ func TestLabCapabilitiesView(t *testing.T) {
 	require.Equal(t, infraModel.AvailabilityAll, view.Checks)
 	require.Equal(t, infraModel.AvailabilityNone, view.Access["terminal"])
 }
+
+// The view says "none" for the console when no laboratory that is used serves one (the console link is then refused).
+func TestLabCapabilitiesView_NoConsoleWhenNoLabServesOne(t *testing.T) {
+	infra := &capabilityInfra{caps: infraModel.CapabilitiesOf([]*infraModel.AgentFeatures{{Access: &infraModel.AccessFeature{HTTP: true}}})}
+	view := exercise.NewExerciseUseCase(exercise.Dependencies{Infra: infra}).LabCapabilities(context.Background())
+	require.Equal(t, infraModel.AvailabilityNone, view.Access["terminal"])
+	require.Equal(t, infraModel.AvailabilityAll, view.Access["http"])
+}

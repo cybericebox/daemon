@@ -89,14 +89,8 @@ func CapabilitiesOf(labs []*AgentFeatures) LabCapabilities {
 	for _, key := range CapabilityObservationKeys() {
 		out.Observations[key] = pick(func(f *AgentFeatures) bool { return f.Checks != nil && f.Checks.Enabled && f.Checks.Offers(key) })
 	}
-	served := map[string]func(*AgentFeatures) bool{
-		"http":     func(*AgentFeatures) bool { return true },
-		"terminal": func(f *AgentFeatures) bool { return f.Terminal != nil && f.Terminal.Enabled },
-		"vnc":      func(*AgentFeatures) bool { return false },
-		"rdp":      func(*AgentFeatures) bool { return false },
-	}
 	for _, key := range CapabilityAccessKeys() {
-		out.Access[key] = pick(served[key])
+		out.Access[key] = pick(func(f *AgentFeatures) bool { return f.ServesAccess(key) })
 	}
 	out.Bootstrap = pick(func(f *AgentFeatures) bool { return f.Bootstrap != nil })
 	out.Checks = pick(func(f *AgentFeatures) bool { return f.Checks != nil && f.Checks.Enabled })

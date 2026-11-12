@@ -20,17 +20,18 @@ func TestRequireLabOptionsRefusesObservationsTheCheckerLacks(t *testing.T) {
 		return withContext.PublicContext()["options"].(string)
 	}
 
-	// A checker that lists nothing is the first one (contract 1.5): file and custom only.
+	// A checker that lists nothing is the first generation: file and custom only, and not the file keys type and checksum.
 	first := &infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{Enabled: true}}
 	require.Equal(t, "checks.observation.directory; checks.observation.file.checksum", refused(first))
 
+	// A checker that lists its kinds reads the file keys too (they come with "file"), but runs only what it lists.
 	newer := &infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{
-		Enabled: true, Observations: []string{"file", "custom", "directory"},
+		Enabled: true, Observations: []string{"file", "custom", "process"},
 	}}
-	require.Equal(t, "checks.observation.file.checksum", refused(newer))
+	require.Equal(t, "checks.observation.directory", refused(newer))
 
 	full := &infraModel.AgentFeatures{Checks: &infraModel.ChecksFeature{
-		Enabled: true, Observations: []string{"file", "custom", "directory", "file.checksum"},
+		Enabled: true, Observations: []string{"file", "custom", "directory"},
 	}}
 	require.NoError(t, full.RequireLabOptions(needs))
 	require.NoError(t, first.RequireLabOptions(exerciseModel.LabNeeds{Checks: true, Observations: []string{"custom", "file"}}))

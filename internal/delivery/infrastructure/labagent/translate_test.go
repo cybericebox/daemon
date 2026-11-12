@@ -2,6 +2,7 @@ package labagent
 
 import (
 	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -188,7 +189,7 @@ func TestBuildLabSpec_NoneOmitsAddrKey(t *testing.T) {
 	}
 }
 
-func TestBuildLabSpec_ExposureAndPreset(t *testing.T) {
+func TestBuildLabSpec_AccessAndPreset(t *testing.T) {
 	dev := exerciseModel.Device{
 		ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer,
 		Image: "nginx", SecurityPreset: exerciseModel.SecurityPresetStandard,
@@ -202,8 +203,8 @@ func TestBuildLabSpec_ExposureAndPreset(t *testing.T) {
 	if d.SecurityPreset != "standard" || d.Image != "nginx" {
 		t.Errorf("device meta wrong: %+v", d)
 	}
-	if d.Exposure == nil || d.Exposure.Web == nil || d.Exposure.Web.Port != 443 || d.Exposure.Web.Protocol != "https" {
-		t.Errorf("exposure wrong: %+v", d.Exposure)
+	if len(d.Access) != 1 || d.Access[0].Kind != "http" || d.Access[0].Port != 443 || d.Access[0].Protocol != "https" {
+		t.Errorf("access wrong: %+v", d.Access)
 	}
 }
 
@@ -339,5 +340,30 @@ func TestBuildLabSpec_WaitReadyFile(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"waitReadyFile":true`) || strings.Count(string(b), "waitReadyFile") != 1 {
 		t.Fatalf("only the device that asks carries the key: %s", b)
+	}
+}
+
+// The access list goes out as it is in the document, one entry per kind; a terminal command is a one-item list.
+func TestBuildLabSpec_AccessListWithEveryKind(t *testing.T) {
+	dev := exerciseModel.Device{
+		ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeNode, Image: "nginx",
+		Access: []exerciseModel.Access{
+			{Kind: exerciseModel.AccessHTTP, Port: 80},
+			{Kind: exerciseModel.AccessTerminal, Command: "/bin/bash", User: "app"},
+			{Kind: exerciseModel.AccessVNC, Port: 5900},
+			{Kind: exerciseModel.AccessRDP, Port: 3389},
+		},
+	}
+	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{dev}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := decode(t, b).Devices[0].Access
+	want := []labAccess{
+		{Kind: "http", Port: 80}, {Kind: "terminal", Command: []string{"/bin/bash"}, User: "app"},
+		{Kind: "vnc", Port: 5900}, {Kind: "rdp", Port: 3389},
+	}
+	if !reflect.DeepEqual(access, want) {
+		t.Fatalf("access = %+v, want %+v", access, want)
 	}
 }

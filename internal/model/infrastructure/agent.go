@@ -105,10 +105,10 @@ type AgentFeatures struct {
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
 	// Reservations is how the agent's reservations work.
 	Reservations ReservationsFeature `json:"reservations"`
-	// Checks, Terminal and Bootstrap are the optional parts of contract 1.5 (nil: the agent reports none, it is older than the
-	// fields: nothing of it is offered).
+	// Checks, Access and Bootstrap are the optional parts of contract 1.5 (nil: the agent reports none, it is older than the
+	// fields: nothing of it is offered; no Access is the http access only).
 	Checks    *ChecksFeature    `json:"checks,omitempty"`
-	Terminal  *TerminalFeature  `json:"terminal,omitempty"`
+	Access    *AccessFeature    `json:"access,omitempty"`
 	Bootstrap *BootstrapFeature `json:"bootstrap,omitempty"`
 	// VPN is the VPN gateway option of the agent (nil: an older agent, which neither enforces the block of lab-initiated
 	// connections nor accepts the key that allows them).
@@ -119,7 +119,7 @@ type AgentFeatures struct {
 	LifecycleUnavailable   *UnavailableReason `json:"lifecycle_unavailable,omitempty"`
 }
 
-// ChecksFeature: lab checks are switched on and their limits. Terminal: the browser terminal is switched on.
+// ChecksFeature: lab checks are switched on and their limits. Access: which device access kinds are served.
 // Bootstrap: the limits of a device bootstrap (it is always available on a 1.5 agent).
 type (
 	ChecksFeature struct {
@@ -133,8 +133,13 @@ type (
 		// "file.type" and "file.checksum"). Empty: the agent reports none, which is a contract 1.5 agent: file and custom.
 		Observations []string `json:"observations,omitempty"`
 	}
-	TerminalFeature struct {
-		Enabled bool `json:"enabled"`
+	// AccessFeature says which device access kinds the laboratory serves: http always, terminal when its option is on and the
+	// component that serves it is there, vnc and rdp never in this version.
+	AccessFeature struct {
+		HTTP     bool `json:"http"`
+		Terminal bool `json:"terminal"`
+		VNC      bool `json:"vnc"`
+		RDP      bool `json:"rdp"`
 	}
 	BootstrapFeature struct {
 		MaxScriptBytes      int32 `json:"max_script_bytes"`
@@ -146,16 +151,39 @@ type (
 	}
 )
 
-// legacyObservations are the observations of the first checker (contract 1.5), which does not list them.
+// legacyObservations are the observations of the first checker, which does not list them.
 var legacyObservations = []string{"file", "custom"}
 
-// Offers reports whether the checker runs the observation kind.
+// Offers reports whether the checker runs the observation kind. The checker lists its kinds; the file keys "file.type" and
+// "file.checksum" come with the list itself (a checker that lists its kinds reads them), so they are offered when "file" is
+// listed. A checker that lists none is the first generation: file and custom, nothing more.
 func (c ChecksFeature) Offers(kind string) bool {
-	list := c.Observations
-	if len(list) == 0 {
-		list = legacyObservations
+	if len(c.Observations) == 0 {
+		return slices.Contains(legacyObservations, kind)
 	}
-	return slices.Contains(list, kind)
+	if kind == "file.type" || kind == "file.checksum" {
+		return slices.Contains(c.Observations, "file")
+	}
+	return slices.Contains(c.Observations, kind)
+}
+
+// ServesAccess reports whether the laboratory serves a device access kind (http, terminal, vnc, rdp). An agent that reports no
+// access serves http only.
+func (f AgentFeatures) ServesAccess(kind string) bool {
+	if f.Access == nil {
+		return kind == "http"
+	}
+	switch kind {
+	case "http":
+		return f.Access.HTTP
+	case "terminal":
+		return f.Access.Terminal
+	case "vnc":
+		return f.Access.VNC
+	case "rdp":
+		return f.Access.RDP
+	}
+	return false
 }
 
 // VPNFeature says the agent enforces the block of connections the lab starts to VPN clients and accepts spec.vpn.reverseConnections.
@@ -193,7 +221,7 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 			}
 		}
 	}
-	if n.Terminal && (f.Terminal == nil || !f.Terminal.Enabled) {
+	if n.Terminal && !f.ServesAccess("terminal") {
 		refused = append(refused, "terminal")
 	}
 	if n.Bootstrap {

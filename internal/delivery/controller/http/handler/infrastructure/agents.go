@@ -231,7 +231,7 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 	if f.Checks != nil {
 		out.ChecksEnabled, out.ChecksMaxPerLab = f.Checks.Enabled, f.Checks.MaxChecksPerLab
 	}
-	out.TerminalEnabled = f.Terminal != nil && f.Terminal.Enabled
+	out.TerminalEnabled = f.ServesAccess("terminal")
 	out.BootstrapAvailable = f.Bootstrap != nil
 	return &out
 }

@@ -1,6 +1,15 @@
 {
   "devices": [
     {
+      "access": [
+        {
+          "command": [
+            "/bin/bash"
+          ],
+          "kind": "terminal",
+          "user": "root"
+        }
+      ],
       "image": "registry.example/frr:10",
       "name": "r1",
       "service": {
@@ -13,13 +22,6 @@
         ],
         "user": "frr",
         "workingDir": "/var/run/frr"
-      },
-      "terminal": {
-        "command": [
-          "/bin/bash"
-        ],
-        "enabled": true,
-        "user": "root"
       },
       "type": "container"
     },

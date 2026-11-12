@@ -8,8 +8,8 @@ import (
 
 func full() *AgentFeatures {
 	return &AgentFeatures{
-		Checks:    &ChecksFeature{Enabled: true, Observations: []string{"file", "custom", "directory", "file.type", "file.checksum"}},
-		Terminal:  &TerminalFeature{Enabled: true},
+		Checks:    &ChecksFeature{Enabled: true, Observations: []string{"file", "custom", "directory"}},
+		Access:    &AccessFeature{HTTP: true, Terminal: true},
 		Bootstrap: &BootstrapFeature{},
 		VPN:       &VPNFeature{ReverseConnections: true},
 	}
@@ -51,4 +51,17 @@ func TestCapabilitiesOfAggregates(t *testing.T) {
 	require.Equal(t, AvailabilitySome, pending.Observations["file"], "one that has not reported may not run it")
 	require.Equal(t, AvailabilityUnknown, pending.Observations["permission"], "none reporting yes, one still unknown: do not forbid")
 	require.Equal(t, AvailabilityNone, CapabilitiesOf([]*AgentFeatures{old(), old()}).Access["terminal"])
+}
+
+// The access kinds come from what the laboratory reports; one that reports none serves http only; vnc and rdp are never served.
+func TestServesAccess(t *testing.T) {
+	require.True(t, (AgentFeatures{}).ServesAccess("http"))
+	require.False(t, (AgentFeatures{}).ServesAccess("terminal"), "an agent older than the field serves http only")
+	reported := AgentFeatures{Access: &AccessFeature{HTTP: true, Terminal: true}}
+	require.True(t, reported.ServesAccess("terminal"))
+	require.False(t, reported.ServesAccess("vnc"))
+	require.False(t, reported.ServesAccess("rdp"))
+	require.False(t, reported.ServesAccess("ssh"))
+	require.True(t, (&ChecksFeature{Observations: []string{"file"}}).Offers("file.checksum"), "the file keys come with a listed file")
+	require.False(t, (&ChecksFeature{Observations: []string{"custom"}}).Offers("file.type"))
 }

@@ -47,7 +47,7 @@ func labNeedingEverything() (exerciseModel.Topology, infraModel.LabMeta) {
 func allOptions() *infraModel.AgentFeatures {
 	return &infraModel.AgentFeatures{
 		Checks:    &infraModel.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400},
-		Terminal:  &infraModel.TerminalFeature{Enabled: true},
+		Access:    &infraModel.AccessFeature{HTTP: true, Terminal: true},
 		Bootstrap: &infraModel.BootstrapFeature{MaxScriptBytes: 65536, MaxFiles: 32, MaxFileBytes: 262144, MaxTotalBytes: 524288, MaxTimeLimitSeconds: 3600, MaxAttempts: 3},
 	}
 }
@@ -62,7 +62,7 @@ func TestFleetRefusesALabThatNeedsAnOptionTheAgentLacks(t *testing.T) {
 		options  string
 	}{
 		"checks off":   {features: func() *infraModel.AgentFeatures { f := allOptions(); f.Checks.Enabled = false; return f }(), options: "checks"},
-		"terminal off": {features: func() *infraModel.AgentFeatures { f := allOptions(); f.Terminal.Enabled = false; return f }(), options: "terminal"},
+		"terminal off": {features: func() *infraModel.AgentFeatures { f := allOptions(); f.Access.Terminal = false; return f }(), options: "terminal"},
 		"older agent":  {features: &infraModel.AgentFeatures{}, options: "checks; terminal; bootstrap"},
 		"too many files": {features: func() *infraModel.AgentFeatures {
 			f := allOptions()
@@ -102,7 +102,7 @@ func TestFleetRefusesALabThatNeedsAnOptionTheAgentLacks(t *testing.T) {
 		f := newFleetFixture(t)
 		f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
 		f.a.features = &labpb.FeaturesResponse{
-			Checks: &labpb.ChecksFeature{Enabled: true}, Terminal: &labpb.TerminalFeature{Enabled: true}, Bootstrap: &labpb.BootstrapFeature{},
+			Checks: &labpb.ChecksFeature{Enabled: true}, Access: &labpb.AccessFeature{Http: true, Terminal: true}, Bootstrap: &labpb.BootstrapFeature{},
 		}
 		require.NoError(t, f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", meta, topology))
 	})
@@ -117,17 +117,17 @@ func TestFleetRefusesALabThatNeedsAnOptionTheAgentLacks(t *testing.T) {
 
 func TestFeaturesOfReadsTheOptionsOfContract15(t *testing.T) {
 	got := FeaturesOf(&labpb.FeaturesResponse{
-		Checks:    &labpb.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048},
-		Terminal:  &labpb.TerminalFeature{Enabled: true},
+		Checks:    &labpb.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048, Observations: []string{"file", "custom", "directory"}},
+		Access:    &labpb.AccessFeature{Http: true, Terminal: true},
 		Bootstrap: &labpb.BootstrapFeature{MaxScriptBytes: 1, MaxFiles: 2, MaxFileBytes: 3, MaxTotalBytes: 4, MaxTimeLimitSeconds: 5, MaxAttempts: 6},
 	})
-	require.Equal(t, &infraModel.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048}, got.Checks)
-	require.Equal(t, &infraModel.TerminalFeature{Enabled: true}, got.Terminal)
+	require.Equal(t, &infraModel.ChecksFeature{Enabled: true, MaxChecksPerLab: 64, MaxPartsPerCheck: 8, MaxTimeLimitSeconds: 600, MaxScheduleSeconds: 86400, MaxDetailBytes: 2048, Observations: []string{"file", "custom", "directory"}}, got.Checks)
+	require.Equal(t, &infraModel.AccessFeature{HTTP: true, Terminal: true}, got.Access)
 	require.Equal(t, &infraModel.BootstrapFeature{MaxScriptBytes: 1, MaxFiles: 2, MaxFileBytes: 3, MaxTotalBytes: 4, MaxTimeLimitSeconds: 5, MaxAttempts: 6}, got.Bootstrap)
 
 	old := FeaturesOf(&labpb.FeaturesResponse{})
 	require.Nil(t, old.Checks)
-	require.Nil(t, old.Terminal)
+	require.Nil(t, old.Access)
 	require.Nil(t, old.Bootstrap, "an agent older than the fields reports none")
 }
 
