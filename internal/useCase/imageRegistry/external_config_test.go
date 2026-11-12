@@ -227,7 +227,7 @@ func TestExternalConfigsDoNotDialInternalAddresses(t *testing.T) {
 
 	got := f.uc.ResolveImageServices(ctx, Scope{}, []string{loopback.host() + "/acme/app:1"})[0]
 	require.False(t, got.Known)
-	require.Equal(t, ServiceUnreachable, got.Reason)
+	require.Equal(t, ServiceUnsupported, got.Reason, "plain http is refused before any request")
 	require.Empty(t, store.rows)
 	loopback.mu.Lock()
 	defer loopback.mu.Unlock()

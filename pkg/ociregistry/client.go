@@ -34,6 +34,9 @@ type Options struct {
 	Password   string
 	// Insecure talks plain http (tests only).
 	Insecure bool
+	// RequireHTTPS refuses a registry that would be spoken to over plain http (localhost, *.local and private hosts get http
+	// from the client library), with or without credentials. Set it for user-supplied hosts.
+	RequireHTTPS bool
 	// AllowInternal lets redirects reach loopback/private addresses (tests only).
 	AllowInternal bool
 	// Transport is the base round tripper; use GuardedTransport for user-supplied hosts. Default when nil.
@@ -61,6 +64,9 @@ func (c *Client) repo() (name.Repository, error) {
 	// never travel that way (Insecure is for tests only).
 	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && r.Registry.Scheme() == "http" {
 		return name.Repository{}, fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
+	}
+	if c.opts.RequireHTTPS && r.Registry.Scheme() != "https" {
+		return name.Repository{}, fmt.Errorf("%w: registry host is not https", ErrInvalidReference)
 	}
 	return r, nil
 }
@@ -258,6 +264,9 @@ func (c *Client) PingCredentials(ctx context.Context) error {
 	}
 	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && reg.Scheme() == "http" {
 		return fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
+	}
+	if c.opts.RequireHTTPS && reg.Scheme() != "https" {
+		return fmt.Errorf("%w: registry host is not https", ErrInvalidReference)
 	}
 	auth := authn.Anonymous
 	if c.opts.Username != "" || c.opts.Password != "" {

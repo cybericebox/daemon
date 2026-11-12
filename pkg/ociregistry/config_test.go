@@ -389,3 +389,17 @@ func TestTokenRealmOnAnInternalHostIsRefused(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, realmAsked, "the realm on another internal host is never asked")
 }
+
+// A user-supplied registry is spoken to over https only: the client library would use plain http for localhost, *.local and
+// private hosts, and that is refused before any request.
+func TestRequireHTTPSRefusesPlainHTTPHosts(t *testing.T) {
+	var asked int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { asked++ }))
+	defer srv.Close()
+	for _, host := range []string{hostOf(srv), "localhost:5000", "10.1.2.3:5000"} {
+		c := New(Options{Host: host, Repository: "acme/platform", RequireHTTPS: true})
+		_, err := c.ImageConfigs(context.Background(), "latest")
+		require.ErrorIs(t, err, ErrInvalidReference, host)
+	}
+	require.Zero(t, asked)
+}
