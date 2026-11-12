@@ -85,11 +85,15 @@ type (
 		Mode    string         `json:"mode,omitempty"`
 	}
 
-	// Terminal is a terminal of the device in the participant's browser, without VPN. Off unless Enabled.
-	Terminal struct {
-		Enabled bool   `json:"enabled,omitempty"`
-		Command string `json:"command,omitempty"` // default /bin/sh
-		User    string `json:"user,omitempty"`    // default: the user of the image
+	// Access is one way a participant reaches the device in the browser, without VPN. Kind says which keys apply:
+	// http uses Port and Protocol (http | https, empty = http); terminal uses Command (default /bin/sh) and User (default
+	// the user of the image); vnc and rdp use Port and are reserved (accepted and stored, not served yet).
+	Access struct {
+		Kind     AccessKind `json:"kind"`
+		Port     int32      `json:"port,omitempty"`
+		Protocol string     `json:"protocol,omitempty"`
+		Command  string     `json:"command,omitempty"`
+		User     string     `json:"user,omitempty"`
 	}
 
 	// Variable is set once for the whole infrastructure of a variant and used as {{var.<name>}}: exactly one of
@@ -107,17 +111,125 @@ func (b Bootstrap) IsZero() bool {
 		b.Interpreter == ""
 }
 
-// IsZero lets encoding/json omit an empty terminal.
-func (t Terminal) IsZero() bool { return t == Terminal{} }
+// AccessKind is the kind of an access entry.
+type AccessKind string
+
+const (
+	AccessHTTP     AccessKind = "http"
+	AccessTerminal AccessKind = "terminal"
+	AccessVNC      AccessKind = "vnc"
+	AccessRDP      AccessKind = "rdp"
+)
+
+// MaxAccessEntries bounds the access list of a device: one entry per kind.
+const MaxAccessEntries = 4
+
+// Valid reports a known kind.
+func (k AccessKind) Valid() bool {
+	switch k {
+	case AccessHTTP, AccessTerminal, AccessVNC, AccessRDP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Served reports whether the platform runs the kind (vnc and rdp are only accepted and stored for now).
+func (k AccessKind) Served() bool { return k == AccessHTTP || k == AccessTerminal }
+
+// AccessOf returns the entry of a kind.
+func (d Device) AccessOf(kind AccessKind) (Access, bool) {
+	for _, a := range d.Access {
+		if a.Kind == kind {
+			return a, true
+		}
+	}
+	return Access{}, false
+}
+
+// HasAccess reports whether the device has an entry of the kind.
+func (d Device) HasAccess(kind AccessKind) bool {
+	_, ok := d.AccessOf(kind)
+	return ok
+}
+
+// HTTPAccess is the web access of the device: its port and protocol (http when the entry leaves it out).
+func (d Device) HTTPAccess() (port int32, protocol string, ok bool) {
+	a, ok := d.AccessOf(AccessHTTP)
+	if !ok {
+		return 0, "", false
+	}
+	protocol = a.Protocol
+	if protocol == "" {
+		protocol = "http"
+	}
+	return a.Port, protocol, true
+}
+
+// validateAccess checks the access list of a node: known kinds, at most one entry of each, the keys each kind allows.
+func validateAccess(list []Access, bad func(string) error) error {
+	if len(list) > MaxAccessEntries {
+		return bad("access")
+	}
+	seen := make(map[AccessKind]struct{}, len(list))
+	for i, a := range list {
+		field := fmt.Sprintf("access[%d]", i+1)
+		if !a.Kind.Valid() {
+			return bad(field + ".kind")
+		}
+		if _, dup := seen[a.Kind]; dup {
+			return bad(field + ".kind")
+		}
+		seen[a.Kind] = struct{}{}
+		switch a.Kind {
+		case AccessTerminal:
+			switch {
+			case a.Port != 0:
+				return bad(field + ".port")
+			case a.Protocol != "":
+				return bad(field + ".protocol")
+			case a.Command != "" && !validInterpreter(a.Command):
+				return bad(field + ".command")
+			case a.User != "" && !accountNameRe.MatchString(a.User):
+				return bad(field + ".user")
+			}
+			continue
+		case AccessHTTP:
+			if a.Protocol != "" && a.Protocol != "http" && a.Protocol != "https" {
+				return bad(field + ".protocol")
+			}
+		default: // vnc, rdp
+			if a.Protocol != "" {
+				return bad(field + ".protocol")
+			}
+		}
+		if a.Port < 1 || a.Port > 65535 {
+			return bad(field + ".port")
+		}
+		if a.Command != "" {
+			return bad(field + ".command")
+		}
+		if a.User != "" {
+			return bad(field + ".user")
+		}
+	}
+	return nil
+}
 
 // UnappliedKeys names, in document terms, the runtime keys of a node that the laboratory cannot apply on its profile: the
-// bootstrap list (files, script), command, args and terminal of a vm-profile device need a guest agent that does not exist
-// yet. (A container and a micro-VM apply all of them; bootstrap.env is applied everywhere.)
+// bootstrap list (files, script), command, args and the terminal access of a vm-profile device need a guest agent that does
+// not exist yet; the reserved access kinds vnc and rdp are not served on any profile. (A container and a micro-VM apply all of them; bootstrap.env is applied everywhere.)
 func (d Device) UnappliedKeys() []string {
-	if d.EffectiveProfile() != NodeProfileVM {
-		return nil
-	}
 	var keys []string
+	// vnc and rdp are reserved: nothing serves them on any profile, so a lab is not started as if they worked.
+	for _, kind := range []AccessKind{AccessVNC, AccessRDP} {
+		if d.HasAccess(kind) {
+			keys = append(keys, "access."+string(kind))
+		}
+	}
+	if d.EffectiveProfile() != NodeProfileVM {
+		return keys
+	}
 	if len(d.Command) > 0 {
 		keys = append(keys, "command")
 	}
@@ -130,8 +242,8 @@ func (d Device) UnappliedKeys() []string {
 	if d.Bootstrap.Script != "" {
 		keys = append(keys, "bootstrap.script")
 	}
-	if d.Terminal.Enabled {
-		keys = append(keys, "terminal")
+	if d.HasAccess(AccessTerminal) {
+		keys = append(keys, "access.terminal")
 	}
 	return keys
 }
@@ -156,7 +268,7 @@ func validateDeviceRuntime(d Device) error {
 	if d.Type.IsForwarding() {
 		if len(d.Command) > 0 || len(d.Args) > 0 || d.System != "" || d.Hardware != "" ||
 			!d.Bootstrap.IsZero() ||
-			!d.Terminal.IsZero() {
+			len(d.Access) > 0 {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		return nil
@@ -188,16 +300,8 @@ func validateDeviceRuntime(d Device) error {
 			return bad("hardware")
 		}
 	}
-	if t := d.Terminal; !t.IsZero() {
-		if !t.Enabled && (t.Command != "" || t.User != "") {
-			return bad("terminal.enabled")
-		}
-		if t.Command != "" && !validInterpreter(t.Command) {
-			return bad("terminal.command")
-		}
-		if t.User != "" && !accountNameRe.MatchString(t.User) {
-			return bad("terminal.user")
-		}
+	if err := validateAccess(d.Access, bad); err != nil {
+		return err
 	}
 	return validateBootstrap(d, bad)
 }

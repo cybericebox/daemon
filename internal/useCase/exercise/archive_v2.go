@@ -162,8 +162,7 @@ type (
 		System         exerciseModel.SystemKind         `json:"system,omitempty"`
 		Hardware       exerciseModel.HardwareKind       `json:"hardware,omitempty"`
 		Bootstrap      *archiveBootstrapV2              `json:"bootstrap,omitempty"`
-		Terminal       *archiveTerminalV2               `json:"terminal,omitempty"`
-		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
+		Access         []exerciseModel.Access           `json:"access,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
 		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
 	}
@@ -191,12 +190,6 @@ type (
 		Owner   string `json:"owner,omitempty"`
 		Group   string `json:"group,omitempty"`
 		Mode    string `json:"mode,omitempty"`
-	}
-
-	archiveTerminalV2 struct {
-		Enabled bool   `json:"enabled,omitempty"`
-		Command string `json:"command,omitempty"`
-		User    string `json:"user,omitempty"`
 	}
 
 	archiveVariableV2 struct {
@@ -977,16 +970,9 @@ func (t archiveTopologyV2) toDomain(
 			System:         device.System,
 			Hardware:       device.Hardware,
 			Bootstrap:      bootstrap,
-			External:       device.External,
+			Access:         device.Access,
 			Persistence:    device.Persistence,
 			WaitReadyFile:  device.WaitReadyFile,
-		}
-		if device.Terminal != nil {
-			domainDevice.Terminal = exerciseModel.Terminal{
-				Enabled: device.Terminal.Enabled,
-				Command: device.Terminal.Command,
-				User:    device.Terminal.User,
-			}
 		}
 		domainDevice.Normalize() // the former type container is a node with the container profile
 		topology.Devices = append(topology.Devices, domainDevice)
@@ -1085,16 +1071,9 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 				device.Bootstrap,
 				paths,
 			),
-			External:      device.External,
+			Access:        device.Access,
 			Persistence:   device.Persistence,
 			WaitReadyFile: device.WaitReadyFile,
-		}
-		if !device.Terminal.IsZero() {
-			exported.Terminal = &archiveTerminalV2{
-				Enabled: device.Terminal.Enabled,
-				Command: device.Terminal.Command,
-				User:    device.Terminal.User,
-			}
 		}
 		topology.Devices = append(topology.Devices, exported)
 	}

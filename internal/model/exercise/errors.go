@@ -124,8 +124,6 @@ var (
 				WithMessage("DHCP ranges or internet DNS address are invalid").WithDetailCode(47)
 	ErrDeviceSecurityPresetInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device security preset is invalid").WithDetailCode(34)
-	ErrDeviceExternalInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-					WithMessage("Device external access is invalid").WithDetailCode(27)
 	ErrConnectionArityInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Connection must have exactly two endpoints").WithDetailCode(28)
 	ErrConnectionEndpointsInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).

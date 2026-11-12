@@ -280,10 +280,46 @@ func TestValidateDeviceRuntime(t *testing.T) {
 		"compatible on micro":  {func(d *exerciseModel.Device) { d.Hardware = "compatible" }, false},
 		"unknown system":       {func(d *exerciseModel.Device) { d.System = "plan9" }, false},
 		"terminal": {func(d *exerciseModel.Device) {
-			d.Terminal = exerciseModel.Terminal{Enabled: true, Command: "/bin/sh", User: "root"}
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, Command: "/bin/sh", User: "root"}}
 		}, true},
-		"terminal off with command": {func(d *exerciseModel.Device) { d.Terminal = exerciseModel.Terminal{Command: "/bin/sh"} }, false},
-		"terminal relative shell":   {func(d *exerciseModel.Device) { d.Terminal = exerciseModel.Terminal{Enabled: true, Command: "sh"} }, false},
+		"access http default protocol": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80}}
+		}, true},
+		"access every kind": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{
+				{Kind: exerciseModel.AccessHTTP, Port: 443, Protocol: "https"}, {Kind: exerciseModel.AccessTerminal},
+				{Kind: exerciseModel.AccessVNC, Port: 5900}, {Kind: exerciseModel.AccessRDP, Port: 3389},
+			}
+		}, true},
+		"access http without port": {func(d *exerciseModel.Device) { d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP}} }, false},
+		"access http port too high": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 65536}}
+		}, false},
+		"access http bad protocol": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80, Protocol: "ftp"}}
+		}, false},
+		"access http with a command": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80, Command: "/bin/sh"}}
+		}, false},
+		"access terminal with a port": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, Port: 22}}
+		}, false},
+		"access terminal bad user": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, User: "Root!"}}
+		}, false},
+		"access vnc without port": {func(d *exerciseModel.Device) { d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessVNC}} }, false},
+		"access rdp with a protocol": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessRDP, Port: 1, Protocol: "http"}}
+		}, false},
+		"access a kind twice": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80}, {Kind: exerciseModel.AccessHTTP, Port: 81}}
+		}, false},
+		"unknown access kind": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: "console", Command: "/bin/sh"}}
+		}, false},
+		"terminal relative shell": {func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, Command: "sh"}}
+		}, false},
 		"bootstrap full": {func(d *exerciseModel.Device) {
 			d.Bootstrap = exerciseModel.Bootstrap{Timeout: "60s", Interpreter: "/bin/sh", Script: "true",
 				Env:   []exerciseModel.EnvVar{{Name: "A_B1", Value: "x"}},
@@ -332,10 +368,10 @@ func TestValidateDeviceRuntime(t *testing.T) {
 			topology := exerciseModel.Topology{
 				Devices: []exerciseModel.Device{
 					{
-						ID:       uuid.Must(uuid.NewV7()),
-						Name:     "sw",
-						Type:     kind,
-						Terminal: exerciseModel.Terminal{Enabled: true},
+						ID:     uuid.Must(uuid.NewV7()),
+						Name:   "sw",
+						Type:   kind,
+						Access: []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}},
 					},
 				},
 			}
@@ -463,4 +499,25 @@ func TestValidateBootstrapSizes(t *testing.T) {
 	require.NoError(t, bootstrapVariant("", source("/a", other), exerciseModel.BootstrapFile{
 		Path: "/b", Content: strings.Repeat("y", exerciseModel.MaxBootstrapDeviceBytes-exerciseModel.MaxBootstrapFileBytes),
 	}).ValidateBootstrapSizes(size))
+}
+
+// The access field of the error names the entry, and the readers take the http entry as the web access of the device.
+func TestAccessFieldAndReaders(t *testing.T) {
+	device := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeNode, Access: []exerciseModel.Access{
+		{Kind: exerciseModel.AccessTerminal}, {Kind: exerciseModel.AccessHTTP, Port: 8080},
+	}}
+	port, protocol, ok := device.HTTPAccess()
+	require.True(t, ok)
+	require.EqualValues(t, 8080, port)
+	require.Equal(t, "http", protocol, "an entry without a protocol is http")
+	require.True(t, device.HasAccess(exerciseModel.AccessTerminal))
+	_, _, ok = exerciseModel.Device{}.HTTPAccess()
+	require.False(t, ok)
+
+	device.Access[1].Port = 0
+	err := exerciseModel.Topology{Devices: []exerciseModel.Device{device}}.ValidateDeviceRuntime()
+	require.ErrorIs(t, err, exerciseModel.ErrDeviceRuntimeInvalid.Err())
+	var withContext interface{ PublicContext() map[string]any }
+	require.ErrorAs(t, err, &withContext)
+	require.Equal(t, "access[2].port", withContext.PublicContext()["field"])
 }

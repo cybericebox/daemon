@@ -160,7 +160,9 @@ type (
 		ResourcePreset string           `json:"resource_preset,omitempty"`
 		Resources      *DeviceResources `json:"resources,omitempty"`
 		Interfaces     []Interface      `json:"interfaces,omitempty"`
-		External       *ExternalAccess  `json:"external,omitempty"` // exposure: web
+		// Access lists the ways a participant reaches the device in the browser, without VPN: at most one entry per
+		// kind (http, terminal, vnc, rdp). It replaces the former external and terminal keys.
+		Access []Access `json:"access,omitempty"`
 		// Command and Args replace the entrypoint and arguments of the image (empty = the image's own).
 		Command []string `json:"command,omitempty"`
 		Args    []string `json:"args,omitempty"`
@@ -170,8 +172,6 @@ type (
 		// Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
 		// service process.
 		Bootstrap Bootstrap `json:"bootstrap,omitzero"`
-		// Terminal opens a terminal of the device in the participant's browser; off unless enabled.
-		Terminal Terminal `json:"terminal,omitzero"`
 		// ImageService is what the image's own configuration says it runs (entrypoint, cmd, user, working directory). It is
 		// never part of the document or the stored topology (nothing writes or reads it as JSON): the deploy fills it from
 		// the image registry rows right before a lab is built, so the laboratory can be told what to run after a bootstrap.
@@ -242,11 +242,6 @@ type (
 		Origin string `json:"origin,omitempty"`
 	}
 
-	ExternalAccess struct {
-		Port     int32  `json:"port"`
-		Protocol string `json:"protocol"` // http | https (re-encrypt), spec §5
-	}
-
 	Connection struct {
 		Endpoints []Endpoint `json:"endpoints"`
 	}
@@ -304,7 +299,7 @@ func (t Topology) validateStructure() error {
 			return ErrDeviceDisplayNameInvalid.WithContext("device", d.Name).Err()
 		}
 		if !d.Type.Valid() ||
-			(d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
+			(d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.Access) > 0 || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		if d.Profile != "" && (!d.Type.IsNode() || !d.Profile.Valid()) {
@@ -337,10 +332,6 @@ func (t Topology) validateStructure() error {
 		}
 		if err := validateDeviceRuntime(d); err != nil {
 			return err
-		}
-		if d.External != nil && (d.External.Port < 1 || d.External.Port > 65535 ||
-			(d.External.Protocol != "http" && d.External.Protocol != "https")) {
-			return ErrDeviceExternalInvalid.WithContext("device", d.Name).Err()
 		}
 	}
 	for _, c := range t.Connections {

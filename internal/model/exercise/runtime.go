@@ -27,10 +27,9 @@ func (v Variant) UnsupportedByLab() []string {
 	var out []string
 	vm := map[string]bool{}
 	for _, device := range v.Topology.Devices {
-		if device.EffectiveProfile() != NodeProfileVM {
-			continue
+		if device.EffectiveProfile() == NodeProfileVM {
+			vm[device.ID.String()] = true
 		}
-		vm[device.ID.String()] = true
 		for _, key := range device.UnappliedKeys() {
 			out = append(out, "device "+device.Name+": "+key)
 		}

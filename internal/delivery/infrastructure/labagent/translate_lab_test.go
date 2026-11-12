@@ -54,7 +54,7 @@ func contractFixture() (exerciseModel.Topology, []exerciseModel.LabCheck) {
 			ImageService: &exerciseModel.ImageService{
 				Entrypoint: []string{"/sbin/tini", "--"}, Cmd: []string{"/usr/lib/frr/docker-start"}, User: "frr", WorkingDir: "/var/run/frr",
 			},
-			Terminal: exerciseModel.Terminal{Enabled: true, Command: "/bin/bash", User: "root"},
+			Access: []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, Command: "/bin/bash", User: "root"}},
 			Bootstrap: exerciseModel.Bootstrap{
 				Timeout:     "90s",
 				Interpreter: "/bin/bash",

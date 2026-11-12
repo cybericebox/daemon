@@ -192,7 +192,7 @@ func TestBuildLabSpec_ExposureAndPreset(t *testing.T) {
 	dev := exerciseModel.Device{
 		ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer,
 		Image: "nginx", SecurityPreset: exerciseModel.SecurityPresetStandard,
-		External: &exerciseModel.ExternalAccess{Port: 443, Protocol: "https"},
+		Access: []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 443, Protocol: "https"}},
 	}
 	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{dev}})
 	if err != nil {

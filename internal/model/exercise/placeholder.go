@@ -200,7 +200,7 @@ func classifyPlaceholder(t Topology, byName map[string]Device, p Placeholder) (b
 		}
 	case PlaceholderExternalLink:
 		d, ok := byName[p.DeviceName]
-		return false, !ok || d.External == nil
+		return false, !ok || !d.HasAccess(AccessHTTP)
 	default:
 		return true, false
 	}

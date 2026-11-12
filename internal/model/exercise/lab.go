@@ -14,7 +14,7 @@ import (
 //   - the resolved bootstrap list of a device with files or a script (Device.HasBootstrapList, ResolvedBootstrap), next to
 //     the existing environment path that still carries bootstrap.env;
 //   - the service command of a device (Device.LabService): the author's command and args, else the image configuration;
-//   - the terminal block (Device.Terminal);
+//   - the access list of a device (Device.Access: http, terminal, and the reserved vnc and rdp);
 //   - the checks of a lab: the conditions of a state task grouped per (task, device) (BuildLabChecks).
 //
 // The translation to the wire messages is in delivery/infrastructure/labagent.
@@ -272,7 +272,7 @@ type LabNeeds struct {
 func NeedsOf(t Topology, checks []LabCheck) LabNeeds {
 	var n LabNeeds
 	for _, d := range t.Devices {
-		if d.Terminal.Enabled && d.IsNode() {
+		if d.HasAccess(AccessTerminal) && d.IsNode() {
 			n.Terminal = true
 		}
 		if d.NeedsServiceCommand() {

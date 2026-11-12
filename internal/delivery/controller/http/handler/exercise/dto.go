@@ -488,10 +488,15 @@ type bootstrapFileDTO struct {
 	Mode    string         `json:"Mode,omitempty"`
 }
 
-type terminalDTO struct {
-	Enabled bool   `json:"Enabled"`
-	Command string `json:"Command,omitempty"`
-	User    string `json:"User,omitempty"`
+// accessDTO is one way to reach the device in the browser. Kind is http, terminal, vnc or rdp; at most one entry per kind.
+// http: Port (1-65535) and Protocol (http | https, empty = http). terminal: Command (default /bin/sh) and User (default the
+// user of the image). vnc and rdp: Port; reserved, stored but not served yet (a lab that needs them is refused).
+type accessDTO struct {
+	Kind     string `json:"Kind"               enums:"http,terminal,vnc,rdp"`
+	Port     int32  `json:"Port,omitempty"`
+	Protocol string `json:"Protocol,omitempty" enums:"http,https"`
+	Command  string `json:"Command,omitempty"`
+	User     string `json:"User,omitempty"`
 }
 
 // variableDTO is a variable of the infrastructure: exactly one of Value and Template.
@@ -499,11 +504,6 @@ type variableDTO struct {
 	Name     string `json:"Name"`
 	Value    string `json:"Value,omitempty"`
 	Template string `json:"Template,omitempty"`
-}
-
-type externalDTO struct {
-	Port     int32  `json:"Port"`
-	Protocol string `json:"Protocol"`
 }
 
 // persistenceDTO keeps a container device's writable layer across an unplanned restart (a crash, an
@@ -533,7 +533,8 @@ type deviceDTO struct {
 	// Resources is refused (400, 20974): a device size is a preset. It is never returned.
 	Resources  *resourcesDTO  `json:"Resources,omitempty"`
 	Interfaces []interfaceDTO `json:"Interfaces,omitempty"`
-	External   *externalDTO   `json:"External,omitempty"`
+	// Access replaces the former External and Terminal keys.
+	Access []accessDTO `json:"Access,omitempty"`
 	// Command and Args replace the entrypoint and arguments of the image (up to 32 and 64 entries).
 	Command []string `json:"Command,omitempty"`
 	Args    []string `json:"Args,omitempty"`
@@ -543,7 +544,6 @@ type deviceDTO struct {
 	// Bootstrap is what happens to a clean device before its service starts; its Env are the variables of the
 	// service process. Absent when the device has none.
 	Bootstrap *bootstrapDTO `json:"Bootstrap,omitempty"`
-	Terminal  *terminalDTO  `json:"Terminal,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
 	// WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
@@ -1166,15 +1166,10 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 			dev.Hardware,
 		)
 		domainDev.Bootstrap = dev.Bootstrap.toDomain()
-		if dev.Terminal != nil {
-			domainDev.Terminal = exerciseModel.Terminal{
-				Enabled: dev.Terminal.Enabled,
-				Command: dev.Terminal.Command,
-				User:    dev.Terminal.User,
-			}
-		}
-		if dev.External != nil {
-			domainDev.External = &exerciseModel.ExternalAccess{Port: dev.External.Port, Protocol: dev.External.Protocol}
+		for _, a := range dev.Access {
+			domainDev.Access = append(domainDev.Access, exerciseModel.Access{
+				Kind: exerciseModel.AccessKind(a.Kind), Port: a.Port, Protocol: a.Protocol, Command: a.Command, User: a.User,
+			})
 		}
 		if dev.Persistence != nil {
 			domainDev.Persistence = &exerciseModel.DevicePersistence{Enabled: dev.Persistence.Enabled, Debounce: dev.Persistence.Debounce}
@@ -1291,15 +1286,10 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 		dtoDev.Command, dtoDev.Args = dev.Command, dev.Args
 		dtoDev.System, dtoDev.Hardware = string(dev.System), string(dev.Hardware)
 		dtoDev.Bootstrap = bootstrapToDTO(dev.Bootstrap)
-		if !dev.Terminal.IsZero() {
-			dtoDev.Terminal = &terminalDTO{
-				Enabled: dev.Terminal.Enabled,
-				Command: dev.Terminal.Command,
-				User:    dev.Terminal.User,
-			}
-		}
-		if dev.External != nil {
-			dtoDev.External = &externalDTO{Port: dev.External.Port, Protocol: dev.External.Protocol}
+		for _, a := range dev.Access {
+			dtoDev.Access = append(dtoDev.Access, accessDTO{
+				Kind: string(a.Kind), Port: a.Port, Protocol: a.Protocol, Command: a.Command, User: a.User,
+			})
 		}
 		if dev.Persistence != nil {
 			dtoDev.Persistence = &persistenceDTO{Enabled: dev.Persistence.Enabled, Debounce: dev.Persistence.Debounce}

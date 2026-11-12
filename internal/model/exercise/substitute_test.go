@@ -263,9 +263,9 @@ func TestRequireLabSupportedRefusesWhatNeedsAGuestAgent(t *testing.T) {
 	}
 	require.NoError(t, plain.RequireLabSupported(), "env alone is applied")
 	for key, mutate := range map[string]func(*exerciseModel.Device){
-		"command":  func(d *exerciseModel.Device) { d.Command = []string{"nginx"} },
-		"args":     func(d *exerciseModel.Device) { d.Args = []string{"-q"} },
-		"terminal": func(d *exerciseModel.Device) { d.Terminal.Enabled = true },
+		"command":         func(d *exerciseModel.Device) { d.Command = []string{"nginx"} },
+		"args":            func(d *exerciseModel.Device) { d.Args = []string{"-q"} },
+		"access.terminal": func(d *exerciseModel.Device) { d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}} },
 		"bootstrap.files": func(d *exerciseModel.Device) {
 			d.Bootstrap.Files = []exerciseModel.BootstrapFile{{Path: "/a", Content: "x"}}
 		},
@@ -275,6 +275,19 @@ func TestRequireLabSupportedRefusesWhatNeedsAGuestAgent(t *testing.T) {
 		v.Topology.Devices = []exerciseModel.Device{plain.Topology.Devices[0]}
 		mutate(&v.Topology.Devices[0])
 		require.Equal(t, []string{"device web: " + key}, v.UnsupportedByLab())
+		require.ErrorIs(t, v.RequireLabSupported(), exerciseModel.ErrRuntimeNotSupported.Err())
+	}
+}
+
+// vnc and rdp are accepted and stored, but no lab serves them on any profile: a lab that needs them is refused, by key.
+func TestRequireLabSupportedRefusesTheReservedAccessKinds(t *testing.T) {
+	for _, kind := range []exerciseModel.AccessKind{exerciseModel.AccessVNC, exerciseModel.AccessRDP} {
+		device := exerciseModel.Device{
+			Name: "web", Type: exerciseModel.DeviceTypeNode, Profile: exerciseModel.NodeProfileContainer,
+			Access: []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80}, {Kind: kind, Port: 5900}},
+		}
+		v := exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{device}}}
+		require.Equal(t, []string{"device web: access." + string(kind)}, v.UnsupportedByLab())
 		require.ErrorIs(t, v.RequireLabSupported(), exerciseModel.ErrRuntimeNotSupported.Err())
 	}
 }

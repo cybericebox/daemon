@@ -159,7 +159,7 @@ func TestToParsed_BootstrapAndDeviceKeys(t *testing.T) {
 		require.ErrorIs(t, err, exerciseModel.ErrSubstitutionUnresolved.Err())
 	})
 	t.Run("a switch carries none of them", func(t *testing.T) {
-		_, err := parse(`{"name":"sw","type":"unmanaged-switch","terminal":{"enabled":true}}`)
+		_, err := parse(`{"name":"sw","type":"unmanaged-switch","access":[{"kind":"terminal"}]}`)
 		require.ErrorIs(t, err, exerciseModel.ErrDeviceTypeInvalid.Err())
 	})
 	t.Run(
@@ -279,10 +279,9 @@ func TestExportThenParse_EveryKeyOfTheDocumentSurvives(t *testing.T) {
 						Args:     []string{"-g", "daemon off;"},
 						System:   exerciseModel.SystemLinux,
 						Hardware: exerciseModel.HardwareFast,
-						Terminal: exerciseModel.Terminal{
-							Enabled: true,
-							Command: "/bin/sh",
-							User:    "root",
+						Access: []exerciseModel.Access{
+							{Kind: exerciseModel.AccessHTTP, Port: 80, Protocol: "http"},
+							{Kind: exerciseModel.AccessTerminal, Command: "/bin/sh", User: "root"},
 						},
 						Bootstrap: exerciseModel.Bootstrap{
 							Timeout:     "60s",

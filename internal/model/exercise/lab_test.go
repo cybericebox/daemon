@@ -205,7 +205,7 @@ func TestNeedsOfMeasuresTheLab(t *testing.T) {
 	variant, topology, resolved := checksFixture()
 	checks, err := variant.BuildLabChecks(topology, resolved)
 	require.NoError(t, err)
-	topology.Devices[0].Terminal.Enabled = true
+	topology.Devices[0].Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}}
 	topology.Devices[1].Bootstrap = exerciseModel.Bootstrap{
 		Timeout: "90s",
 		Script:  "echo hi",

@@ -206,7 +206,7 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 			},
 		}
 		if spec.Web {
-			built.External = &exerciseModel.ExternalAccess{Port: 80, Protocol: "http"}
+			built.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80, Protocol: "http"}}
 		}
 		switch spec.Persist {
 		case "":

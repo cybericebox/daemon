@@ -1481,8 +1481,10 @@ func TestDeployVariantTest_RefusesWhatNeedsAGuestAgent(t *testing.T) {
 		"bootstrap files": func(v *exerciseModel.Variant) {
 			v.Topology.Devices[0].Bootstrap.Files = []exerciseModel.BootstrapFile{{Path: "/a", Content: "c"}}
 		},
-		"command":  func(v *exerciseModel.Variant) { v.Topology.Devices[0].Command = []string{"nginx"} },
-		"terminal": func(v *exerciseModel.Variant) { v.Topology.Devices[0].Terminal.Enabled = true },
+		"command": func(v *exerciseModel.Variant) { v.Topology.Devices[0].Command = []string{"nginx"} },
+		"terminal": func(v *exerciseModel.Variant) {
+			v.Topology.Devices[0].Access = []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal}}
+		},
 		"state task": func(v *exerciseModel.Variant) {
 			v.Tasks = append(v.Tasks, exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Key: "state", Name: "State", Check: exerciseModel.Check{State: &exerciseModel.StateCheck{
 				Conditions: []exerciseModel.Condition{{DeviceID: v.Topology.Devices[0].ID, Custom: &exerciseModel.CustomObservation{Run: "true"}}}}}})
@@ -1582,8 +1584,8 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 			Devices: []exerciseModel.Device{
 				{
 					ID: r1, Name: "r1", Type: exerciseModel.DeviceTypeNode, Image: "frr",
-					Command:  []string{"/usr/lib/frr/start"},
-					Terminal: exerciseModel.Terminal{Enabled: true, User: "root"},
+					Command: []string{"/usr/lib/frr/start"},
+					Access:  []exerciseModel.Access{{Kind: exerciseModel.AccessTerminal, User: "root"}},
 					Bootstrap: exerciseModel.Bootstrap{
 						Script: "echo admin:{{var.pw}} > /etc/users",
 						Files: []exerciseModel.BootstrapFile{
@@ -1612,7 +1614,7 @@ func TestDeployVariantTest_SendsBootstrapTerminalAndChecksToTheLab(t *testing.T)
 		t.Fatalf("files not resolved: %+v", web.Bootstrap.Files)
 	}
 	pw := strings.TrimSuffix(strings.TrimPrefix(web.Bootstrap.Script, "echo admin:"), " > /etc/users")
-	if len(pw) != 12 || strings.Contains(pw, "{") || !web.Terminal.Enabled || web.Command[0] != "/usr/lib/frr/start" {
+	if len(pw) != 12 || strings.Contains(pw, "{") || !web.HasAccess(exerciseModel.AccessTerminal) || web.Command[0] != "/usr/lib/frr/start" {
 		t.Fatalf("script or runtime keys wrong: %+v", web)
 	}
 	checks := infra.meta.Checks

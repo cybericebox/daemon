@@ -10,7 +10,7 @@ import (
 
 func TestValidateForPublish_Placeholders(t *testing.T) {
 	webExt := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
-	webExt.External = &exerciseModel.ExternalAccess{Port: 8080, Protocol: "http"}
+	webExt.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 8080, Protocol: "http"}}
 	plain := dev("plain", exerciseModel.DeviceTypeContainer, "eth0")
 
 	base := exerciseModel.Topology{

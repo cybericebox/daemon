@@ -269,8 +269,8 @@ func buildDevice(d exerciseModel.Device, labName string) labDevice {
 	if d.Persistence != nil {
 		out.Persistence = &labPersistence{Enabled: d.Persistence.Enabled, Debounce: d.Persistence.Debounce}
 	}
-	if d.External != nil {
-		out.Exposure = &labExposure{Web: &labWeb{Port: d.External.Port, Protocol: d.External.Protocol}}
+	if port, protocol, ok := d.HTTPAccess(); ok {
+		out.Exposure = &labExposure{Web: &labWeb{Port: port, Protocol: protocol}}
 	}
 	return out
 }
@@ -288,10 +288,10 @@ func withRuntime(out labDevice, d exerciseModel.Device) (labDevice, error) {
 	if service != nil {
 		out.Service = &labService{Command: service.Command, Args: service.Args, User: service.User, WorkingDir: service.WorkingDir}
 	}
-	if d.Terminal.Enabled {
-		out.Terminal = &labTerminal{Enabled: true, User: d.Terminal.User}
-		if d.Terminal.Command != "" {
-			out.Terminal.Command = []string{d.Terminal.Command}
+	if terminal, ok := d.AccessOf(exerciseModel.AccessTerminal); ok {
+		out.Terminal = &labTerminal{Enabled: true, User: terminal.User}
+		if terminal.Command != "" {
+			out.Terminal.Command = []string{terminal.Command}
 		}
 	}
 	return out, nil

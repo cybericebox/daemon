@@ -562,7 +562,7 @@ func richVersions() []exerciseModel.ExerciseVersion {
 				Type: exerciseModel.IPConfigTypeStatic, AddressRef: ref, GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
 				Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"}, Via: "10.0.0.1"}},
 			}}},
-			External:    &exerciseModel.ExternalAccess{Port: 8080, Protocol: "http"},
+			Access:      []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 8080, Protocol: "http"}},
 			Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"},
 		},
 		{ID: exportID(301), Name: "twin", Type: exerciseModel.DeviceTypeContainer, Image: "alpine"},

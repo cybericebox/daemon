@@ -246,9 +246,10 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Equal(t, exerciseModel.SecurityPresetExtended, devices["db"].SecurityPreset)
 	require.Nil(t, base.Topology.VisualRender, "visual_render: null is no layout")
 	require.True(t, web.WaitReadyFile)
-	require.NotNil(t, web.External)
-	require.EqualValues(t, 80, web.External.Port)
-	require.Equal(t, "http", web.External.Protocol)
+	httpPort, httpProtocol, hasHTTP := web.HTTPAccess()
+	require.True(t, hasHTTP)
+	require.EqualValues(t, 80, httpPort)
+	require.Equal(t, "http", httpProtocol)
 	require.NotNil(t, web.Persistence)
 	require.True(t, web.Persistence.Enabled)
 	require.Equal(t, "5s", web.Persistence.Debounce)
@@ -265,11 +266,9 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Equal(t, []string{"-g", "daemon off;"}, web.Args)
 	require.Equal(t, exerciseModel.SystemLinux, web.System)
 	require.Equal(t, exerciseModel.HardwareFast, web.Hardware)
-	require.Equal(
-		t,
-		exerciseModel.Terminal{Enabled: true, Command: "/bin/sh", User: "root"},
-		web.Terminal,
-	)
+	terminal, hasTerminal := web.AccessOf(exerciseModel.AccessTerminal)
+	require.True(t, hasTerminal)
+	require.Equal(t, exerciseModel.Access{Kind: exerciseModel.AccessTerminal, Command: "/bin/sh", User: "root"}, terminal)
 	require.Equal(t, "60s", web.Bootstrap.Timeout)
 	require.Len(t, web.Bootstrap.Files, 2)
 	require.Equal(t, "Ласкаво просимо", web.Bootstrap.Files[0].Content)
@@ -423,8 +422,12 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.internet.dhcp_ranges[1].end":                           "dhcp ranges or internet dns address are invalid",
 	"versions[1].variants[1].topology.devices[1].name":                                       "device named \"web\"",
 	"versions[1].variants[1].topology.devices[1].type":                                       "the state check of the task is invalid", // a condition looks at a node, and the device is no node without a type
-	"versions[1].variants[1].topology.devices[1].external.port":                              "device external access is invalid",
-	"versions[1].variants[1].topology.devices[1].external.protocol":                          "device external access is invalid",
+	"versions[1].variants[1].topology.devices[1].access[1].kind":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[1].port":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[1].protocol":                         "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].kind":                             "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].command":                          "a runtime setting of the device is invalid",
+	"versions[1].variants[1].topology.devices[1].access[2].user":                             "a runtime setting of the device is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].name":                         "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                           "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
@@ -548,7 +551,9 @@ func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 			"steps",
 			"near_solution",
 		},
-		"versions.variants.tasks.check.answer.type": {"flag", "text"},
+		"versions.variants.tasks.check.answer.type":          {"flag", "text"},
+		"versions.variants.topology.devices.access.kind":     {"http", "terminal", "vnc", "rdp"},
+		"versions.variants.topology.devices.access.protocol": {"http", "https"},
 		"versions.variants.tasks.check.state.mode": {
 			"once",
 			"continuous",
