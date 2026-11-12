@@ -233,7 +233,7 @@ func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseMode
 	if err := u.requireProfilesSupported(ctx, version.Variants); err != nil {
 		return err
 	}
-	if err := u.requireServiceUsersKnown(ctx, version.Variants); err != nil {
+	if err := u.requireServiceUsersKnown(ctx, e.ID, version.Variants); err != nil {
 		return err
 	}
 	if err := u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {

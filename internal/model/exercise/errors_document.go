@@ -64,7 +64,7 @@ var (
 	// platform does not know which user its image declares: an image by reference to an external registry, or a platform
 	// image uploaded before its configuration was kept. device and variant name the place, field is "image".
 	ErrServiceUserUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
-				WithMessage("The user of the image is not known: a device started with a bootstrap or a command needs a platform image").
+				WithMessage("The user of the image is not known: upload the image to the platform (a device started with a bootstrap or a command needs it)").
 				WithDetailCode(21)
 	// ErrServiceCommandUnknown: a device needs the laboratory told what to run after its bootstrap (or has a command of
 	// its own) but neither the author's command nor the image configuration gives one; device names it.

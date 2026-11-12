@@ -11,16 +11,23 @@ import (
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 )
 
-// serviceImages is an image registry that knows the start configuration of some images only.
+// serviceImages is an image registry that knows the start configuration of some images only; the others are unknown with
+// the reason it gives.
 type serviceImages struct {
 	IImageAccess
-	known map[string]bool
+	known  map[string]bool
+	reason map[string]string
+	scope  *imageRegistryUseCase.Scope
 }
 
-func (s serviceImages) ImageServices(_ context.Context, images []string) []imageRegistryUseCase.ImageServiceInfo {
+func (s serviceImages) ExerciseImageScope(context.Context, uuid.UUID) (imageRegistryUseCase.Scope, error) {
+	return *s.scope, nil
+}
+
+func (s serviceImages) ResolveImageServices(_ context.Context, _ imageRegistryUseCase.Scope, images []string) []imageRegistryUseCase.ImageServiceInfo {
 	out := make([]imageRegistryUseCase.ImageServiceInfo, 0, len(images))
 	for _, image := range images {
-		out = append(out, imageRegistryUseCase.ImageServiceInfo{Image: image, Known: s.known[image]})
+		out = append(out, imageRegistryUseCase.ImageServiceInfo{Image: image, Known: s.known[image], Reason: s.reason[image]})
 	}
 	return out
 }
@@ -44,9 +51,14 @@ func TestRequireServiceUsersKnown(t *testing.T) {
 	variantOfDevices := func(devices ...exerciseModel.Device) exerciseModel.Variant {
 		return exerciseModel.Variant{Topology: exerciseModel.Topology{Devices: devices}}
 	}
-	u := &ExerciseUseCase{images: serviceImages{known: map[string]bool{platform: true}}}
+	exerciseID := uuid.Must(uuid.NewV7())
+	u := &ExerciseUseCase{images: serviceImages{
+		known:  map[string]bool{platform: true, "docker.io/acme/read:1": true},
+		reason: map[string]string{external: imageRegistryUseCase.ServiceUnreachable, "private.example/x:1": imageRegistryUseCase.ServiceUnauthorized},
+		scope:  &imageRegistryUseCase.Scope{},
+	}}
 
-	require.NoError(t, u.requireServiceUsersKnown(ctx, []exerciseModel.Variant{
+	require.NoError(t, u.requireServiceUsersKnown(ctx, exerciseID, []exerciseModel.Variant{
 		variantOfDevices(node("a", platform, withScript), node("b", platform, withCommand), node("c", platform, withArgs)),
 		variantOfDevices(node("d", external, plain), node("e", external, withEnv), node("f", "", withScript)),
 	}), "known images, devices that need no launcher, no image at all")
@@ -55,22 +67,27 @@ func TestRequireServiceUsersKnown(t *testing.T) {
 		variants []exerciseModel.Variant
 		variant  int
 		device   string
+		reason   string
 	}{
-		"external image with a script":  {[]exerciseModel.Variant{variantOfDevices(node("x", external, withScript))}, 1, "x"},
-		"external image with a command": {[]exerciseModel.Variant{variantOfDevices(node("ok", platform, withScript)), variantOfDevices(node("y", external, withCommand))}, 2, "y"},
-		"unread platform image":         {[]exerciseModel.Variant{variantOfDevices(node("z", "platform:old@sha256:"+repeat("b"), withArgs))}, 1, "z"},
+		"external image with a script": {[]exerciseModel.Variant{variantOfDevices(node("x", external, withScript))}, 1, "x", "unreachable"},
+		"private image with a command": {[]exerciseModel.Variant{variantOfDevices(node("ok", platform, withScript)), variantOfDevices(node("y", "private.example/x:1", withCommand))}, 2, "y", "unauthorized"},
+		"unread platform image":        {[]exerciseModel.Variant{variantOfDevices(node("z", "platform:old@sha256:"+repeat("b"), withArgs))}, 1, "z", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := u.requireServiceUsersKnown(ctx, tc.variants)
+			err := u.requireServiceUsersKnown(ctx, exerciseID, tc.variants)
 			require.ErrorIs(t, err, exerciseModel.ErrServiceUserUnknown.Err())
 			var carrier interface{ PublicContext() map[string]any }
 			require.ErrorAs(t, err, &carrier)
-			require.Equal(t, map[string]any{"variant": tc.variant, "device": tc.device, "field": "image"}, carrier.PublicContext())
+			want := map[string]any{"variant": tc.variant, "device": tc.device, "field": "image"}
+			if tc.reason != "" {
+				want["reason"] = tc.reason
+			}
+			require.Equal(t, want, carrier.PublicContext())
 		})
 	}
 
 	// Narrow constructions have no registry that can tell: nothing to check.
-	require.NoError(t, (&ExerciseUseCase{}).requireServiceUsersKnown(ctx, []exerciseModel.Variant{variantOfDevices(node("x", external, withScript))}))
+	require.NoError(t, (&ExerciseUseCase{}).requireServiceUsersKnown(ctx, exerciseID, []exerciseModel.Variant{variantOfDevices(node("x", external, withScript))}))
 }
 
 func repeat(s string) string {
