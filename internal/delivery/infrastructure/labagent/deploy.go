@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -199,11 +200,7 @@ func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []stri
 	if err != nil {
 		if status.Code(err) == codes.ResourceExhausted {
 			// The laboratory's cooldown between manual runs: the same answer as our own rate limit, with the wait it gives.
-			failure := exerciseModel.ErrChecksRunTooOften
-			if wait, ok := cooldownSeconds(status.Convert(err).Message()); ok {
-				failure = failure.WithDetail(appErr.DetailRetryAfterSeconds, wait)
-			}
-			return failure.Err()
+			return tooOften(cooldownOf(status.Convert(err)))
 		}
 		if status.Code(err) == codes.FailedPrecondition {
 			return exerciseModel.ErrLabOptionUnavailable.WithPublicContext("options", "checks").
@@ -212,6 +209,14 @@ func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []stri
 		}
 		return agentErr("run checks", err)
 	}
+	// In a batch the status details are lost: the cooldown comes as a failed item with the reason COOLDOWN and its retry_after.
+	if len(res.GetResults()) == 1 && res.GetResults()[0].GetReason() == labclient.ReasonCooldown {
+		item := res.GetResults()[0]
+		if item.GetRetryAfter() != nil {
+			return tooOften(secondsUp(item.GetRetryAfter().AsDuration()), true)
+		}
+		return tooOften(textCooldownSeconds(item.GetError()))
+	}
 	if len(res.GetResults()) == 1 &&
 		res.GetResults()[0].GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND {
 		return fmt.Errorf("run checks: %w", errNotFound)
@@ -219,10 +224,33 @@ func (c *Client) RunLabChecks(ctx context.Context, group, lab string, ids []stri
 	return oneResult("run checks", res.GetResults())
 }
 
+// tooOften is our "asked too often" answer, with the wait when it is known.
+func tooOften(wait int64, known bool) error {
+	failure := exerciseModel.ErrChecksRunTooOften
+	if known {
+		failure = failure.WithDetail(appErr.DetailRetryAfterSeconds, wait)
+	}
+	return failure.Err()
+}
+
+// secondsUp is a wait in whole seconds, rounded up (at least one).
+func secondsUp(d time.Duration) int64 { return max(1, int64((d+time.Second-1)/time.Second)) }
+
+// cooldownOf reads the wait of a RESOURCE_EXHAUSTED answer: the standard RetryInfo detail first, and the text the first agents
+// sent ("wait N seconds before ...") only for an agent that sends no detail.
+func cooldownOf(s *status.Status) (int64, bool) {
+	for _, detail := range s.Details() {
+		if info, ok := detail.(*errdetails.RetryInfo); ok && info.GetRetryDelay() != nil {
+			return secondsUp(info.GetRetryDelay().AsDuration()), true
+		}
+	}
+	return textCooldownSeconds(s.Message())
+}
+
 var cooldownRe = regexp.MustCompile(`wait (\d+) seconds`)
 
-// cooldownSeconds reads the wait the laboratory names in its cooldown answer ("wait N seconds before the next manual run").
-func cooldownSeconds(message string) (int64, bool) {
+// textCooldownSeconds reads the wait the laboratory names in its cooldown text ("wait N seconds before the next manual run").
+func textCooldownSeconds(message string) (int64, bool) {
 	match := cooldownRe.FindStringSubmatch(message)
 	if match == nil {
 		return 0, false

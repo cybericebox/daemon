@@ -3,12 +3,16 @@ package labagent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
+	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
 	"github.com/gofrs/uuid"
@@ -152,10 +156,32 @@ func TestRunLabChecksAsksTheAgentForOneLab(t *testing.T) {
 	f.a.runChecksErr = status.Error(codes.ResourceExhausted, "wait 7 seconds before the next manual run of this lab")
 	err = f.fleet.RunLabChecks(ctx, "e-1-t-1", "lab-1", nil)
 	require.ErrorIs(t, err, exerciseModel.ErrChecksRunTooOften.Err())
-	wait, ok := cooldownSeconds("wait 7 seconds before the next manual run of this lab")
+	// The standard detail comes first, rounded up to whole seconds; the text is only for an agent that sends none.
+	withInfo, detailErr := status.New(codes.ResourceExhausted, "wait 99 seconds").WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(7500 * time.Millisecond)})
+	require.NoError(t, detailErr)
+	wait, ok := cooldownOf(withInfo)
+	require.True(t, ok)
+	require.EqualValues(t, 8, wait)
+	f.a.runChecksErr = withInfo.Err()
+	err = f.fleet.RunLabChecks(ctx, "e-1-t-1", "lab-1", nil)
+	require.ErrorIs(t, err, exerciseModel.ErrChecksRunTooOften.Err())
+	wait, ok = cooldownOf(status.New(codes.ResourceExhausted, "wait 7 seconds before the next manual run of this lab"))
 	require.True(t, ok)
 	require.EqualValues(t, 7, wait)
-	_, ok = cooldownSeconds("something else")
+	_, ok = cooldownOf(status.New(codes.ResourceExhausted, "busy"))
+	require.False(t, ok)
+
+	// In a batch the details are lost: the failed item carries the reason COOLDOWN and retry_after.
+	f.a.runChecksErr = nil
+	f.a.itemState, f.a.itemReason, f.a.itemWait = labpb.ItemState_ITEM_STATE_FAILED, labclient.ReasonCooldown, durationpb.New(3200*time.Millisecond)
+	err = f.fleet.RunLabChecks(ctx, "e-1-t-1", "lab-1", nil)
+	require.ErrorIs(t, err, exerciseModel.ErrChecksRunTooOften.Err())
+	f.a.itemState, f.a.itemReason, f.a.itemWait = 0, "", nil
+
+	wait, ok = textCooldownSeconds("wait 7 seconds before the next manual run of this lab")
+	require.True(t, ok)
+	require.EqualValues(t, 7, wait)
+	_, ok = textCooldownSeconds("something else")
 	require.False(t, ok)
 
 	// A lab the agent does not know.

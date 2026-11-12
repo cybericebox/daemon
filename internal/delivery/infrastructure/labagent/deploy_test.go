@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/gofrs/uuid"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,8 @@ type fakeAgent struct {
 	itemState   labpb.ItemState // answer for every mutated item; default CREATED
 	itemError   string
 	retryable   bool
+	itemReason  string               // the machine code of a failed item
+	itemWait    *durationpb.Duration // its retry_after
 	clientCfg   string
 	createGroup *labpb.CreateLabGroupsRequest
 	// features is what GetFeatures answers (an error when nil).
@@ -70,7 +73,7 @@ func (f *fakeAgent) state() labpb.ItemState {
 }
 
 func (f *fakeAgent) result(ref *labpb.ItemRef) *labpb.ItemResult {
-	return &labpb.ItemResult{Ref: ref, State: f.state(), Error: f.itemError, Retryable: f.retryable}
+	return &labpb.ItemResult{Ref: ref, State: f.state(), Error: f.itemError, Retryable: f.retryable, Reason: f.itemReason, RetryAfter: f.itemWait}
 }
 
 func (f *fakeAgent) CreateLabGroups(_ context.Context, in *labpb.CreateLabGroupsRequest, _ ...grpc.CallOption) (*labpb.BatchResult, error) {

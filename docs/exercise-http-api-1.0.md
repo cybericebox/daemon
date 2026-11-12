@@ -487,5 +487,6 @@ saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without
   `checks.max_time_limit_seconds (at most N)`, and the public context names the `task` (key), the `field`
   (`check.state.conditions[].timeout`) and the `limit`. Fix: lower the condition `timeout` of that task.
 - **Manual-run cooldown of the laboratory** (chart `checks.manualCooldown`): its `RESOURCE_EXHAUSTED` answer to a run is the
-  existing 429 (73516) with `Retry-After` taken from the wait the laboratory names ("wait N seconds"); without a number, no
-  `Retry-After`.
+  existing 429 (73516) with `Retry-After` from the wait the laboratory gives: the standard `RetryInfo.retry_delay` of the
+  status (a direct call) or `ItemResult.retry_after` of a failed item with the reason `COOLDOWN` (a batch), rounded up to whole
+  seconds; only an agent that sends neither is read from its text ("wait N seconds"); without a number, no `Retry-After`.
