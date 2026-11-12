@@ -137,7 +137,7 @@ unresolved reference is an error naming the field (publish and test deploy).
   image (it only checks that the manifest exists), so such a device needs its own `Command` when it has a bootstrap list.
 - **Laboratory options.** A task that needs an option the target laboratory does not offer is refused at start with the
   error 73512 whose public context `options` names it: `checks` (a state task), `terminal`, `bootstrap` (an agent older than
-  contract 1.5), or a limit such as `bootstrap.max_files (at most 8)`, `checks.max_checks_per_lab (at most 64)`. An
+  contract 1.5), or a limit such as `bootstrap.max_files (at most N)`, N being what the laboratory reports (32 in the first laboratory contract), `checks.max_checks_per_lab (at most 64)`. An
   agent that has not reported yet is not second-guessed.
 - **Variables of the infrastructure are pinned.** A template variable is drawn once per team's stand of an event exercise
   (table `stand_variables`) and the same value goes into every rebuilt, recreated or reset lab (the bootstrap and the
@@ -452,3 +452,10 @@ as their archive paths (`files/...`, the same layout the export gives; no bytes)
   conditions, and no internal notes, as `GET .../draft` does.
 - It is a view: nothing is written. No `?variant=` (a linked variant cannot stand without its base): the whole document.
 - Errors as the draft read: `404` for an unknown exercise, `403` without read access.
+
+## Substitutions are not allowed in the description or a hint
+
+`{{task.<key>}}` and `{{var.<name>}}` (and a malformed one) in a task's `Description` (any text of the rich-text document) or
+in a hint's `Text` are refused with 23519, public context `task` and `field` (`description` or `hints[N].text`): the participant
+reads these texts, so an answer or an infrastructure value would be shown to everyone. Only the task's own placeholders
+(`{{key}}`) belong there; `\{{` writes a literal `{{`. Checked on import and on publish, not on every autosave of the draft.

@@ -87,6 +87,11 @@ var (
 				WithMessage("The check was asked for too often, try again later").
 				WithDetailCode(16).
 				WithHTTPCode(http.StatusTooManyRequests)
+	// ErrSubstitutionNotAllowed: a {{task.<key>}} or {{var.<name>}} is in the description or a hint, which the participant reads;
+	// task names the task and field the place (description, hints[N].text).
+	ErrSubstitutionNotAllowed = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+					WithMessage("A description or a hint cannot hold a task or variable substitution").
+					WithDetailCode(19)
 	// ErrBootstrapTooLarge: a bootstrap file is over 256 KiB, or the script and files of a device are over 512 KiB in
 	// all; device, field, file (the file's path in the device) and limit (bytes) say where and how much.
 	// ErrTestDeployNoConsole: the lab cannot give a console link (it does not have the device, or it cannot say its base domain).

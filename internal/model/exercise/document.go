@@ -1,6 +1,7 @@
 package exerciseModel
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -64,6 +65,9 @@ func (v Variant) ValidateDocument() error {
 		keys[task.Key] = i
 	}
 	for _, task := range v.Tasks {
+		if err := validateTaskTexts(task); err != nil {
+			return err
+		}
 		if err := v.validateTaskCheck(task, false); err != nil {
 			return err
 		}
@@ -75,6 +79,63 @@ func (v Variant) ValidateDocument() error {
 		return err
 	}
 	return v.ValidateSubstitutions()
+}
+
+// validateTaskTexts refuses a substitution ({{task.<key>}}, {{var.<name>}}, or a malformed one) in the text a participant
+// reads: the description and the hints. A substitution would put an answer or an infrastructure value in front of every
+// reader; only placeholders ({{key}} of the task's own placeholders) belong there, and \{{ writes a literal {{. The error
+// names the task and the field: description, or hints[N].text.
+func validateTaskTexts(task Task) error {
+	bad := func(field string) error {
+		return ErrSubstitutionNotAllowed.WithPublicContext("task", task.Name).WithPublicContext("field", field).Err()
+	}
+	if hasSubstitutionInJSON(task.Description) {
+		return bad("description")
+	}
+	for i, hint := range task.Hints {
+		if hasSubstitution(hint.Text) && textHasSubstitution(hint.Text) {
+			return bad(fmt.Sprintf("hints[%d].text", i+1))
+		}
+	}
+	return nil
+}
+
+// textHasSubstitution reports a well-formed or malformed substitution in a text (an escaped \{{ is not one).
+func textHasSubstitution(s string) bool {
+	refs, err := SubstitutionRefs(s)
+	return err != nil || len(refs) > 0
+}
+
+// hasSubstitutionInJSON reports a substitution in any text value of a rich-text document (keys and structure are not text).
+func hasSubstitutionInJSON(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var document any
+	if json.Unmarshal(raw, &document) != nil {
+		return false // the shape of the description is checked elsewhere
+	}
+	var walk func(any) bool
+	walk = func(value any) bool {
+		switch node := value.(type) {
+		case string:
+			return hasSubstitution(node) && textHasSubstitution(node)
+		case map[string]any:
+			for _, child := range node {
+				if walk(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range node {
+				if walk(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(document)
 }
 
 func validateRequires(task Task, keys map[string]int) error {

@@ -534,3 +534,38 @@ func TestUsesConsole(t *testing.T) {
 	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant(shell)}}
 	require.True(t, version.UsesConsole())
 }
+
+// A description or a hint is read by participants: a task or variable substitution in it is refused, a placeholder and an
+// escaped literal are not.
+func TestValidateDocument_NoSubstitutionInTextsParticipantsRead(t *testing.T) {
+	field := func(err error) any {
+		var withContext interface{ PublicContext() map[string]any }
+		require.ErrorAs(t, err, &withContext)
+		return withContext.PublicContext()["field"]
+	}
+	with := func(description string, hints ...string) exerciseModel.Variant {
+		task := keyed("a")
+		task.Description = []byte(description)
+		for _, text := range hints {
+			task.Hints = append(task.Hints, exerciseModel.Hint{Text: text})
+		}
+		task.Check = exerciseModel.FlagCheck()
+		return exerciseModel.Variant{Tasks: []exerciseModel.Task{task}}
+	}
+	doc := func(text string) string {
+		return `{"root":{"children":[{"type":"paragraph","children":[{"type":"text","text":` + text + `}]}]}}`
+	}
+	require.NoError(t, with(doc(`"Open {{web}} and look around"`), "Look at {{web}}", `a literal \{{task.x}}`).ValidateDocument(), "placeholders and escapes stay")
+	for name, v := range map[string]exerciseModel.Variant{
+		"task in the description":      with(doc(`"The flag is {{task.a}}"`)),
+		"var in the description":       with(doc(`"Password {{var.pw}}"`)),
+		"malformed in the description": with(doc(`"Oops {{task.}}"`)),
+	} {
+		err := v.ValidateDocument()
+		require.ErrorIs(t, err, exerciseModel.ErrSubstitutionNotAllowed.Err(), name)
+		require.Equal(t, "description", field(err), name)
+	}
+	err := with(doc(`"fine"`), "ok", "the answer is {{task.a}}").ValidateDocument()
+	require.ErrorIs(t, err, exerciseModel.ErrSubstitutionNotAllowed.Err())
+	require.Equal(t, "hints[2].text", field(err))
+}
