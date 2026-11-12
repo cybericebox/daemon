@@ -263,7 +263,7 @@ Access: [ {Kind: "http", Port: 8080, Protocol: "http"},        // Protocol http 
 - **Console link of a test lab**: `POST /exercises/deploys/{deployID}/link` takes `Access` (`http` default, or `terminal`). The
   link of any access kind is the `url` of that kind's entry in the lab status (`LabAccessEntry`; http by `Port`, terminal by
   protocol, one entry per device; vnc and rdp the same way later), signed into the same `/_auth?t=<token>` handoff on that
-  host. For a console the host is the device's own, `https://<device>-<code>--term.<labs domain>`; the daemon builds no address
+  host. For a console the host is the device's own, `https://<device>-<code>t.<labs domain>` (the last letter is the kind: `w` web, `t` console; clients never parse or build it); the daemon builds no address
   and sends no `next`. `Port` is ignored for `terminal`. 404 (33518) when the lab does not have the device, its terminal entry
   has no url yet, or no laboratory that is used serves a console. 400 for any other `Access`. The request and response shapes
   are unchanged.
@@ -479,7 +479,7 @@ saved when 0 was allowed): it is read as 1 (`EffectiveWeight`) and shown without
 - Every observation is sent to the laboratory in its own message; expected values are resolved in the daemon and kept by the
   laboratory's checker. `custom.user` empty is `nobody` in the laboratory; the daemon writes no default. A `file` checksum is sent in lower case.
 - The console link is the `url` of the device's `terminal` access entry (the laboratory gives every device its own console host,
-  `<device>-<code>--term.<labs domain>`; `AccessFeature.terminal_host` is gone). The console link is refused (33518) when the entry
+  `<device>-<code>t.<labs domain>`; `AccessFeature.terminal_host` is gone). The console link is refused (33518) when the entry
   has no url, and when no laboratory that is used serves a console.
 - **Check time limit above the laboratory's ceiling** (chart `checks.maxTimeLimitSeconds`, reported as
   `ChecksFeature.max_time_limit_seconds`): the lab is refused at start with 73512, `options` =

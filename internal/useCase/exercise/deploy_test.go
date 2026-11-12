@@ -710,7 +710,7 @@ func openSessionFixture(t *testing.T, ready bool, expires time.Time) (*exercise.
 	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-" + deployID.String(), CreatedBy: userID, ExpiresAt: expires}, nil)
 	sessions := &fakeSessions{}
-	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: ready, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"}}}}
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: ready, Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.challenges.example.com"}}}}
 	return exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions}), sessions, userID, deployID
 }
 
@@ -721,7 +721,7 @@ func TestOpenTestDeployLink_IssuesTheAuthorsLinkUntilTheLeaseEnds(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !link.ExpiresAt.Equal(expires) || sessions.got.Client != labBindingModel.ParticipantClientName(userID) || sessions.got.Group != "t-"+deployID.String() || sessions.got.AccessURL != "https://web-abc123.challenges.example.com" {
+	if !link.ExpiresAt.Equal(expires) || sessions.got.Client != labBindingModel.ParticipantClientName(userID) || sessions.got.Group != "t-"+deployID.String() || sessions.got.AccessURL != "https://web-abc123w.challenges.example.com" {
 		t.Fatalf("link: %+v session: %+v", link, sessions.got)
 	}
 }
@@ -737,14 +737,14 @@ func TestOpenTestDeployConsoleLink_OpensTheConsolePageOfTheDevice(t *testing.T) 
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Ready: true,
 		Devices: []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}},
 		Access: []exerciseModel.LabAccess{
-			{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.challenges.example.com"},
-			{Device: "db", Protocol: "terminal", URL: "https://db-def456--term.challenges.example.com"}}}}
+			{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.challenges.example.com"},
+			{Device: "db", Protocol: "terminal", URL: "https://db-def456t.challenges.example.com"}}}}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
 
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.got.AccessURL != "https://db-def456--term.challenges.example.com" || sessions.got.Next != "" ||
+	if sessions.got.AccessURL != "https://db-def456t.challenges.example.com" || sessions.got.Next != "" ||
 		sessions.got.Group != "t-"+deployID.String() || !sessions.got.ExpiresAt.Equal(expires) {
 		t.Fatalf("session: %+v", sessions.got)
 	}
@@ -1685,21 +1685,21 @@ func TestOpenTestDeployConsoleLink_UsesTheTerminalEntryURL(t *testing.T) {
 	infra := &capabilityInfra{}
 	devices := []exerciseModel.LabDeployedDevice{{Name: "db"}, {Name: "web"}}
 	infra.status = exerciseModel.LabDeployStatus{Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{
-		{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123.labs.example.com"},
-		{Device: "db", Protocol: "terminal", URL: "https://db-abc123--term.labs.example.com"},
+		{Device: "web", Port: 80, Protocol: "http", URL: "https://web-abc123w.labs.example.com"},
+		{Device: "db", Protocol: "terminal", URL: "https://db-abc123t.labs.example.com"},
 	}}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: sessions})
 
 	if _, err := uc.OpenTestDeployConsoleLink(context.Background(), userID, deployID, "db"); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.got.AccessURL != "https://db-abc123--term.labs.example.com" || sessions.got.Next != "" {
+	if sessions.got.AccessURL != "https://db-abc123t.labs.example.com" || sessions.got.Next != "" {
 		t.Fatalf("session: %+v", sessions.got)
 	}
 	for name, status := range map[string]exerciseModel.LabDeployStatus{
 		"no entry":           {Ready: true, Devices: devices},
 		"no url yet":         {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Protocol: "terminal"}}},
-		"entry of a device":  {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "web", Protocol: "terminal", URL: "https://web-abc123--term.labs.example.com"}}},
+		"entry of a device":  {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "web", Protocol: "terminal", URL: "https://web-abc123t.labs.example.com"}}},
 		"http is no console": {Ready: true, Devices: devices, Access: []exerciseModel.LabAccess{{Device: "db", Port: 80, Protocol: "http", URL: "https://db-abc123.labs.example.com"}}},
 	} {
 		infra.status = status

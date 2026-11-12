@@ -21,7 +21,7 @@ type moderatorsLabLinkUC struct {
 
 func (u *moderatorsLabLinkUC) OpenModeratorsLabLink(_ context.Context, eventID, userID, challengeID uuid.UUID, _ string, _ int32) (labaccess.Link, error) {
 	u.calls = append(u.calls, [3]uuid.UUID{eventID, userID, challengeID})
-	return labaccess.Link{URL: "https://web-abc123.challenges.example.com/_auth?t=jwt", Token: "jwt", ExpiresAt: time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)}, nil
+	return labaccess.Link{URL: "https://web-abc123w.challenges.example.com/_auth?t=jwt", Token: "jwt", ExpiresAt: time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)}, nil
 }
 
 func linkPath(eventID, challengeID uuid.UUID) string {

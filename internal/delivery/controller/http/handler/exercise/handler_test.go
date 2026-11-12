@@ -2049,7 +2049,7 @@ func TestSetExerciseAccess_NoneLevel(t *testing.T) {
 func TestDeployLink_ReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://web-abc123.challenges.example.com/_auth?t=signed", Token: "signed", ExpiresAt: expires}}
+	uc := &fakeUC{sessionLink: labaccess.Link{URL: "https://web-abc123w.challenges.example.com/_auth?t=signed", Token: "signed", ExpiresAt: expires}}
 	r := newEngine(uc, uid)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String()+"/link", strings.NewReader(`{"Device":"web","Port":80}`))
