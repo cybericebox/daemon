@@ -221,7 +221,7 @@ func (v Variant) validateTaskCheck(task Task, required bool) error {
 	case "answer":
 		if field := validAnswerShape(*task.Check.Answer); field != "" {
 			if field == "values" && task.Check.Answer.Type == AnswerTypeFlag {
-				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
+				return ErrFlagSourceInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
 			}
 			return ErrAnswerInvalid.WithPublicContext("task", task.Name).
 				WithPublicContext("field", "check.answer."+field).

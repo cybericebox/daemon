@@ -3,6 +3,7 @@ package exerciseModel
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -308,7 +309,7 @@ func validateTaskShape(variantIndex int, task, canonical Task) error {
 	}
 	name := strings.TrimSpace(task.Name)
 	if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
-		return ErrTaskNameInvalid.WithContext("task", task.Name).Err()
+		return ErrTaskNameInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "name").Err()
 	}
 	if !task.Difficulty.Valid() {
 		return ErrTaskDifficultyInvalid.WithContext("task", task.Name).Err()
@@ -384,11 +385,12 @@ func validateVariantForPublish(variant Variant) error {
 	delivered := variant.DeliveredTaskKeys()
 	for _, task := range variant.Tasks {
 		if !hasTaskDescriptionContent(task.Description) {
-			return ErrTaskDescriptionRequired.WithContext("task", task.Name).Err()
+			return ErrTaskDescriptionRequired.WithPublicContext("task", task.Name).WithPublicContext("field", "description").Err()
 		}
-		for _, hint := range task.Hints {
+		for hintIndex, hint := range task.Hints {
 			if !hasHintTextContent(hint.Text) {
-				return ErrHintTextRequired.WithContext("task", task.Name).Err()
+				return ErrHintTextRequired.WithPublicContext("task", task.Name).
+					WithPublicContext("field", fmt.Sprintf("hints[%d].text", hintIndex+1)).Err()
 			}
 		}
 		if err := requireSingleValueWithoutDelivery(task, delivered); err != nil {
@@ -415,10 +417,10 @@ func requireSingleValueWithoutDelivery(task Task, delivered map[string]struct{})
 		return nil
 	}
 	if len(answer.Values) == 0 {
-		return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
+		return ErrFlagSourceInvalid.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
 	}
 	if len(answer.Values) != 1 || strings.HasPrefix(answer.Values[0], flagpattern.TemplatePrefix) {
-		return ErrFlagMultiNeedsDevice.WithContext("task", task.Name).Err()
+		return ErrFlagMultiNeedsDevice.WithPublicContext("task", task.Name).WithPublicContext("field", "check.answer.values").Err()
 	}
 	return nil
 }

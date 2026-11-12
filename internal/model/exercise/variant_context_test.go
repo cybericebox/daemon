@@ -122,3 +122,43 @@ func TestInVariantIfScoped(t *testing.T) {
 	require.Equal(t, whole, exerciseModel.InVariant(whole, 0), "number 0 is the whole exercise")
 	require.NotContains(t, publicContext(t, exerciseModel.InVariant(whole, 0)), "variant")
 }
+
+// The publish errors about one task name the task and the field the author fixes, in public: the reader is the author.
+func TestPublishErrorsNameTheTaskAndField(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate  func(*exerciseModel.Task)
+		want    appErr.ErrorCreator
+		field   string
+		publish bool
+	}{
+		"name":        {func(task *exerciseModel.Task) { task.Name = "" }, exerciseModel.ErrTaskNameInvalid, "name", false},
+		"description": {func(task *exerciseModel.Task) { task.Description = nil }, exerciseModel.ErrTaskDescriptionRequired, "description", true},
+		"hint text": {func(task *exerciseModel.Task) {
+			task.Hints = []exerciseModel.Hint{{Level: exerciseModel.HintLevelNudge}}
+		}, exerciseModel.ErrHintTextRequired, "hints[1].text", true},
+		"flag source": {func(task *exerciseModel.Task) {
+			task.Check = exerciseModel.Check{Answer: &exerciseModel.AnswerCheck{Type: exerciseModel.AnswerTypeFlag}}
+		}, exerciseModel.ErrFlagSourceInvalid, "check.answer.values", true},
+		"several values without a device": {func(task *exerciseModel.Task) {
+			task.Check = exerciseModel.Check{Answer: &exerciseModel.AnswerCheck{Type: exerciseModel.AnswerTypeFlag, Values: []string{"ICE{a}", "ICE{b}"}}}
+		}, exerciseModel.ErrFlagMultiNeedsDevice, "check.answer.values", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			version := twoVariants()
+			for i := range version.Variants {
+				tc.mutate(&version.Variants[i].Tasks[0])
+			}
+			var err error
+			if tc.publish {
+				err = version.ValidateForPublish()
+			} else {
+				err = version.ValidateStructure()
+			}
+			require.ErrorIs(t, err, tc.want.Err())
+			public := publicContext(t, err)
+			require.Equal(t, tc.field, public["field"])
+			require.Equal(t, version.Variants[0].Tasks[0].Name, public["task"], "the task is public")
+			require.Equal(t, 1, public["variant"])
+		})
+	}
+}
