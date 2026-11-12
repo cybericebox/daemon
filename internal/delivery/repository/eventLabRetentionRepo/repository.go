@@ -61,9 +61,6 @@ func (r *Repository) Orphans(ctx context.Context, limit int32) ([]eventLabModel.
 	}
 	return labs(rows)
 }
-func (r *Repository) Pinned(ctx context.Context, l eventLabModel.Lab, now time.Time) (bool, error) {
-	return r.q.HasEventLabRetentionPin(ctx, postgres.HasEventLabRetentionPinParams{LabID: l.ID, Generation: l.Generation, Now: now})
-}
 func (r *Repository) Select(ctx context.Context, eventID, stageID, labID uuid.UUID, now time.Time) error {
 	return r.q.SelectEventStageRetainedLab(ctx, postgres.SelectEventStageRetainedLabParams{EventID: eventID, StageID: stageID, LabID: labID, Now: now})
 }

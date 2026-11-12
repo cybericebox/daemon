@@ -214,16 +214,6 @@ func (f *Fleet) locate(ctx context.Context, group string, forCreate bool) (*Memb
 	return nil, fmt.Errorf("lab group %q: %w", group, errNoPlacement)
 }
 
-// routeForCreate is route for a call that creates the group: a group that is not placed yet is
-// placed now by the picker.
-func (f *Fleet) routeForCreate(ctx context.Context, group string) (*Client, error) {
-	m, err := f.memberForCreate(ctx, group)
-	if err != nil {
-		return nil, err
-	}
-	return m.Client, nil
-}
-
 // memberForCreate finds the agent of a group, placing the group when it has none yet.
 func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, error) {
 	m, err := f.routeWith(ctx, group, true)
