@@ -608,3 +608,102 @@ func TestRun_FailedProgressWriteIsReported(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, rep2.ProgressNotRecorded)
 }
+
+// exercisePair makes one exercise with a published version, a draft and optional further versions (checkpoints), all
+// holding the same variant id, so a ciphertext copied between them has the same context in every one.
+func (w *world) exercisePair(vid uuid.UUID, docs map[int]string, published, draft int) {
+	w.exec(`INSERT INTO exercises (id, name, description, tags, created_at, updated_at) VALUES ($1, 'pair', '', '{}', $2, $2)`, id(850), w.clock)
+	for n, doc := range docs {
+		status := "superseded"
+		if n == published {
+			status = "published"
+		} else if n == draft {
+			status = "draft"
+		}
+		w.exec(`INSERT INTO exercise_versions (id, exercise_id, status, name, description, tags, variants, created_at)
+VALUES ($1, $2, $5, 'n', '', '{}', $3::jsonb, $4)`, id(n), id(850), doc, w.clock, status)
+	}
+	w.exec(`UPDATE exercises SET published_version_id = $2, draft_version_id = $3 WHERE id = $1`, id(850), id(published), id(draft))
+}
+
+func (w *world) exerciseStatus() string {
+	var st string
+	require.NoError(w.t, w.pool.QueryRow(context.Background(),
+		`SELECT exercise_status(draft_version_id, published_version_id, false, true) FROM exercises WHERE id = $1`, id(850)).Scan(&st))
+	return st
+}
+
+const pairDoc = `[{"id":"%s","name":"%s","topology":{"devices":[{"name":"web","bootstrap":{"env":[{"name":"A","value":"%s","secret":true}]}}]}}]`
+
+// 1. rotation must not make an unmodified working copy look changed: equal documents stay equal.
+func TestRun_EqualVersionsStayEqual(t *testing.T) {
+	w := newWorld(t)
+	vid := id(7)
+	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
+	w.exercisePair(vid, map[int]string{
+		21: fmt.Sprintf(pairDoc, vid, "v", ct), // published
+		22: fmt.Sprintf(pairDoc, vid, "v", ct), // draft, identical
+		23: fmt.Sprintf(pairDoc, vid, "v", ct), // a checkpoint with the same value
+	}, 21, 22)
+	require.Equal(t, "published", w.exerciseStatus())
+
+	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	for _, src := range rep.Sources {
+		require.Zero(t, src.Conflicts, "a sibling rewritten together with its row is not a conflict")
+		require.Zero(t, src.Failed)
+	}
+	require.Equal(t, "published", w.exerciseStatus(), "the draft must still equal the published version")
+	require.Equal(t, w.variants(21), w.variants(22))
+	require.Equal(t, w.variants(21), w.variants(23))
+	require.NotContains(t, w.variants(21), ":k1:")
+}
+
+// A draft that differs in a non-secret field stays "changed", and the secret it shares keeps one ciphertext.
+func TestRun_DraftWithOtherFieldKeepsSharedSecret(t *testing.T) {
+	w := newWorld(t)
+	vid := id(7)
+	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
+	w.exercisePair(vid, map[int]string{
+		21: fmt.Sprintf(pairDoc, vid, "v", ct),
+		22: fmt.Sprintf(pairDoc, vid, "renamed", ct),
+	}, 21, 22)
+	require.Equal(t, "changed", w.exerciseStatus())
+	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Equal(t, "changed", w.exerciseStatus())
+	secretOf := func(n int) string {
+		var out string
+		require.NoError(t, w.pool.QueryRow(context.Background(),
+			`SELECT variants #>> '{0,topology,devices,0,bootstrap,env,0,value}' FROM exercise_versions WHERE id = $1`, id(n)).Scan(&out))
+		return out
+	}
+	require.Equal(t, secretOf(21), secretOf(22))
+	require.Equal(t, "k2", keyOf(secretOf(21)))
+}
+
+// An interruption between the published row and the draft row must not split them: the shared value is rewritten in
+// every row of the exercise in one transaction.
+func TestRun_InterruptionDoesNotSplitVersions(t *testing.T) {
+	w := newWorld(t)
+	vid := id(7)
+	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
+	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
+	ctx, cancel := context.WithCancel(context.Background())
+	swaps := 0
+	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
+		swaps++
+		if swaps == 2 {
+			cancel()
+		}
+	}}
+	_, err := w.usecase(store).Run(ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 1})
+	if err != nil {
+		require.ErrorIs(t, err, context.Canceled)
+	}
+	require.Equal(t, "published", w.exerciseStatus())
+	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Equal(t, "published", w.exerciseStatus())
+	require.Equal(t, w.variants(21), w.variants(22))
+}
