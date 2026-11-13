@@ -36,18 +36,9 @@ func TestValidateSiteLinks(t *testing.T) {
 		{"upper case host", "https://Example.org", false},
 		{"ip literal", "https://[::1]/", false},
 	} {
-		for _, field := range []string{"MAIN_SITE_URL", "TERMS_URL", "PRIVACY_URL"} {
-			var c config.AuthConfig
-			switch field {
-			case "MAIN_SITE_URL":
-				c.MainSiteURL = tc.value
-			case "TERMS_URL":
-				c.TermsURL = tc.value
-			default:
-				c.PrivacyURL = tc.value
-			}
+		for _, c := range []config.AuthConfig{{MainSiteURL: tc.value}, {TermsURL: tc.value}, {PrivacyURL: tc.value}} {
 			if err := c.ValidateSiteLinks(); (err == nil) != tc.ok {
-				t.Errorf("%s %s (%q): err=%v want ok=%v", field, tc.name, tc.value, err, tc.ok)
+				t.Errorf("%s (%q): err=%v want ok=%v", tc.name, tc.value, err, tc.ok)
 			}
 		}
 	}

@@ -30,8 +30,8 @@ func TestSiteLinkVectors(t *testing.T) {
 	}
 	for _, v := range vectors.URL {
 		c := config.AuthConfig{MainSiteURL: v.Value, TermsURL: v.Value, PrivacyURL: v.Value}
-		if err := c.ValidateSiteLinks(); (err == nil) != v.Valid {
-			t.Errorf("%q: valid=%v, vectors say %v (err=%v)", v.Value, err == nil, v.Valid, err)
+		if verr := c.ValidateSiteLinks(); (verr == nil) != v.Valid {
+			t.Errorf("%q: valid=%v, vectors say %v (err=%v)", v.Value, verr == nil, v.Valid, verr)
 		}
 	}
 }
