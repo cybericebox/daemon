@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/keyRotationRepo"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -78,6 +80,10 @@ type Report struct {
 	KeyID   string
 	DryRun  bool
 	Sources []secret.Result
+	// ProgressNotRecorded is true when a write of the progress table failed during the run: the rows were handled, but
+	// the table is stale and must not be trusted for this run.
+	ProgressNotRecorded bool
+	warned              map[string]bool
 }
 
 // Failed counts the rows that could not be opened or verified, over all sources.
@@ -117,13 +123,12 @@ func (u *UseCase) Run(ctx context.Context, family string, opts Options) (Report,
 				if opts.DryRun {
 					return // a dry run leaves no trace in the progress table
 				}
-				// A progress write that fails must not stop the job: the rows are what matters.
-				_ = u.store.SaveProgress(ctx, p, keyRotationRepo.StateRunning, started)
+				u.save(ctx, &rep, p, keyRotationRepo.StateRunning, started)
 			},
 			Now: u.now,
 		}
 		if !opts.DryRun {
-			_ = u.store.SaveProgress(ctx, secret.Progress{Family: family, Source: src.Name(), KeyID: rep.KeyID, UpdatedAt: started},
+			u.save(ctx, &rep, secret.Progress{Family: family, Source: src.Name(), KeyID: rep.KeyID, UpdatedAt: started},
 				keyRotationRepo.StateRunning, started)
 		}
 		res, runErr := r.Run(ctx, src, secret.Options{DryRun: opts.DryRun})
@@ -138,11 +143,44 @@ func (u *UseCase) Run(ctx context.Context, family string, opts Options) (Report,
 			}
 			res.UpdatedAt = u.now()
 			// The final state is written even when the run's context is already cancelled.
-			_ = u.store.SaveProgress(context.WithoutCancel(ctx), res.Progress, state, started)
+			u.save(context.WithoutCancel(ctx), &rep, res.Progress, state, started)
 		}
 		if runErr != nil {
 			return rep, runErr
 		}
 	}
 	return rep, nil
+}
+
+// save writes the progress row. A failed write must not stop the job (the rows are what matters), but it is never
+// silent: one warning per source with no value in it, and the report says the table was not recorded.
+func (u *UseCase) save(ctx context.Context, rep *Report, p secret.Progress, state string, started time.Time) {
+	err := u.store.SaveProgress(ctx, p, state, started)
+	if err == nil {
+		return
+	}
+	if rep.warned == nil {
+		rep.warned = map[string]bool{}
+	}
+	if !rep.warned[p.Source] {
+		rep.warned[p.Source] = true
+		log.Warn().Str("family", p.Family).Str("source", p.Source).Str("error_class", errorClass(err)).
+			Msg("Key re-encryption: the progress table could not be written; the status table is stale for this run")
+	}
+	rep.ProgressNotRecorded = true
+}
+
+// errorClass names an error without any text that could carry a value.
+func errorClass(err error) string {
+	var pg *pgconn.PgError
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.As(err, &pg):
+		return "postgres_" + pg.Code
+	default:
+		return "store_error"
+	}
 }

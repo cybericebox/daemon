@@ -10,7 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/keyrotation"
 )
 
-const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status | keys reencrypt <family> [--dry-run] [--yes]]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status [--strict] | keys reencrypt <family> [--dry-run] [--yes]]"
 
 func main() {
 	args := os.Args[1:]
@@ -42,10 +42,10 @@ func main() {
 			fmt.Fprintln(os.Stderr, "erase-lab-telemetry:", err)
 			os.Exit(1)
 		}
-	case len(args) == 2 && args[0] == "keys" && args[1] == "status":
+	case (len(args) == 2 || (len(args) == 3 && args[2] == "--strict")) && args[0] == "keys" && args[1] == "status":
 		cfg := config.MustGetConfig()
 		config.SetupLogger(cfg)
-		problems, err := app.RunKeysStatus(context.Background(), cfg, os.Stdout)
+		problems, err := app.RunKeysStatus(context.Background(), cfg, len(args) == 3, os.Stdout)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "keys status:", err)
 			os.Exit(2)

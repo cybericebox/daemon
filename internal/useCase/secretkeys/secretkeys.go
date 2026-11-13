@@ -127,6 +127,20 @@ func (r Report) Problems() int {
 	return n
 }
 
+// StrictProblems is the count a script should act on: the values that cannot be opened and, when strict, also every
+// re-encryption run that is not finished or that left failed rows. A key may be retired only at zero.
+func (r Report) StrictProblems(strict bool) int {
+	n := r.Problems()
+	if strict {
+		for _, s := range r.Rotation {
+			if s.State != "finished" || s.Failed > 0 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // UseCase scans the stored secrets.
 type UseCase struct {
 	store   Store
