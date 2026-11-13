@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,13 @@ type inflightRig struct {
 	l       *InflightLimiter
 	entered chan struct{}
 	release chan struct{}
+
+	// Every admitted request parks on a channel of its own as well as on release, so the test can free exactly the
+	// request it means: a token sent to the shared release channel is taken by whichever handler parked first, which is
+	// not always the one that was admitted first.
+	mu      sync.Mutex
+	parked  []chan struct{}
+	holders map[<-chan *httptest.ResponseRecorder]chan struct{}
 }
 
 func newInflightRig(t *testing.T, cfg config.InflightConfig) *inflightRig {
@@ -49,6 +57,7 @@ func newInflightRig(t *testing.T, cfg config.InflightConfig) *inflightRig {
 		l:       NewInflightLimiter(cfg, testSessionKey),
 		entered: make(chan struct{}, 128),
 		release: make(chan struct{}),
+		holders: map[<-chan *httptest.ResponseRecorder]chan struct{}{},
 	}
 	g.r = gin.New()
 	g.r.Use(
@@ -59,8 +68,15 @@ func newInflightRig(t *testing.T, cfg config.InflightConfig) *inflightRig {
 		g.l.Handle,
 	)
 	block := func(c *gin.Context) {
+		own := make(chan struct{})
+		g.mu.Lock()
+		g.parked = append(g.parked, own) // registered before the test is told the request entered
+		g.mu.Unlock()
 		g.entered <- struct{}{}
-		<-g.release
+		select {
+		case <-own:
+		case <-g.release:
+		}
 		c.Status(http.StatusOK)
 	}
 	g.r.GET("/api/x", block)
@@ -138,6 +154,10 @@ func (g *inflightRig) hold(q request) <-chan *httptest.ResponseRecorder {
 	case <-time.After(5 * time.Second):
 		g.t.Fatalf("%s never reached its handler", q.path)
 	}
+	// holds are sequential: the request that just entered is the last one to have parked
+	g.mu.Lock()
+	g.holders[done] = g.parked[len(g.parked)-1]
+	g.mu.Unlock()
 	return done
 }
 
@@ -158,7 +178,16 @@ func (g *inflightRig) answered(q request) *httptest.ResponseRecorder {
 // finish releases one held request and waits until it is answered, i.e. until its slot is free again.
 func (g *inflightRig) finish(done <-chan *httptest.ResponseRecorder) {
 	g.t.Helper()
-	g.release <- struct{}{}
+	g.mu.Lock()
+	own, ok := g.holders[done]
+	g.mu.Unlock()
+	if ok {
+		close(own) // frees this request and no other
+	} else {
+		// A request that was started, not held: it parks after the test last looked, so the shared channel is all there
+		// is. This is exact only when it is the one request still parked, which is how the tests use it.
+		g.release <- struct{}{}
+	}
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
