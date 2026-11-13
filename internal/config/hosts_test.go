@@ -11,7 +11,7 @@ import (
 
 func validHosts() HostsConfig {
 	return HostsConfig{
-		Main: "cybericebox.com", API: "api.cybericebox.com", ID: "id.cybericebox.com",
+		Root: "cybericebox.com", API: "api.cybericebox.com", ID: "id.cybericebox.com",
 		Admin: "admin.cybericebox.com", Exercises: "exercises.cybericebox.com", EventDomain: "cybericebox.com",
 	}
 }
@@ -78,7 +78,7 @@ func TestHostsLinksAndOrigins(t *testing.T) {
 }
 
 func TestHostsOutsideEventDomain(t *testing.T) {
-	h := HostsConfig{Main: "x.test", API: "api.x.test", ID: "id.x.test", Admin: "admin.x.test", Exercises: "ex.x.test", EventDomain: "events.x.test"}
+	h := HostsConfig{Root: "x.test", API: "api.x.test", ID: "id.x.test", Admin: "admin.x.test", Exercises: "ex.x.test", EventDomain: "events.x.test"}
 	if !h.ReservedEventTags()["api"] {
 		t.Fatalf("the fixed tags stay reserved: %v", h.ReservedEventTags())
 	}
@@ -88,7 +88,7 @@ func TestHostsOutsideEventDomain(t *testing.T) {
 }
 
 func TestOriginAllowed(t *testing.T) {
-	h := HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
+	h := HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
 		Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	for origin, want := range map[string]bool{
 		"https://example.test":             true,

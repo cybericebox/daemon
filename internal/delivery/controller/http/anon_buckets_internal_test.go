@@ -53,7 +53,7 @@ func bucketController(
 		AuthConfig: config.AuthConfig{
 			SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
 			Hosts: config.HostsConfig{
-				Main:        "example.test",
+				Root:        "example.test",
 				API:         "api.example.test",
 				ID:          "id.example.test",
 				Admin:       "admin.example.test",

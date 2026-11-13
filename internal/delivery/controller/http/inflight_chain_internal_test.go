@@ -52,7 +52,7 @@ func TestInflightLimiterInTheControllerChain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	sink := &chainSink{}
 	hosts := config.HostsConfig{
-		Main:        "example.test",
+		Root:        "example.test",
 		API:         "api.example.test",
 		ID:          "id.example.test",
 		Admin:       "admin.example.test",

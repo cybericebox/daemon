@@ -56,7 +56,8 @@ func newBareTestUseCase(t *testing.T, env config.SMTPConfig, cipher *secret.Ciph
 	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	smtp := &fakeSMTP{fail: map[string]error{}}
 	uc := NewMailUseCase(Dependencies{
-		Repo: repo, Cipher: cipher, Env: env, Domain: "cybericebox.com", SupportEmail: "support@cybericebox.com",
+		Repo: repo, Cipher: cipher, Env: env,
+		SiteURL: "https://cybericebox.com", SupportEmail: "support@cybericebox.com",
 		NewSender: func(cfg email.Config) (sender, error) { return fakeClient{owner: smtp, conn: cfg}, nil },
 	})
 	uc.now = func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) }
@@ -381,7 +382,7 @@ func TestSendingDomainOnlyBuildsTheDefaultSenderAddress(t *testing.T) {
 func TestGetPlatformMailSettings_TellsWhereEachValueComesFrom(t *testing.T) {
 	env := config.SMTPConfig{Host: "env.smtp", Port: 587, SenderName: "Env", SenderEmail: "support@cybericebox.com", ReplyToName: "EnvHelp"}
 	uc, repo, _ := newTestUseCase(t, env, nil)
-	uc.domain = "cybericebox.com"
+	uc.siteURL = "https://cybericebox.com"
 	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{}, nil).AnyTimes()
 	expectPlatformIdentity(repo, &postgres.MailIdentity{FromName: "Saved", SendingDomain: "mail.cybericebox.com"})
 
@@ -400,7 +401,7 @@ func TestGetPlatformMailSettings_TellsWhereEachValueComesFrom(t *testing.T) {
 func TestGetPlatformMailSettings_NothingSavedFallsBackToEnvThenDefaults(t *testing.T) {
 	env := config.SMTPConfig{Host: "env.smtp", Port: 587, SenderEmail: "support@cybericebox.com"}
 	uc, repo, _ := newTestUseCase(t, env, nil)
-	uc.domain = "cybericebox.com"
+	uc.siteURL = "https://cybericebox.com"
 	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{}, nil).AnyTimes()
 	expectPlatformIdentity(repo, nil)
 
@@ -413,7 +414,7 @@ func TestGetPlatformMailSettings_NothingSavedFallsBackToEnvThenDefaults(t *testi
 	require.Equal(t, "cybericebox.com", view.SendingDomain)
 	require.Empty(t, view.SavedSendingDomain)
 
-	uc.env, uc.domain, uc.support = config.SMTPConfig{}, "", ""
+	uc.env, uc.siteURL, uc.support = config.SMTPConfig{}, "", ""
 	view, err = uc.GetPlatformMailSettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, FieldNone, view.Sources.SenderAddress)

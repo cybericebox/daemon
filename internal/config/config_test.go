@@ -458,7 +458,7 @@ func TestMustGetConfig_HostsFromDomain(t *testing.T) {
 	t.Setenv("DOMAIN", "base.example")
 	cfg := MustGetConfig()
 	h := cfg.Auth.Hosts
-	if h.Main != "base.example" || h.API != "api.base.example" || h.ID != "id.base.example" || h.Admin != "admin.base.example" ||
+	if h.Root != "base.example" || h.API != "api.base.example" || h.ID != "id.base.example" || h.Admin != "admin.base.example" ||
 		h.Exercises != "exercises.base.example" || h.EventDomain != "base.example" {
 		t.Fatalf("Hosts: got %+v", h)
 	}
@@ -486,5 +486,22 @@ func TestExerciseConfigLabSweepBounds(t *testing.T) {
 	short.LabSweepGrace = 30 * time.Second
 	if short.Validate() == nil {
 		t.Error("a grace under a minute accepted: the sweep must not race a group that is still being created")
+	}
+}
+
+// Every new setting is optional: the default configuration starts without them, and each is read from its own variable.
+func TestMustGetConfig_SiteLinks(t *testing.T) {
+	setTestHosts(t)
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	got := MustGetConfig().Auth
+	if got.MainSiteURL != "" || got.TermsURL != "" || got.PrivacyURL != "" {
+		t.Fatalf("defaults must be empty: %+v", got)
+	}
+	t.Setenv("MAIN_SITE_URL", "https://example.org")
+	t.Setenv("TERMS_URL", "https://example.org/terms")
+	t.Setenv("PRIVACY_URL", "https://example.org/privacy")
+	got = MustGetConfig().Auth
+	if got.MainSiteURL != "https://example.org" || got.TermsURL != "https://example.org/terms" || got.PrivacyURL != "https://example.org/privacy" {
+		t.Fatalf("read: %+v", got)
 	}
 }

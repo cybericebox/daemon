@@ -82,7 +82,7 @@ func newEngine(uc IUseCase, userID *uuid.UUID) *gin.Engine {
 			c.Next()
 		})
 	}
-	hosts := config.HostsConfig{Main: "example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", API: "api.example.test", EventDomain: "example.test"}
+	hosts := config.HostsConfig{Root: "example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", API: "api.example.test", EventDomain: "example.test"}
 	site := middleware.NewSiteResolver(hosts, func(context.Context, string) (uuid.UUID, error) { return uuid.Nil, eventModel.ErrEventNotFound.Err() }).ResolveSite()
 	NewInboxAPIHandler(uc, fakeProt{}, site).Init(engine.Group("api/notifications"))
 	return engine

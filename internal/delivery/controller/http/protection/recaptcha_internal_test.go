@@ -44,7 +44,7 @@ func TestTheRecaptchaSecretIsSentInTheBodyNeverInTheURL(t *testing.T) {
 	}
 }
 
-var testHosts = config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
+var testHosts = config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
 
 // L9: a token solved on somebody else's page is not a proof for our visitor.
 func TestRecaptchaTokenMustBeSolvedOnAPlatformFrontend(t *testing.T) {

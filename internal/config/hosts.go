@@ -19,8 +19,10 @@ import (
 type HostsConfig struct {
 	// Domain is the base domain (env DOMAIN, required).
 	Domain string `env:"DOMAIN,required"`
-	// Main is the landing host (mail footer links): DOMAIN.
-	Main string `env:"-"`
+	// Root is the root domain (the apex host): DOMAIN. It keeps three roles: an allowed browser origin, the Domain of the
+	// signed-in hint cookie and the passkey RP ID. The installation does not cover it; where it points is the
+	// installer's choice.
+	Root string `env:"-"`
 	// API is the only Host this service answers on; the OAuth redirect URI and the public API base URL
 	// are built from it: api.DOMAIN.
 	API string `env:"-"`
@@ -80,12 +82,12 @@ func (h *HostsConfig) Validate() error {
 			return fmt.Errorf("EVENT_RESERVED_TAGS_EXTRA: %q is not a lower case DNS label", tag)
 		}
 	}
-	h.Main, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = got["MAIN_HOST"], got["API_HOST"], got["ID_HOST"], got["ADMIN_HOST"], got["EXERCISES_HOST"], got["EVENT_DOMAIN"]
+	h.Root, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = got["MAIN_HOST"], got["API_HOST"], got["ID_HOST"], got["ADMIN_HOST"], got["EXERCISES_HOST"], got["EVENT_DOMAIN"]
 	return nil
 }
 
 // OriginAllowed is THE allow-list of browser origins, shared by CORS and the origin guard so they
-// cannot drift apart: https only, and the host is exactly MAIN, ID, ADMIN, EXERCISES, API (for
+// cannot drift apart: https only, and the host is exactly ROOT, ID, ADMIN, EXERCISES, API (for
 // same-origin calls) or an event site, which is exactly one label under EVENT_DOMAIN. Anything else
 // (a lab device page web-x.labs.<domain>, a two-label host under EVENT_DOMAIN, a lookalike domain,
 // "null", http) is refused. On refusal reason is a short text for logs, never for the client.
@@ -140,18 +142,18 @@ func (h HostsConfig) reserved(label string) bool {
 func (h HostsConfig) IsPlatformHost(host string) bool {
 	host = strings.ToLower(host)
 	switch host {
-	case h.Main, h.API, h.ID, h.Admin, h.Exercises:
+	case h.Root, h.API, h.ID, h.Admin, h.Exercises:
 		return true
 	}
 	return h.isEventSite(host)
 }
 
-// IsFrontendOrigin is the CORS and redirect allowlist: exactly the frontend hosts and the main host,
+// IsFrontendOrigin is the CORS and redirect allowlist: exactly the frontend hosts and the root host,
 // plus any event site <label>.<EventDomain>. The API host itself is not a frontend.
 func (h HostsConfig) IsFrontendOrigin(host string) bool {
 	host = strings.ToLower(host)
 	switch host {
-	case h.Main, h.ID, h.Admin, h.Exercises:
+	case h.Root, h.ID, h.Admin, h.Exercises:
 		return true
 	}
 	return h.isEventSite(host)
