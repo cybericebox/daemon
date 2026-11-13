@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -93,6 +94,17 @@ type Column struct {
 	// Problems counts the values that cannot be opened, ProblemRefs names the first ones.
 	Problems    int
 	ProblemRefs []Problem
+	// ByReason counts the problems per reason class (the classes the re-encryption job reports).
+	ByReason map[secret.Reason]int
+}
+
+// RotationState is a row of the re-encryption progress table: counts only.
+type RotationState struct {
+	Family, Source, KeyID, State string
+	Total, Done, Failed          int
+	Conflicts                    int
+	FailedByReason               map[string]int
+	UpdatedAt                    time.Time
 }
 
 // Report is the state of every keyed secret the scan covers.
@@ -102,6 +114,8 @@ type Report struct {
 	// Keys are the key ids loaded per family, the sealing key first; nil for a family without a key.
 	Keys    map[Family][]string
 	Columns []Column
+	// Rotation is the state of the re-encryption runs; filled by the caller that has the progress table.
+	Rotation []RotationState
 }
 
 // Problems counts the values that cannot be opened, over all columns.
@@ -160,13 +174,16 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 			col.ByKey[id]++
 		}
 		var problem *Problem
+		reason := secret.ReasonAAD
 		switch cipher := u.ciphers.of(f); {
 		case cipher == nil:
 			problem = &Problem{Kind: NoFamilyKey, Ref: ref}
 		case !legacy && !cipher.HasKey(id):
 			problem = &Problem{Kind: KeyNotLoaded, KeyID: id, Ref: ref}
+			reason = secret.ReasonUnknownKey
 		case open:
 			if _, err := cipher.DecryptWithContext(ciphertext, context); err != nil {
+				reason = secret.ReasonOf(err)
 				if legacy {
 					problem = &Problem{Kind: NoKeyOpens, Ref: ref}
 				} else {
@@ -176,6 +193,10 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 		}
 		if problem != nil {
 			col.Problems++
+			if col.ByReason == nil {
+				col.ByReason = map[secret.Reason]int{}
+			}
+			col.ByReason[reason]++
 			if len(col.ProblemRefs) < maxProblemRefs {
 				col.ProblemRefs = append(col.ProblemRefs, *problem)
 			}
