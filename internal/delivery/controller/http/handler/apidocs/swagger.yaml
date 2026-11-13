@@ -83,6 +83,13 @@ definitions:
     type: object
   auth.completeRegistrationRequest:
     properties:
+      AcceptedDocuments:
+        description: |-
+          AcceptedDocuments lists the documents the page showed and the person accepted: "terms", "privacy". It must
+          cover the documents the installation requires; empty when it requires none.
+        items:
+          type: string
+        type: array
       FirstName:
         type: string
       LastName:
@@ -93,8 +100,6 @@ definitions:
         type: string
       Token:
         type: string
-      TosVersion:
-        type: integer
     type: object
   auth.confirmEmailChangeRequest:
     properties:
@@ -14096,15 +14101,18 @@ definitions:
         type: string
       lastSeen:
         type: string
+      legalDocuments:
+        description: LegalDocuments lists the documents accepted at TosAcceptedAt
+          (empty when none was required).
+        items:
+          type: string
+        type: array
       role:
         type: string
       status:
         type: string
       tosAcceptedAt:
         type: string
-      tosVersion:
-        format: int32
-        type: integer
     type: object
   userModel.ExportSession:
     properties:

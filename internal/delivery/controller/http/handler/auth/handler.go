@@ -46,7 +46,7 @@ type (
 		CompleteRegistration(
 			ctx context.Context,
 			setupToken, firstName, lastName, password string,
-			tosVersion int32,
+			acceptedDocuments []string,
 			redirect string,
 			meta authModel.SessionMetadata,
 		) (string, string, error)

@@ -15,6 +15,19 @@ func (c AuthConfig) SiteURL() string {
 	return c.Hosts.IDURL("")
 }
 
+// RequiredDocuments are the documents a new account must accept: "terms" when TERMS_URL is set and "privacy" when
+// PRIVACY_URL is set. Empty when the installation has neither, then nothing is required and nothing is recorded.
+func (c AuthConfig) RequiredDocuments() []string {
+	var required []string
+	if c.TermsURL != "" {
+		required = append(required, "terms")
+	}
+	if c.PrivacyURL != "" {
+		required = append(required, "privacy")
+	}
+	return required
+}
+
 // ValidateSiteLinks checks the optional MAIN_SITE_URL, TERMS_URL and PRIVACY_URL. Each is empty or an https URL.
 func (c AuthConfig) ValidateSiteLinks() error {
 	for _, link := range []struct{ name, value string }{

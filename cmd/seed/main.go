@@ -65,8 +65,9 @@ func run() error {
 	defer repo.Close()
 
 	deps := seed.Deps{
-		Queries: repo.Queries,
-		Pool:    repo.Pool(),
+		Queries:           repo.Queries,
+		Pool:              repo.Pool(),
+		RequiredDocuments: cfg.Auth.RequiredDocuments(),
 		Password: password.New(password.Config{Complexity: password.ComplexityConfig{
 			MinLength:            cfg.Auth.Password.MinLength,
 			MaxLength:            cfg.Auth.Password.MaxLength,
