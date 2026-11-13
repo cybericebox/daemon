@@ -98,6 +98,9 @@ type Deps struct {
 	Queries  *postgres.Queries
 	Pool     *pgxpool.Pool
 	Password *password.Client
+	// RequiredDocuments are the documents the installation requires on account creation (config RequiredDocuments);
+	// the seeded accounts accept exactly these. Empty: nothing is required and nothing is recorded.
+	RequiredDocuments []string
 	// Cipher encrypts exercise secret env vars; the seeded exercises have none, so nil is fine.
 	Cipher *secret.Cipher
 }

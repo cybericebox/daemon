@@ -63,12 +63,9 @@ func (u *AuthUseCase) ExportMyData(
 			CreatedAt:      user.CreatedAt,
 			LastSeen:       user.LastSeen,
 			TosAcceptedAt:  user.TosAcceptedAt,
+			LegalDocuments: user.LegalDocuments,
 		},
 		SignInMethods: []userModel.ExportSignInMethod{},
-	}
-	if user.TosAcceptedAt != nil {
-		version := user.TosVersion
-		out.Profile.TosVersion = &version
 	}
 	if user.HasPassword() {
 		out.SignInMethods = append(

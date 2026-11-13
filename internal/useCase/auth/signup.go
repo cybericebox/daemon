@@ -155,7 +155,7 @@ func (u *AuthUseCase) GetSetupContext(ctx context.Context, setupToken string) (*
 func (u *AuthUseCase) CompleteRegistration(
 	ctx context.Context,
 	setupToken, firstName, lastName, plainPassword string,
-	tosVersion int32,
+	acceptedDocuments []string,
 	redirect string,
 	meta authModel.SessionMetadata,
 ) (sessionCookie, code string, err error) {
@@ -182,7 +182,7 @@ func (u *AuthUseCase) CompleteRegistration(
 	user, err := u.mutateUserReturning(ctx, userID, tokenUserGone, func(user *userModel.User) error {
 		// Every setup invariant (already-complete, ToS, login method) lives on the
 		// entity; the provider lookup runs lazily only when no password was set.
-		if err := user.CompleteSetup(firstName, lastName, hashedPassword, tosVersion, func() (bool, error) {
+		if err := user.CompleteSetup(firstName, lastName, hashedPassword, acceptedDocuments, u.cfg.RequiredDocuments(), func() (bool, error) {
 			return u.hasLinkedProvider(ctx, userID)
 		}, time.Now()); err != nil {
 			return err

@@ -57,7 +57,7 @@ var (
 	ErrSetupAlreadyComplete = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Setup already complete").WithDetailCode(6)
 	ErrTosNotAccepted = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
-				WithMessage("Terms of Service not accepted").WithDetailCode(7)
+				WithMessage("The required documents must be accepted").WithDetailCode(7)
 	// multi-site: registration and google-unlink both guard "account must keep
 	// at least one login method"; per-site reason via WithError.
 	ErrNoLoginMethod = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).

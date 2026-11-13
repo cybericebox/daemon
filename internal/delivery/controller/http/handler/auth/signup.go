@@ -1,9 +1,12 @@
 package auth
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 type signUpRequest struct {
@@ -15,12 +18,14 @@ type signUpRequest struct {
 }
 
 type completeRegistrationRequest struct {
-	Token      string `json:"Token"`
-	FirstName  string `json:"FirstName"`
-	LastName   string `json:"LastName"`
-	Password   string `json:"Password"`
-	TosVersion int32  `json:"TosVersion"`
-	Redirect   string `json:"Redirect"`
+	Token     string `json:"Token"`
+	FirstName string `json:"FirstName"`
+	LastName  string `json:"LastName"`
+	Password  string `json:"Password"`
+	// AcceptedDocuments lists the documents the page showed and the person accepted: "terms", "privacy". It must
+	// cover the documents the installation requires; empty when it requires none.
+	AcceptedDocuments []string `json:"AcceptedDocuments"`
+	Redirect          string   `json:"Redirect"`
 }
 
 type setupContextResponse struct {
@@ -89,6 +94,12 @@ func (h *Handler) completeSetup(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
+	for _, name := range req.AcceptedDocuments {
+		if !userModel.ValidLegalDocument(name) {
+			response.AbortWithBadRequest(ctx, errors.New("AcceptedDocuments: unknown document"))
+			return
+		}
+	}
 	meta := sessionMetadata(ctx)
 	cookie, redirect, err := h.useCase.CompleteRegistration(
 		ctx,
@@ -96,7 +107,7 @@ func (h *Handler) completeSetup(ctx *gin.Context) {
 		req.FirstName,
 		req.LastName,
 		req.Password,
-		req.TosVersion,
+		req.AcceptedDocuments,
 		req.Redirect,
 		meta,
 	)

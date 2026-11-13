@@ -54,7 +54,7 @@ func bareUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *token
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo: repo, Token: tk, Password: password.New(password.Config{HashCost: 4}), Notifier: &fakeNotifier{},
-		Config: config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		Config: config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test"), TermsURL: "https://example.org/terms", PrivacyURL: "https://example.org/privacy"},
 	})
 	return uc, repo, tk
 }
@@ -144,7 +144,7 @@ func TestCompletingSetupSpendsTheLink(t *testing.T) {
 	repo.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a postgres.CreateSessionParams) (postgres.Session, error) {
 		return postgres.Session{ID: a.ID, UserID: a.UserID, ExpiresAt: a.ExpiresAt}, nil
 	})
-	if _, _, err := uc.CompleteRegistration(context.Background(), signed, "Jane", "Doe", "Secret!1", 1, "", authModel.SessionMetadata{}); err != nil {
+	if _, _, err := uc.CompleteRegistration(context.Background(), signed, "Jane", "Doe", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{}); err != nil {
 		t.Fatal(err)
 	}
 	if !spent {

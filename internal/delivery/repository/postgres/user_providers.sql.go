@@ -76,7 +76,7 @@ func (q *Queries) DeleteUserProviders(ctx context.Context, userID uuid.UUID) (in
 }
 
 const getUserByProvider = `-- name: GetUserByProvider :one
-SELECT u.id, u.email, u.first_name, u.last_name, u.hashed_password, u.picture, u.role, u.status, u.email_confirmed, u.last_seen, u.updated_at, u.updated_by, u.created_at, u.tos_accepted_at, u.tos_version, u.deleted_at, u.inactivity_warned_at, u.personal_data_purged_at, u.invitation_sent_at
+SELECT u.id, u.email, u.first_name, u.last_name, u.hashed_password, u.picture, u.role, u.status, u.email_confirmed, u.last_seen, u.updated_at, u.updated_by, u.created_at, u.tos_accepted_at, u.deleted_at, u.inactivity_warned_at, u.personal_data_purged_at, u.invitation_sent_at, u.legal_documents
 FROM users u
          JOIN user_providers p ON p.user_id = u.id
 WHERE p.provider = $1
@@ -107,11 +107,11 @@ func (q *Queries) GetUserByProvider(ctx context.Context, arg GetUserByProviderPa
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.TosAcceptedAt,
-		&i.TosVersion,
 		&i.DeletedAt,
 		&i.InactivityWarnedAt,
 		&i.PersonalDataPurgedAt,
 		&i.InvitationSentAt,
+		&i.LegalDocuments,
 	)
 	return i, err
 }

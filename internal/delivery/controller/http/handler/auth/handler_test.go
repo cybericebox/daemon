@@ -25,6 +25,8 @@ import (
 )
 
 type fakeUC struct {
+	completeCalls     int
+	acceptedDocuments []string
 	cookie, redirect  string
 	sessions          []authUseCase.SessionInfo
 	revokeErr         error
@@ -83,10 +85,12 @@ func (f *fakeUC) GetSetupContext(_ context.Context, _ string) (*authUseCase.Setu
 func (f *fakeUC) CompleteRegistration(
 	_ context.Context,
 	_, _, _, _ string,
-	_ int32,
+	accepted []string,
 	_ string,
 	_ authModel.SessionMetadata,
 ) (string, string, error) {
+	f.completeCalls++
+	f.acceptedDocuments = accepted
 	return "c", "l", nil
 }
 func (f *fakeUC) PasswordPolicy() authUseCase.PasswordPolicy         { return f.policy }
@@ -443,7 +447,7 @@ func TestCompleteSetup_Returns200WithRedirectURL(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
-	body := `{"Token":"t","FirstName":"Jane","LastName":"Doe","Password":"Secret!1","TosVersion":1,"Redirect":"https://id.example.test/dashboard"}`
+	body := `{"Token":"t","FirstName":"Jane","LastName":"Doe","Password":"Secret!1","AcceptedDocuments":["terms","privacy"],"Redirect":"https://id.example.test/dashboard"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -949,5 +953,58 @@ func TestGoogleCallback_Setup_Success(t *testing.T) {
 	loc := w.Header().Get("Location")
 	if loc != "https://id.example.test/setup/?token=existing-setup-tok" {
 		t.Fatalf("setup success: want absolute id Location, got %q", loc)
+	}
+}
+
+func postSetup(t *testing.T, uc *fakeUC, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig).Init(r.Group("api"), r.Group("api"))
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// The list of documents the page showed reaches the use case as sent; a missing list is an empty one.
+func TestCompleteSetup_PassesTheAcceptedDocuments(t *testing.T) {
+	for body, want := range map[string][]string{
+		`{"Token":"t","AcceptedDocuments":["terms","privacy"]}`: {"terms", "privacy"},
+		`{"Token":"t","AcceptedDocuments":["privacy"]}`:         {"privacy"},
+		`{"Token":"t","AcceptedDocuments":[]}`:                  {},
+		`{"Token":"t"}`:                                         nil,
+	} {
+		uc := &fakeUC{}
+		if w := postSetup(t, uc, body); w.Code != http.StatusOK {
+			t.Fatalf("%s: want 200, got %d", body, w.Code)
+		}
+		if uc.completeCalls != 1 || len(uc.acceptedDocuments) != len(want) {
+			t.Fatalf("%s: use case got %v, want %v", body, uc.acceptedDocuments, want)
+		}
+		for i := range want {
+			if uc.acceptedDocuments[i] != want[i] {
+				t.Fatalf("%s: use case got %v, want %v", body, uc.acceptedDocuments, want)
+			}
+		}
+	}
+}
+
+// An unknown name is a bad request and never reaches the use case; the old version field is not an input any more.
+func TestCompleteSetup_RejectsAnUnknownDocument(t *testing.T) {
+	for _, body := range []string{
+		`{"Token":"t","AcceptedDocuments":["terms","cookies"]}`,
+		`{"Token":"t","AcceptedDocuments":["TERMS"]}`,
+		`{"Token":"t","AcceptedDocuments":[""]}`,
+	} {
+		uc := &fakeUC{}
+		if w := postSetup(t, uc, body); w.Code != http.StatusBadRequest || uc.completeCalls != 0 {
+			t.Fatalf("%s: want 400 and no call, got %d, %d calls", body, w.Code, uc.completeCalls)
+		}
+	}
+	uc := &fakeUC{}
+	postSetup(t, uc, `{"Token":"t","TosVersion":1}`)
+	if len(uc.acceptedDocuments) != 0 {
+		t.Fatalf("the version number must not count as an acceptance: %v", uc.acceptedDocuments)
 	}
 }

@@ -37,6 +37,8 @@ func newCompleteUC(t *testing.T, superAdminEmail string) (*auth.AuthUseCase, *po
 			SessionIdleTTL:  time.Hour,
 			Hosts:           testHosts("test"),
 			SuperAdminEmail: superAdminEmail,
+			TermsURL:        "https://example.org/terms",
+			PrivacyURL:      "https://example.org/privacy",
 		},
 	})
 	return uc, repo, tk
@@ -69,7 +71,7 @@ func TestCompleteRegistration_SingleUpdateActivates(t *testing.T) {
 			if !arg.HashedPassword.Valid || arg.HashedPassword.String == "" {
 				t.Fatal("password hash not written")
 			}
-			if !arg.TosAcceptedAt.Valid || arg.TosVersion.Int32 != 1 {
+			if !arg.TosAcceptedAt.Valid || len(arg.LegalDocuments) != 2 {
 				t.Fatalf("ToS not written: %+v", arg)
 			}
 			if !arg.UpdatedAt.Valid {
@@ -86,7 +88,7 @@ func TestCompleteRegistration_SingleUpdateActivates(t *testing.T) {
 		})
 
 	cookie, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "Jane", "Doe", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "Jane", "Doe", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	)
 	if err != nil {
 		t.Fatalf("CompleteRegistration: %v", err)
@@ -126,7 +128,7 @@ func TestCompleteRegistration_OptimisticLock_UsesLoadedUpdatedAt(t *testing.T) {
 		})
 
 	if _, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "Jane", "Doe", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "Jane", "Doe", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	); err != nil {
 		t.Fatalf("CompleteRegistration: %v", err)
 	}
@@ -152,7 +154,7 @@ func TestCompleteRegistration_PromotesSuperAdminInSameWrite(t *testing.T) {
 		})
 
 	if _, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "Root", "Admin", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "Root", "Admin", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	); err != nil {
 		t.Fatalf("CompleteRegistration: %v", err)
 	}
@@ -177,7 +179,7 @@ func TestCompleteRegistration_SuperAdminEmailCaseInsensitive(t *testing.T) {
 			return postgres.Session{ID: arg.ID, UserID: arg.UserID, ExpiresAt: arg.ExpiresAt}, nil
 		})
 	if _, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "Root", "Admin", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "Root", "Admin", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	); err != nil {
 		t.Fatalf("CompleteRegistration: %v", err)
 	}
@@ -194,7 +196,7 @@ func TestCompleteRegistration_UpdateFailure_NoSession(t *testing.T) {
 	// no CreateSession expectation: creating one would fail the mock controller
 
 	if _, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "J", "D", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "J", "D", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	); err == nil {
 		t.Fatal("want error when the aggregate write fails")
 	}
@@ -214,7 +216,7 @@ func TestCompleteRegistration_UserGoneOnReRead_InvalidToken(t *testing.T) {
 	)
 
 	_, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "J", "D", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "J", "D", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	)
 	if !errors.Is(err, authModel.ErrInvalidToken.Err()) {
 		t.Fatalf("want ErrInvalidToken, got %v", err)
@@ -236,7 +238,7 @@ func TestCompleteRegistration_ConcurrentModification_UserModified(t *testing.T) 
 	)
 
 	_, _, err := uc.CompleteRegistration(
-		context.Background(), setupToken, "J", "D", "Secret!1", 1, "", authModel.SessionMetadata{},
+		context.Background(), setupToken, "J", "D", "Secret!1", []string{"terms", "privacy"}, "", authModel.SessionMetadata{},
 	)
 	if !errors.Is(err, userModel.ErrUserModified.Err()) {
 		t.Fatalf("want ErrUserModified, got %v", err)

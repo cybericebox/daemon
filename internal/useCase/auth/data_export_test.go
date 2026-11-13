@@ -64,6 +64,8 @@ func expectOwnRows(repo *postgresMocks.MockQuerier, uid uuid.UUID) {
 		Role:           "user",
 		Status:         "active",
 		HashedPassword: pgtype.Text{String: exportHash, Valid: true},
+		TosAcceptedAt:  pgtype.Timestamptz{Time: now, Valid: true},
+		LegalDocuments: []string{"terms", "privacy"},
 		CreatedAt:      now,
 	}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return([]postgres.UserProvider{
@@ -156,6 +158,12 @@ func TestExportMyData_OwnDataOnlyAndNoSecrets(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("the export must contain %q", want)
 		}
+	}
+	if got := data.Profile.LegalDocuments; len(got) != 2 || got[0] != "terms" || got[1] != "privacy" || data.Profile.TosAcceptedAt == nil {
+		t.Errorf("the export shows the acceptance time and the documents: %+v", data.Profile)
+	}
+	if strings.Contains(text, "TosVersion") {
+		t.Error("the version number no longer exists")
 	}
 	// No secrets: the hash, the key material, the provider's subject id, credential ids.
 	for _, secret := range []string{exportHash, "public-key", "credential-id", "google-subject", "HashedPassword", "PublicKey", "CredentialID", "ProviderUserID", "ExpectedFlag"} {

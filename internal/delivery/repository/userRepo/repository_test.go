@@ -54,7 +54,7 @@ func TestCreate_MapsDomainUserToRow(t *testing.T) {
 func TestUpdate_WritesWholeAggregate(t *testing.T) {
 	repo, q := setup(t)
 	u := userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "a@b.test", now.Add(-time.Hour))
-	require.NoError(t, u.CompleteSetup("Ivan", "Test", "hash", 2, func() (bool, error) { return false, nil }, now))
+	require.NoError(t, u.CompleteSetup("Ivan", "Test", "hash", []string{"terms"}, []string{"terms"}, func() (bool, error) { return false, nil }, now))
 
 	expected := now.Add(-time.Hour) // snapshot taken BEFORE the mutation touched UpdatedAt
 	q.EXPECT().UpdateUser(gomock.Any(), gomock.AssignableToTypeOf(postgres.UpdateUserParams{})).
@@ -66,7 +66,7 @@ func TestUpdate_WritesWholeAggregate(t *testing.T) {
 			assert.True(t, arg.EmailConfirmed)
 			assert.Equal(t, "hash", arg.HashedPassword.String)
 			assert.True(t, arg.TosAcceptedAt.Valid)
-			assert.Equal(t, int32(2), arg.TosVersion.Int32)
+			assert.Equal(t, []string{"terms"}, arg.LegalDocuments)
 			assert.True(t, arg.UpdatedAt.Valid, "updated_at comes from the domain touch")
 			assert.Equal(t, now, arg.UpdatedAt.Time)
 			assert.False(t, arg.DeletedAt.Valid)
@@ -87,7 +87,7 @@ func TestGetByID_MapsRowToDomain(t *testing.T) {
 		ID: id, Email: "x@y.test", Role: "admin", Status: "active",
 		HashedPassword: pgtype.Text{String: "h", Valid: true},
 		TosAcceptedAt:  pgtype.Timestamptz{Time: tos, Valid: true},
-		TosVersion:     pgtype.Int4{Int32: 3, Valid: true},
+		LegalDocuments: []string{"terms", "privacy"},
 		UpdatedAt:      pgtype.Timestamptz{Time: now, Valid: true},
 	}, nil)
 
@@ -98,6 +98,6 @@ func TestGetByID_MapsRowToDomain(t *testing.T) {
 	assert.True(t, got.HasPassword())
 	require.NotNil(t, got.TosAcceptedAt)
 	assert.Equal(t, tos, *got.TosAcceptedAt)
-	assert.Equal(t, int32(3), got.TosVersion)
+	assert.Equal(t, []string{"terms", "privacy"}, got.LegalDocuments)
 	assert.Nil(t, got.DeletedAt)
 }

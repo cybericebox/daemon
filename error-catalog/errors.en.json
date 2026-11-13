@@ -31,7 +31,7 @@
   "20304": "The name contains characters that are not allowed",
   "20305": "First and last name are required",
   "20406": "Setup already complete",
-  "20407": "Terms of Service not accepted",
+  "20407": "The required documents must be accepted",
   "20408": "At least one login method is required",
   "20409": "Password does not meet complexity requirements",
   "20410": "Invalid old password",

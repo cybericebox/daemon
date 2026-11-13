@@ -35,7 +35,7 @@ func newSignupUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 		Token:    tk,
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: notifier,
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test"), TermsURL: "https://example.org/terms", PrivacyURL: "https://example.org/privacy"},
 		// The mail work runs after the answer in production; the tests wait for it.
 		Background: func(work func()) { work() },
 	})
@@ -150,7 +150,7 @@ func TestCompleteRegistration_NoPasswordNoProvider(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return([]postgres.UserProvider{}, nil)
 
-	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "", 1, "", authModel.SessionMetadata{})
+	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "", []string{"terms", "privacy"}, "", authModel.SessionMetadata{})
 	if !errors.Is(err, authModel.ErrNoLoginMethod.Err()) {
 		t.Fatalf("want ErrNoLoginMethod, got %v", err)
 	}
@@ -162,14 +162,14 @@ func TestCompleteRegistration_TosNotAccepted(t *testing.T) {
 	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 
-	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "Secret!1", 0, "", authModel.SessionMetadata{})
+	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "Secret!1", nil, "", authModel.SessionMetadata{})
 	if !errors.Is(err, authModel.ErrTosNotAccepted.Err()) {
 		t.Fatalf("want ErrTosNotAccepted, got %v", err)
 	}
 }
 
 // TestCompleteRegistration_TosBeforeLoginMethod locks the mandated guard order:
-// when both ToS is missing (tosVersion=0) AND no password/provider is supplied,
+// when both ToS is missing (nothing accepted) AND no password/provider is supplied,
 // the error must be ErrTosNotAccepted, not ErrNoLoginMethod.
 // This test would FAIL on the inverted (pre-Fix-1) order.
 func TestCompleteRegistration_TosBeforeLoginMethod(t *testing.T) {
@@ -178,8 +178,8 @@ func TestCompleteRegistration_TosBeforeLoginMethod(t *testing.T) {
 	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 
-	// empty password (no login method) AND tosVersion=0 (ToS not accepted)
-	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "", 0, "", authModel.SessionMetadata{})
+	// empty password (no login method) AND nothing accepted (ToS not accepted)
+	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "", nil, "", authModel.SessionMetadata{})
 	if !errors.Is(err, authModel.ErrTosNotAccepted.Err()) {
 		t.Fatalf("want ErrTosNotAccepted (ToS guard fires first), got %v", err)
 	}

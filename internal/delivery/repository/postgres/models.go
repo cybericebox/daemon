@@ -1315,11 +1315,11 @@ type User struct {
 	UpdatedBy            uuid.NullUUID      `json:"updated_by"`
 	CreatedAt            time.Time          `json:"created_at"`
 	TosAcceptedAt        pgtype.Timestamptz `json:"tos_accepted_at"`
-	TosVersion           pgtype.Int4        `json:"tos_version"`
 	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
 	InactivityWarnedAt   pgtype.Timestamptz `json:"inactivity_warned_at"`
 	PersonalDataPurgedAt pgtype.Timestamptz `json:"personal_data_purged_at"`
 	InvitationSentAt     pgtype.Timestamptz `json:"invitation_sent_at"`
+	LegalDocuments       []string           `json:"legal_documents"`
 }
 
 type UserPasskey struct {

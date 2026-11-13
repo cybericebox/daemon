@@ -25,7 +25,9 @@ type User struct {
 	Status         UserStatus
 	EmailConfirmed bool
 	TosAcceptedAt  *time.Time
-	TosVersion     int32
+	// LegalDocuments lists the documents that were shown and accepted at TosAcceptedAt, in the canonical order of
+	// LegalDocuments constants; empty when the installation required none.
+	LegalDocuments []string
 	LastSeen       time.Time
 	UpdatedAt      time.Time
 	UpdatedBy      uuid.NullUUID
@@ -116,12 +118,15 @@ func (u *User) touch(now time.Time) {
 }
 
 // CompleteSetup finalizes an incomplete account: profile, optional password,
-// ToS acceptance, email confirmation, and activation — enforcing every setup
-// invariant in one place, in the mandated order (already-complete → ToS →
-// login method). hasProvider is a lazy lookup ("is a social provider
+// acceptance of the required documents, email confirmation, and activation —
+// enforcing every setup invariant in one place, in the mandated order
+// (already-complete → names → acceptance → login method). accepted is the list
+// of documents the page showed; it must cover required (the documents the
+// installation has), otherwise ErrTosNotAccepted. With nothing required,
+// nothing is recorded. hasProvider is a lazy lookup ("is a social provider
 // linked?") so the check — typically a DB read — runs only when no password
 // is supplied.
-func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVersion int32, hasProvider func() (bool, error), now time.Time) error {
+func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, accepted, required []string, hasProvider func() (bool, error), now time.Time) error {
 	if !u.IsIncomplete() {
 		return authModel.ErrSetupAlreadyComplete.Err()
 	}
@@ -131,8 +136,8 @@ func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVers
 	if strings.TrimSpace(firstName) == "" || strings.TrimSpace(lastName) == "" {
 		return ErrUserNameRequired.Err()
 	}
-	if tosVersion <= 0 {
-		return authModel.ErrTosNotAccepted.Err()
+	if !CoversDocuments(accepted, required) {
+		return authModel.ErrTosNotAccepted.WithPublicContext("required_documents", CanonicalDocuments(required)).Err()
 	}
 	if hashedPassword == "" {
 		linked, err := hasProvider()
@@ -149,8 +154,10 @@ func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVers
 	if hashedPassword != "" {
 		u.HashedPassword = hashedPassword
 	}
-	u.TosAcceptedAt = new(now)
-	u.TosVersion = tosVersion
+	if len(required) > 0 {
+		u.TosAcceptedAt = new(now)
+		u.LegalDocuments = CanonicalDocuments(accepted)
+	}
 	u.EmailConfirmed = true
 	u.Status = UserStatusActive
 	u.touch(now)

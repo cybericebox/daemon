@@ -14,9 +14,6 @@ import (
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
-// seedTosVersion is the terms version the seeded accounts accepted.
-const seedTosVersion = 1
-
 type userSpec struct {
 	Email     string
 	FirstName string
@@ -48,7 +45,7 @@ func (s *Seeder) ensureUser(ctx context.Context, spec userSpec, plain, hash stri
 			return userModel.User{}, false, fmt.Errorf("create user %s: %w", spec.Email, createErr)
 		}
 		expected := created.UpdatedAt
-		if err = created.CompleteSetup(spec.FirstName, spec.LastName, hash, seedTosVersion, func() (bool, error) { return false, nil }, now); err != nil {
+		if err = created.CompleteSetup(spec.FirstName, spec.LastName, hash, s.deps.RequiredDocuments, s.deps.RequiredDocuments, func() (bool, error) { return false, nil }, now); err != nil {
 			return userModel.User{}, false, fmt.Errorf("complete user %s: %w", spec.Email, err)
 		}
 		if affected, updateErr := s.users.Update(ctx, created, expected); updateErr != nil || affected == 0 {
@@ -66,7 +63,7 @@ func (s *Seeder) ensureUser(ctx context.Context, spec userSpec, plain, hash stri
 		changed = true
 	}
 	if existing.Status == userModel.UserStatusIncomplete {
-		if err = existing.CompleteSetup(spec.FirstName, spec.LastName, hash, seedTosVersion, func() (bool, error) { return false, nil }, now); err != nil {
+		if err = existing.CompleteSetup(spec.FirstName, spec.LastName, hash, s.deps.RequiredDocuments, s.deps.RequiredDocuments, func() (bool, error) { return false, nil }, now); err != nil {
 			return userModel.User{}, false, err
 		}
 		changed = true

@@ -36,7 +36,8 @@ type ExportProfile struct {
 	CreatedAt      time.Time
 	LastSeen       time.Time
 	TosAcceptedAt  *time.Time
-	TosVersion     *int32
+	// LegalDocuments lists the documents accepted at TosAcceptedAt (empty when none was required).
+	LegalDocuments []string
 }
 
 type ExportSignInMethod struct {

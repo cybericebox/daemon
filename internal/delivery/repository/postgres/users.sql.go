@@ -245,7 +245,7 @@ func (q *Queries) CountUsersFacet(ctx context.Context, arg CountUsersFacetParams
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, first_name, last_name, hashed_password, picture, role, status,
                    email_confirmed, last_seen, updated_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at, legal_documents
 `
 
 type CreateUserParams struct {
@@ -296,11 +296,11 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.TosAcceptedAt,
-		&i.TosVersion,
 		&i.DeletedAt,
 		&i.InactivityWarnedAt,
 		&i.PersonalDataPurgedAt,
 		&i.InvitationSentAt,
+		&i.LegalDocuments,
 	)
 	return i, err
 }
@@ -326,7 +326,7 @@ func (q *Queries) GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAcces
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
+SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at, legal_documents
 FROM users
 WHERE email = $1
   AND deleted_at IS NULL
@@ -352,17 +352,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.TosAcceptedAt,
-		&i.TosVersion,
 		&i.DeletedAt,
 		&i.InactivityWarnedAt,
 		&i.PersonalDataPurgedAt,
 		&i.InvitationSentAt,
+		&i.LegalDocuments,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
+SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at, legal_documents
 FROM users
 WHERE id = $1
   AND deleted_at IS NULL
@@ -386,11 +386,11 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.TosAcceptedAt,
-		&i.TosVersion,
 		&i.DeletedAt,
 		&i.InactivityWarnedAt,
 		&i.PersonalDataPurgedAt,
 		&i.InvitationSentAt,
+		&i.LegalDocuments,
 	)
 	return i, err
 }
@@ -464,7 +464,7 @@ func (q *Queries) ListUserParticipations(ctx context.Context, userID uuid.UUID) 
 }
 
 const listUsersCursor = `-- name: ListUsersCursor :many
-SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
+SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at, legal_documents
 FROM users
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR email ILIKE '%' || $1::text || '%'
@@ -516,11 +516,11 @@ func (q *Queries) ListUsersCursor(ctx context.Context, arg ListUsersCursorParams
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.TosAcceptedAt,
-			&i.TosVersion,
 			&i.DeletedAt,
 			&i.InactivityWarnedAt,
 			&i.PersonalDataPurgedAt,
 			&i.InvitationSentAt,
+			&i.LegalDocuments,
 		); err != nil {
 			return nil, err
 		}
@@ -533,7 +533,7 @@ func (q *Queries) ListUsersCursor(ctx context.Context, arg ListUsersCursorParams
 }
 
 const listUsersPage = `-- name: ListUsersPage :many
-SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
+SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at, legal_documents
 FROM users
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR email ILIKE '%' || $1::text || '%'
@@ -615,11 +615,11 @@ func (q *Queries) ListUsersPage(ctx context.Context, arg ListUsersPageParams) ([
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.TosAcceptedAt,
-			&i.TosVersion,
 			&i.DeletedAt,
 			&i.InactivityWarnedAt,
 			&i.PersonalDataPurgedAt,
 			&i.InvitationSentAt,
+			&i.LegalDocuments,
 		); err != nil {
 			return nil, err
 		}
@@ -699,7 +699,7 @@ SET email           = $2,
     status          = $8,
     email_confirmed = $9,
     tos_accepted_at = $10,
-    tos_version     = $11,
+    legal_documents = $11,
     updated_at      = $12,
     updated_by      = $13,
     deleted_at      = $14
@@ -720,7 +720,7 @@ type UpdateUserParams struct {
 	Status            string             `json:"status"`
 	EmailConfirmed    bool               `json:"email_confirmed"`
 	TosAcceptedAt     pgtype.Timestamptz `json:"tos_accepted_at"`
-	TosVersion        pgtype.Int4        `json:"tos_version"`
+	LegalDocuments    []string           `json:"legal_documents"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	UpdatedBy         uuid.NullUUID      `json:"updated_by"`
 	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
@@ -743,7 +743,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, 
 		arg.Status,
 		arg.EmailConfirmed,
 		arg.TosAcceptedAt,
-		arg.TosVersion,
+		arg.LegalDocuments,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.DeletedAt,

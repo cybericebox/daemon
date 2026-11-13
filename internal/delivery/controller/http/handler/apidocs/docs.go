@@ -29537,6 +29537,13 @@ const docTemplate = `{
         "auth.completeRegistrationRequest": {
             "type": "object",
             "properties": {
+                "AcceptedDocuments": {
+                    "description": "AcceptedDocuments lists the documents the page showed and the person accepted: \"terms\", \"privacy\". It must\ncover the documents the installation requires; empty when it requires none.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "FirstName": {
                     "type": "string"
                 },
@@ -29551,9 +29558,6 @@ const docTemplate = `{
                 },
                 "Token": {
                     "type": "string"
-                },
-                "TosVersion": {
-                    "type": "integer"
                 }
             }
         },
@@ -49845,6 +49849,13 @@ const docTemplate = `{
                 "lastSeen": {
                     "type": "string"
                 },
+                "legalDocuments": {
+                    "description": "LegalDocuments lists the documents accepted at TosAcceptedAt (empty when none was required).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "type": "string"
                 },
@@ -49853,10 +49864,6 @@ const docTemplate = `{
                 },
                 "tosAcceptedAt": {
                     "type": "string"
-                },
-                "tosVersion": {
-                    "type": "integer",
-                    "format": "int32"
                 }
             }
         },
