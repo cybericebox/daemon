@@ -186,6 +186,20 @@ func TestSecretKeys_AreThreeSeparateEnvVars(t *testing.T) {
 	}
 }
 
+func TestPlatformRegistry_ReadsItsThreeVariablesAndIsOffByDefault(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	if got := MustGetConfig().Platform; got.RegistryHost != "" || got.RegistryUsername != "" || got.RegistryPassword != "" {
+		t.Fatalf("the own registry is off by default: %+v", got)
+	}
+	t.Setenv("PLATFORM_REGISTRY_HOST", "laboratory-registry.lab.svc:5000")
+	t.Setenv("PLATFORM_REGISTRY_USERNAME", "platform-writer")
+	t.Setenv("PLATFORM_REGISTRY_PASSWORD", "pw")
+	got := MustGetConfig().Platform
+	if got.RegistryHost != "laboratory-registry.lab.svc:5000" || got.RegistryUsername != "platform-writer" || got.RegistryPassword != "pw" {
+		t.Fatalf("registry variables: %+v", got)
+	}
+}
+
 func TestExerciseMaxActiveTestDeploys_DefaultsToThreeAndIsValidated(t *testing.T) {
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	got := MustGetConfig().Exercise

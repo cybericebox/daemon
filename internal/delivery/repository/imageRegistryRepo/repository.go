@@ -39,6 +39,9 @@ type Queries interface {
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error)
 	DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error)
 	IsDigestCollectable(ctx context.Context, arg postgres.IsDigestCollectableParams) (pgtype.Bool, error)
+	PlatformImageNameByDigest(ctx context.Context, digest string) (string, error)
+	ListReferencedPlatformImages(ctx context.Context) ([]string, error)
+	ListPlatformImages(ctx context.Context) ([]postgres.PlatformImage, error)
 	DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error)
 	UpsertImageBlobPush(ctx context.Context, arg postgres.UpsertImageBlobPushParams) error
 	GetImageBlobPush(ctx context.Context, digest string) (postgres.ImageBlobPush, error)

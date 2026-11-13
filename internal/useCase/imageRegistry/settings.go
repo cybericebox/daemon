@@ -27,6 +27,9 @@ type (
 		// PushCheck and PullCheck are the last results of the periodic credential check (PullCheck is empty
 		// without a pull token: the push token pulls).
 		PushCheck, PullCheck CheckView
+		// Managed: the registry is the platform's own, set by the deployment (PLATFORM_REGISTRY_*). The provider
+		// settings do not apply and cannot be saved; no token is stored or shown.
+		Managed bool
 	}
 
 	// SaveSettingsInput: an empty token keeps the stored one (when the provider
@@ -66,8 +69,21 @@ func (u *ImageRegistryUseCase) toView(s imageRegistryModel.Settings, found bool)
 	}
 }
 
-// GetImageRegistrySettings returns the saved settings without tokens; none saved: not configured.
+// ownView is what the panel sees while the own registry is in use: configured, managed by the deployment, no
+// token and no stored settings behind it.
+func (u *ImageRegistryUseCase) ownView() SettingsView {
+	return SettingsView{
+		Configured: true, Managed: true, Provider: string(imageRegistryModel.ProviderOwn),
+		Repository: imageRegistryModel.PlatformRepositoryPrefix + "**",
+	}
+}
+
+// GetImageRegistrySettings returns the saved settings without tokens; none saved: not configured. With the own
+// registry in use it returns the managed view.
 func (u *ImageRegistryUseCase) GetImageRegistrySettings(ctx context.Context) (SettingsView, error) {
+	if u.own.Enabled() {
+		return u.ownView(), nil
+	}
 	s, found, err := u.load(ctx)
 	if err != nil {
 		return SettingsView{}, err
@@ -79,6 +95,9 @@ func (u *ImageRegistryUseCase) GetImageRegistrySettings(ctx context.Context) (Se
 // repository (and the pull token may pull) and stores them with the tokens
 // sealed. Nothing is stored when a check fails.
 func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in SaveSettingsInput) (SettingsView, error) {
+	if u.own.Enabled() {
+		return SettingsView{}, imageRegistryModel.ErrRegistryManaged.Err()
+	}
 	if u.cipher == nil {
 		return SettingsView{}, imageRegistryModel.ErrSecretsKeyMissing.Err()
 	}
@@ -149,6 +168,9 @@ func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in
 // ListImageRegistryRepositories lists the repositories the token can see on the provider,
 // for the admin to pick one.
 func (u *ImageRegistryUseCase) ListImageRegistryRepositories(ctx context.Context, in ListRepositoriesInput) ([]string, error) {
+	if u.own.Enabled() {
+		return nil, imageRegistryModel.ErrRegistryManaged.Err()
+	}
 	p := imageRegistryModel.Provider(strings.TrimSpace(in.Provider))
 	account := strings.TrimSpace(in.Account)
 	adapter := u.adapter(p)

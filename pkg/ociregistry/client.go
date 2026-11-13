@@ -34,6 +34,11 @@ type Options struct {
 	Password   string
 	// Insecure talks plain http (tests only).
 	Insecure bool
+	// PlainHTTP talks plain http, credentials included. It is for the platform's own in-cluster registry only, an
+	// address the operator configured (never taken from a user, an image reference or a settings form): that
+	// address is on the cluster network, where the registry has no TLS. Never combine it with GuardedTransport or
+	// RequireHTTPS, which exist for hosts that are not trusted.
+	PlainHTTP bool
 	// RequireHTTPS refuses a registry that would be spoken to over plain http (localhost, *.local and private hosts get http
 	// from the client library), with or without credentials. Set it for user-supplied hosts.
 	RequireHTTPS bool
@@ -51,9 +56,12 @@ type Client struct {
 // New creates a Client.
 func New(opts Options) *Client { return &Client{opts: opts} }
 
+// plain is true for a registry spoken to over plain http on purpose (tests, the platform's own registry).
+func (c *Client) plain() bool { return c.opts.Insecure || c.opts.PlainHTTP }
+
 func (c *Client) repo() (name.Repository, error) {
 	var nopts []name.Option
-	if c.opts.Insecure {
+	if c.plain() {
 		nopts = append(nopts, name.Insecure)
 	}
 	r, err := name.NewRepository(c.opts.Host+"/"+c.opts.Repository, nopts...)
@@ -62,7 +70,7 @@ func (c *Client) repo() (name.Repository, error) {
 	}
 	// go-containerregistry speaks plain http to localhost, *.local and private hosts; credentials
 	// never travel that way (Insecure is for tests only).
-	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && r.Registry.Scheme() == "http" {
+	if !c.plain() && (c.opts.Username != "" || c.opts.Password != "") && r.Registry.Scheme() == "http" {
 		return name.Repository{}, fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
 	}
 	if c.opts.RequireHTTPS && r.Registry.Scheme() != "https" {
@@ -107,6 +115,11 @@ func (c *Client) wrap(op string, err error) error {
 
 // http builds an authenticated client for the given scope.
 func (c *Client) http(ctx context.Context, repo name.Repository, scope string) (*http.Client, error) {
+	return c.httpScopes(ctx, repo.Registry, []string{repo.Scope(scope)})
+}
+
+// httpScopes builds an authenticated client for the given scopes of one registry.
+func (c *Client) httpScopes(ctx context.Context, reg name.Registry, scopes []string) (*http.Client, error) {
 	var auth authn.Authenticator = authn.Anonymous
 	if c.opts.Username != "" || c.opts.Password != "" {
 		auth = authn.FromConfig(authn.AuthConfig{Username: c.opts.Username, Password: c.opts.Password})
@@ -115,7 +128,7 @@ func (c *Client) http(ctx context.Context, repo name.Repository, scope string) (
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	rt, err := transport.NewWithContext(ctx, repo.Registry, auth, base, []string{repo.Scope(scope)})
+	rt, err := transport.NewWithContext(ctx, reg, auth, base, scopes)
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +268,14 @@ func (c *Client) PingPull(ctx context.Context) error {
 // passes. The repository of the Options is ignored.
 func (c *Client) PingCredentials(ctx context.Context) error {
 	var nopts []name.Option
-	if c.opts.Insecure {
+	if c.plain() {
 		nopts = append(nopts, name.Insecure)
 	}
 	reg, err := name.NewRegistry(c.opts.Host, nopts...)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidReference, c.scrub(err.Error()))
 	}
-	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && reg.Scheme() == "http" {
+	if !c.plain() && (c.opts.Username != "" || c.opts.Password != "") && reg.Scheme() == "http" {
 		return fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
 	}
 	if c.opts.RequireHTTPS && reg.Scheme() != "https" {
@@ -506,4 +519,74 @@ func (c *Client) PutManifest(ctx context.Context, tag, mediaType string, body []
 	}
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// MountBlob makes a blob that another repository of the same registry holds available in this one without moving
+// its bytes (POST blobs/uploads/?mount=<digest>&from=<repository>). mounted is false when the registry did not
+// mount it (it opened an upload session instead, 202): the caller then pushes the blob. The session that was
+// opened is left to expire. Needs push on this repository and pull on from.
+func (c *Client) MountBlob(ctx context.Context, digest, from string) (mounted bool, err error) {
+	repo, err := c.repo()
+	if err != nil {
+		return false, err
+	}
+	src, err := name.NewRepository(repo.RegistryStr()+"/"+from, c.nameOptions()...)
+	if err != nil {
+		return false, fmt.Errorf("%w: %s", ErrInvalidReference, c.scrub(err.Error()))
+	}
+	hc, err := c.httpScopes(ctx, repo.Registry, []string{repo.Scope(transport.PushScope), src.Scope(transport.PullScope)})
+	if err != nil {
+		return false, c.wrap("mount blob", err)
+	}
+	q := url.Values{"mount": {digest}, "from": {from}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base(repo)+"/blobs/uploads/?"+q.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.do(hc, req, "mount blob")
+	if err != nil {
+		return false, err
+	}
+	defer drain(resp)
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		return true, nil
+	case http.StatusAccepted:
+		return false, nil
+	}
+	return false, statusFailure("mount blob", resp)
+}
+
+// DeleteManifest deletes a manifest of the repository by digest (a registry removes the tags that point at it too).
+// A manifest that is not there is ErrNotFound. Needs delete permission on the repository.
+func (c *Client) DeleteManifest(ctx context.Context, digest string) error {
+	repo, err := c.repo()
+	if err != nil {
+		return err
+	}
+	hc, err := c.http(ctx, repo, transport.DeleteScope)
+	if err != nil {
+		return c.wrap("delete manifest", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base(repo)+"/manifests/"+digest, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(hc, req, "delete manifest")
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	return statusFailure("delete manifest", resp)
+}
+
+// nameOptions are the name parsing options of the client's scheme setting.
+func (c *Client) nameOptions() []name.Option {
+	if c.plain() {
+		return []name.Option{name.Insecure}
+	}
+	return nil
 }

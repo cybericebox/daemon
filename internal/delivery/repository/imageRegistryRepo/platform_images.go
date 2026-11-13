@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -84,4 +85,34 @@ func (r *PlatformImages) IsCollectable(ctx context.Context, digest string, befor
 func (r *PlatformImages) Delete(ctx context.Context, digest, tag string, before time.Time) (removed bool, err error) {
 	n, err := r.q.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: digest, Tag: tag, Before: before})
 	return n > 0, err
+}
+
+// NameOfDigest is the name the newest row of the digest records; found is false when no row has the digest.
+func (r *PlatformImages) NameOfDigest(ctx context.Context, digest string) (name string, found bool, err error) {
+	name, err = r.q.PlatformImageNameByDigest(ctx, digest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return name, err == nil, err
+}
+
+// ReferencedImages lists the distinct platform:<name>@<digest> references the devices of any exercise version name.
+func (r *PlatformImages) ReferencedImages(ctx context.Context) ([]string, error) {
+	return r.q.ListReferencedPlatformImages(ctx)
+}
+
+// List returns every recorded image (one row per digest and tag), oldest first.
+func (r *PlatformImages) List(ctx context.Context) ([]imageRegistryModel.PlatformImage, error) {
+	rows, err := r.q.ListPlatformImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]imageRegistryModel.PlatformImage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, imageRegistryModel.PlatformImage{
+			Digest: row.Digest, Tag: row.Tag, Name: row.Name,
+			ExerciseID: row.ExerciseID.UUID, UploadedBy: row.UploadedBy.UUID, UploadedAt: row.UploadedAt,
+		})
+	}
+	return out, nil
 }

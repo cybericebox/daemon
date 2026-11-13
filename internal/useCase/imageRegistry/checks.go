@@ -113,6 +113,14 @@ func (u *ImageRegistryUseCase) closeAlert(ctx context.Context, key string) {
 // CheckPlatformRegistry checks the platform push token (Ping) and pull token (PingPull) now, stores the results
 // and tells the platform admins about a change. Not configured: ErrRegistryNotConfigured.
 func (u *ImageRegistryUseCase) CheckPlatformRegistry(ctx context.Context) (SettingsView, error) {
+	if u.own.Enabled() {
+		// The own registry's account is the deployment's: checked live, nothing stored, no alert.
+		var check imageRegistryModel.Check
+		check.Apply(u.ping(ctx, u.ownClient(imageRegistryModel.StagingRepository).Ping), u.now())
+		view := u.ownView()
+		view.PushCheck = toCheckView(check)
+		return view, nil
+	}
 	s, found, err := u.load(ctx)
 	if err != nil {
 		return SettingsView{}, err
@@ -227,7 +235,7 @@ func (u *ImageRegistryUseCase) RunRegistryChecks(ctx context.Context) error {
 	}
 	if s, found, err := u.load(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to load the image registry settings for the credential check")
-	} else if found && s.Configured() {
+	} else if found && s.Configured() && !u.own.Enabled() {
 		u.checkPlatform(ctx, s)
 	}
 	u.closeEndedAlerts(ctx)

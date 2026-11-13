@@ -348,12 +348,25 @@ func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregi
 	if err != nil {
 		return CreateImageResult{}, err
 	}
-	if err = checkBlobs(ctx, client, append([]Descriptor{in.Config}, in.Layers...)); err != nil {
+	if ref, err = u.ownRef(ctx, ref); err != nil {
+		return CreateImageResult{}, err
+	}
+	blobs := append([]Descriptor{in.Config}, in.Layers...)
+	if err = checkBlobs(ctx, client, blobs); err != nil {
 		return CreateImageResult{}, err
 	}
 	configBody, err := u.checkConfig(ctx, client, in.Config, len(in.Layers))
 	if err != nil {
 		return CreateImageResult{}, err
+	}
+	// client holds the blobs (the staging repository of the own registry); the manifest goes to the repository of
+	// the image, with the blobs mounted into it first.
+	target := client
+	if u.own.Enabled() {
+		target = u.ownClient(ref.Repository())
+		if err = mountBlobs(ctx, target, client, imageRegistryModel.StagingRepository, blobs); err != nil {
+			return CreateImageResult{}, err
+		}
 	}
 	u.keepServiceConfig(ctx, manifest.Digest, configBody)
 	// Tags carry the whole digest, so another digest's row with this tag is a bug: refuse rather than re-point a
@@ -376,7 +389,7 @@ func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregi
 	// A registry with immutable tags (Docker Hub can be set so) refuses even a PUT of the same manifest under an
 	// existing tag with 403. The tag is the digest alone, so the same content finds its tag already there (an
 	// earlier upload whose row is gone): when the tag serves this very manifest the push is done.
-	have, found, err := client.ManifestDigest(ctx, ref.Tag())
+	have, found, err := target.ManifestDigest(ctx, ref.Tag())
 	if err != nil {
 		return CreateImageResult{}, Unavailable(err, pushTokenName)
 	}
@@ -386,10 +399,51 @@ func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregi
 		}
 		return CreateImageResult{Reference: ref.String()}, nil
 	}
-	if _, err = client.PutManifest(ctx, ref.Tag(), manifest.MediaType, manifest.Body); err != nil {
+	if _, err = target.PutManifest(ctx, ref.Tag(), manifest.MediaType, manifest.Body); err != nil {
 		return CreateImageResult{}, Unavailable(err, pushTokenName)
 	}
 	return CreateImageResult{Reference: ref.String()}, nil
+}
+
+// mountBlobs makes every blob available in the repository of target: the registry mounts it from the staging
+// repository (no bytes move). A registry that does not mount gets the blob streamed from the staging repository,
+// so the result is the same, only slower. Blobs the target already has are skipped.
+func mountBlobs(ctx context.Context, target, staging *ociregistry.Client, from string, blobs []Descriptor) error {
+	seen := map[string]bool{}
+	for _, d := range blobs {
+		if seen[d.Digest] {
+			continue
+		}
+		seen[d.Digest] = true
+		have, err := target.BlobExists(ctx, d.Digest)
+		if err != nil {
+			return Unavailable(err, pushTokenName)
+		}
+		if have {
+			continue
+		}
+		mounted, err := target.MountBlob(ctx, d.Digest, from)
+		if err != nil {
+			return Unavailable(err, pushTokenName)
+		}
+		if mounted {
+			continue
+		}
+		rc, size, err := staging.OpenBlob(ctx, d.Digest)
+		if err != nil {
+			return Unavailable(err, pushTokenName)
+		}
+		vr := &verifyingReader{r: rc, h: sha256.New(), want: d.Digest}
+		err = target.PushBlob(ctx, d.Digest, size, vr)
+		_ = rc.Close()
+		if err != nil {
+			if vr.mismatch {
+				return imageRegistryModel.ErrBlobDigestMismatch.WithPublicContext(imageRegistryModel.ContextDigest, d.Digest).Err()
+			}
+			return Unavailable(err, pushTokenName)
+		}
+	}
+	return nil
 }
 
 // checkBlobs requires every blob in the registry with exactly the stated size. BuildManifest already bounded the

@@ -476,6 +476,17 @@ type (
 		SecretsKeyDir string `env:"SECRETS_KEY_DIR"`
 		// SecretsSeal (…_SECRETS_SEAL) is "derived" (default with a master key) or "explicit": see SessionEncryptionSeal.
 		SecretsSeal string `env:"SECRETS_SEAL"`
+		// RegistryHost (PLATFORM_REGISTRY_HOST) is the platform's own image registry, the zot of the laboratory chart:
+		// host:port without a scheme (laboratory-registry.<namespace>.svc:5000), reached over plain http on the cluster
+		// network. Set: every platform image (uploads, task archives) is stored there and the labs pull it by digest,
+		// and the Docker Hub / GHCR settings of the platform panel no longer apply. Empty: the provider settings
+		// of the panel are used as before.
+		RegistryHost string `env:"REGISTRY_HOST"`
+		// RegistryUsername and RegistryPassword (PLATFORM_REGISTRY_USERNAME / PLATFORM_REGISTRY_PASSWORD) are the
+		// registry's platform-writer account, the one that may write and delete under platform/** (the
+		// laboratory-registry-platform Secret of the chart). The password is a secret and is never logged.
+		RegistryUsername string `env:"REGISTRY_USERNAME"`
+		RegistryPassword string `env:"REGISTRY_PASSWORD"`
 	}
 
 	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is one of the preset sizes,
