@@ -68,15 +68,15 @@ func TestTopologyDTOAcceptsResourcesRoutes(t *testing.T) {
 }
 
 func TestTopologyDTOAddressReferencesRoundTrip(t *testing.T) {
-	const request = `{"Devices":[{"Name":"web","Type":"container","Interfaces":[{"Name":"eth0","IP":{"Type":"static","AddressRef":{"Network":"vpn","Host":10},"GatewayRef":{"Network":"vpn","Host":1},"Routes":[{"DstRef":{"Network":"internet"},"ViaRef":{"Network":"vpn","Host":1}}]}}]}]}`
+	const request = `{"Devices":[{"Name":"web","Type":"container","Interfaces":[{"Name":"eth0","IP":{"Type":"static","AddressRef":{"Gateway":"vpn","Host":10},"GatewayRef":{"Gateway":"vpn","Host":1},"Routes":[{"DstRef":{"Gateway":"internet"},"ViaRef":{"Gateway":"vpn","Host":1}}]}}]}]}`
 	var dto topologyDTO
 	if err := json.Unmarshal([]byte(request), &dto); err != nil {
 		t.Fatal(err)
 	}
 	ip := dto.toDomain().Devices[0].Interfaces[0].IP
-	if ip.AddressRef == nil || ip.AddressRef.Network != "vpn" || ip.AddressRef.Host != 10 ||
+	if ip.AddressRef == nil || ip.AddressRef.Gateway != "vpn" || ip.AddressRef.Host != 10 ||
 		ip.GatewayRef == nil || ip.GatewayRef.Host != 1 ||
-		len(ip.Routes) != 1 || ip.Routes[0].DstRef == nil || ip.Routes[0].DstRef.Network != "internet" ||
+		len(ip.Routes) != 1 || ip.Routes[0].DstRef == nil || ip.Routes[0].DstRef.Gateway != "internet" ||
 		ip.Routes[0].ViaRef == nil || ip.Routes[0].ViaRef.Host != 1 {
 		t.Fatalf("request address references lost: %+v", ip)
 	}
@@ -84,34 +84,53 @@ func TestTopologyDTOAddressReferencesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"AddressRef":{"Network":"vpn","Host":10}`, `"GatewayRef":{"Network":"vpn","Host":1}`, `"DstRef":{"Network":"internet"}`, `"ViaRef":{"Network":"vpn","Host":1}`} {
+	for _, field := range []string{`"AddressRef":{"Gateway":"vpn","Host":10}`, `"GatewayRef":{"Gateway":"vpn","Host":1}`, `"DstRef":{"Gateway":"internet"}`, `"ViaRef":{"Gateway":"vpn","Host":1}`} {
 		if !strings.Contains(string(response), field) {
 			t.Errorf("response missing %s: %s", field, response)
 		}
 	}
-	if strings.Contains(string(response), `"Addresses"`) || strings.Contains(string(response), `"Gateway":`) {
+	if strings.Contains(string(response), `"Addresses"`) || strings.Contains(string(response), `"Gateway":"10.`) {
 		t.Errorf("response contains literal values for references: %s", response)
 	}
 }
 
-func TestTopologyDTODHCPSettingsRoundTrip(t *testing.T) {
-	const request = `{"VPN":{"Enabled":true,"DHCP":true,"DHCPRanges":[{"Start":2,"End":50},{"Start":100,"End":150}]},"Internet":{"Enabled":true,"DHCP":true,"DHCPRanges":[{"Start":20,"End":80}],"DNS":"1.1.1.1"}}`
+func TestTopologyDTOGatewaySettingsRoundTrip(t *testing.T) {
+	const request = `{"Devices":[` +
+		`{"Name":"attack","Type":"vpn_gateway","DHCP":true,"DHCPRanges":[{"Start":2,"End":50},{"Start":100,"End":150}],"ReverseConnections":true},` +
+		`{"Name":"out","Type":"internet_gateway","DHCP":true,"DHCPRanges":[{"Start":20,"End":80}],"DNS":"1.1.1.1"}]}`
 	var dto topologyDTO
 	if err := json.Unmarshal([]byte(request), &dto); err != nil {
 		t.Fatal(err)
 	}
 	topology := dto.toDomain()
-	if len(topology.VPN.DHCPRanges) != 2 || topology.VPN.DHCPRanges[1].Start != 100 || topology.Internet.DNS != "1.1.1.1" {
-		t.Fatalf("DHCP settings lost: %+v", topology)
+	vpn, out := topology.Devices[0], topology.Devices[1]
+	if vpn.Type != exerciseModel.DeviceTypeVPNGateway || !vpn.DHCP || len(vpn.DHCPRanges) != 2 || vpn.DHCPRanges[1].Start != 100 || !vpn.ReverseConnections {
+		t.Fatalf("vpn gateway settings lost: %+v", vpn)
+	}
+	if out.Type != exerciseModel.DeviceTypeInternetGateway || out.DNS != "1.1.1.1" || len(out.DHCPRanges) != 1 || out.ReverseConnections {
+		t.Fatalf("internet gateway settings lost: %+v", out)
 	}
 	response, err := json.Marshal(topologyToDTO(topology))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"DHCPRanges":[{"Start":2,"End":50},{"Start":100,"End":150}]`, `"DNS":"1.1.1.1"`} {
+	for _, field := range []string{`"Type":"vpn_gateway"`, `"Type":"internet_gateway"`, `"DHCPRanges":[{"Start":2,"End":50},{"Start":100,"End":150}]`, `"DNS":"1.1.1.1"`, `"ReverseConnections":true`} {
 		if !strings.Contains(string(response), field) {
 			t.Fatalf("response missing %s: %s", field, response)
 		}
+	}
+	for _, removed := range []string{`"VPN"`, `"Internet":`, `"Enabled"`} {
+		if strings.Contains(string(response), removed) {
+			t.Fatalf("response still carries %s: %s", removed, response)
+		}
+	}
+}
+
+func TestPlaceholderDTONamesTheGateway(t *testing.T) {
+	in := placeholderDTO{Kind: "gateway.subnet", Gateway: "attack"}
+	back, err := json.Marshal(in)
+	if err != nil || !strings.Contains(string(back), `"Gateway":"attack"`) {
+		t.Fatalf("gateway lost: %v %s", err, back)
 	}
 }
 

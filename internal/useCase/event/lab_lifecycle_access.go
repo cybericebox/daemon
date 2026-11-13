@@ -218,8 +218,7 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 		out.Status.Ready = false
 		out.Status.Phase = safe.RuntimeState
 		out.Status.Access = []exerciseModel.LabAccess{}
-		out.Status.VPNCIDR = ""
-		out.Status.InternetCIDR = ""
+		out.Status.Gateways = nil
 	}
 	out.State = standRuntimeState(bindingRef, &current, out.Status.Ready, false)
 	return out, nil

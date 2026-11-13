@@ -75,9 +75,10 @@ func TestLiveDeployFlow(t *testing.T) {
 
 	dev := uuid.Must(uuid.NewV7())
 	sw := uuid.Must(uuid.NewV7())
+	gate := uuid.Must(uuid.NewV7())
 	topo := exerciseModel.Topology{
-		VPN: exerciseModel.NetworkSpec{Enabled: true},
 		Devices: []exerciseModel.Device{
+			{ID: gate, Name: "attack", Type: exerciseModel.DeviceTypeVPNGateway},
 			{ID: dev, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:alpine",
 				Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{
 					Type: exerciseModel.IPConfigTypeStatic, Addresses: []string{"10.10.0.2/24"}}}}},
@@ -89,7 +90,7 @@ func TestLiveDeployFlow(t *testing.T) {
 				{Kind: exerciseModel.EndpointDevice, DeviceID: sw, Interface: "GigabitEthernet0/1"},
 			}},
 			{Endpoints: []exerciseModel.Endpoint{
-				{Kind: exerciseModel.EndpointVPN, Interface: "eth0"},
+				{Kind: exerciseModel.EndpointDevice, DeviceID: gate, Interface: "eth0"},
 				{Kind: exerciseModel.EndpointDevice, DeviceID: sw, Interface: "GigabitEthernet0/2"},
 			}},
 		},
@@ -117,7 +118,7 @@ poll:
 			t.Fatalf("LabStatus: %v", err)
 		}
 		last = st
-		t.Logf("phase=%s ready=%v devices=%d vpnCidr=%s", st.Phase, st.Ready, len(st.Devices), st.VPNCIDR)
+		t.Logf("phase=%s ready=%v devices=%d gateways=%+v", st.Phase, st.Ready, len(st.Devices), st.Gateways)
 		if st.Ready {
 			break
 		}
@@ -131,7 +132,7 @@ poll:
 	if !last.Ready {
 		t.Fatalf("lab did not become ready; last=%+v", last)
 	}
-	if last.VPNCIDR == "" {
-		t.Errorf("expected a VPN CIDR on a VPN-enabled lab: %+v", last)
+	if len(last.Gateways) != 1 || last.Gateways[0].CIDR == "" {
+		t.Errorf("expected the CIDR of the VPN gateway on a lab with one: %+v", last)
 	}
 }

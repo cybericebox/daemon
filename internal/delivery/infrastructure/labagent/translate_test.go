@@ -46,29 +46,70 @@ func decode(t *testing.T, b []byte) labSpec {
 	return s
 }
 
-func TestBuildLabSpec_NetworksAndDHCP(t *testing.T) {
-	topo := exerciseModel.Topology{
-		VPN: exerciseModel.NetworkSpec{Enabled: true, DHCP: true,
-			DHCPRanges: []exerciseModel.DHCPRange{{Start: 2, End: 50}}},
-		Internet: exerciseModel.NetworkSpec{Enabled: true, DHCP: true, DNS: "1.1.1.1",
-			DHCPRanges: []exerciseModel.DHCPRange{{Start: 20, End: 100}, {Start: 150, End: 200}}},
-	}
-	b, _, err := BuildLabSpec(topo)
+func gatewayDevice(name string, typ exerciseModel.DeviceType) exerciseModel.Device {
+	return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: typ}
+}
+
+// The VPN and Internet gateways of a task are devices of their own kinds; the lab gets them as spec.gateways and no device.
+func TestBuildLabSpec_GatewaysAndDHCP(t *testing.T) {
+	vpn := gatewayDevice("attack", exerciseModel.DeviceTypeVPNGateway)
+	vpn.DHCP, vpn.DHCPRanges = true, []exerciseModel.DHCPRange{{Start: 2, End: 50}}
+	out := gatewayDevice("out", exerciseModel.DeviceTypeInternetGateway)
+	out.DHCP, out.DNS = true, "1.1.1.1"
+	out.DHCPRanges = []exerciseModel.DHCPRange{{Start: 20, End: 100}, {Start: 150, End: 200}}
+	web := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer}
+	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{vpn, web, out}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := decode(t, b)
-	if !s.VPN.Enabled || s.VPN.DHCPServer == nil || !s.VPN.DHCPServer.Enabled {
-		t.Errorf("vpn dhcp server should be enabled: %+v", s.VPN)
+	if len(s.Gateways) != 2 || s.Gateways[0].Name != "attack" || s.Gateways[0].Kind != "vpn" || s.Gateways[1].Name != "out" || s.Gateways[1].Kind != "internet" {
+		t.Fatalf("gateways must follow the task's order: %+v", s.Gateways)
 	}
-	if !s.Internet.Enabled || s.Internet.DHCPServer == nil || s.Internet.DHCPServer.DNS != "1.1.1.1" {
-		t.Errorf("internet DHCP DNS should be configured per lab: %+v", s.Internet)
+	if len(s.Devices) != 1 || s.Devices[0].Name != "web" {
+		t.Fatalf("a gateway is not a device of the lab: %+v", s.Devices)
 	}
-	if s.VPN.DHCPServer.DNS != "" {
-		t.Errorf("VPN DHCP must not advertise a DNS server: %+v", s.VPN)
+	if d := s.Gateways[0].DHCPServer; d == nil || !d.Enabled || d.DNS != "" || len(d.Ranges) != 1 {
+		t.Errorf("vpn dhcp server: %+v", d)
 	}
-	if len(s.VPN.DHCPServer.Ranges) != 1 || len(s.Internet.DHCPServer.Ranges) != 2 || s.Internet.DHCPServer.Ranges[1].Start != 150 {
-		t.Errorf("DHCP ranges not carried into LabSpec: %+v %+v", s.VPN, s.Internet)
+	if d := s.Gateways[1].DHCPServer; d == nil || d.DNS != "1.1.1.1" || len(d.Ranges) != 2 || d.Ranges[1].Start != 150 {
+		t.Errorf("internet dhcp server: %+v", d)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"vpn", "internet"} {
+		if _, ok := raw[removed]; ok {
+			t.Errorf("the spec must not carry %q any more: %s", removed, b)
+		}
+	}
+}
+
+func TestBuildLabSpec_NoGatewayNoKey(t *testing.T) {
+	web := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer}
+	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{web}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["gateways"]; ok {
+		t.Fatalf("a lab without a gateway has no gateways key: %s", b)
+	}
+}
+
+func TestBuildLabSpec_TwoGatewaysOfOneKind(t *testing.T) {
+	a, c := gatewayDevice("entry-a", exerciseModel.DeviceTypeVPNGateway), gatewayDevice("entry-b", exerciseModel.DeviceTypeVPNGateway)
+	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{a, c}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := decode(t, b)
+	if len(s.Gateways) != 2 || s.Gateways[0].Name != "entry-a" || s.Gateways[1].Name != "entry-b" {
+		t.Fatalf("both VPN entries must reach the spec: %+v", s.Gateways)
 	}
 }
 
@@ -137,10 +178,10 @@ func TestBuildLabSpec_AddressReferencesRemainTyped(t *testing.T) {
 		ID: uuid.Must(uuid.NewV7()), Name: "host", Type: exerciseModel.DeviceTypeContainer,
 		Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{
 			Type:       exerciseModel.IPConfigTypeStatic,
-			AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10},
-			GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
-			Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"},
-				ViaRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1}}},
+			AddressRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 10},
+			GatewayRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 1},
+			Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Gateway: "internet"},
+				ViaRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 1}}},
 		}}},
 	}}}
 	encoded, _, err := BuildLabSpec(topo)
@@ -158,14 +199,14 @@ func TestBuildLabSpec_AddressReferencesRemainTyped(t *testing.T) {
 	if _, ok := addr["gateway"]; ok {
 		t.Fatalf("gateway resolved before lab allocation: %#v", addr)
 	}
-	if ref := addr["addressRef"].(map[string]any); ref["network"] != "vpn" || ref["host"] != float64(10) {
+	if ref := addr["addressRef"].(map[string]any); ref["gateway"] != "vpn" || ref["host"] != float64(10) {
 		t.Fatalf("addressRef missing: %#v", addr)
 	}
-	if ref := addr["gatewayRef"].(map[string]any); ref["network"] != "vpn" || ref["host"] != float64(1) {
+	if ref := addr["gatewayRef"].(map[string]any); ref["gateway"] != "vpn" || ref["host"] != float64(1) {
 		t.Fatalf("gatewayRef missing: %#v", addr)
 	}
 	route := addr["routes"].([]any)[0].(map[string]any)
-	if route["dstRef"].(map[string]any)["network"] != "internet" || route["viaRef"].(map[string]any)["host"] != float64(1) {
+	if route["dstRef"].(map[string]any)["gateway"] != "internet" || route["viaRef"].(map[string]any)["host"] != float64(1) {
 		t.Fatalf("route references missing: %#v", route)
 	}
 }
@@ -211,22 +252,17 @@ func TestBuildLabSpec_AccessAndPreset(t *testing.T) {
 func TestBuildLabSpec_ConnectionsResolveNamesAndGateways(t *testing.T) {
 	web := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer}
 	sw := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch}
+	vpn := gatewayDevice("attack", exerciseModel.DeviceTypeVPNGateway)
+	out := gatewayDevice("out", exerciseModel.DeviceTypeInternetGateway)
+	ep := func(d exerciseModel.Device, iface string) exerciseModel.Endpoint {
+		return exerciseModel.Endpoint{Kind: exerciseModel.EndpointDevice, DeviceID: d.ID, Interface: iface}
+	}
 	topo := exerciseModel.Topology{
-		VPN:     exerciseModel.NetworkSpec{Enabled: true},
-		Devices: []exerciseModel.Device{web, sw},
+		Devices: []exerciseModel.Device{web, sw, vpn, out},
 		Connections: []exerciseModel.Connection{
-			{Endpoints: []exerciseModel.Endpoint{
-				{Kind: exerciseModel.EndpointDevice, DeviceID: web.ID, Interface: "eth0"},
-				{Kind: exerciseModel.EndpointDevice, DeviceID: sw.ID, Interface: "GigabitEthernet0/1"},
-			}},
-			{Endpoints: []exerciseModel.Endpoint{
-				{Kind: exerciseModel.EndpointVPN, Interface: "eth0"},
-				{Kind: exerciseModel.EndpointDevice, DeviceID: sw.ID, Interface: "GigabitEthernet0/2"},
-			}},
-			{Endpoints: []exerciseModel.Endpoint{
-				{Kind: exerciseModel.EndpointInternet, Interface: "eth0"},
-				{Kind: exerciseModel.EndpointDevice, DeviceID: sw.ID, Interface: "GigabitEthernet0/3"},
-			}},
+			{Endpoints: []exerciseModel.Endpoint{ep(web, "eth0"), ep(sw, "GigabitEthernet0/1")}},
+			{Endpoints: []exerciseModel.Endpoint{ep(vpn, "eth0"), ep(sw, "GigabitEthernet0/2")}},
+			{Endpoints: []exerciseModel.Endpoint{ep(out, "eth0"), ep(web, "eth1")}},
 		},
 	}
 	b, _, err := BuildLabSpec(topo)
@@ -241,36 +277,32 @@ func TestBuildLabSpec_ConnectionsResolveNamesAndGateways(t *testing.T) {
 	if conns[0].Endpoints[1].Device != spec.Devices[1].Name {
 		t.Errorf("switch endpoint should resolve to name: %+v", conns[0].Endpoints[1])
 	}
-	if conns[1].Endpoints[0].Device != "vpn" {
-		t.Errorf("vpn endpoint should map to reserved name: %+v", conns[1].Endpoints[0])
+	if conns[1].Endpoints[0].Device != "attack" || conns[1].Endpoints[0].Interface != "eth0" {
+		t.Errorf("a gateway endpoint is the gateway's own name and its port: %+v", conns[1].Endpoints[0])
 	}
-	if conns[2].Endpoints[0].Device != "internet" {
-		t.Errorf("internet endpoint should map to reserved name: %+v", conns[2].Endpoints[0])
+	if conns[2].Endpoints[0].Device != "out" || conns[2].Endpoints[0].Interface != "eth0" {
+		t.Errorf("an internet gateway endpoint is its own name too: %+v", conns[2].Endpoints[0])
 	}
 }
 
-func TestBuildLabSpec_GatewayPorts(t *testing.T) {
-	for _, kind := range []exerciseModel.EndpointKind{exerciseModel.EndpointVPN, exerciseModel.EndpointInternet} {
-		for _, inputPort := range []string{"eth0"} {
-			t.Run(string(kind)+"/"+inputPort, func(t *testing.T) {
-				host := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "host", Type: exerciseModel.DeviceTypeContainer}
-				topo := exerciseModel.Topology{
-					Devices: []exerciseModel.Device{host},
-					Connections: []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{
-						{Kind: kind, Interface: inputPort},
-						{Kind: exerciseModel.EndpointDevice, DeviceID: host.ID, Interface: "eth0"},
-					}}},
-				}
-				encoded, _, err := BuildLabSpec(topo)
-				if err != nil {
-					t.Fatal(err)
-				}
-				endpoint := decode(t, encoded).Connections[0].Endpoints[0]
-				if endpoint.Device != string(kind) || endpoint.Interface != "eth0" {
-					t.Fatalf("gateway endpoint should use logical eth0: %+v", endpoint)
-				}
-			})
-		}
+func TestBuildLabSpec_GatewayReferencesNameTheGateway(t *testing.T) {
+	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{
+		gatewayDevice("attack", exerciseModel.DeviceTypeVPNGateway),
+		{ID: uuid.Must(uuid.NewV7()), Name: "host", Type: exerciseModel.DeviceTypeContainer,
+			Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{
+				Type:       exerciseModel.IPConfigTypeStatic,
+				AddressRef: &exerciseModel.NetworkIPRef{Gateway: "attack", Host: 10},
+			}}}},
+	}}
+	encoded, _, err := BuildLabSpec(topo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"addressRef":{"gateway":"attack","host":10}`) {
+		t.Fatalf("the reference must name the gateway, not a network: %s", encoded)
+	}
+	if strings.Contains(string(encoded), `"network"`) {
+		t.Fatalf("no network key any more: %s", encoded)
 	}
 }
 

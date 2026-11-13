@@ -52,8 +52,16 @@ func container(name, preset string) exerciseModel.Device {
 // blocksOf is the amount of a whole number of blocks, as the default policy gives it.
 func blocksOf(n int) resourcesModel.Amount { return resourcesModel.DefaultPolicy().Amount(n) }
 
+// withInternet adds an Internet gateway to the devices when the variant uses the internet.
+func withInternet(devices []exerciseModel.Device, internet bool) []exerciseModel.Device {
+	if !internet {
+		return devices
+	}
+	return append(devices, exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "out", Type: exerciseModel.DeviceTypeInternetGateway})
+}
+
 func variant(internet bool, devices ...exerciseModel.Device) exerciseModel.Variant {
-	return exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Topology: exerciseModel.Topology{Internet: exerciseModel.NetworkSpec{Enabled: internet}, Devices: devices}}
+	return exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Topology: exerciseModel.Topology{Devices: withInternet(devices, internet)}}
 }
 
 func TestPlanTaskReservesTheLargestVariantOrThePinnedOne(t *testing.T) {

@@ -107,7 +107,7 @@ func (u *ExerciseUseCase) CanStartEventPreview(ctx context.Context, eventID, ver
 	if err != nil {
 		return false, err
 	}
-	return len(variant.Topology.Devices) == 0 || u.infra != nil, nil
+	return !variant.Topology.HasLab() || u.infra != nil, nil
 }
 func (u *ExerciseUseCase) releaseScopedTestLab(ctx context.Context, deploy exerciseModel.TestDeploy) error {
 	if !legacyEventPreview(deploy) {

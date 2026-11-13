@@ -49,7 +49,7 @@ func TestValidateStructure(t *testing.T) {
 	badDeviceName.Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "Bad_Name", Type: exerciseModel.DeviceTypeContainer}}
 
 	badEndpointArity := validVariant()
-	badEndpointArity.Topology.Connections = []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointVPN}}}}
+	badEndpointArity.Topology.Connections = []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointDevice}}}}
 
 	cases := []struct {
 		name     string
@@ -314,7 +314,7 @@ func TestHasInfrastructure(t *testing.T) {
 		{"no variants", nil, false},
 		{"no topology", []exerciseModel.Variant{{}}, false},
 		{"empty devices", []exerciseModel.Variant{{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{}}}}, false},
-		{"networks without devices", []exerciseModel.Variant{{Topology: exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}, Internet: exerciseModel.NetworkSpec{Enabled: true}}}}, false},
+		{"gateways without devices", []exerciseModel.Variant{{Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{gw("vpn", exerciseModel.DeviceTypeVPNGateway), gw("out", exerciseModel.DeviceTypeInternetGateway)}}}}, false},
 		{"device in a later variant", []exerciseModel.Variant{{}, {Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "host-1"}}}}}, true},
 	} {
 		if got := exerciseModel.HasInfrastructure(tc.variants); got != tc.want {

@@ -22,11 +22,16 @@ const (
 	DeviceTypeContainer       DeviceType = "container"
 	DeviceTypeUnmanagedSwitch DeviceType = "unmanaged-switch"
 	DeviceTypeHub             DeviceType = "hub"
+	// DeviceTypeVPNGateway is a VPN entry of the lab: the participants' WireGuard clients reach the network it is connected
+	// to. DeviceTypeInternetGateway is an Internet exit of the lab. Both are settings of the lab (no image, no interfaces):
+	// one port, eth0, joined to a lab network by an ordinary connection.
+	DeviceTypeVPNGateway      DeviceType = "vpn_gateway"
+	DeviceTypeInternetGateway DeviceType = "internet_gateway"
 )
 
 func (t DeviceType) Valid() bool {
 	switch t {
-	case DeviceTypeNode, DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub:
+	case DeviceTypeNode, DeviceTypeContainer, DeviceTypeUnmanagedSwitch, DeviceTypeHub, DeviceTypeVPNGateway, DeviceTypeInternetGateway:
 		return true
 	}
 	return false
@@ -34,6 +39,19 @@ func (t DeviceType) Valid() bool {
 
 // IsNode reports whether the device runs a workload (a node, or a not yet normalized former container).
 func (t DeviceType) IsNode() bool { return t == DeviceTypeNode || t == DeviceTypeContainer }
+
+// IsGateway reports whether the device is a VPN or an Internet gateway.
+func (t DeviceType) IsGateway() bool {
+	return t == DeviceTypeVPNGateway || t == DeviceTypeInternetGateway
+}
+
+// GatewayPort is the one port of a gateway; a connection endpoint names it as the interface.
+const GatewayPort = "eth0"
+
+// MaxLabGateways is the most gateways (VPN and Internet together) one lab may have. The rule of the task format lives
+// here only; the catalog reads it from the capabilities response. Keep it at or below what the laboratory accepts
+// (its VPNFeature.max_gateways).
+const MaxLabGateways = 10
 
 // NodeProfile is how a node runs: «Контейнер», «Мікро-VM» or «VM».
 type NodeProfile string
@@ -108,37 +126,22 @@ func (p SecurityPreset) Valid() bool {
 type EndpointKind string
 
 const (
-	EndpointDevice   EndpointKind = "device"
-	EndpointVPN      EndpointKind = "vpn"
-	EndpointInternet EndpointKind = "internet"
+	// EndpointDevice is the only kind: a gateway is a device too.
+	EndpointDevice EndpointKind = "device"
 )
 
-func (k EndpointKind) Valid() bool {
-	return k == EndpointDevice || k == EndpointVPN || k == EndpointInternet
-}
+func (k EndpointKind) Valid() bool { return k == EndpointDevice }
 
 type (
-	// Topology is one variant's lab layout. Spec §8/§9: devices + direct
-	// connections + the vpn/internet singletons as NetworkSpec fields.
+	// Topology is one variant's lab layout: devices (nodes, switches, hubs and the VPN and Internet gateways) and the
+	// direct connections between their ports.
 	Topology struct {
 		// Variables are set once per instance and used as {{var.<name>}} in any device's bootstrap and in the
 		// expectations of the conditions.
 		Variables    []Variable      `json:"variables,omitempty"`
-		VPN          NetworkSpec     `json:"vpn"`
-		Internet     NetworkSpec     `json:"internet"`
 		Devices      []Device        `json:"devices"`
 		Connections  []Connection    `json:"connections"`
 		VisualRender json.RawMessage `json:"visual_render,omitempty"` // frontend layout, opaque
-	}
-
-	NetworkSpec struct {
-		Enabled    bool        `json:"enabled"`
-		DHCP       bool        `json:"dhcp"`
-		DHCPRanges []DHCPRange `json:"dhcp_ranges,omitempty"`
-		DNS        string      `json:"dns,omitempty"`
-		// ReverseConnections (the VPN gateway only) lets devices of the lab start connections to the VPN clients, the
-		// participants' machines. Off by default; needs Enabled.
-		ReverseConnections bool `json:"reverse_connections,omitempty"`
 	}
 
 	DHCPRange struct {
@@ -178,6 +181,14 @@ type (
 		ImageService *ImageService `json:"-"`
 		// Persistence keeps the device's writable layer across an unplanned restart; nil = off.
 		Persistence *DevicePersistence `json:"persistence,omitempty"`
+		// The settings of a gateway (vpn_gateway, internet_gateway); no other device has them. DHCP turns the DHCP server of
+		// the gateway's network on and needs DHCPRanges; DNS (one IPv4 address, internet_gateway only) is what that server
+		// advertises; ReverseConnections (vpn_gateway only) lets devices of the lab start connections to the VPN clients,
+		// the participants' machines (off by default).
+		DHCP               bool        `json:"dhcp,omitempty"`
+		DHCPRanges         []DHCPRange `json:"dhcp_ranges,omitempty"`
+		DNS                string      `json:"dns,omitempty"`
+		ReverseConnections bool        `json:"reverse_connections,omitempty"`
 		// WaitReadyFile makes the device Ready only once the application has created /run/ready inside the
 		// container. A port published through the web proxy is checked automatically either way. Off by
 		// default, so exercises saved before it keep their behaviour.
@@ -207,13 +218,15 @@ type (
 		Routes     []Route       `json:"routes,omitempty"`
 	}
 
+	// NetworkIPRef is an address of a gateway's /24: the gateway device by name and the host number.
 	NetworkIPRef struct {
-		Network string `json:"network"`
+		Gateway string `json:"gateway"`
 		Host    int32  `json:"host"`
 	}
 
+	// NetworkSubnetRef is the /24 of a gateway.
 	NetworkSubnetRef struct {
-		Network string `json:"network"`
+		Gateway string `json:"gateway"`
 	}
 
 	DeviceResources struct {
@@ -262,28 +275,59 @@ const MaxDeviceNameLen = 35
 
 var dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-// validateVPNOptions: reverse_connections belongs to the VPN gateway and needs the VPN network switched on.
-func (t Topology) validateVPNOptions() error {
-	if (t.VPN.ReverseConnections && !t.VPN.Enabled) || t.Internet.ReverseConnections {
-		return ErrVPNOptionInvalid.WithPublicContext("field", "topology.vpn.reverse_connections").Err()
+// validateGateways checks the gateway devices one by one and their number: DHCP needs ranges, DNS is one IPv4 address of an
+// Internet gateway, reverse connections belong to a VPN gateway, and a gateway carries nothing of a node. Gateway settings
+// on any other device are refused.
+func (t Topology) validateGateways() error {
+	gateways := 0
+	for _, d := range t.Devices {
+		if !d.Type.IsGateway() {
+			if d.DHCP || len(d.DHCPRanges) > 0 || d.DNS != "" || d.ReverseConnections {
+				return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
+			}
+			continue
+		}
+		gateways++
+		if gateways > MaxLabGateways {
+			return ErrGatewayLimit.WithPublicContext("device", d.Name).
+				WithPublicContext("field", "devices").
+				WithPublicContext("limit", MaxLabGateways).
+				Err()
+		}
+		if d.Profile != "" || d.Image != "" || len(d.Interfaces) > 0 || len(d.Access) > 0 || len(d.Command) > 0 ||
+			len(d.Args) > 0 || d.System != "" || d.Hardware != "" || d.SecurityPreset != "" || d.ResourcePreset != "" ||
+			d.Resources != nil || d.Persistence != nil || d.WaitReadyFile || !d.Bootstrap.IsZero() {
+			return ErrGatewayDeviceInvalid.WithPublicContext("device", d.Name).Err()
+		}
+		if !validDNSLabelName(d.Name) {
+			return ErrDeviceNameInvalid.WithContext("device", d.Name).Err()
+		}
+		if d.DHCP && len(d.DHCPRanges) == 0 || !validDHCPRanges(d.DHCPRanges) {
+			return ErrNetworkDHCPInvalid.WithPublicContext("device", d.Name).Err()
+		}
+		if d.DNS != "" && (d.Type != DeviceTypeInternetGateway || !validIPv4(d.DNS)) {
+			return ErrNetworkDHCPInvalid.WithPublicContext("device", d.Name).Err()
+		}
+		if d.ReverseConnections && d.Type != DeviceTypeVPNGateway {
+			return ErrVPNOptionInvalid.WithPublicContext("device", d.Name).
+				WithPublicContext("field", "reverse_connections").
+				Err()
+		}
 	}
 	return nil
+}
+
+// validDNSLabelName reports whether a gateway name is a DNS label of the length of a device name.
+func validDNSLabelName(name string) bool {
+	return dnsLabelRe.MatchString(name) && len(name) <= MaxDeviceNameLen
 }
 
 // validateStructure checks per-item shape only (types, names, endpoint arity).
 // Cross-item graph rules (uniqueness, resolution, port occupancy) run at
 // publish time — validateGraph, Task 4.
 func (t Topology) validateStructure() error {
-	if t.VPN.Enabled && t.VPN.DHCP && len(t.VPN.DHCPRanges) == 0 ||
-		t.Internet.Enabled && t.Internet.DHCP && len(t.Internet.DHCPRanges) == 0 ||
-		!validDHCPRanges(t.VPN.DHCPRanges) || !validDHCPRanges(t.Internet.DHCPRanges) {
-		return ErrNetworkDHCPInvalid.Err()
-	}
-	if err := t.validateVPNOptions(); err != nil {
+	if err := t.validateGateways(); err != nil {
 		return err
-	}
-	if t.VPN.DNS != "" || t.Internet.DNS != "" && !validIPv4(t.Internet.DNS) {
-		return ErrNetworkDHCPInvalid.Err()
 	}
 	usedAddressRefs := make(map[NetworkIPRef]bool)
 	for _, d := range t.Devices {
@@ -345,9 +389,7 @@ func (t Topology) validateStructure() error {
 			return ErrConnectionArityInvalid.Err()
 		}
 		for _, ep := range c.Endpoints {
-			if !ep.Kind.Valid() ||
-				(ep.Kind == EndpointDevice && ep.DeviceID == uuid.Nil) ||
-				(ep.Kind != EndpointDevice && (ep.DeviceID != uuid.Nil || ep.Interface != "eth0")) {
+			if !ep.Kind.Valid() || ep.DeviceID == uuid.Nil {
 				return ErrConnectionEndpointsInvalid.Err()
 			}
 		}
@@ -377,7 +419,6 @@ func (t Topology) validateGraph() error {
 		iface string
 	}
 	usedPorts := make(map[portKey]bool)
-	vpnConn, inetConn := -1, -1
 
 	for ci, c := range t.Connections {
 		for _, ep := range c.Endpoints {
@@ -391,6 +432,10 @@ func (t Topology) validateGraph() error {
 					if !validForwardingPort(ep.Interface) {
 						return ErrForwardingPortInvalid.WithContext("device", d.Name).WithContext("interface", ep.Interface).Err()
 					}
+				} else if d.Type.IsGateway() {
+					if ep.Interface != GatewayPort {
+						return ErrEndpointUnresolved.WithContext("connection", ci).Err()
+					}
 				} else if !hasInterface(d, ep.Interface) {
 					return ErrEndpointUnresolved.WithContext("connection", ci).Err()
 				}
@@ -399,24 +444,11 @@ func (t Topology) validateGraph() error {
 					return ErrPortInUse.WithContext("device", d.Name).WithContext("interface", ep.Interface).Err()
 				}
 				usedPorts[key] = true
-			case EndpointVPN:
-				if !t.VPN.Enabled {
-					return ErrVPNDisabled.WithContext("connection", ci).Err()
-				}
-				if vpnConn >= 0 {
-					return ErrVPNGatewayInUse.Err()
-				}
-				vpnConn = ci
-			case EndpointInternet:
-				if !t.Internet.Enabled {
-					return ErrInternetDisabled.WithContext("connection", ci).Err()
-				}
-				if inetConn >= 0 {
-					return ErrInternetGatewayInUse.Err()
-				}
-				inetConn = ci
 			}
 		}
+	}
+	if err := t.validateGatewayNetworks(byID); err != nil {
+		return err
 	}
 	if err := t.validateAddressRefReachability(byID); err != nil {
 		return err
@@ -425,51 +457,82 @@ func (t Topology) validateGraph() error {
 	return nil
 }
 
-// Each container interface is its own L2 vertex. A switch or hub has one
-// shared vertex for all ports, since either forwards between them.
-func (t Topology) validateAddressRefReachability(byID map[uuid.UUID]Device) error {
-	endpointKey := func(ep Endpoint) string {
-		switch ep.Kind {
-		case EndpointVPN:
-			return "gateway:vpn"
-		case EndpointInternet:
-			return "gateway:internet"
-		default:
-			key := "device:" + ep.DeviceID.String()
-			if !byID[ep.DeviceID].Type.IsForwarding() {
-				key += ":" + ep.Interface
-			}
-			return key
+// l2Links is the graph of L2 vertices: each node (or gateway) interface is its own vertex, a switch or hub has one shared
+// vertex for all ports, since either forwards between them.
+func (t Topology) l2Links(byID map[uuid.UUID]Device) (links map[string][]string, vertex func(Endpoint) string) {
+	vertex = func(ep Endpoint) string {
+		key := "device:" + ep.DeviceID.String()
+		if !byID[ep.DeviceID].Type.IsForwarding() {
+			key += ":" + ep.Interface
 		}
+		return key
 	}
-	links := make(map[string][]string)
+	links = make(map[string][]string)
 	for _, connection := range t.Connections {
-		left := endpointKey(connection.Endpoints[0])
-		right := endpointKey(connection.Endpoints[1])
+		left := vertex(connection.Endpoints[0])
+		right := vertex(connection.Endpoints[1])
 		links[left] = append(links[left], right)
 		links[right] = append(links[right], left)
 	}
+	return links, vertex
+}
+
+// reachable is every vertex joined to start through links.
+func reachable(links map[string][]string, start string) map[string]bool {
+	seen := map[string]bool{start: true}
+	queue := []string{start}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, adjacent := range links[current] {
+			if !seen[adjacent] {
+				seen[adjacent] = true
+				queue = append(queue, adjacent)
+			}
+		}
+	}
+	return seen
+}
+
+// validateGatewayNetworks refuses two gateways in one network (one broadcast domain: joined directly or through switches
+// and hubs).
+func (t Topology) validateGatewayNetworks(byID map[uuid.UUID]Device) error {
+	links, vertex := t.l2Links(byID)
+	var gateways []Device
+	for _, d := range t.Devices {
+		if d.Type.IsGateway() {
+			gateways = append(gateways, d)
+		}
+	}
+	for i, g := range gateways {
+		seen := reachable(links, vertex(Endpoint{Kind: EndpointDevice, DeviceID: g.ID, Interface: GatewayPort}))
+		for _, other := range gateways[i+1:] {
+			if seen[vertex(Endpoint{Kind: EndpointDevice, DeviceID: other.ID, Interface: GatewayPort})] {
+				return ErrGatewayOneNetwork.WithPublicContext("device", other.Name).
+					WithPublicContext("other_device", g.Name).
+					Err()
+			}
+		}
+	}
+	return nil
+}
+
+// Each address reference must be connected to the gateway it names.
+func (t Topology) validateAddressRefReachability(byID map[uuid.UUID]Device) error {
+	links, vertex := t.l2Links(byID)
 	for _, device := range t.Devices {
 		for _, iface := range device.Interfaces {
 			if iface.IP.AddressRef == nil {
 				continue
 			}
-			start := endpointKey(Endpoint{Kind: EndpointDevice, DeviceID: device.ID, Interface: iface.Name})
-			goal := "gateway:" + iface.IP.AddressRef.Network
-			seen := map[string]bool{start: true}
-			queue := []string{start}
-			for len(queue) > 0 && !seen[goal] {
-				current := queue[0]
-				queue = queue[1:]
-				for _, adjacent := range links[current] {
-					if !seen[adjacent] {
-						seen[adjacent] = true
-						queue = append(queue, adjacent)
-					}
-				}
+			gateway, ok := t.gatewayNamed(iface.IP.AddressRef.Gateway)
+			if !ok {
+				continue // checked by the structure rules
 			}
-			if !seen[goal] {
-				return ErrDeviceAddressRefUnreachable.WithContext("device", device.Name).WithContext("interface", iface.Name).WithContext("network", iface.IP.AddressRef.Network).Err()
+			start := vertex(Endpoint{Kind: EndpointDevice, DeviceID: device.ID, Interface: iface.Name})
+			goal := vertex(Endpoint{Kind: EndpointDevice, DeviceID: gateway.ID, Interface: GatewayPort})
+			if !reachable(links, start)[goal] {
+				return ErrDeviceAddressRefUnreachable.WithContext("device", device.Name).WithContext("interface", iface.Name).WithContext("gateway", gateway.Name).Err()
 			}
 		}
 	}
@@ -582,7 +645,7 @@ func (t Topology) addressReferencesInvalid(ip IPConfig, used map[NetworkIPRef]bo
 	}
 	for _, route := range ip.Routes {
 		if route.DstRef != nil {
-			if route.Dst != "" || !t.networkRefEnabled(route.DstRef.Network) {
+			if route.Dst != "" || !t.gatewayRefValid(route.DstRef.Gateway) {
 				return "invalid route destination reference"
 			}
 		}
@@ -611,19 +674,44 @@ func (t Topology) addressReferencesInvalid(ip IPConfig, used map[NetworkIPRef]bo
 	return ""
 }
 
-func (t Topology) networkRefEnabled(network string) bool {
-	switch network {
-	case "vpn":
-		return t.VPN.Enabled
-	case "internet":
-		return t.Internet.Enabled
-	default:
-		return false
+// HasLab reports whether the topology runs a lab: it has a device other than a gateway. Gateways alone are settings of a
+// lab that does not exist.
+func (t Topology) HasLab() bool {
+	for _, d := range t.Devices {
+		if !d.Type.IsGateway() {
+			return true
+		}
 	}
+	return false
+}
+
+// HasGateway reports whether the topology has a gateway of that type (DeviceTypeVPNGateway or DeviceTypeInternetGateway).
+func (t Topology) HasGateway(kind DeviceType) bool {
+	for _, d := range t.Devices {
+		if d.Type == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// gatewayNamed finds the gateway device of that name.
+func (t Topology) gatewayNamed(name string) (Device, bool) {
+	for _, d := range t.Devices {
+		if d.Type.IsGateway() && d.Name == name {
+			return d, true
+		}
+	}
+	return Device{}, false
+}
+
+func (t Topology) gatewayRefValid(gateway string) bool {
+	_, ok := t.gatewayNamed(gateway)
+	return ok
 }
 
 func (t Topology) networkIPRefValid(ref NetworkIPRef, minimum int32) bool {
-	return ref.Host >= minimum && ref.Host <= 254 && t.networkRefEnabled(ref.Network)
+	return ref.Host >= minimum && ref.Host <= 254 && t.gatewayRefValid(ref.Gateway)
 }
 
 func validDHCPRanges(ranges []DHCPRange) bool {

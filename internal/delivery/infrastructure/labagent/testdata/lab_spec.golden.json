@@ -1,4 +1,18 @@
 {
+  "connections": [
+    {
+      "endpoints": [
+        {
+          "device": "attack",
+          "interface": "eth0"
+        },
+        {
+          "device": "r1",
+          "interface": "eth0"
+        }
+      ]
+    }
+  ],
   "devices": [
     {
       "access": [
@@ -41,6 +55,19 @@
       "type": "container"
     }
   ],
-  "internet": {},
-  "vpn": {}
+  "gateways": [
+    {
+      "dhcpServer": {
+        "enabled": true,
+        "ranges": [
+          {
+            "end": 200,
+            "start": 100
+          }
+        ]
+      },
+      "kind": "vpn",
+      "name": "attack"
+    }
+  ]
 }

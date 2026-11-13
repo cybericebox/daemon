@@ -37,7 +37,7 @@ func realisticPayload(seq int, observed time.Time, clients []string, handshake t
 		cl = append(cl, fmt.Sprintf(`{"name":%q,"labGroupName":"grp","status":{"ready":true,"assignedIp":"10.0.0.%d",%s}}`, name, i+2, stats))
 	}
 	return fmt.Sprintf(`{"agentId":"agent","sequence":"%d","snapshot":false,"observedAtUnixMs":"%d",`+
-		`"labs":[{"uid":"u","name":"web","labGroupName":"grp","status":{"phase":"Ready","ready":true,"vpnReady":true,`+
+		`"labs":[{"uid":"u","name":"web","labGroupName":"grp","status":{"phase":"Ready","ready":true,"gateways":[{"name":"attack","kind":"vpn","ready":true}],`+
 		`"devices":[{"name":"app","ready":true,"podPhase":"Running","cpuMillicores":"12","memoryBytes":"1048576","usageAvailable":true,`+
 		`"scheduling":{"state":"Started","queuedUnixMs":"1","dispatchedUnixMs":"2","startedUnixMs":"3"}}]}}],`+
 		`"groups":[{"name":"grp","status":{"phase":"Ready","vpnRegistered":true}}],"clients":[%s],`+

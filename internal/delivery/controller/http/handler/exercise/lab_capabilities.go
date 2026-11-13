@@ -23,7 +23,7 @@ type labCapabilitiesResponse struct {
 	Bootstrap string `json:"Bootstrap"`
 	// Checks: state checks are switched on.
 	Checks string `json:"Checks"`
-	// VPNReverse: topology.vpn.reverse_connections can be enforced.
+	// VPNReverse: reverse_connections of a VPN gateway can be enforced.
 	VPNReverse string `json:"VPNReverse"`
 }
 

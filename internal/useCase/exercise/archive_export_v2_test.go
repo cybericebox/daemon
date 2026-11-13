@@ -198,10 +198,10 @@ func exportFixtureVersions() []exerciseModel.ExerciseVersion {
 	}
 	topology := func(base int) exerciseModel.Topology {
 		return exerciseModel.Topology{
-			VPN:     exerciseModel.NetworkSpec{Enabled: true},
-			Devices: []exerciseModel.Device{device(base, "web"), device(base+1, "db")},
+			Devices: []exerciseModel.Device{device(base, "web"), device(base+1, "db"),
+				{ID: exportID(base + 90), Name: "vpn", Type: exerciseModel.DeviceTypeVPNGateway}},
 			Connections: []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{
-				{Kind: exerciseModel.EndpointVPN}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(base)},
+				{Kind: exerciseModel.EndpointDevice, DeviceID: exportID(base + 90), Interface: "eth0"}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(base)},
 			}}},
 			VisualRender: json.RawMessage(`{"nodes":[]}`),
 		}
@@ -362,7 +362,9 @@ func TestExportExerciseArchive_EnumsByName(t *testing.T) {
 	require.Equal(t, "node", variant.Topology.Devices[0].Type)
 	require.Equal(t, "container", variant.Topology.Devices[0].Profile)
 	require.Equal(t, "standard", variant.Topology.Devices[0].SecurityPreset)
-	require.Equal(t, "vpn", variant.Topology.Connections[0].Endpoints[0].Kind)
+	require.Equal(t, "device", variant.Topology.Connections[0].Endpoints[0].Kind)
+	require.Equal(t, "vpn", variant.Topology.Connections[0].Endpoints[0].Device, "a gateway is a device of the document")
+	require.Equal(t, "vpn_gateway", variant.Topology.Devices[2].Type)
 	require.Equal(t, "device", variant.Topology.Connections[0].Endpoints[1].Kind)
 	require.Equal(t, "web", variant.Topology.Connections[0].Endpoints[1].Device)
 }
@@ -553,14 +555,14 @@ func rawEntries(t *testing.T, data []byte) []string {
 // access, persistence, the internet network, two devices sharing a name, an endpoint to a device outside
 // the variant, an attachment without a stored name and a name clash that gives _2.
 func richVersions() []exerciseModel.ExerciseVersion {
-	ref := &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10}
+	ref := &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 10}
 	devices := []exerciseModel.Device{
 		{
 			ID: exportID(300), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27",
 			ResourcePreset: "small", SecurityPreset: exerciseModel.SecurityPresetExtended,
 			Interfaces: []exerciseModel.Interface{{Name: "eth0", MAC: "02:00:00:00:00:01", IP: exerciseModel.IPConfig{
-				Type: exerciseModel.IPConfigTypeStatic, AddressRef: ref, GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
-				Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"}, Via: "10.0.0.1"}},
+				Type: exerciseModel.IPConfigTypeStatic, AddressRef: ref, GatewayRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 1},
+				Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Gateway: "internet"}, Via: "10.0.0.1"}},
 			}}},
 			Access:      []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 8080, Protocol: "http"}},
 			Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"},
@@ -572,11 +574,11 @@ func richVersions() []exerciseModel.ExerciseVersion {
 	return []exerciseModel.ExerciseVersion{{ID: exportID(910), Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{{
 		ID: exportID(20), Index: 1,
 		Topology: exerciseModel.Topology{
-			VPN:      exerciseModel.NetworkSpec{Enabled: true, DHCP: true, DHCPRanges: []exerciseModel.DHCPRange{{Start: 100, End: 200}}},
-			Internet: exerciseModel.NetworkSpec{Enabled: true, DNS: "1.1.1.1"},
-			Devices:  devices,
+			Devices: append(devices,
+				exerciseModel.Device{ID: exportID(310), Name: "vpn", Type: exerciseModel.DeviceTypeVPNGateway, DHCP: true, DHCPRanges: []exerciseModel.DHCPRange{{Start: 100, End: 200}}, ReverseConnections: true},
+				exerciseModel.Device{ID: exportID(311), Name: "internet", Type: exerciseModel.DeviceTypeInternetGateway, DNS: "1.1.1.1"}),
 			Connections: []exerciseModel.Connection{
-				{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointInternet}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(302), Interface: "eth0"}}},
+				{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointDevice, DeviceID: exportID(311), Interface: "eth0"}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(302), Interface: "eth0"}}},
 				{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointDevice, DeviceID: exportID(301)}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(399)}}},
 			},
 		},
@@ -585,7 +587,7 @@ func richVersions() []exerciseModel.ExerciseVersion {
 			Description: json.RawMessage(`{"root":{"type":"root","children":[]}}`),
 			Key:         "rich", Check: exerciseModel.TextCheck("answer"),
 			Placeholders: []exerciseModel.Placeholder{
-				{Key: "server", Kind: exerciseModel.PlaceholderIP, IPReference: "vpn", LastOctet: 10, ShowMask: true},
+				{Key: "server", Kind: exerciseModel.PlaceholderIP, IPReference: "gateway", Gateway: "vpn", LastOctet: 10, ShowMask: true},
 				{Key: "site", Kind: exerciseModel.PlaceholderExternalLink, AsLink: true, Scheme: "https"},
 			},
 			Attachments: []exerciseModel.AttachmentRef{

@@ -31,7 +31,7 @@ func mustDecodeV2(t *testing.T, payload string) archiveDocV2 {
 }
 
 func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
-	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"Sample"},"versions":[{"status":"published","variants":[{"tasks":[{"name":"t","difficulty":"hard","hints":[{"text":"h","level":"steps"}]}],"topology":{"devices":[{"name":"web","type":"container","security_preset":"extended","interfaces":[{"name":"eth0","ip":{"type":"static","addresses":["10.0.0.2/24"]}}]}],"connections":[{"endpoints":[{"kind":"vpn"},{"kind":"device","device":"web","interface":"eth0"}]}]}}]}]}`)
+	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"Sample"},"versions":[{"status":"published","variants":[{"tasks":[{"name":"t","difficulty":"hard","hints":[{"text":"h","level":"steps"}]}],"topology":{"devices":[{"name":"web","type":"container","security_preset":"extended","interfaces":[{"name":"eth0","ip":{"type":"static","addresses":["10.0.0.2/24"]}}]},{"name":"vpn","type":"vpn_gateway"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"device","device":"vpn","interface":"eth0"}]}]}}]}]}`)
 	parsed, err := doc.toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -50,7 +50,7 @@ func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
 		{"device profile", string(device.Profile), string(exerciseModel.NodeProfileContainer)},
 		{"security preset", string(device.SecurityPreset), string(exerciseModel.SecurityPresetExtended)},
 		{"ip type", string(device.Interfaces[0].IP.Type), string(exerciseModel.IPConfigTypeStatic)},
-		{"endpoint kind", string(variant.Topology.Connections[0].Endpoints[0].Kind), string(exerciseModel.EndpointVPN)},
+		{"endpoint kind", string(variant.Topology.Connections[0].Endpoints[0].Kind), string(exerciseModel.EndpointDevice)},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -91,7 +91,7 @@ func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 }
 
 func TestToParsed_ResolvesDeviceNames(t *testing.T) {
-	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","check":{"state":{"conditions":[{"device":"%s","file":{"path":"/etc/app"}}]}}}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
+	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","check":{"state":{"conditions":[{"device":"%s","file":{"path":"/etc/app"}}]}}}],"topology":{"devices":[{"name":"web","type":"container"},{"name":"vpn","type":"vpn_gateway"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"device","device":"vpn","interface":"eth0"}]}]}}]}]}`
 	parsed, err := mustDecodeV2(t, strings.Replace(doc, "%s", "web", 1)).toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)

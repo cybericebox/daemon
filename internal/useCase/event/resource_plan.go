@@ -221,7 +221,7 @@ func planTask(policy resourcesModel.Policy, link eventExerciseModel.EventExercis
 		if len(v.Topology.Devices) > 0 {
 			task.hasLab = true
 		}
-		if v.Topology.Internet.Enabled {
+		if v.Topology.HasGateway(exerciseModel.DeviceTypeInternetGateway) {
 			task.InternetLab = true
 		}
 		devices := policy.Devices(v.Topology)

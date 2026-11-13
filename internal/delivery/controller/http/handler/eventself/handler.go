@@ -748,7 +748,7 @@ func (h *Handler) labStatus(ctx *gin.Context) {
 }
 
 func toLabStatusResponse(v exerciseModel.LabDeployStatus) labStatusResponse {
-	out := labStatusResponse{Phase: v.Phase, Ready: v.Ready, VPNCIDR: v.VPNCIDR, InternetCIDR: v.InternetCIDR, Access: make([]labAccessResponse, 0, len(v.Access))}
+	out := labStatusResponse{Phase: v.Phase, Ready: v.Ready, Gateways: labview.Gateways(v, false), Access: make([]labAccessResponse, 0, len(v.Access))}
 	for _, a := range v.Access {
 		out.Access = append(out.Access, labAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})
 	}

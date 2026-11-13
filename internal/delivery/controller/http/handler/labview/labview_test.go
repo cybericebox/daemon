@@ -47,7 +47,7 @@ func TestAnnotateDevicesFillsTypeAndLogicalName(t *testing.T) {
 	for _, d := range s.Devices {
 		got = append(got, [2]string{d.Type, d.LogicalName})
 	}
-	want := [][2]string{{"container", "web"}, {"unmanaged-switch", "sw"}, {"vpn", ""}, {"", ""}}
+	want := [][2]string{{"container", "web"}, {"unmanaged-switch", "sw"}, {"", ""}, {"", ""}} // a gateway is not a lab device: it has its own list
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("device %d = %v, want %v", i, got[i], want[i])
@@ -83,5 +83,29 @@ func TestQueueDetailsOfWithdrawalAndNodeWait(t *testing.T) {
 	}
 	if StandQueue(labMonitoring.Launch{}) != nil {
 		t.Fatal("a stand with nothing waiting has no queue")
+	}
+}
+
+// The gateways of a lab status keep their order, never come out as null, and show the reverse-connection state to organizers and
+// authors only.
+func TestGatewaysOfAStatus(t *testing.T) {
+	status := exerciseModel.LabDeployStatus{Gateways: []exerciseModel.LabDeployedGateway{
+		{Name: "attack", Kind: "vpn", CIDR: "10.128.1.0/24", Ready: true, ReverseConnections: true, Reverse: "allowed"},
+		{Name: "out", Kind: "internet", CIDR: "10.128.2.0/24"},
+	}}
+	full, participant := Gateways(status, true), Gateways(status, false)
+	if len(full) != 2 || full[0].Name != "attack" || full[0].Reverse != "allowed" || !full[0].ReverseConnections || full[1].Kind != "internet" {
+		t.Fatalf("organizer view = %+v", full)
+	}
+	if participant[0].Reverse != "" || participant[0].ReverseConnections || participant[0].CIDR != "10.128.1.0/24" || !participant[0].Ready {
+		t.Fatalf("participant view must not carry the reverse state: %+v", participant)
+	}
+	empty, err := json.Marshal(Gateways(exerciseModel.LabDeployStatus{}, true))
+	if err != nil || string(empty) != "[]" {
+		t.Fatalf("a lab without gateways gives [], got %s (%v)", empty, err)
+	}
+	live, err := json.Marshal(Status(status))
+	if err != nil || !strings.Contains(string(live), `"Gateways":[{"Name":"attack","Kind":"vpn","CIDR":"10.128.1.0/24","Ready":true,"ReverseConnections":true,"Reverse":"allowed"}`) {
+		t.Fatalf("status JSON = %s (%v)", live, err)
 	}
 }

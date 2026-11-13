@@ -387,7 +387,7 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	// The key that allows connections from the lab to the VPN clients can only be sent to an agent known to accept it, and
 	// without it a capable agent blocks them: a lab whose exercise needs them is not created before the features are known.
 	feat := m.Features.Get()
-	if feat == nil && topo.VPN.Enabled && topo.VPN.ReverseConnections {
+	if feat == nil && wantsVPNReverse(topo) {
 		feat = refreshOnRefusal(ctx, m.Features, time.Now(), featuresReader(m))
 		if feat == nil {
 			return status.Error(codes.Unavailable, "the features of the laboratory agent are not known yet")

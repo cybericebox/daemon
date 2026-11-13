@@ -27,7 +27,7 @@ VALUES ($1, $2, $3, 'grp', 'agent', $4, $5, $6, 3, false, $7)`,
 }
 
 func telemetryPayload(ready bool, phase string, cpu, memory int, client string, handshake time.Time, rx, tx int64) string {
-	return fmt.Sprintf(`{"labs":[{"name":"web","status":{"phase":"Ready","ready":%t,"vpnReady":%t,"devices":[`+
+	return fmt.Sprintf(`{"labs":[{"name":"web","status":{"phase":"Ready","ready":%t,"gateways":[{"name":"attack","kind":"vpn","ready":%t},{"name":"out","kind":"internet","ready":false}],"devices":[`+
 		`{"name":"app","ready":%t,"podPhase":%q,"cpuMillicores":"%d","memoryBytes":"%d","usageAvailable":true}]}}],`+
 		`"clients":[{"name":%q,"status":{"statistics":{"rxBytes":"%d","txBytes":"%d","lastHandshakeUnix":"%d"}}}]}`,
 		ready, ready, ready, phase, cpu, memory, client, rx, tx, handshake.Unix())

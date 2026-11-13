@@ -273,7 +273,7 @@ func (u *ExerciseUseCase) AuthorizeTestDeploy(ctx context.Context, actor Actor, 
 		return err
 	}
 	for _, v := range version.Variants {
-		if v.ID == variantID && len(v.Topology.Devices) == 0 {
+		if v.ID == variantID && !v.Topology.HasLab() {
 			return nil
 		}
 	}

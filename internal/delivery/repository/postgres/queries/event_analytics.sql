@@ -276,7 +276,9 @@ WITH batch AS (
            date_trunc('minute', l.observed_at)                          AS bucket_at,
            count(*)::integer                                            AS samples,
            (count(*) FILTER (WHERE l.lab -> 'status' ->> 'ready' = 'true'))::integer    AS ready_samples,
-           (count(*) FILTER (WHERE l.lab -> 'status' ->> 'vpnReady' = 'true'))::integer AS vpn_ready_samples
+           (count(*) FILTER (WHERE jsonb_array_length(jsonb_path_query_array(l.lab, '$.status.gateways[*] ? (@.kind == "vpn")')) > 0
+                              AND jsonb_array_length(jsonb_path_query_array(l.lab, '$.status.gateways[*] ? (@.kind == "vpn")'))
+                                = jsonb_array_length(jsonb_path_query_array(l.lab, '$.status.gateways[*] ? (@.kind == "vpn" && @.ready == true)'))))::integer AS vpn_ready_samples
     FROM lab_rows l
     GROUP BY l.team_id, l.lab_group_name, COALESCE(l.lab ->> 'name', ''), date_trunc('minute', l.observed_at)
 ), upserted_labs AS (

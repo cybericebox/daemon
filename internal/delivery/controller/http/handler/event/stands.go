@@ -123,18 +123,17 @@ type moderatorsLabRefResponse struct {
 }
 
 type standLabStatusResponse struct {
-	Phase        string                   `json:"Phase"`
-	Ready        bool                     `json:"Ready"`
-	VPNCIDR      string                   `json:"VPNCIDR"`
-	InternetCIDR string                   `json:"InternetCIDR"`
-	Access       []standLabAccessResponse `json:"Access"`
+	Phase string `json:"Phase"`
+	Ready bool   `json:"Ready"`
+	// Gateways are the VPN entries and Internet exits of the lab with their /24 and state (each VPN gateway has its own
+	// reverse-connection state); empty for a lab without any.
+	Gateways []labview.GatewayResponse `json:"Gateways"`
+	Access   []standLabAccessResponse  `json:"Access"`
 	// Queue is set while the Lab waits in the launch queue (phase Queued).
 	Queue             *labview.QueueResponse   `json:"Queue"`
 	ImageWarning      string                   `json:"ImageWarning"`
 	GroupImageWarning string                   `json:"GroupImageWarning"`
 	Devices           []labview.DeviceResponse `json:"Devices"`
-	// VPNReverse: blocked, allowed or not_enforced (see the infrastructure test lab status); absent when unknown.
-	VPNReverse string `json:"VPNReverse,omitempty"`
 }
 
 type standLabAccessResponse struct {
@@ -217,8 +216,8 @@ func teamChallengeReadinessString(r teamChallengeModel.Readiness) string {
 
 func toStandLabStatusResponse(v exerciseModel.LabDeployStatus) standLabStatusResponse {
 	live := labview.Status(v)
-	out := standLabStatusResponse{Phase: v.Phase, Ready: v.Ready, VPNCIDR: v.VPNCIDR, InternetCIDR: v.InternetCIDR, Access: make([]standLabAccessResponse, 0, len(v.Access)),
-		Queue: live.Queue, ImageWarning: live.ImageWarning, GroupImageWarning: live.GroupImageWarning, Devices: live.Devices, VPNReverse: v.VPNReverse}
+	out := standLabStatusResponse{Phase: v.Phase, Ready: v.Ready, Gateways: live.Gateways, Access: make([]standLabAccessResponse, 0, len(v.Access)),
+		Queue: live.Queue, ImageWarning: live.ImageWarning, GroupImageWarning: live.GroupImageWarning, Devices: live.Devices}
 	for _, a := range v.Access {
 		out.Access = append(out.Access, standLabAccessResponse{Device: a.Device, Port: a.Port, Protocol: a.Protocol, URL: a.URL})
 	}

@@ -15,54 +15,89 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
-// The fleet sends the option by what the agent reported, records on the lab what was really requested, and the status says
-// what is really in force: blocked, allowed, or not enforced on an agent that cannot block.
+// gatewayStatus is the laboratory's status of one VPN gateway.
+func gatewayStatus(name string, blocked bool) *labpb.LabStatus {
+	return &labpb.LabStatus{Gateways: []*labpb.LabGatewayStatus{{Name: name, Kind: "vpn", Cidr: "10.128.1.0/24", Ready: true, LabInitiatedBlocked: blocked}}}
+}
+
+func reverseOf(t *testing.T, st exerciseModel.LabDeployStatus, name string) string {
+	t.Helper()
+	for _, g := range st.Gateways {
+		if g.Name == name {
+			return g.Reverse
+		}
+	}
+	require.FailNow(t, "no gateway in the status", name)
+	return ""
+}
+
+// The fleet sends the option by what the agent reported, records on the lab what was really requested for each VPN gateway,
+// and the status says what is really in force: blocked, allowed, or not enforced on an agent that cannot block.
 func TestFleetVPNReverseEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	capable := &infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}}
 	for name, tc := range map[string]struct {
 		features *infraModel.AgentFeatures
-		vpn      exerciseModel.NetworkSpec
+		reverse  bool
 		sent     bool
-		// confirmed is vpn_lab_initiated_blocked of the lab status.
+		// confirmed is lab_initiated_blocked of the gateway in the lab status.
 		confirmed bool
 		state     string
 	}{
-		"capable, forbidden, confirmed":     {capable, exerciseModel.NetworkSpec{Enabled: true}, false, true, "blocked"},
-		"capable, forbidden, not confirmed": {capable, exerciseModel.NetworkSpec{Enabled: true}, false, false, "not_enforced"},
-		"capable, allowed":                  {capable, exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, true, false, "allowed"},
-		"capable, allowed, a stray confirm": {capable, exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, true, true, "allowed"},
-		"older, forbidden":                  {&infraModel.AgentFeatures{}, exerciseModel.NetworkSpec{Enabled: true}, false, false, "not_enforced"},
-		"older, allowed":                    {&infraModel.AgentFeatures{}, exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true}, false, false, "allowed"},
-		"vpn off":                           {capable, exerciseModel.NetworkSpec{}, false, false, ""},
+		"capable, forbidden, confirmed":     {capable, false, false, true, "blocked"},
+		"capable, forbidden, not confirmed": {capable, false, false, false, "not_enforced"},
+		"capable, allowed":                  {capable, true, true, false, "allowed"},
+		"capable, allowed, a stray confirm": {capable, true, true, true, "allowed"},
+		"older, forbidden":                  {&infraModel.AgentFeatures{}, false, false, false, "not_enforced"},
+		"older, allowed":                    {&infraModel.AgentFeatures{}, true, false, false, "allowed"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFleetFixture(t)
 			f.am.Features = NewFeatureCell(tc.features)
 			require.NoError(
 				t,
-				f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, vpnTopology(tc.vpn)),
+				f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, vpnTopology(vpnGateway("attack", tc.reverse))),
 			)
 			item := f.a.createLabs.GetItems()[0]
 			var spec labSpec
 			require.NoError(t, json.Unmarshal(f.a.createLabs.GetVariants()[0].GetSpecJson(), &spec))
-			require.Equal(t, tc.sent, spec.VPN.ReverseConnections)
-			if tc.sent {
-				require.Equal(t, "1", item.GetLabels()[infraModel.LabelVPNReverseSent])
-			}
+			require.Equal(t, tc.sent, gatewayOf(t, spec, "attack").ReverseConnections)
+			require.Equal(t, map[bool]string{true: "1", false: "0"}[tc.sent], item.GetLabels()[infraModel.LabelVPNReverseSentPrefix+"attack"])
 
-			f.a.labs = []*labpb.Lab{
-				{
-					Name:   "c-1",
-					Labels: item.GetLabels(),
-					Status: &labpb.LabStatus{VpnLabInitiatedBlocked: tc.confirmed},
-				},
-			}
+			f.a.labs = []*labpb.Lab{{Name: "c-1", Labels: item.GetLabels(), Status: gatewayStatus("attack", tc.confirmed)}}
 			st, err := f.fleet.LabStatus(ctx, "e-1-t-1", "c-1")
 			require.NoError(t, err)
-			require.Equal(t, tc.state, st.VPNReverse)
+			require.Equal(t, tc.state, reverseOf(t, st, "attack"))
+			require.Equal(t, tc.reverse, st.Gateways[0].ReverseConnections)
 		})
 	}
+}
+
+// Two VPN gateways of one lab have their own switch and their own state; an Internet gateway has none.
+func TestFleetVPNReverse_PerGateway(t *testing.T) {
+	ctx := context.Background()
+	f := newFleetFixture(t)
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}})
+	topo := vpnTopology(vpnGateway("open", true), vpnGateway("closed", false))
+	require.NoError(t, f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, topo))
+	labels := f.a.createLabs.GetItems()[0].GetLabels()
+	require.Equal(t, "1", labels[infraModel.LabelVPNReversePrefix+"open"])
+	require.Equal(t, "1", labels[infraModel.LabelVPNReverseSentPrefix+"open"])
+	require.Equal(t, "0", labels[infraModel.LabelVPNReversePrefix+"closed"])
+	require.Equal(t, "0", labels[infraModel.LabelVPNReverseSentPrefix+"closed"])
+
+	f.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labels, Status: &labpb.LabStatus{Gateways: []*labpb.LabGatewayStatus{
+		{Name: "open", Kind: "vpn", Cidr: "10.128.1.0/24", Ready: true},
+		{Name: "closed", Kind: "vpn", Cidr: "10.128.2.0/24", Ready: true, LabInitiatedBlocked: true},
+		{Name: "out", Kind: "internet", Cidr: "10.128.3.0/24", Ready: true},
+	}}}}
+	st, err := f.fleet.LabStatus(ctx, "e-1-t-1", "c-1")
+	require.NoError(t, err)
+	require.Len(t, st.Gateways, 3)
+	require.Equal(t, "allowed", reverseOf(t, st, "open"))
+	require.Equal(t, "blocked", reverseOf(t, st, "closed"))
+	require.Empty(t, reverseOf(t, st, "out"), "an Internet gateway has no reverse state")
+	require.Equal(t, "10.128.3.0/24", st.Gateways[2].CIDR)
 }
 
 // Features not received yet and an exercise that allows the connections: no lab is made without the option (a capable agent
@@ -70,7 +105,7 @@ func TestFleetVPNReverseEndToEnd(t *testing.T) {
 // once the features arrive. An exercise that forbids them starts at once: no option is the right request for it.
 func TestFleetVPNReverse_FeaturesUnknownAtCreation(t *testing.T) {
 	ctx := context.Background()
-	allowed := vpnTopology(exerciseModel.NetworkSpec{Enabled: true, ReverseConnections: true})
+	allowed := vpnTopology(vpnGateway("attack", true))
 	f := newFleetFixture(t) // no features reported, and the agent cannot be asked
 	f.am.Features = NewFeatureCell(nil)
 
@@ -90,14 +125,14 @@ func TestFleetVPNReverse_FeaturesUnknownAtCreation(t *testing.T) {
 	require.NoError(t, f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, allowed))
 	var spec labSpec
 	require.NoError(t, json.Unmarshal(f.a.createLabs.GetVariants()[0].GetSpecJson(), &spec))
-	require.True(t, spec.VPN.ReverseConnections)
+	require.True(t, gatewayOf(t, spec, "attack").ReverseConnections)
 	labels := f.a.createLabs.GetItems()[0].GetLabels()
-	require.Equal(t, "1", labels[infraModel.LabelVPNReverse])
-	require.Equal(t, "1", labels[infraModel.LabelVPNReverseSent])
-	f.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labels, Status: &labpb.LabStatus{}}}
+	require.Equal(t, "1", labels[infraModel.LabelVPNReversePrefix+"attack"])
+	require.Equal(t, "1", labels[infraModel.LabelVPNReverseSentPrefix+"attack"])
+	f.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labels, Status: gatewayStatus("attack", false)}}
 	st, err := f.fleet.LabStatus(ctx, "e-1-t-1", "c-1")
 	require.NoError(t, err)
-	require.Equal(t, "allowed", st.VPNReverse)
+	require.Equal(t, "allowed", reverseOf(t, st, "attack"))
 
 	// The features can also be read at the moment of the start: it does not wait for the next poll.
 	late := newFleetFixture(t)
@@ -115,36 +150,23 @@ func TestFleetVPNReverse_FeaturesUnknownAtCreation(t *testing.T) {
 	forbidden.am.Features = NewFeatureCell(nil)
 	require.NoError(
 		t,
-		forbidden.fleet.DeployLab(
-			ctx,
-			"e-3-t-1",
-			"c-1",
-			infraModel.LabMeta{},
-			vpnTopology(exerciseModel.NetworkSpec{Enabled: true}),
-		),
+		forbidden.fleet.DeployLab(ctx, "e-3-t-1", "c-1", infraModel.LabMeta{}, vpnTopology(vpnGateway("attack", false))),
 	)
 	labelsOf := forbidden.a.createLabs.GetItems()[0].GetLabels()
-	forbidden.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labelsOf, Status: &labpb.LabStatus{}}}
+	forbidden.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labelsOf, Status: gatewayStatus("attack", false)}}
 	forbidden.am.Features.Set(
 		infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{ReverseConnections: true}},
 	)
 	st, err = forbidden.fleet.LabStatus(ctx, "e-3-t-1", "c-1")
 	require.NoError(t, err)
-	require.Equal(
-		t,
-		"not_enforced",
-		st.VPNReverse,
-		"the block is not confirmed by the laboratory yet",
-	)
-	forbidden.a.labs = []*labpb.Lab{
-		{Name: "c-1", Labels: labelsOf, Status: &labpb.LabStatus{VpnLabInitiatedBlocked: true}},
-	}
+	require.Equal(t, "not_enforced", reverseOf(t, st, "attack"), "the block is not confirmed by the laboratory yet")
+	forbidden.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labelsOf, Status: gatewayStatus("attack", true)}}
 	st, err = forbidden.fleet.LabStatus(ctx, "e-3-t-1", "c-1")
 	require.NoError(t, err)
-	require.Equal(t, "blocked", st.VPNReverse)
+	require.Equal(t, "blocked", reverseOf(t, st, "attack"))
 	forbidden.am.Features.Set(infraModel.AgentFeatures{})
-	forbidden.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labelsOf, Status: &labpb.LabStatus{}}}
+	forbidden.a.labs = []*labpb.Lab{{Name: "c-1", Labels: labelsOf, Status: gatewayStatus("attack", false)}}
 	st, err = forbidden.fleet.LabStatus(ctx, "e-3-t-1", "c-1")
 	require.NoError(t, err)
-	require.Equal(t, "not_enforced", st.VPNReverse)
+	require.Equal(t, "not_enforced", reverseOf(t, st, "attack"))
 }

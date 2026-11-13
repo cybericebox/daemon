@@ -242,7 +242,7 @@ func (u *EventUseCase) eventPrewarmPlan(ctx context.Context, eventID uuid.UUID, 
 // the remaining devices are prepared once more on their own.
 func (u *EventUseCase) planTopologyPrewarm(ctx context.Context, eventID uuid.UUID, topology exerciseModel.Topology, b *prewarmPlanBuilder) error {
 	topology.Devices = slices.DeleteFunc(slices.Clone(topology.Devices), func(d exerciseModel.Device) bool { return d.Image == "" })
-	for attempt := 0; attempt < 2 && len(topology.Devices) > 0; attempt++ {
+	for attempt := 0; attempt < 2 && topology.HasLab(); attempt++ {
 		prepared, err := u.prepareEventLabImages(ctx, eventID, topology)
 		if err == nil {
 			b.add(topology, prepared.Topology, prepared.Credentials)

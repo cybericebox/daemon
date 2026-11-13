@@ -127,7 +127,7 @@ func (c *Client) DeployLab(
 				Labels: withVPNReverseLabel(
 					meta.Labels,
 					topo,
-					build.VPNReverseSent,
+					build.ReverseSent,
 				),
 				DeployGroup:   meta.DeployGroup,
 				ReservationId: meta.PartID,
@@ -143,18 +143,29 @@ func (c *Client) DeployLab(
 	return nil
 }
 
-// vpnReverseOf derives what is in force for connections the lab starts to the VPN clients. "blocked" is reported only when the
-// laboratory says so (status.vpn_lab_initiated_blocked: the switch is off and the group's VPN gateway has really applied the
-// block). The key was sent: allowed. Not sent and confirmed: blocked. Not sent and not confirmed (an older agent, a VPN pod
-// not rolled yet, not applied yet): not_enforced, except an older agent whose lab the exercise wanted open, which allows
-// everything: allowed. There is no separate "pending" state. Empty for a lab without a VPN.
-func vpnReverseOf(labels map[string]string, confirmedBlocked, agentEnforces bool) string {
-	wanted, ok := labels[infraModel.LabelVPNReverse]
+// wantsVPNReverse reports whether some VPN gateway of the topology asks to allow connections from the lab to the VPN clients.
+func wantsVPNReverse(t exerciseModel.Topology) bool {
+	for _, d := range t.Devices {
+		if d.Type == exerciseModel.DeviceTypeVPNGateway && d.ReverseConnections {
+			return true
+		}
+	}
+	return false
+}
+
+// vpnReverseOf derives what is in force for connections the lab starts to the VPN clients through one VPN gateway. "blocked" is
+// reported only when the laboratory says so (status.gateways[].lab_initiated_blocked: the switch is off and the group's VPN
+// gateway has really applied the block). The key was sent: allowed. Not sent and confirmed: blocked. Not sent and not confirmed
+// (an older agent, a VPN pod not rolled yet, not applied yet): not_enforced, except an older agent whose lab the exercise wanted
+// open, which allows everything: allowed. There is no separate "pending" state. Empty when the lab carries no label for the
+// gateway.
+func vpnReverseOf(labels map[string]string, gateway string, confirmedBlocked, agentEnforces bool) string {
+	wanted, ok := labels[infraModel.LabelVPNReversePrefix+gateway]
 	if !ok {
 		return ""
 	}
 	switch {
-	case labels[infraModel.LabelVPNReverseSent] == "1":
+	case labels[infraModel.LabelVPNReverseSentPrefix+gateway] == "1":
 		return exerciseModel.VPNReverseAllowed
 	case confirmedBlocked:
 		return exerciseModel.VPNReverseBlocked
@@ -164,25 +175,34 @@ func vpnReverseOf(labels map[string]string, confirmedBlocked, agentEnforces bool
 	return exerciseModel.VPNReverseNotEnforced
 }
 
-// withVPNReverseLabel adds to the lab's labels what its exercise asks of connections to the VPN clients (only for a lab with a VPN).
+// withVPNReverseLabel adds to the lab's labels what its exercise asks of connections to the VPN clients, one pair per VPN gateway
+// (sent holds the gateways whose spec carries the key that allows them).
 func withVPNReverseLabel(
 	labels map[string]string,
 	topo exerciseModel.Topology,
-	sent bool,
+	sent map[string]bool,
 ) map[string]string {
-	if !topo.VPN.Enabled {
+	var out map[string]string
+	for _, d := range topo.Devices {
+		if d.Type != exerciseModel.DeviceTypeVPNGateway {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(labels)+2)
+			for k, v := range labels {
+				out[k] = v
+			}
+		}
+		out[infraModel.LabelVPNReversePrefix+d.Name], out[infraModel.LabelVPNReverseSentPrefix+d.Name] = "0", "0"
+		if d.ReverseConnections {
+			out[infraModel.LabelVPNReversePrefix+d.Name] = "1"
+		}
+		if sent[d.Name] {
+			out[infraModel.LabelVPNReverseSentPrefix+d.Name] = "1"
+		}
+	}
+	if out == nil {
 		return labels
-	}
-	out := make(map[string]string, len(labels)+1)
-	for k, v := range labels {
-		out[k] = v
-	}
-	out[infraModel.LabelVPNReverse], out[infraModel.LabelVPNReverseSent] = "0", "0"
-	if topo.VPN.ReverseConnections {
-		out[infraModel.LabelVPNReverse] = "1"
-	}
-	if sent {
-		out[infraModel.LabelVPNReverseSent] = "1"
 	}
 	return out
 }
@@ -564,11 +584,15 @@ func (c *Client) labStatus(
 		)
 	}
 	status := mapLabStatus(list.GetItems()[0])
-	status.VPNReverse = vpnReverseOf(
-		list.GetItems()[0].GetLabels(),
-		list.GetItems()[0].GetStatus().GetVpnLabInitiatedBlocked(),
-		agentEnforces,
-	)
+	for i := range status.Gateways {
+		g := &status.Gateways[i]
+		if g.Kind != "vpn" {
+			continue
+		}
+		labels := list.GetItems()[0].GetLabels()
+		g.ReverseConnections = labels[infraModel.LabelVPNReversePrefix+g.Name] == "1"
+		g.Reverse = vpnReverseOf(labels, g.Name, g.LabInitiatedBlocked, agentEnforces)
+	}
 	status.GroupImageWarning = g.GetStatus().GetImageWarning()
 	return status, nil
 }
@@ -647,6 +671,8 @@ func (c *Client) reconcileLabGroupAccess(
 		if len(policy.AllowedLabs) == 0 {
 			continue
 		}
+		// The rule names a client and its labs, never a gateway: the laboratory gives the client every VPN gateway of each lab
+		// (contract 2.0). A per-gateway choice would be added here, to this rule, when the laboratory's rule has a selector.
 		rules = append(rules, &labpb.LabGroupAccessRule{
 			Action:      labpb.LabGroupAccessAction_LAB_GROUP_ACCESS_ACTION_ALLOW,
 			ClientNames: []string{policy.Name},
@@ -889,9 +915,13 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 		LabUID: l.GetUid(), LabGeneration: l.GetGeneration(),
 		Phase:        st.GetPhase(),
 		Ready:        st.GetReady(),
-		VPNCIDR:      st.GetVpnCidr(),
-		InternetCIDR: st.GetInternetCidr(),
 		ImageWarning: st.GetImageWarning(),
+	}
+	for _, g := range st.GetGateways() {
+		out.Gateways = append(out.Gateways, exerciseModel.LabDeployedGateway{
+			Name: g.GetName(), Kind: g.GetKind(), CIDR: g.GetCidr(), Ready: g.GetReady(),
+			LabInitiatedBlocked: g.GetLabInitiatedBlocked(),
+		})
 	}
 	if q := st.GetScheduling(); q != nil {
 		out.Queue = &exerciseModel.LabQueue{

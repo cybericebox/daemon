@@ -34505,13 +34505,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/labview.DeviceResponse"
                     }
                 },
+                "Gateways": {
+                    "description": "Gateways are the VPN entries and Internet exits of the lab with their /24 and state (each VPN gateway has its own\nreverse-connection state); empty for a lab without any.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/labview.GatewayResponse"
+                    }
+                },
                 "GroupImageWarning": {
                     "type": "string"
                 },
                 "ImageWarning": {
-                    "type": "string"
-                },
-                "InternetCIDR": {
                     "type": "string"
                 },
                 "Phase": {
@@ -34527,13 +34531,6 @@ const docTemplate = `{
                 },
                 "Ready": {
                     "type": "boolean"
-                },
-                "VPNCIDR": {
-                    "type": "string"
-                },
-                "VPNReverse": {
-                    "description": "VPNReverse: blocked, allowed or not_enforced (see the infrastructure test lab status); absent when unknown.",
-                    "type": "string"
                 }
             }
         },
@@ -38389,8 +38386,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/eventself.labAccessResponse"
                     }
                 },
-                "InternetCIDR": {
-                    "type": "string"
+                "Gateways": {
+                    "description": "Gateways are the VPN entries and Internet exits of the lab with their /24 and readiness; empty for a lab without any.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/labview.GatewayResponse"
+                    }
                 },
                 "Lab": {
                     "$ref": "#/definitions/labview.ParticipantLabResponse"
@@ -38403,9 +38404,6 @@ const docTemplate = `{
                 },
                 "State": {
                     "description": "State: ready | starting | restarting | unavailable | failed | closed. Access holds addresses only when ready.",
-                    "type": "string"
-                },
-                "VPNCIDR": {
                     "type": "string"
                 }
             }
@@ -40424,14 +40422,18 @@ const docTemplate = `{
                     "description": "ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).",
                     "type": "string"
                 },
+                "Gateways": {
+                    "description": "Gateways are the VPN entries and Internet exits of the lab with their /24 and state; empty for a lab without any.\nEach VPN gateway carries its own reverse-connection state.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/labview.GatewayResponse"
+                    }
+                },
                 "GroupImageWarning": {
                     "type": "string"
                 },
                 "ImageWarning": {
                     "description": "ImageWarning lists the lab images pulled by tag (not pinned to a digest); GroupImageWarning is the same for\nthe VPN or gateway image. Empty when fine.",
-                    "type": "string"
-                },
-                "InternetCIDR": {
                     "type": "string"
                 },
                 "Phase": {
@@ -40452,10 +40454,6 @@ const docTemplate = `{
                     "description": "Removing: the lab is being removed (Phase is \"Removing\"); the answer stays 200 until it is gone, then 404.",
                     "type": "boolean"
                 },
-                "ReverseConnections": {
-                    "description": "ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).",
-                    "type": "boolean"
-                },
                 "SolvedTaskIDs": {
                     "description": "SolvedTaskIDs are the tasks the author has already checked correctly, and the state tasks whose checks pass.",
                     "type": "array",
@@ -40470,9 +40468,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/exercise.deployStateTaskResponse"
                     }
                 },
-                "VPNCIDR": {
-                    "type": "string"
-                },
                 "VPNConfig": {
                     "type": "string"
                 },
@@ -40486,10 +40481,6 @@ const docTemplate = `{
                 },
                 "VPNProbeURL": {
                     "description": "VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.",
-                    "type": "string"
-                },
-                "VPNReverse": {
-                    "description": "VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the\nexercise forbids them but the agent of the node cannot enforce the block: show a warning, never \"blocked\").",
                     "type": "string"
                 }
             }
@@ -40558,6 +40549,19 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "DHCP": {
+                    "description": "The settings of a gateway (Type vpn_gateway or internet_gateway); no other device has them. A gateway has no image,\ninterfaces, access or bootstrap, and one port, eth0, that a connection endpoint names. DHCP switches the DHCP server of the\ngateway's network on and needs DHCPRanges. DNS (one IPv4 address, internet_gateway only) is what that server advertises.\nReverseConnections (vpn_gateway only): devices of the lab may start connections to the participants' machines (default false).",
+                    "type": "boolean"
+                },
+                "DHCPRanges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.dhcpRangeDTO"
+                    }
+                },
+                "DNS": {
+                    "type": "string"
+                },
                 "Hardware": {
                     "type": "string",
                     "enum": [
@@ -40609,6 +40613,9 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "ReverseConnections": {
+                    "type": "boolean"
+                },
                 "SecurityPreset": {
                     "description": "SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,\nNET_ADMIN and /dev/net/tun). Any other value is refused.",
                     "type": "string"
@@ -40622,7 +40629,7 @@ const docTemplate = `{
                     ]
                 },
                 "Type": {
-                    "description": "Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container\nprofile.",
+                    "description": "Type is node, unmanaged-switch, hub, vpn_gateway or internet_gateway; the former value container is still read as a\nnode with the container profile.",
                     "type": "string"
                 },
                 "WaitReadyFile": {
@@ -41705,45 +41712,21 @@ const docTemplate = `{
                 }
             }
         },
-        "exercise.networkDTO": {
-            "type": "object",
-            "properties": {
-                "DHCP": {
-                    "type": "boolean"
-                },
-                "DHCPRanges": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/exercise.dhcpRangeDTO"
-                    }
-                },
-                "DNS": {
-                    "type": "string"
-                },
-                "Enabled": {
-                    "type": "boolean"
-                },
-                "ReverseConnections": {
-                    "description": "ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the\nparticipants' machines. Default false.",
-                    "type": "boolean"
-                }
-            }
-        },
         "exercise.networkIPRefDTO": {
             "type": "object",
             "properties": {
+                "Gateway": {
+                    "type": "string"
+                },
                 "Host": {
                     "type": "integer"
-                },
-                "Network": {
-                    "type": "string"
                 }
             }
         },
         "exercise.networkSubnetRefDTO": {
             "type": "object",
             "properties": {
-                "Network": {
+                "Gateway": {
                     "type": "string"
                 }
             }
@@ -41806,13 +41789,19 @@ const docTemplate = `{
                 "DeviceName": {
                     "type": "string"
                 },
+                "Gateway": {
+                    "description": "Gateway names the gateway device of a gateway.subnet or of an ip with IPReference gateway.",
+                    "type": "string"
+                },
                 "IPReference": {
+                    "description": "IPReference (ip only): gateway (the address is in the /24 of the gateway named by Gateway) or static.",
                     "type": "string"
                 },
                 "Key": {
                     "type": "string"
                 },
                 "Kind": {
+                    "description": "Kind: ip, external.link or gateway.subnet (the /24 of the gateway device named by Gateway).",
                     "type": "string"
                 },
                 "LastOctet": {
@@ -42305,12 +42294,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.deviceDTO"
                     }
-                },
-                "Internet": {
-                    "$ref": "#/definitions/exercise.networkDTO"
-                },
-                "VPN": {
-                    "$ref": "#/definitions/exercise.networkDTO"
                 },
                 "Variables": {
                     "type": "array",
@@ -43004,14 +42987,18 @@ const docTemplate = `{
                     "description": "ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.",
                     "type": "string"
                 },
+                "gateways": {
+                    "description": "Gateways are the gateways of the lab (VPN entries and Internet exits) in the order of the lab's spec, each with its /24\nand state (the laboratory's status.gateways, contract 2.0).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.LabDeployedGateway"
+                    }
+                },
                 "groupImageWarning": {
                     "type": "string"
                 },
                 "imageWarning": {
                     "description": "ImageWarning lists the lab images that could not be pinned to a digest (pulled by tag);\nGroupImageWarning is the same for the group's VPN or gateway image. Empty when fine.",
-                    "type": "string"
-                },
-                "internetCIDR": {
                     "type": "string"
                 },
                 "labGeneration": {
@@ -43045,10 +43032,6 @@ const docTemplate = `{
                     "description": "Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.",
                     "type": "boolean"
                 },
-                "reverseConnections": {
-                    "description": "ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,\neffective only with the VPN on); filled by the use case for a test deploy.",
-                    "type": "boolean"
-                },
                 "solvedTasks": {
                     "description": "SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see\nStateTasks); filled by the use case.",
                     "type": "array",
@@ -43066,9 +43049,6 @@ const docTemplate = `{
                 "usageAvailable": {
                     "type": "boolean"
                 },
-                "vpncidr": {
-                    "type": "string"
-                },
                 "vpnconfig": {
                     "description": "VPNConfig is the author's WireGuard config, present once a VPN-enabled lab\nhas provisioned its client. Empty for labs without VPN or before it is ready.",
                     "type": "string"
@@ -43082,10 +43062,6 @@ const docTemplate = `{
                 },
                 "vpnprobeURL": {
                     "description": "VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.",
-                    "type": "string"
-                },
-                "vpnreverse": {
-                    "description": "VPNReverse is what is in force for connections the lab starts to the VPN clients: \"blocked\", \"allowed\", or\n\"not_enforced\" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).\nEmpty for a lab without a VPN or whose state is not known.",
                     "type": "string"
                 }
             }
@@ -43130,6 +43106,37 @@ const docTemplate = `{
                             "$ref": "#/definitions/exerciseModel.DeviceSnapshot"
                         }
                     ]
+                }
+            }
+        },
+        "exerciseModel.LabDeployedGateway": {
+            "type": "object",
+            "properties": {
+                "cidr": {
+                    "description": "CIDR is the /24 of the gateway; empty until it has one.",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is \"vpn\" or \"internet\".",
+                    "type": "string"
+                },
+                "labInitiatedBlocked": {
+                    "description": "LabInitiatedBlocked is the laboratory's confirmation that this VPN gateway blocks those connections.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "reverse": {
+                    "description": "Reverse (a VPN gateway only) is what is in force for connections the lab starts to the VPN clients through this\ngateway: \"blocked\", \"allowed\", or \"not_enforced\" (the exercise forbids them but the agent of this node cannot enforce the\nblock, so they are possible). Empty for an Internet gateway or when the state is not known.",
+                    "type": "string"
+                },
+                "reverseConnections": {
+                    "description": "ReverseConnections (a VPN gateway only) says the exercise lets devices of the lab start connections to the VPN clients\nthrough this gateway (false: forbidden).",
+                    "type": "boolean"
                 }
             }
         },
@@ -44704,6 +44711,33 @@ const docTemplate = `{
                 }
             }
         },
+        "labview.GatewayResponse": {
+            "type": "object",
+            "properties": {
+                "CIDR": {
+                    "description": "CIDR is the /24 of the gateway; empty until it has one.",
+                    "type": "string"
+                },
+                "Kind": {
+                    "description": "Kind: vpn | internet.",
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Ready": {
+                    "type": "boolean"
+                },
+                "Reverse": {
+                    "description": "Reverse (a VPN gateway, organizers and authors only): what is in force for connections the lab starts to the VPN clients\nthrough this gateway: blocked, allowed, or not_enforced (the exercise forbids them but the agent of the node cannot\nenforce the block: show a warning, never \"blocked\"). Absent when unknown.",
+                    "type": "string"
+                },
+                "ReverseConnections": {
+                    "description": "ReverseConnections (a VPN gateway, organizers and authors only): the exercise lets devices of the lab start connections\nto the VPN clients through this gateway.",
+                    "type": "boolean"
+                }
+            }
+        },
         "labview.ParticipantLabResponse": {
             "type": "object",
             "properties": {
@@ -44928,6 +44962,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/labview.DeviceResponse"
                     }
                 },
+                "Gateways": {
+                    "description": "Gateways are the VPN entries and Internet exits of the lab, in the order of its spec; empty for a lab without any.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/labview.GatewayResponse"
+                    }
+                },
                 "GroupImageWarning": {
                     "type": "string"
                 },
@@ -44948,10 +44989,6 @@ const docTemplate = `{
                 },
                 "Ready": {
                     "type": "boolean"
-                },
-                "VPNReverse": {
-                    "description": "VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids\nthem but the agent of the node cannot enforce the block: show a warning, never \"blocked\"). Absent when unknown.",
-                    "type": "string"
                 }
             }
         },

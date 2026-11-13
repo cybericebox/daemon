@@ -2,6 +2,7 @@ package exerciseModel_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,8 +44,25 @@ func TestValidationErrorsNameTheVariant(t *testing.T) {
 		"task key (23501)": {func(v *exerciseModel.Variant) { v.Tasks[0].Key = "Bad-Key" }, exerciseModel.ErrTaskKeyInvalid, false, false},
 		"requires (23502)": {func(v *exerciseModel.Variant) { v.Tasks[0].Requires = []string{"ghost"} }, exerciseModel.ErrTaskRequiresInvalid, false, false},
 		"vpn option (23520)": {func(v *exerciseModel.Variant) {
-			v.Topology.VPN.ReverseConnections = true
+			out := gw("out", exerciseModel.DeviceTypeInternetGateway)
+			out.ReverseConnections = true
+			v.Topology.Devices = []exerciseModel.Device{out}
 		}, exerciseModel.ErrVPNOptionInvalid, false, false},
+		"gateway limit (23522)": {func(v *exerciseModel.Variant) {
+			for i := range exerciseModel.MaxLabGateways + 1 {
+				v.Topology.Devices = append(v.Topology.Devices, gw(fmt.Sprintf("g%d", i+1), exerciseModel.DeviceTypeVPNGateway))
+			}
+		}, exerciseModel.ErrGatewayLimit, false, false},
+		"gateway device (23524)": {func(v *exerciseModel.Variant) {
+			g := gw("gate", exerciseModel.DeviceTypeVPNGateway)
+			g.Image = "img"
+			v.Topology.Devices = []exerciseModel.Device{g}
+		}, exerciseModel.ErrGatewayDeviceInvalid, false, false},
+		"two gateways in one network (23523, publish)": {func(v *exerciseModel.Variant) {
+			a, b := gw("a", exerciseModel.DeviceTypeVPNGateway), gw("b", exerciseModel.DeviceTypeInternetGateway)
+			v.Topology.Devices = []exerciseModel.Device{a, b}
+			v.Topology.Connections = []exerciseModel.Connection{conn(devEP(a, "eth0"), devEP(b, "eth0"))}
+		}, exerciseModel.ErrGatewayOneNetwork, true, false},
 		"device type": {func(v *exerciseModel.Variant) {
 			v.Topology.Devices = []exerciseModel.Device{dev("x", "bogus")}
 		}, exerciseModel.ErrDeviceTypeInvalid, false, false},

@@ -32,7 +32,7 @@ func convertPlain(t *testing.T, text string, keys ...string) (map[string]any, er
 	t.Helper()
 	var placeholders []exerciseModel.Placeholder
 	for _, key := range keys {
-		placeholders = append(placeholders, exerciseModel.Placeholder{Key: key, Kind: exerciseModel.PlaceholderVPNSubnet})
+		placeholders = append(placeholders, exerciseModel.Placeholder{Key: key, Kind: exerciseModel.PlaceholderGatewaySubnet, Gateway: "vpn"})
 	}
 	raw, err := plainTextToDocument(text, placeholders, "Q")
 	if err != nil {
@@ -118,13 +118,13 @@ func TestPlainText_EmptyIsNil(t *testing.T) {
 }
 
 func TestPlainText_PassesPublishValidation(t *testing.T) {
-	placeholders := []exerciseModel.Placeholder{{Key: "srv", Kind: exerciseModel.PlaceholderVPNSubnet}}
+	placeholders := []exerciseModel.Placeholder{{Key: "srv", Kind: exerciseModel.PlaceholderGatewaySubnet, Gateway: "vpn"}}
 	raw, err := plainTextToDocument("Scan {{srv}}", placeholders, "Q")
 	if err != nil {
 		t.Fatal(err)
 	}
 	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{{
-		Topology: exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}},
+		Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.FromStringOrNil("22222222-2222-2222-2222-222222222222"), Name: "vpn", Type: exerciseModel.DeviceTypeVPNGateway}}},
 		Tasks: []exerciseModel.Task{
 			{
 				ID: uuid.FromStringOrNil(

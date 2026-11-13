@@ -285,17 +285,21 @@ type attachmentDTO struct {
 }
 
 type placeholderDTO struct {
-	Key         string `json:"Key,omitempty"`
-	Kind        string `json:"Kind"`
+	Key string `json:"Key,omitempty"`
+	// Kind: ip, external.link or gateway.subnet (the /24 of the gateway device named by Gateway).
+	Kind string `json:"Kind"`
+	// IPReference (ip only): gateway (the address is in the /24 of the gateway named by Gateway) or static.
 	IPReference string `json:"IPReference,omitempty"`
-	Octets1to3  string `json:"Octets1to3,omitempty"`
-	LastOctet   int    `json:"LastOctet,omitempty"`
-	ShowMask    bool   `json:"ShowMask,omitempty"`
-	AsLink      bool   `json:"AsLink,omitempty"`
-	Scheme      string `json:"Scheme,omitempty"`
-	Port        int    `json:"Port,omitempty"`
-	Path        string `json:"Path,omitempty"`
-	DeviceName  string `json:"DeviceName,omitempty"`
+	// Gateway names the gateway device of a gateway.subnet or of an ip with IPReference gateway.
+	Gateway    string `json:"Gateway,omitempty"`
+	Octets1to3 string `json:"Octets1to3,omitempty"`
+	LastOctet  int    `json:"LastOctet,omitempty"`
+	ShowMask   bool   `json:"ShowMask,omitempty"`
+	AsLink     bool   `json:"AsLink,omitempty"`
+	Scheme     string `json:"Scheme,omitempty"`
+	Port       int    `json:"Port,omitempty"`
+	Path       string `json:"Path,omitempty"`
+	DeviceName string `json:"DeviceName,omitempty"`
 	// Access (external.link only): the access entry of the device the link points to, http | terminal | vnc | rdp; empty =
 	// http. The device must have an entry of that kind. vnc and rdp are accepted and resolve to nothing yet.
 	Access string `json:"Access,omitempty" enums:"http,terminal,vnc,rdp"`
@@ -388,16 +392,6 @@ type hintDTO struct {
 	Level string `json:"Level"`
 }
 
-type networkDTO struct {
-	Enabled    bool           `json:"Enabled"`
-	DHCP       bool           `json:"DHCP"`
-	DHCPRanges []dhcpRangeDTO `json:"DHCPRanges,omitempty"`
-	DNS        string         `json:"DNS,omitempty"`
-	// ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the
-	// participants' machines. Default false.
-	ReverseConnections bool `json:"ReverseConnections,omitempty"`
-}
-
 type dhcpRangeDTO struct {
 	Start int32 `json:"Start"`
 	End   int32 `json:"End"`
@@ -419,41 +413,43 @@ type routeDTO struct {
 	ViaRef *networkIPRefDTO     `json:"ViaRef,omitempty"`
 }
 
+// networkIPRefDTO is an address of the /24 of a gateway: the name of the gateway device and the host number.
 type networkIPRefDTO struct {
-	Network string `json:"Network"`
+	Gateway string `json:"Gateway"`
 	Host    int32  `json:"Host"`
 }
 
+// networkSubnetRefDTO is the /24 of a gateway, by the name of the gateway device.
 type networkSubnetRefDTO struct {
-	Network string `json:"Network"`
+	Gateway string `json:"Gateway"`
 }
 
 func toDomainNetworkIPRef(ref *networkIPRefDTO) *exerciseModel.NetworkIPRef {
 	if ref == nil {
 		return nil
 	}
-	return &exerciseModel.NetworkIPRef{Network: ref.Network, Host: ref.Host}
+	return &exerciseModel.NetworkIPRef{Gateway: ref.Gateway, Host: ref.Host}
 }
 
 func toDomainNetworkSubnetRef(ref *networkSubnetRefDTO) *exerciseModel.NetworkSubnetRef {
 	if ref == nil {
 		return nil
 	}
-	return &exerciseModel.NetworkSubnetRef{Network: ref.Network}
+	return &exerciseModel.NetworkSubnetRef{Gateway: ref.Gateway}
 }
 
 func toNetworkIPRefDTO(ref *exerciseModel.NetworkIPRef) *networkIPRefDTO {
 	if ref == nil {
 		return nil
 	}
-	return &networkIPRefDTO{Network: ref.Network, Host: ref.Host}
+	return &networkIPRefDTO{Gateway: ref.Gateway, Host: ref.Host}
 }
 
 func toNetworkSubnetRefDTO(ref *exerciseModel.NetworkSubnetRef) *networkSubnetRefDTO {
 	if ref == nil {
 		return nil
 	}
-	return &networkSubnetRefDTO{Network: ref.Network}
+	return &networkSubnetRefDTO{Gateway: ref.Gateway}
 }
 
 type resourcesDTO struct {
@@ -533,8 +529,8 @@ type persistenceDTO struct {
 type deviceDTO struct {
 	ID   *uuid.UUID `json:"ID,omitempty"`
 	Name string     `json:"Name"`
-	// Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
-	// profile.
+	// Type is node, unmanaged-switch, hub, vpn_gateway or internet_gateway; the former value container is still read as a
+	// node with the container profile.
 	Type string `json:"Type"`
 	// Profile (a node only) is container, microvm or vm; empty is the container. Only the profiles the platform
 	// supports can be saved.
@@ -565,6 +561,14 @@ type deviceDTO struct {
 	// WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
 	// published through the web proxy is checked automatically either way. Container devices only.
 	WaitReadyFile bool `json:"WaitReadyFile,omitempty"`
+	// The settings of a gateway (Type vpn_gateway or internet_gateway); no other device has them. A gateway has no image,
+	// interfaces, access or bootstrap, and one port, eth0, that a connection endpoint names. DHCP switches the DHCP server of the
+	// gateway's network on and needs DHCPRanges. DNS (one IPv4 address, internet_gateway only) is what that server advertises.
+	// ReverseConnections (vpn_gateway only): devices of the lab may start connections to the participants' machines (default false).
+	DHCP               bool           `json:"DHCP,omitempty"`
+	DHCPRanges         []dhcpRangeDTO `json:"DHCPRanges,omitempty"`
+	DNS                string         `json:"DNS,omitempty"`
+	ReverseConnections bool           `json:"ReverseConnections,omitempty"`
 }
 
 type endpointDTO struct {
@@ -579,8 +583,6 @@ type connectionDTO struct {
 
 type topologyDTO struct {
 	Variables    []variableDTO   `json:"Variables,omitempty"`
-	VPN          networkDTO      `json:"VPN"`
-	Internet     networkDTO      `json:"Internet"`
 	Devices      []deviceDTO     `json:"Devices,omitempty" binding:"dive"`
 	Connections  []connectionDTO `json:"Connections,omitempty"`
 	VisualRender json.RawMessage `json:"VisualRender,omitempty" swaggertype:"object"`
@@ -931,7 +933,7 @@ func (d taskDTO) toDomain() exerciseModel.Task {
 	for _, p := range d.Placeholders {
 		out.Placeholders = append(out.Placeholders, exerciseModel.Placeholder{
 			Key:  p.Key,
-			Kind: exerciseModel.PlaceholderKind(p.Kind), IPReference: p.IPReference,
+			Kind: exerciseModel.PlaceholderKind(p.Kind), IPReference: p.IPReference, Gateway: p.Gateway,
 			Octets1to3: p.Octets1to3, LastOctet: p.LastOctet, ShowMask: p.ShowMask,
 			AsLink: p.AsLink, Scheme: p.Scheme, Port: p.Port, Path: p.Path,
 			DeviceName: p.DeviceName, Access: exerciseModel.AccessKind(p.Access),
@@ -1123,27 +1125,9 @@ func variablesToDTO(vars []exerciseModel.Variable) []variableDTO {
 	return out
 }
 
-func networkToModel(d networkDTO) exerciseModel.NetworkSpec {
-	out := exerciseModel.NetworkSpec{Enabled: d.Enabled, DHCP: d.DHCP, DNS: d.DNS, ReverseConnections: d.ReverseConnections}
-	for _, r := range d.DHCPRanges {
-		out.DHCPRanges = append(out.DHCPRanges, exerciseModel.DHCPRange{Start: r.Start, End: r.End})
-	}
-	return out
-}
-
-func networkFromModel(n exerciseModel.NetworkSpec) networkDTO {
-	out := networkDTO{Enabled: n.Enabled, DHCP: n.DHCP, DNS: n.DNS, ReverseConnections: n.ReverseConnections}
-	for _, r := range n.DHCPRanges {
-		out.DHCPRanges = append(out.DHCPRanges, dhcpRangeDTO{Start: r.Start, End: r.End})
-	}
-	return out
-}
-
 func (d topologyDTO) toDomain() exerciseModel.Topology {
 	out := exerciseModel.Topology{
 		Variables:    variablesToModel(d.Variables),
-		VPN:          networkToModel(d.VPN),
-		Internet:     networkToModel(d.Internet),
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
@@ -1155,6 +1139,11 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 			SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset),
 			ResourcePreset: dev.ResourcePreset,
 			WaitReadyFile:  dev.WaitReadyFile,
+
+			DHCP: dev.DHCP, DNS: dev.DNS, ReverseConnections: dev.ReverseConnections,
+		}
+		for _, r := range dev.DHCPRanges {
+			domainDev.DHCPRanges = append(domainDev.DHCPRanges, exerciseModel.DHCPRange{Start: r.Start, End: r.End})
 		}
 		domainDev.Normalize()
 		if dev.Resources != nil {
@@ -1278,7 +1267,7 @@ func taskToDTO(t exerciseModel.Task) taskDTO {
 	for _, p := range t.Placeholders {
 		out.Placeholders = append(out.Placeholders, placeholderDTO{
 			Key:  p.Key,
-			Kind: string(p.Kind), IPReference: p.IPReference, Octets1to3: p.Octets1to3,
+			Kind: string(p.Kind), IPReference: p.IPReference, Gateway: p.Gateway, Octets1to3: p.Octets1to3,
 			LastOctet: p.LastOctet, ShowMask: p.ShowMask, DeviceName: p.DeviceName, Access: string(p.Access),
 			AsLink: p.AsLink, Scheme: p.Scheme, Port: p.Port, Path: p.Path,
 		})
@@ -1289,8 +1278,6 @@ func taskToDTO(t exerciseModel.Task) taskDTO {
 func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	out := topologyDTO{
 		Variables:    variablesToDTO(t.Variables),
-		VPN:          networkFromModel(t.VPN),
-		Internet:     networkFromModel(t.Internet),
 		VisualRender: t.VisualRender,
 	}
 	for _, dev := range t.Devices {
@@ -1304,6 +1291,11 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 			SecurityPreset: string(dev.SecurityPreset),
 			ResourcePreset: dev.ResourcePreset,
 			WaitReadyFile:  dev.WaitReadyFile,
+
+			DHCP: dev.DHCP, DNS: dev.DNS, ReverseConnections: dev.ReverseConnections,
+		}
+		for _, r := range dev.DHCPRanges {
+			dtoDev.DHCPRanges = append(dtoDev.DHCPRanges, dhcpRangeDTO{Start: r.Start, End: r.End})
 		}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
