@@ -1,6 +1,7 @@
 package exerciseModel
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -50,11 +51,12 @@ func ValidateDeviceNames(variants []Variant) error {
 					WithPublicContext("field", "device").
 					Err()
 			}
-			for _, env := range device.Bootstrap.Env {
+			for ei, env := range device.Bootstrap.Env {
 				if strings.Contains(env.Name, ":") {
 					return ErrNameHasSeparator.WithPublicContext("variant", vi+1).
 						WithPublicContext("device", device.Name).
-						WithPublicContext("field", "env").
+						WithPublicContext("field", fmt.Sprintf("env[%d].name", ei+1)).
+						WithPublicContext("name", env.Name).
 						Err()
 				}
 			}

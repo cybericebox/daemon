@@ -33,7 +33,14 @@ func TestValidateDeviceNames_RefusesTheSeparatorInANodeOrEnvName(t *testing.T) {
 
 	err = exerciseModel.ValidateDeviceNames([]exerciseModel.Variant{variantOf(deviceWithEnv("db", "OK", "B:C"))})
 	require.ErrorIs(t, err, exerciseModel.ErrNameHasSeparator.Err())
-	assert.Equal(t, map[string]any{"variant": 1, "device": "db", "field": "env"}, publicContext(t, err))
+	assert.Equal(t, map[string]any{"variant": 1, "device": "db", "field": "env[2].name", "name": "B:C"}, publicContext(t, err))
+}
+
+// The first variable with ':' is the one named, by its 1-based place in the list, whatever follows it.
+func TestValidateDeviceNames_NamesTheFirstVariableWithTheSeparatorByPosition(t *testing.T) {
+	err := exerciseModel.ValidateDeviceNames([]exerciseModel.Variant{variantOf(deviceWithEnv("web", "A:1", "B", "C:3"))})
+	require.ErrorIs(t, err, exerciseModel.ErrNameHasSeparator.Err())
+	assert.Equal(t, map[string]any{"variant": 1, "device": "web", "field": "env[1].name", "name": "A:1"}, publicContext(t, err))
 }
 
 func TestValidateDeviceNames_AllowsNamesWithoutTheSeparatorAndDisplayNamesOfSwitches(t *testing.T) {
