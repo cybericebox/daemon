@@ -50,6 +50,8 @@ type Item struct {
 type Row struct {
 	ID    string
 	Items []Item
+	// Unreadable marks a row whose stored document cannot even be parsed to find its values; it is failed as corrupt.
+	Unreadable bool
 }
 
 // Source gives rows of one persistent store to the job.
@@ -95,6 +97,8 @@ type Progress struct {
 	Done      int    // rows rewritten
 	Failed    int
 	Conflicts int
+	// ByReason counts the failed rows per reason class.
+	ByReason  map[Reason]int
 	DryRun    bool
 	UpdatedAt time.Time
 }
@@ -103,7 +107,6 @@ type Progress struct {
 type Result struct {
 	Progress
 	AlreadyCurrent int
-	ByReason       map[Reason]int
 	FailedRows     []Failed
 }
 
@@ -208,7 +211,12 @@ func (r *Reencryptor) Run(ctx context.Context, src Source, opts Options) (Result
 func (r *Reencryptor) report(res *Result) {
 	res.UpdatedAt = r.now()
 	if r.Report != nil {
-		r.Report(res.Progress)
+		p := res.Progress
+		p.ByReason = make(map[Reason]int, len(res.ByReason))
+		for k, v := range res.ByReason {
+			p.ByReason[k] = v
+		}
+		r.Report(p)
 	}
 }
 
@@ -220,6 +228,10 @@ func (r *Reencryptor) fail(res *Result, src Source, id, keyID string, reason Rea
 
 func (r *Reencryptor) row(ctx context.Context, src Source, row Row, opts Options, res *Result) error {
 	res.Total++
+	if row.Unreadable {
+		r.fail(res, src, row.ID, "", ReasonCorrupt)
+		return nil
+	}
 	oldValues := make([]string, len(row.Items))
 	newValues := make([]string, len(row.Items))
 	rotate := false
