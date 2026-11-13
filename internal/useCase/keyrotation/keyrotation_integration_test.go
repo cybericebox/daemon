@@ -192,6 +192,29 @@ func (s hookedSource) Rows(ctx context.Context, after string, limit int) ([]secr
 	return s.Source.Rows(ctx, after, limit)
 }
 
+// SwapReusing and PartlyRotated forward what the wrapped source can do, so a wrapper never hides it from the job.
+func (s hookedSource) SwapReusing(ctx context.Context, rowID string, o, n []string, same func([]byte, string, string) bool) (bool, error) {
+	if s.h.beforeSwap != nil {
+		s.h.beforeSwap(s.Name(), rowID)
+	}
+	var swapped bool
+	var err error
+	if rs, ok := s.Source.(secret.ReuseSource); ok {
+		swapped, err = rs.SwapReusing(ctx, rowID, o, n, same)
+	} else {
+		swapped, err = s.Source.Swap(ctx, rowID, o, n)
+	}
+	if err == nil && swapped && s.h.afterSwap != nil {
+		s.h.afterSwap(s.Name(), rowID)
+	}
+	return swapped, err
+}
+
+func (s hookedSource) PartlyRotated(rowID string) bool {
+	p, ok := s.Source.(secret.PartlyRotatedSource)
+	return ok && p.PartlyRotated(rowID)
+}
+
 func (s hookedSource) Swap(ctx context.Context, rowID string, o, n []string) (bool, error) {
 	if s.h.beforeSwap != nil {
 		s.h.beforeSwap(s.Name(), rowID)
