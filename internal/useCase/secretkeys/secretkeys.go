@@ -105,6 +105,7 @@ type RotationState struct {
 	Conflicts                    int
 	FailedByReason               map[string]int
 	UpdatedAt                    time.Time
+	ProcessGone                  bool // a running row whose process is gone: shown as interrupted
 }
 
 // Report is the state of every keyed secret the scan covers.

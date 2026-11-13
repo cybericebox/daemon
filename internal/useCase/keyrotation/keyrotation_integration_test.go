@@ -393,7 +393,7 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 		}
 	}
 	require.NotNil(t, smtp)
-	require.Equal(t, keyRotationRepo.StateFinished, smtp.State)
+	require.Equal(t, keyRotationRepo.StateFinishedWithFailures, smtp.State, "a run that left failed rows is not plain finished")
 	require.Equal(t, "k2", smtp.KeyID)
 	require.Equal(t, 2, smtp.Total)
 	require.Equal(t, 1, smtp.Done)
@@ -521,11 +521,14 @@ func TestStatus_BeforeDuringAfter(t *testing.T) {
 	require.Equal(t, map[string]int{"k1": 1, "k2": 5}, smtpCol(after).ByKey, "only the broken value stays on the old key")
 	require.Len(t, after.Rotation, 6, "one row per source of the family")
 	for _, r := range after.Rotation {
-		require.Equal(t, keyRotationRepo.StateFinished, r.State, r.Source)
 		if r.Source == "mail_smtp_configs.password_ciphertext" {
 			require.Equal(t, 1, r.Failed)
+			require.Equal(t, keyRotationRepo.StateFinishedWithFailures, r.State)
+		} else {
+			require.Equal(t, keyRotationRepo.StateFinished, r.State, r.Source)
 		}
 	}
+	require.Positive(t, after.StrictProblems(true), "--strict counts a run that finished with failures")
 	require.Contains(t, afterText, "aad_mismatch: 1")
 	require.Contains(t, afterText, "finished")
 	for _, leak := range []string{plain, broken, strings.TrimPrefix(broken, "v1:k1:")} {
@@ -713,4 +716,76 @@ func TestRun_InterruptionDoesNotSplitVersions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "published", w.exerciseStatus())
 	require.Equal(t, w.variants(21), w.variants(22))
+}
+
+// 4. a clean run is finished; a run with rows changed meanwhile is finished with failures (the next run must retry them).
+func TestRun_StateTellsCleanFromUnclean(t *testing.T) {
+	w := newWorld(t)
+	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
+	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err)
+	got, err := w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	for _, p := range got {
+		require.Equal(t, keyRotationRepo.StateFinished, p.State, p.Source)
+	}
+
+	w.smtp(2, w.seal(w.oldC, "p2", w.ctxs.SMTP(id(2))))
+	edited := w.seal(w.ring, "edited", w.ctxs.SMTP(id(2)))
+	once := sync.Once{}
+	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
+		once.Do(func() { w.exec(`UPDATE mail_smtp_configs SET password_ciphertext = $2 WHERE id = $1`, id(2), edited) })
+	}}
+	_, err = w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err)
+	got, err = w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	for _, p := range got {
+		if p.Source == "mail_smtp_configs.password_ciphertext" {
+			require.Equal(t, keyRotationRepo.StateFinishedWithFailures, p.State)
+		}
+	}
+}
+
+// 3. a row that says running while no process holds the family lock is shown as interrupted (process gone); while a
+// process holds the lock it stays running.
+func TestProgress_RunningWithoutProcessIsInterrupted(t *testing.T) {
+	w := newWorld(t)
+	p := secret.Progress{Family: keyRotationRepo.FamilyPlatform, Source: "mail_smtp_configs.password_ciphertext", KeyID: "k2", UpdatedAt: w.clock}
+	require.NoError(t, w.repo.SaveProgress(context.Background(), p, keyRotationRepo.StateRunning, w.clock))
+
+	got, err := w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, keyRotationRepo.StateInterrupted, got[0].State)
+	require.True(t, got[0].ProcessGone)
+
+	unlock, err := w.repo.Lock(context.Background(), keyRotationRepo.FamilyPlatform)
+	require.NoError(t, err)
+	got, err = w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, keyRotationRepo.StateRunning, got[0].State, "a live run is not reported as dead")
+	require.False(t, got[0].ProcessGone)
+	unlock()
+
+	got, err = w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	require.True(t, got[0].ProcessGone, "after the lock is released the stale row is shown as interrupted again")
+
+	var out strings.Builder
+	rep := secretkeys.Report{Rotation: []secretkeys.RotationState{{Family: got[0].Family, Source: got[0].Source, KeyID: got[0].KeyID, State: got[0].State, ProcessGone: got[0].ProcessGone}}}
+	rep.Write(&out)
+	require.Contains(t, out.String(), "interrupted (process gone)")
+}
+
+// 6. which key seals and which only read.
+func TestKeys_SealingAndReadOnly(t *testing.T) {
+	w := newWorld(t)
+	sealing, readOnly, err := w.usecase(w.repo).Keys(keyRotationRepo.FamilyPlatform)
+	require.NoError(t, err)
+	require.Equal(t, "k2", sealing)
+	require.Equal(t, []string{"k1"}, readOnly)
+	_, _, err = w.usecase(w.repo).Keys("nope")
+	require.ErrorIs(t, err, keyrotation.ErrUnknownFamily)
+	_, _, err = keyrotation.New(w.repo, keyrotation.Rings{}).Keys(keyRotationRepo.FamilyVPN)
+	require.ErrorIs(t, err, keyrotation.ErrFamilyKeyMissing)
 }

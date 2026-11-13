@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +22,8 @@ type fakeRun struct {
 	rep   keyrotation.Report
 	err   error
 }
+
+func (f *fakeRun) Keys(string) (string, []string, error) { return "k2", []string{"k1"}, nil }
 
 func (f *fakeRun) Run(_ context.Context, family string, opts keyrotation.Options) (keyrotation.Report, error) {
 	f.calls++
@@ -94,4 +99,33 @@ func TestReencryptCommand_OutputHoldsNoValues(t *testing.T) {
 	var out bytes.Buffer
 	_, _ = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", false, true, &out)
 	require.False(t, strings.Contains(out.String(), "v1:"), "no ciphertext form in the output")
+}
+
+// 6. the key that will seal and the keys that only read are shown before the --yes gate and in a dry run, so a wrong ring
+// order is seen before anything is written.
+func TestReencryptCommand_ShowsSealingKeyBeforeTheGate(t *testing.T) {
+	f := &fakeRun{rep: report()}
+	var out bytes.Buffer
+	_, err := reencryptCommand(context.Background(), f, "platform", false, false, &out)
+	require.ErrorIs(t, err, ErrNeedsYes)
+	require.Contains(t, out.String(), `Values will be sealed with key "k2".`)
+	require.Contains(t, out.String(), `Read only (never seal): "k1".`)
+	require.Zero(t, f.calls)
+
+	out.Reset()
+	_, err = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", true, false, &out)
+	require.NoError(t, err)
+	require.Contains(t, out.String(), `Values will be sealed with key "k2".`)
+}
+
+// 3. SIGTERM and SIGINT end the run through the context, so it is written as interrupted and not left running.
+func TestSignalContext_EndsOnSIGTERM(t *testing.T) {
+	ctx, stop := signalContext(context.Background())
+	defer stop()
+	require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGTERM))
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the context was not cancelled by SIGTERM")
+	}
 }
