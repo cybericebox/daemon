@@ -89,7 +89,7 @@ func loadCiphers(cfg *config.Config) (secretkeys.Ciphers, error) {
 // column, how many were sealed by each key, how many are in the older form without a key id and which cannot be opened
 // (counted per reason class), then the state of the re-encryption runs. It reads only. The returned count is the number
 // of values that cannot be opened (the command exits 1 when it is not zero), so a script can ask "may this key be removed".
-func RunKeysStatus(ctx context.Context, cfg *config.Config, out io.Writer) (int, error) {
+func RunKeysStatus(ctx context.Context, cfg *config.Config, strict bool, out io.Writer) (int, error) {
 	ciphers, err := loadCiphers(cfg)
 	if err != nil {
 		return 0, err
@@ -114,7 +114,7 @@ func RunKeysStatus(ctx context.Context, cfg *config.Config, out io.Writer) (int,
 		})
 	}
 	rep.Write(out)
-	return rep.Problems(), nil
+	return rep.StrictProblems(strict), nil
 }
 
 // ErrNeedsYes: a real re-encryption run was started without --yes.

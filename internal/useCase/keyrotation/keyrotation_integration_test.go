@@ -1,8 +1,10 @@
 package keyrotation_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/keyRotationRepo"
@@ -521,4 +525,86 @@ func TestStatus_BeforeDuringAfter(t *testing.T) {
 		require.NotContains(t, afterText, leak)
 		require.NotContains(t, duringText, leak)
 	}
+}
+
+// 22. a value on an unknown key id: an error line in `keys status`, a non-zero count (the exit code) with and without
+// --strict, and clean output on a clean database.
+func TestStatus_UnknownKeyIDAndCleanDatabase(t *testing.T) {
+	w := newWorld(t)
+	read := func() (secretkeys.Report, string) {
+		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+		require.NoError(t, err)
+		var out strings.Builder
+		rep.Write(&out)
+		return rep, out.String()
+	}
+
+	clean, text := read()
+	require.Zero(t, clean.StrictProblems(false))
+	require.Zero(t, clean.StrictProblems(true))
+	require.Contains(t, text, "RESULT: every stored value opens with the loaded keys.")
+	require.NotContains(t, text, "CANNOT BE OPENED")
+
+	lost, err := secret.New("k0:" + strings.Repeat("33", 32))
+	require.NoError(t, err)
+	w.smtp(1, w.seal(lost, "x", w.ctxs.SMTP(id(1))))
+	rep, text := read()
+	require.Equal(t, 1, rep.StrictProblems(false))
+	require.Equal(t, 1, rep.StrictProblems(true))
+	require.Contains(t, text, "CANNOT BE OPENED: 1 (unknown_key_id: 1)")
+	require.Contains(t, text, `sealed by key "k0", which is not loaded`)
+	require.Contains(t, text, id(1).String())
+	require.Contains(t, text, "RESULT: 1 value(s) cannot be opened")
+}
+
+// --strict also counts a re-encryption run that is not finished or left failed rows.
+func TestStatus_StrictCountsUnfinishedRuns(t *testing.T) {
+	rep := secretkeys.Report{Rotation: []secretkeys.RotationState{
+		{Source: "a", State: "finished"},
+		{Source: "b", State: "interrupted"},
+		{Source: "c", State: "finished", Failed: 2},
+	}}
+	require.Zero(t, rep.StrictProblems(false))
+	require.Equal(t, 2, rep.StrictProblems(true))
+}
+
+type failingProgress struct{ keyrotation.Store }
+
+func (failingProgress) SaveProgress(context.Context, secret.Progress, string, time.Time) error {
+	return errors.New("secret-looking-text must not be logged")
+}
+
+// A failed write of the progress row is not silent: one warning without values, the run still moves the rows, and the
+// report says the progress was not recorded.
+func TestRun_FailedProgressWriteIsReported(t *testing.T) {
+	w := newWorld(t)
+	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
+	w.smtp(2, w.seal(w.oldC, "p2", w.ctxs.SMTP(id(2))))
+
+	var logs bytes.Buffer
+	prev := log.Logger
+	log.Logger = zerolog.New(&logs)
+	t.Cleanup(func() { log.Logger = prev })
+
+	rep, err := w.usecase(failingProgress{w.repo}).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err, "a progress failure does not stop the job")
+	require.True(t, rep.ProgressNotRecorded)
+	require.Equal(t, "k2", keyOf(w.smtpValue(1)))
+	require.Equal(t, "k2", keyOf(w.smtpValue(2)))
+
+	var out strings.Builder
+	rep.Write(&out)
+	require.Contains(t, out.String(), "Progress not recorded")
+
+	text := logs.String()
+	require.Equal(t, len(w.repo.Sources(keyRotationRepo.FamilyPlatform)), strings.Count(text, `"level":"warn"`), "one warning per source, not per batch")
+	require.Contains(t, text, `"family":"platform"`)
+	require.Contains(t, text, `"source":"mail_smtp_configs.password_ciphertext"`)
+	require.Contains(t, text, `"error_class":"store_error"`)
+	require.NotContains(t, text, "secret-looking-text")
+
+	// a successful run leaves no such line
+	rep2, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err)
+	require.False(t, rep2.ProgressNotRecorded)
 }

@@ -49,6 +49,9 @@ func (r Report) Write(w io.Writer) {
 		fmt.Fprintf(w, "  %s: %d scanned, %d %s, %d already current, %d changed meanwhile (retry on the next run), %d failed\n",
 			s.Source, s.Total, s.Done, verb, s.AlreadyCurrent, s.Conflicts, s.Failed)
 	}
+	if r.ProgressNotRecorded {
+		fmt.Fprintln(w, "\nProgress not recorded: the progress table could not be written during this run, so `keys status` shows a stale state. Trust this report, not the table.")
+	}
 	failed := 0
 	for _, s := range r.Sources {
 		failed += s.Failed
