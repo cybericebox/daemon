@@ -114,12 +114,15 @@ func RunKeysStatus(ctx context.Context, cfg *config.Config, strict bool, out io.
 	for _, p := range stored {
 		rep.Rotation = append(rep.Rotation, secretkeys.RotationState{
 			Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Total: p.Total, Done: p.Done,
-			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt, ProcessGone: p.ProcessGone,
+			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt, ProcessGone: p.ProcessGone, LockUnknown: p.LockUnknown,
 		})
 	}
 	rep.Write(out)
 	return rep.StrictProblems(strict), nil
 }
+
+// ErrUnexpectedKey: the key that would seal is not the one the caller expects (a wrong ring order).
+var ErrUnexpectedKey = errors.New("the sealing key is not the expected one; nothing was done")
 
 // ErrNeedsYes: a real re-encryption run was started without --yes.
 var ErrNeedsYes = errors.New("a real run needs --yes (use --dry-run to look first)")
@@ -133,7 +136,7 @@ type reencrypter interface {
 // reencryptCommand prints the three preconditions, refuses a real run without --yes, runs and prints the report. It
 // returns the number of rows that could not be opened or were changed meanwhile; a store error or an interruption is
 // the error (the partial report is printed first).
-func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun, yes bool, out io.Writer) (int, error) {
+func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun, yes bool, expectKey string, out io.Writer) (int, error) {
 	fmt.Fprintln(out, "Before a real run:")
 	for i, line := range keyrotation.Preconditions {
 		fmt.Fprintf(out, "  %d. %s\n", i+1, line)
@@ -155,6 +158,9 @@ func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun
 	}
 	fmt.Fprintln(out, "If the sealing key is the OLD one, stop: the new key must be first in the keyring.")
 	fmt.Fprintln(out)
+	if expectKey != "" && expectKey != sealing {
+		return 0, fmt.Errorf("%w (expected %q, found %q)", ErrUnexpectedKey, secret.SafeKeyID(expectKey), secret.SafeKeyID(sealing))
+	}
 	if !dryRun && !yes {
 		return 0, ErrNeedsYes
 	}
@@ -174,12 +180,29 @@ func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun
 
 // signalContext ends the context on SIGINT or SIGTERM, so a Ctrl+C or a stop of the container ends the run as
 // interrupted (the progress row says so) instead of leaving it running.
-func signalContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+// After the first signal the handler is released, so a second Ctrl+C ends the process at once.
+func signalContext(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+	if len(signals) == 0 {
+		signals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, signals...)
+	go func() {
+		select {
+		case <-c:
+			// Released before the context ends: whoever sees the cancel knows a second signal is no longer caught.
+			signal.Stop(c)
+			cancel()
+		case <-ctx.Done():
+			signal.Stop(c)
+		}
+	}()
+	return ctx, cancel
 }
 
-// RunKeysReencrypt is `daemon keys reencrypt <family> [--dry-run] [--yes]`.
-func RunKeysReencrypt(ctx context.Context, cfg *config.Config, family string, dryRun, yes bool, out io.Writer) (int, error) {
+// RunKeysReencrypt is `daemon keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>]`.
+func RunKeysReencrypt(ctx context.Context, cfg *config.Config, family string, dryRun, yes bool, expectKey string, out io.Writer) (int, error) {
 	ciphers, err := loadCiphers(cfg)
 	if err != nil {
 		return 0, err
@@ -197,5 +220,5 @@ func RunKeysReencrypt(ctx context.Context, cfg *config.Config, family string, dr
 	uc := keyrotation.New(keyRotationRepo.New(repo.Pool(), keyrotation.Contexts()), rings)
 	ctx, stop := signalContext(ctx)
 	defer stop()
-	return reencryptCommand(ctx, uc, family, dryRun, yes, out)
+	return reencryptCommand(ctx, uc, family, dryRun, yes, expectKey, out)
 }
