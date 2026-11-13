@@ -53,6 +53,8 @@ type (
 		Env config.SMTPConfig
 		// SiteURL is the site address for footer variables: MAIN_SITE_URL, or the ID site when it is not set.
 		SiteURL string
+		// PrivacyURL is PRIVACY_URL: the privacy policy address for footer variables; empty when there is none.
+		PrivacyURL string
 		// SupportEmail is SUPPORT_EMAIL: the default Reply-To and the footer contact.
 		SupportEmail string
 		// SMTPPolicy limits what an organizer may point an event SMTP at (SMTP_ALLOWED_PORTS).
@@ -69,6 +71,7 @@ type (
 		cipher     *secret.Cipher
 		env        config.SMTPConfig
 		siteURL    string
+		privacyURL string
 		support    string
 		smtpPolicy mailModel.SMTPPolicy
 		newSender  func(email.Config) (sender, error)
@@ -93,6 +96,7 @@ func NewMailUseCase(deps Dependencies) *MailUseCase {
 		cipher:     deps.Cipher,
 		env:        deps.Env,
 		siteURL:    deps.SiteURL,
+		privacyURL: deps.PrivacyURL,
 		support:    deps.SupportEmail,
 		smtpPolicy: deps.SMTPPolicy,
 		newSender:  newSender,
@@ -417,5 +421,5 @@ func (u *MailUseCase) footer(ctx context.Context, supportEmail string) (mailMode
 		return mailModel.Footer{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load email footer").Err()
 	}
 	doc := mailModel.StoredFooterDoc(stored.FooterContent, stored.FooterLegacy)
-	return renderFooter(doc, supportEmail, u.siteURL), nil
+	return renderFooter(doc, supportEmail, u.siteURL, u.privacyURL), nil
 }

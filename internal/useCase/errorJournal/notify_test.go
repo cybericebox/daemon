@@ -31,7 +31,7 @@ func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	msg := h.mail.sent[0]
 	require.Equal(t, "[production] "+string(errorJournal.KindHTTP5xx), msg.Subject)
 	require.Contains(t, msg.Text, "https://admin.example.test/errors/?group=")
-	msg.HTML, msg.Text = mailUseCase.RenderPlatformFooter("support@example.test", "https://platform.example").Append(msg.HTML, msg.Text)
+	msg.HTML, msg.Text = mailUseCase.RenderPlatformFooter("support@example.test", "https://platform.example", "").Append(msg.HTML, msg.Text)
 	var raw bytes.Buffer
 	_, err = email.BuildMessage(email.Address{Email: "from@example.test"}, email.Address{}, msg).WriteTo(&raw)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	require.Contains(t, parts["text/html"], `<h1`)
 	require.Contains(t, parts["text/html"], `<pre`)
 	require.NotContains(t, parts["text/html"], `>https://admin.example.test/errors/`)
-	require.Equal(t, 1, strings.Count(parts["text/html"], `href="https://platform.example/privacy"`))
+	require.Equal(t, 1, strings.Count(parts["text/html"], `href="mailto:support@example.test"`), "the footer is appended once")
 	require.NotContains(t, parts["text/html"], "<!--cib-footer-->")
 	require.NotContains(t, parts["text/html"], "password=hidden")
 	require.NotContains(t, parts["text/html"], "token=hidden")
