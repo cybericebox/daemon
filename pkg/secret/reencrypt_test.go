@@ -445,11 +445,28 @@ func TestReencrypt_LockPerFamily(t *testing.T) {
 	release := make(chan struct{})
 	f := newFake()
 	f.add("a", "c", seal(t, oldRing(t), "pa", "c"))
-	f.beforeSwap = func(string) { close(inside); <-release }
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}) // never leave the hook waiting
+	f.beforeSwap = func(string) {
+		close(inside)
+		select {
+		case <-release:
+		case <-time.After(20 * time.Second):
+		}
+	}
 	r := &secret.Reencryptor{Ring: c, Locker: lock}
 	done := make(chan error, 1)
 	go func() { _, err := r.Run(context.Background(), f, secret.Options{}); done <- err }()
-	<-inside
+	select {
+	case <-inside:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the first run never reached its swap")
+	}
 	if _, err := run(t, r, newFake(), secret.Options{}); !errors.Is(err, secret.ErrAlreadyRunning) {
 		t.Fatalf("second run of the same family must be refused, got %v", err)
 	}
@@ -458,7 +475,13 @@ func TestReencrypt_LockPerFamily(t *testing.T) {
 		t.Fatalf("another family must run: %v", err)
 	}
 	close(release)
-	if err := <-done; err != nil {
+	var runErr error
+	select {
+	case runErr = <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the first run did not finish")
+	}
+	if err := runErr; err != nil {
 		t.Fatal(err)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/keyRotationRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/secretKeysRepo"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 	"github.com/cybericebox/daemon/internal/useCase/keyrotation"
@@ -36,40 +37,98 @@ func id(n int) uuid.UUID {
 }
 
 type world struct {
-	db    *testhelpers.TestDB
-	t     *testing.T
-	pool  *pgxpool.Pool
-	repo  *keyRotationRepo.Repository
-	oldC  *secret.Cipher // k1 only: what sealed the old rows
-	ring  *secret.Cipher // k2 current, k1 still opens
-	ctxs  keyRotationRepo.Contexts
-	exec  func(sql string, args ...any)
-	clock time.Time
+	db      *testhelpers.TestDB
+	t       *testing.T
+	ctx     context.Context // every blocking call of a test uses it: a hang fails after testDeadline with a clear error
+	pool    *pgxpool.Pool   // four connections, what the smallest CI runner gets: a test that needs more fails here too
+	queries *postgres.Queries
+	repo    *keyRotationRepo.Repository
+	oldC    *secret.Cipher // k1 only: what sealed the old rows
+	ring    *secret.Cipher // k2 current, k1 still opens
+	ctxs    keyRotationRepo.Contexts
+	clock   time.Time
 }
+
+// testDeadline is far under the package timeout: a hung test is a failed test within a minute, not a dead CI job.
+const testDeadline = 60 * time.Second
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	db := testhelpers.SetupTestDB(t)
-	ctx := context.Background()
-	conn, err := db.Pool.Acquire(ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	t.Cleanup(cancel)
+
+	// The default pool is max(4, number of CPUs): a laptop gets twelve connections, a CI runner four. Pin four, so a test
+	// that holds too many connections hangs here, where it can be seen, and not only in CI.
+	cfg := db.Pool.Config().Copy()
+	cfg.MaxConns = 4
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
-	t.Cleanup(conn.Release)
-	_, err = conn.Exec(ctx, `SET session_replication_role = replica`) // the rows reference users and events; not under test
-	require.NoError(t, err)
-	// All statements of the fixture and the job must see the same session setting, so the job uses a pool that does
-	// not need it: the foreign keys are not checked by the job's UPDATEs.
-	w := &world{db: db, t: t, pool: db.Pool, ctxs: keyrotation.Contexts(), clock: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
-	w.repo = keyRotationRepo.New(db.Pool, w.ctxs)
+	t.Cleanup(pool.Close)
+
+	w := &world{db: db, t: t, ctx: ctx, pool: pool, queries: postgres.New(pool), ctxs: keyrotation.Contexts(),
+		clock: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
+	w.repo = keyRotationRepo.New(pool, w.ctxs)
 	w.oldC, err = secret.New("k1:" + hexOld)
 	require.NoError(t, err)
 	w.ring, err = secret.New("k2:" + hexNew + ",k1:" + hexOld)
 	require.NoError(t, err)
-	w.exec = func(sql string, args ...any) {
-		t.Helper()
-		_, execErr := conn.Exec(ctx, sql, args...)
-		require.NoError(t, execErr, sql)
-	}
 	return w
+}
+
+// latch is a channel that is opened once; it is opened at the end of the test whatever happens, so a hook waiting on it
+// never outlives a failed test (a waiting hook holds locks and connections, and the pool cannot close around it).
+func (w *world) latch() (<-chan struct{}, func()) {
+	ch := make(chan struct{})
+	var once sync.Once
+	open := func() { once.Do(func() { close(ch) }) }
+	w.t.Cleanup(open)
+	return ch, open
+}
+
+// await waits for a latch from the test goroutine; a missed deadline fails the test with what it was waiting for.
+func (w *world) await(ch <-chan struct{}, what string) {
+	w.t.Helper()
+	select {
+	case <-ch:
+	case <-w.ctx.Done():
+		w.t.Fatalf("timed out waiting for %s (test deadline %s)", what, testDeadline)
+	}
+}
+
+// hookWait is await for code that runs inside the job: it returns on release or at the deadline, and never fails the
+// test from another goroutine.
+func (w *world) hookWait(ch <-chan struct{}) {
+	select {
+	case <-ch:
+	case <-w.ctx.Done():
+	}
+}
+
+// recvErr takes a result from a goroutine of the test, failing the test at the deadline.
+func (w *world) recvErr(ch <-chan error, what string) error {
+	w.t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-w.ctx.Done():
+		w.t.Fatalf("timed out waiting for %s (test deadline %s)", what, testDeadline)
+		return nil
+	}
+}
+
+// exec runs a fixture statement in its own short transaction with the foreign keys off for it alone (the rows reference
+// users and events that are not under test); no connection is held between statements.
+func (w *world) exec(sql string, args ...any) {
+	w.t.Helper()
+	tx, err := w.pool.Begin(w.ctx)
+	require.NoError(w.t, err)
+	defer func() { _ = tx.Rollback(context.WithoutCancel(w.ctx)) }()
+	_, err = tx.Exec(w.ctx, `SET LOCAL session_replication_role = replica`)
+	require.NoError(w.t, err)
+	_, err = tx.Exec(w.ctx, sql, args...)
+	require.NoError(w.t, err, sql)
+	require.NoError(w.t, tx.Commit(w.ctx))
 }
 
 func (w *world) seal(c *secret.Cipher, plain string, ctx []byte) string {
@@ -94,13 +153,13 @@ func (w *world) smtpAt(rowID uuid.UUID, name, ct string) {
 
 func (w *world) smtpValueAt(rowID uuid.UUID) string {
 	var ct string
-	require.NoError(w.t, w.pool.QueryRow(context.Background(), `SELECT password_ciphertext FROM mail_smtp_configs WHERE id = $1`, rowID).Scan(&ct))
+	require.NoError(w.t, w.pool.QueryRow(w.ctx, `SELECT password_ciphertext FROM mail_smtp_configs WHERE id = $1`, rowID).Scan(&ct))
 	return ct
 }
 
 func (w *world) smtpValue(n int) string {
 	var ct string
-	require.NoError(w.t, w.pool.QueryRow(context.Background(), `SELECT password_ciphertext FROM mail_smtp_configs WHERE id = $1`, id(n)).Scan(&ct))
+	require.NoError(w.t, w.pool.QueryRow(w.ctx, `SELECT password_ciphertext FROM mail_smtp_configs WHERE id = $1`, id(n)).Scan(&ct))
 	return ct
 }
 
@@ -132,7 +191,7 @@ func (w *world) version(n int, variantID uuid.UUID, doc string) {
 
 func (w *world) variants(n int) string {
 	var raw []byte
-	require.NoError(w.t, w.pool.QueryRow(context.Background(), `SELECT variants FROM exercise_versions WHERE id = $1`, id(n)).Scan(&raw))
+	require.NoError(w.t, w.pool.QueryRow(w.ctx, `SELECT variants FROM exercise_versions WHERE id = $1`, id(n)).Scan(&raw))
 	return string(raw)
 }
 
@@ -144,13 +203,13 @@ func (w *world) usecase(store keyrotation.Store) *keyrotation.UseCase {
 
 // status is the full read of every stored value with its row context: the number of values that cannot be opened.
 func (w *world) problems() int {
-	rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+	rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(w.ctx, true)
 	require.NoError(w.t, err)
 	return rep.Problems()
 }
 
 func (w *world) byKey() map[string]int {
-	rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+	rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(w.ctx, true)
 	require.NoError(w.t, err)
 	out := map[string]int{}
 	for _, c := range rep.Columns {
@@ -235,7 +294,7 @@ func TestRun_ConcurrentEditWins(t *testing.T) {
 	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
 		once.Do(func() { w.exec(`UPDATE mail_smtp_configs SET password_ciphertext = $2 WHERE id = $1`, id(1), edited) })
 	}}
-	rep, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	rep, err := w.usecase(store).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, edited, w.smtpValue(1), "the user's edit must survive")
 	var conflicts, failed int
@@ -277,17 +336,30 @@ func TestRun_ReadersAndWritersDuringThePass(t *testing.T) {
 				w.smtpAt(rowID, fmt.Sprintf("late-%d", written), w.seal(key, "late", w.ctxs.SMTP(rowID)))
 				written++
 			}
-			ack <- struct{}{}
+			select {
+			case ack <- struct{}{}:
+			case <-w.ctx.Done():
+				return
+			}
 		}
 	}()
+	var closeBarrier sync.Once
+	t.Cleanup(func() { closeBarrier.Do(func() { close(barrier) }) })
 	barriers := 0
 	store := hooked{Store: w.repo, beforeRows: func(string) {
 		barriers++
-		barrier <- step{barriers}
-		<-ack
+		select {
+		case barrier <- step{barriers}:
+		case <-w.ctx.Done():
+			return
+		}
+		select {
+		case <-ack:
+		case <-w.ctx.Done():
+		}
 	}}
-	_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
-	close(barrier)
+	_, err := w.usecase(store).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
+	closeBarrier.Do(func() { close(barrier) })
 	require.NoError(t, err)
 	require.Empty(t, problems, "a value was unreadable at a barrier")
 	require.Greater(t, barriers, 3)
@@ -296,7 +368,7 @@ func TestRun_ReadersAndWritersDuringThePass(t *testing.T) {
 
 	// the old-key rows sorted before the cursor: more than one is left for the next run, none is lost
 	require.GreaterOrEqual(t, w.byKey()["k1"], 2, "rows written under the old key behind the cursor wait for the next run")
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Zero(t, w.byKey()["k1"], "the next run takes the rows that were written under the old key during the pass")
 	for k := 0; k < 4; k++ {
@@ -314,25 +386,26 @@ func TestRun_OneRunPerFamily(t *testing.T) {
 	w := newWorld(t)
 	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
 	w.vpn(1, id(50), "test", uuid.NullUUID{}, w.seal(w.oldC, "cfg", w.ctxs.VPN(id(50), "test", uuid.NullUUID{})))
-	inside, release := make(chan struct{}), make(chan struct{})
+	inside, openInside := w.latch()
+	release, openRelease := w.latch()
 	var once sync.Once
 	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
-		once.Do(func() { close(inside); <-release })
+		once.Do(func() { openInside(); w.hookWait(release) })
 	}}
 	uc := w.usecase(store)
 	done := make(chan error, 1)
 	go func() {
-		_, err := uc.Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+		_, err := uc.Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 		done <- err
 	}()
-	<-inside
-	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	w.await(inside, "the first run to take its lock")
+	_, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.ErrorIs(t, err, secret.ErrAlreadyRunning)
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyVPN, keyrotation.Options{})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyVPN, keyrotation.Options{})
 	require.NoError(t, err, "another family must run while the first one holds its lock")
-	close(release)
-	require.NoError(t, <-done)
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	openRelease()
+	require.NoError(t, w.recvErr(done, "the first run"))
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err, "the lock is released after the run")
 }
 
@@ -375,7 +448,7 @@ func TestRun_MixedDatabaseEveryFamily(t *testing.T) {
 	goodBefore := w.variants(7)
 
 	count := func(table string) (n int) {
-		require.NoError(t, w.pool.QueryRow(context.Background(), `SELECT count(*) FROM `+table).Scan(&n))
+		require.NoError(t, w.pool.QueryRow(w.ctx, `SELECT count(*) FROM `+table).Scan(&n))
 		return n
 	}
 	tables := []string{"mail_smtp_configs", "infrastructure_agents", "image_registry_settings", "event_registry_secrets", "user_vpn_configs", "exercise_versions"}
@@ -389,7 +462,7 @@ func TestRun_MixedDatabaseEveryFamily(t *testing.T) {
 	var failed []secret.Failed
 	byReason := map[secret.Reason]int{}
 	for _, fam := range []string{keyRotationRepo.FamilyPlatform, keyRotationRepo.FamilyVPN, keyRotationRepo.FamilyExercise} {
-		rep, runErr := uc.Run(context.Background(), fam, keyrotation.Options{BatchSize: 2})
+		rep, runErr := uc.Run(w.ctx, fam, keyrotation.Options{BatchSize: 2})
 		require.NoError(t, runErr)
 		for _, s := range rep.Sources {
 			failed = append(failed, s.FailedRows...)
@@ -437,7 +510,7 @@ func TestRun_MixedDatabaseEveryFamily(t *testing.T) {
 
 	// a second run changes nothing
 	for _, fam := range []string{keyRotationRepo.FamilyPlatform, keyRotationRepo.FamilyVPN, keyRotationRepo.FamilyExercise} {
-		rep, runErr := uc.Run(context.Background(), fam, keyrotation.Options{})
+		rep, runErr := uc.Run(w.ctx, fam, keyrotation.Options{})
 		require.NoError(t, runErr)
 		for _, s := range rep.Sources {
 			require.Zero(t, s.Done, s.Source)
@@ -457,10 +530,10 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 	good := w.seal(w.oldC, plainGood, w.ctxs.SMTP(id(1)))
 	w.smtp(1, good)
 	w.smtp(2, bad)
-	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
 
-	got, err := w.repo.Progress(context.Background())
+	got, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	var smtp *keyRotationRepo.StoredProgress
 	for i := range got {
@@ -478,13 +551,13 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 
 	// the table and the report hold no plaintext and no ciphertext
 	var dump string
-	require.NoError(t, w.pool.QueryRow(context.Background(), `SELECT coalesce(string_agg(t::text, ' '), '') FROM key_rotation_progress t`).Scan(&dump))
+	require.NoError(t, w.pool.QueryRow(w.ctx, `SELECT coalesce(string_agg(t::text, ' '), '') FROM key_rotation_progress t`).Scan(&dump))
 	// everything an operator or a log can see: the progress table, the report struct, the printed report (CLI), the status
 	var printed strings.Builder
 	rep.Write(&printed)
-	statusRep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+	statusRep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(w.ctx, true)
 	require.NoError(t, err)
-	stored, err := w.repo.Progress(context.Background())
+	stored, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	for _, p := range stored {
 		statusRep.Rotation = append(statusRep.Rotation, secretkeys.RotationState{Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Failed: p.Failed, FailedByReason: p.FailedByReason})
@@ -500,10 +573,10 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 
 	// a dry run leaves the table as it was
 	before := dump
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{DryRun: true})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{DryRun: true})
 	require.NoError(t, err)
 	var after string
-	require.NoError(t, w.pool.QueryRow(context.Background(), `SELECT coalesce(string_agg(t::text, ' '), '') FROM key_rotation_progress t`).Scan(&after))
+	require.NoError(t, w.pool.QueryRow(w.ctx, `SELECT coalesce(string_agg(t::text, ' '), '') FROM key_rotation_progress t`).Scan(&after))
 	require.Equal(t, before, after)
 }
 
@@ -513,7 +586,7 @@ func TestRun_InterruptedIsRecordedAndResumed(t *testing.T) {
 	for n := 1; n <= 4; n++ {
 		w.smtp(n, w.seal(w.oldC, "p", w.ctxs.SMTP(id(n))))
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(w.ctx)
 	swaps := 0
 	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
 		swaps++
@@ -523,14 +596,14 @@ func TestRun_InterruptedIsRecordedAndResumed(t *testing.T) {
 	}}
 	_, err := w.usecase(store).Run(ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
 	require.ErrorIs(t, err, context.Canceled)
-	got, err := w.repo.Progress(context.Background())
+	got, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.Equal(t, keyRotationRepo.StateInterrupted, got[0].State)
 	require.Zero(t, w.problems(), "every row opens after an interruption")
 
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
 	require.NoError(t, err)
-	got, err = w.repo.Progress(context.Background())
+	got, err = w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.Equal(t, keyRotationRepo.StateFinished, got[0].State)
 	require.Equal(t, 0, w.byKey()["k1"])
@@ -538,10 +611,10 @@ func TestRun_InterruptedIsRecordedAndResumed(t *testing.T) {
 
 func TestRun_UnknownFamilyAndMissingKey(t *testing.T) {
 	w := newWorld(t)
-	_, err := w.usecase(w.repo).Run(context.Background(), "nope", keyrotation.Options{})
+	_, err := w.usecase(w.repo).Run(w.ctx, "nope", keyrotation.Options{})
 	require.ErrorIs(t, err, keyrotation.ErrUnknownFamily)
 	uc := keyrotation.New(w.repo, keyrotation.Rings{})
-	_, err = uc.Run(context.Background(), keyRotationRepo.FamilyVPN, keyrotation.Options{})
+	_, err = uc.Run(w.ctx, keyRotationRepo.FamilyVPN, keyrotation.Options{})
 	require.ErrorIs(t, err, keyrotation.ErrFamilyKeyMissing)
 }
 
@@ -559,9 +632,9 @@ func TestStatus_BeforeDuringAfter(t *testing.T) {
 	w.smtp(6, broken)
 
 	status := func() (secretkeys.Report, string) {
-		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(w.ctx, true)
 		require.NoError(t, err)
-		stored, err := w.repo.Progress(context.Background())
+		stored, err := w.repo.Progress(w.ctx)
 		require.NoError(t, err)
 		for _, p := range stored {
 			rep.Rotation = append(rep.Rotation, secretkeys.RotationState{Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State,
@@ -596,7 +669,7 @@ func TestStatus_BeforeDuringAfter(t *testing.T) {
 			during, duringText = status()
 		}
 	}}
-	_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
+	_, err := w.usecase(store).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
 	require.NoError(t, err)
 	d := smtpCol(during).ByKey
 	require.Equal(t, 5+1, d["k1"]+d["k2"], "no row is lost while the run is going")
@@ -631,7 +704,7 @@ func TestStatus_BeforeDuringAfter(t *testing.T) {
 func TestStatus_UnknownKeyIDAndCleanDatabase(t *testing.T) {
 	w := newWorld(t)
 	read := func() (secretkeys.Report, string) {
-		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(w.ctx, true)
 		require.NoError(t, err)
 		var out strings.Builder
 		rep.Write(&out)
@@ -685,7 +758,7 @@ func TestRun_FailedProgressWriteIsReported(t *testing.T) {
 	log.Logger = zerolog.New(&logs)
 	t.Cleanup(func() { log.Logger = prev })
 
-	rep, err := w.usecase(failingProgress{w.repo}).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	rep, err := w.usecase(failingProgress{w.repo}).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err, "a progress failure does not stop the job")
 	require.True(t, rep.ProgressNotRecorded)
 	require.Equal(t, "k2", keyOf(w.smtpValue(1)))
@@ -703,7 +776,7 @@ func TestRun_FailedProgressWriteIsReported(t *testing.T) {
 	require.NotContains(t, text, "secret-looking-text")
 
 	// a successful run leaves no such line
-	rep2, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	rep2, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
 	require.False(t, rep2.ProgressNotRecorded)
 }
@@ -727,7 +800,7 @@ VALUES ($1, $2, $5, 'n', '', '{}', $3::jsonb, $4)`, id(n), id(850), doc, w.clock
 
 func (w *world) exerciseStatus() string {
 	var st string
-	require.NoError(w.t, w.pool.QueryRow(context.Background(),
+	require.NoError(w.t, w.pool.QueryRow(w.ctx,
 		`SELECT exercise_status(draft_version_id, published_version_id, false, true) FROM exercises WHERE id = $1`, id(850)).Scan(&st))
 	return st
 }
@@ -746,7 +819,7 @@ func TestRun_EqualVersionsStayEqual(t *testing.T) {
 	}, 21, 22)
 	require.Equal(t, "published", w.exerciseStatus())
 
-	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	for _, src := range rep.Sources {
 		require.Zero(t, src.Conflicts, "a sibling rewritten together with its row is not a conflict")
@@ -768,12 +841,12 @@ func TestRun_DraftWithOtherFieldKeepsSharedSecret(t *testing.T) {
 		22: fmt.Sprintf(pairDoc, vid, "renamed", ct),
 	}, 21, 22)
 	require.Equal(t, "changed", w.exerciseStatus())
-	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	_, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "changed", w.exerciseStatus())
 	secretOf := func(n int) string {
 		var out string
-		require.NoError(t, w.pool.QueryRow(context.Background(),
+		require.NoError(t, w.pool.QueryRow(w.ctx,
 			`SELECT variants #>> '{0,topology,devices,0,bootstrap,env,0,value}' FROM exercise_versions WHERE id = $1`, id(n)).Scan(&out))
 		return out
 	}
@@ -788,14 +861,14 @@ func TestRun_CancelAfterTheFirstWriteLeavesPublishedAndDraftEqual(t *testing.T) 
 	vid := id(7)
 	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
 	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(w.ctx)
 	store := hooked{Store: w.repo, afterSwap: func(string, string) { cancel() }}
 	_, err := w.usecase(store).Run(ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 1})
 	require.ErrorIs(t, err, context.Canceled, "the cancel must end the run, the hook always fires after the first write")
 	require.Equal(t, "published", w.exerciseStatus())
 	require.Equal(t, w.variants(21), w.variants(22))
 	require.NotContains(t, w.variants(21), ":k1:")
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "published", w.exerciseStatus())
 }
@@ -804,9 +877,9 @@ func TestRun_CancelAfterTheFirstWriteLeavesPublishedAndDraftEqual(t *testing.T) 
 func TestRun_StateTellsCleanFromUnclean(t *testing.T) {
 	w := newWorld(t)
 	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
-	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	_, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
-	got, err := w.repo.Progress(context.Background())
+	got, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	for _, p := range got {
 		require.Equal(t, keyRotationRepo.StateFinished, p.State, p.Source)
@@ -818,9 +891,9 @@ func TestRun_StateTellsCleanFromUnclean(t *testing.T) {
 	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
 		once.Do(func() { w.exec(`UPDATE mail_smtp_configs SET password_ciphertext = $2 WHERE id = $1`, id(2), edited) })
 	}}
-	_, err = w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	_, err = w.usecase(store).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
-	got, err = w.repo.Progress(context.Background())
+	got, err = w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	for _, p := range got {
 		if p.Source == "mail_smtp_configs.password_ciphertext" {
@@ -834,22 +907,22 @@ func TestRun_StateTellsCleanFromUnclean(t *testing.T) {
 func TestProgress_RunningWithoutProcessIsInterrupted(t *testing.T) {
 	w := newWorld(t)
 	p := secret.Progress{Family: keyRotationRepo.FamilyPlatform, Source: "mail_smtp_configs.password_ciphertext", KeyID: "k2", UpdatedAt: w.clock}
-	require.NoError(t, w.repo.SaveProgress(context.Background(), p, keyRotationRepo.StateRunning, w.clock))
+	require.NoError(t, w.repo.SaveProgress(w.ctx, p, keyRotationRepo.StateRunning, w.clock))
 
-	got, err := w.repo.Progress(context.Background())
+	got, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.Equal(t, keyRotationRepo.StateInterrupted, got[0].State)
 	require.True(t, got[0].ProcessGone)
 
-	unlock, err := w.repo.Lock(context.Background(), keyRotationRepo.FamilyPlatform)
+	unlock, err := w.repo.Lock(w.ctx, keyRotationRepo.FamilyPlatform)
 	require.NoError(t, err)
-	got, err = w.repo.Progress(context.Background())
+	got, err = w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.Equal(t, keyRotationRepo.StateRunning, got[0].State, "a live run is not reported as dead")
 	require.False(t, got[0].ProcessGone)
 	unlock()
 
-	got, err = w.repo.Progress(context.Background())
+	got, err = w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.True(t, got[0].ProcessGone, "after the lock is released the stale row is shown as interrupted again")
 
@@ -879,7 +952,7 @@ func TestRun_CancelAfterAWriteThenResume(t *testing.T) {
 	for n := 1; n <= 4; n++ {
 		w.smtp(n, w.seal(w.oldC, "p", w.ctxs.SMTP(id(n))))
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(w.ctx)
 	swaps := 0
 	store := hooked{Store: w.repo, afterSwap: func(string, string) {
 		swaps++
@@ -892,13 +965,13 @@ func TestRun_CancelAfterAWriteThenResume(t *testing.T) {
 	require.Equal(t, 2, swaps, "two writes finished with a live context, none after the cancel")
 	require.Equal(t, 2, rep.Sources[0].Done)
 	require.Zero(t, w.problems())
-	got, err := w.repo.Progress(context.Background())
+	got, err := w.repo.Progress(w.ctx)
 	require.NoError(t, err)
 	require.Equal(t, keyRotationRepo.StateInterrupted, got[0].State)
 	require.Equal(t, 2, got[0].Done)
 	require.Equal(t, 2, w.byKey()["k2"])
 
-	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 1})
+	_, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 1})
 	require.NoError(t, err)
 	require.Zero(t, w.byKey()["k1"])
 }
@@ -920,7 +993,7 @@ func TestRun_FinalProgressWriteIsBounded(t *testing.T) {
 	uc := w.usecase(hungProgress{w.repo})
 	uc.ProgressTimeout = 150 * time.Millisecond
 	started := time.Now()
-	rep, err := uc.Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	rep, err := uc.Run(w.ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Less(t, time.Since(started), 5*time.Second)
 	require.True(t, rep.ProgressNotRecorded, "the lost final write is reported")
