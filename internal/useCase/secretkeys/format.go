@@ -59,8 +59,12 @@ func (r Report) Write(w io.Writer) {
 	if len(r.Rotation) > 0 {
 		fmt.Fprintln(w, "\nRe-encryption runs:")
 		for _, s := range r.Rotation {
+			state := s.State
+			if s.ProcessGone {
+				state += " (process gone)"
+			}
 			fmt.Fprintf(w, "  [%s] %s: %s, to key %s: %d scanned, %d rewritten, %d failed, %d changed meanwhile (%s), %s\n",
-				s.Family, s.Source, s.State, s.KeyID, s.Total, s.Done, s.Failed, s.Conflicts, reasonCountsOf(s.FailedByReason),
+				s.Family, s.Source, state, s.KeyID, s.Total, s.Done, s.Failed, s.Conflicts, reasonCountsOf(s.FailedByReason),
 				s.UpdatedAt.UTC().Format("2006-01-02 15:04:05Z"))
 		}
 	}

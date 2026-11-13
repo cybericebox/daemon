@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/rs/zerolog/log"
 
@@ -110,7 +114,7 @@ func RunKeysStatus(ctx context.Context, cfg *config.Config, strict bool, out io.
 	for _, p := range stored {
 		rep.Rotation = append(rep.Rotation, secretkeys.RotationState{
 			Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Total: p.Total, Done: p.Done,
-			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt,
+			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt, ProcessGone: p.ProcessGone,
 		})
 	}
 	rep.Write(out)
@@ -122,6 +126,7 @@ var ErrNeedsYes = errors.New("a real run needs --yes (use --dry-run to look firs
 
 // reencrypter is what the command needs of the use case.
 type reencrypter interface {
+	Keys(family string) (sealing string, readOnly []string, err error)
 	Run(ctx context.Context, family string, opts keyrotation.Options) (keyrotation.Report, error)
 }
 
@@ -133,6 +138,22 @@ func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun
 	for i, line := range keyrotation.Preconditions {
 		fmt.Fprintf(out, "  %d. %s\n", i+1, line)
 	}
+	fmt.Fprintln(out)
+	sealing, readOnly, err := uc.Keys(family)
+	if err != nil {
+		return 0, err
+	}
+	fmt.Fprintf(out, "Values will be sealed with key %q.\n", secret.SafeKeyID(sealing))
+	if len(readOnly) == 0 {
+		fmt.Fprintln(out, "No other key is loaded for this family: nothing can be read from an older key.")
+	} else {
+		shown := make([]string, len(readOnly))
+		for i, id := range readOnly {
+			shown[i] = fmt.Sprintf("%q", secret.SafeKeyID(id))
+		}
+		fmt.Fprintf(out, "Read only (never seal): %s.\n", strings.Join(shown, ", "))
+	}
+	fmt.Fprintln(out, "If the sealing key is the OLD one, stop: the new key must be first in the keyring.")
 	fmt.Fprintln(out)
 	if !dryRun && !yes {
 		return 0, ErrNeedsYes
@@ -149,6 +170,12 @@ func reencryptCommand(ctx context.Context, uc reencrypter, family string, dryRun
 		n += s.Conflicts
 	}
 	return n, nil
+}
+
+// signalContext ends the context on SIGINT or SIGTERM, so a Ctrl+C or a stop of the container ends the run as
+// interrupted (the progress row says so) instead of leaving it running.
+func signalContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 }
 
 // RunKeysReencrypt is `daemon keys reencrypt <family> [--dry-run] [--yes]`.
@@ -168,5 +195,7 @@ func RunKeysReencrypt(ctx context.Context, cfg *config.Config, family string, dr
 		keyRotationRepo.FamilyExercise: ciphers.Exercise,
 	}
 	uc := keyrotation.New(keyRotationRepo.New(repo.Pool(), keyrotation.Contexts()), rings)
+	ctx, stop := signalContext(ctx)
+	defer stop()
 	return reencryptCommand(ctx, uc, family, dryRun, yes, out)
 }

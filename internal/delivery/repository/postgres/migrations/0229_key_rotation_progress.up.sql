@@ -4,7 +4,7 @@ CREATE TABLE key_rotation_progress (
     family       text        NOT NULL,
     source       text        NOT NULL,
     key_id       text        NOT NULL,
-    state        text        NOT NULL CHECK (state IN ('running', 'finished', 'interrupted', 'failed')),
+    state        text        NOT NULL CHECK (state IN ('running', 'finished', 'finished_with_failures', 'interrupted', 'failed')),
     total        integer     NOT NULL DEFAULT 0,
     done         integer     NOT NULL DEFAULT 0,
     failed       integer     NOT NULL DEFAULT 0,

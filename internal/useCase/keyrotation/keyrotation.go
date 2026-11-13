@@ -74,6 +74,20 @@ func New(store Store, rings Rings) *UseCase {
 	return &UseCase{store: store, rings: rings, now: time.Now}
 }
 
+// Keys tells which key of the family's keyring will seal and which only read, so an operator sees a wrong ring order
+// (the old key first) before anything is written.
+func (u *UseCase) Keys(family string) (sealing string, readOnly []string, err error) {
+	if len(u.store.Sources(family)) == 0 {
+		return "", nil, fmt.Errorf("%w: %q", ErrUnknownFamily, family)
+	}
+	ring := u.rings[family]
+	if ring == nil {
+		return "", nil, fmt.Errorf("%w: %q", ErrFamilyKeyMissing, family)
+	}
+	ids := ring.KeyIDs()
+	return ids[0], ids[1:], nil
+}
+
 // Report is the outcome of a run over a family.
 type Report struct {
 	Family  string
@@ -136,6 +150,8 @@ func (u *UseCase) Run(ctx context.Context, family string, opts Options) (Report,
 		if !opts.DryRun {
 			state := keyRotationRepo.StateFinished
 			switch {
+			case runErr == nil && (res.Failed > 0 || res.Conflicts > 0):
+				state = keyRotationRepo.StateFinishedWithFailures
 			case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded):
 				state = keyRotationRepo.StateInterrupted
 			case runErr != nil:

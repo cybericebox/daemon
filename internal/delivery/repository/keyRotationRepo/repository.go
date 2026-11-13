@@ -452,10 +452,13 @@ func (r *Repository) Lock(ctx context.Context, family string) (func(), error) {
 
 // State of a source in the progress table.
 const (
-	StateRunning     = "running"
-	StateFinished    = "finished"
-	StateInterrupted = "interrupted"
-	StateFailed      = "failed"
+	StateRunning  = "running"
+	StateFinished = "finished"
+	// StateFinishedWithFailures: the run reached the end but left rows that cannot be opened, or rows that changed
+	// meanwhile and wait for the next run. An old key is not free to go.
+	StateFinishedWithFailures = "finished_with_failures"
+	StateInterrupted          = "interrupted"
+	StateFailed               = "failed"
 )
 
 // SaveProgress writes the counts of a source; it holds no value.
@@ -485,6 +488,9 @@ type StoredProgress struct {
 	Conflicts                    int
 	FailedByReason               map[string]int
 	StartedAt, UpdatedAt         time.Time
+	// ProcessGone: the row says running but no process holds the family lock, so the run died without finishing.
+	// State is then reported as interrupted.
+	ProcessGone bool
 }
 
 // Progress reads the progress table, ordered by family and source.
@@ -507,5 +513,33 @@ FROM key_rotation_progress ORDER BY family, source`)
 		}
 		out = append(out, sp)
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	held := map[string]bool{}
+	for i := range out {
+		if out[i].State != StateRunning {
+			continue
+		}
+		h, known := held[out[i].Family]
+		if !known {
+			if h, err = r.lockHeld(ctx, out[i].Family); err != nil {
+				return nil, err
+			}
+			held[out[i].Family] = h
+		}
+		if !h {
+			out[i].State, out[i].ProcessGone = StateInterrupted, true
+		}
+	}
+	return out, nil
+}
+
+// lockHeld tells whether some session holds the advisory lock of the family, without taking it (taking it for a moment
+// would refuse a run that starts at that moment).
+func (r *Repository) lockHeld(ctx context.Context, family string) (bool, error) {
+	var held bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted
+ AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('cybericebox.key-reencrypt:' || $1, 0))`, family).Scan(&held)
+	return held, err
 }
