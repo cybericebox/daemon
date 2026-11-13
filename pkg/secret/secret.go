@@ -28,6 +28,16 @@ const versionPrefix = "v1:"
 // defaultKeyID names a key given without an id (the single hex key of the old configuration).
 const defaultKeyID = "default"
 
+// The classes of a failed open. Messages carry no value, only the class (and a key id for the first).
+var (
+	// ErrUnknownKey: the key that sealed the value is not in the ring.
+	ErrUnknownKey = errors.New("secret: the key that sealed this value is not in the keyring")
+	// ErrCorrupt: the stored text is not a ciphertext of this package (bad encoding, too short).
+	ErrCorrupt = errors.New("secret: stored value is not a valid ciphertext")
+	// ErrAuth: the key is right or tried, but authentication failed (other context, wrong key, damaged value).
+	ErrAuth = errors.New("secret: authentication failed")
+)
+
 var keyIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,16}$`)
 
 type ringKey struct {
@@ -193,7 +203,7 @@ func (c *Cipher) DecryptWithContext(encoded string, context []byte) ([]byte, err
 				return open(k.key, body, context)
 			}
 		}
-		return nil, fmt.Errorf("secret: the key %q that sealed this value is not in the keyring", id)
+		return nil, fmt.Errorf("%w: %q", ErrUnknownKey, id)
 	}
 	var lastErr error
 	for _, k := range c.keys {
@@ -227,7 +237,7 @@ func newGCM(key [32]byte) (cipher.AEAD, error) {
 func open(key [32]byte, encoded string, context []byte) ([]byte, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, err
+		return nil, ErrCorrupt
 	}
 	gcm, err := newGCM(key)
 	if err != nil {
@@ -235,7 +245,11 @@ func open(key [32]byte, encoded string, context []byte) ([]byte, error) {
 	}
 	ns := gcm.NonceSize()
 	if len(data) < ns+gcm.Overhead() {
-		return nil, errors.New("secret: ciphertext too short")
+		return nil, ErrCorrupt
 	}
-	return gcm.Open(nil, data[:ns], data[ns:], context)
+	plain, err := gcm.Open(nil, data[:ns], data[ns:], context)
+	if err != nil {
+		return nil, ErrAuth
+	}
+	return plain, nil
 }
