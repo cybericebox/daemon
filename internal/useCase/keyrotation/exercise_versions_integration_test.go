@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
@@ -26,19 +27,23 @@ import (
 // docWithoutSecret is a version document that holds no secret env value.
 const docWithoutSecret = `[{"id":"%s","name":"v","topology":{"devices":[{"name":"web","bootstrap":{"env":[{"name":"A","value":"plain","secret":false}]}}]}}]`
 
-// pauseInSwap makes the first exercise swap stop while it holds its locks, and returns what the test needs to drive it.
+// swapPause holds the first exercise swap while it keeps its locks.
 type swapPause struct {
-	locked, release chan struct{}
-	done            chan error
+	locked  <-chan struct{}
+	release func()
+	done    chan error
+	waitFor <-chan struct{}
 }
 
 func (w *world) pauseFirstSwap() *swapPause {
-	p := &swapPause{locked: make(chan struct{}), release: make(chan struct{}), done: make(chan error, 1)}
+	locked, openLocked := w.latch()
+	release, openRelease := w.latch()
+	p := &swapPause{locked: locked, release: openRelease, done: make(chan error, 1), waitFor: release}
 	var once sync.Once
 	w.repo.AfterLock = func() {
 		once.Do(func() {
-			close(p.locked)
-			<-p.release
+			openLocked()
+			w.hookWait(release)
 		})
 	}
 	return p
@@ -46,32 +51,28 @@ func (w *world) pauseFirstSwap() *swapPause {
 
 func (w *world) startPass(p *swapPause) {
 	go func() {
-		_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+		_, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 		p.done <- err
 	}()
-	<-p.locked
+	w.await(p.locked, "the pass to hold its locks")
 }
 
-func (p *swapPause) finish(t *testing.T) {
-	close(p.release)
-	select {
-	case err := <-p.done:
-		require.NoError(t, err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("the pass did not finish")
-	}
+func (p *swapPause) finish(w *world) {
+	w.t.Helper()
+	p.release()
+	require.NoError(w.t, w.recvErr(p.done, "the pass to finish"))
 }
 
 func (w *world) event() uuid.UUID {
 	w.t.Helper()
-	ctx := context.Background()
+	ctx := w.ctx
 	user := userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "keys-test@test.test", w.clock)
 	user.Role = rbac.RoleSuperAdmin
-	_, err := userRepo.New(w.db.Queries).Create(ctx, user)
+	_, err := userRepo.New(w.queries).Create(ctx, user)
 	require.NoError(w.t, err)
 	ev, err := eventModel.NewEvent("keyspin", "Pinned", w.clock, w.clock.Add(time.Hour), user.ID, w.clock)
 	require.NoError(w.t, err)
-	ev, err = eventRepo.New(w.db.Queries).Create(ctx, ev)
+	ev, err = eventRepo.New(w.queries).Create(ctx, ev)
 	require.NoError(w.t, err)
 	return ev.ID
 }
@@ -93,10 +94,10 @@ func TestSwap_LocksDoNotBlockForeignKeyWritersOrVersionsWithoutSecrets(t *testin
 	p := w.pauseFirstSwap()
 	w.startPass(p)
 
-	short, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	short, cancel := context.WithTimeout(w.ctx, 3*time.Second)
 	defer cancel()
 	// pin the exercise to an event: foreign keys to the exercise and to its version take FOR KEY SHARE
-	_, err := w.db.Queries.CreateEventExercise(short, postgres.CreateEventExerciseParams{
+	_, err := w.queries.CreateEventExercise(short, postgres.CreateEventExerciseParams{
 		ID: uuid.Must(uuid.NewV7()), EventID: eventID, ExerciseID: id(850), ExerciseVersionID: id(21), Revision: 1, CreatedAt: w.clock,
 	})
 	require.NoError(t, err, "a pin to an event must not wait for the swap")
@@ -120,7 +121,7 @@ func TestSwap_LocksDoNotBlockForeignKeyWritersOrVersionsWithoutSecrets(t *testin
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "55P03", pgErr.Code, "a save of the exercise must wait for the swap (lock not available)")
 
-	p.finish(t)
+	p.finish(w)
 }
 
 // 3. the race: a copy of the published version into the draft is made by a single statement that started before the pass
@@ -138,44 +139,39 @@ func TestRun_DraftCopiedFromStaleReadEndsEqual(t *testing.T) {
 
 	p := w.pauseFirstSwap()
 	restored := make(chan error, 1)
-	copyCommitted := make(chan struct{})
+	copyCommitted, openCopyCommitted := w.latch()
 	var seenStatus, seenDraft string
 	reads := 0
 	store := hooked{Store: w.repo, beforeRows: func(string) {
 		reads++
 		if reads == 2 { // the closing read: the published row is rotated, the copy has not been checked yet
-			<-copyCommitted
+			w.hookWait(copyCommitted)
 			seenStatus, seenDraft = w.exerciseStatus(), w.variants(22)
 		}
 	}}
 	go func() {
-		_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+		_, err := w.usecase(store).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 		p.done <- err
 	}()
-	<-p.locked
+	w.await(p.locked, "the pass to hold its locks")
 
 	// RestoreVersionPreservingDraft copies the published version into the draft; it blocks on the exercise lock.
 	go func() {
-		_, err := w.db.Queries.RestoreVersionPreservingDraft(context.Background(), postgres.RestoreVersionPreservingDraftParams{
+		_, err := w.queries.RestoreVersionPreservingDraft(w.ctx, postgres.RestoreVersionPreservingDraftParams{
 			ExerciseID: id(850), SourceID: id(21), CheckpointID: id(30), CreatedAt: w.clock,
 		})
 		restored <- err
 	}()
 	require.Eventually(t, func() bool {
 		var blocked bool
-		require.NoError(t, w.pool.QueryRow(context.Background(),
-			`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%locked_draft%' AND cardinality(pg_blocking_pids(pid)) > 0)`).Scan(&blocked))
-		return blocked
+		err := w.pool.QueryRow(w.ctx,
+			`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%locked_draft%' AND cardinality(pg_blocking_pids(pid)) > 0)`).Scan(&blocked)
+		return err == nil && blocked
 	}, 10*time.Second, 5*time.Millisecond, "the copy must be waiting for the swap's lock")
-	close(p.release)
-	require.NoError(t, <-restored)
-	close(copyCommitted)
-	select {
-	case err := <-p.done:
-		require.NoError(t, err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("the pass did not finish")
-	}
+	p.release()
+	require.NoError(t, w.recvErr(restored, "the copy statement"))
+	openCopyCommitted()
+	require.NoError(t, w.recvErr(p.done, "the pass to finish"))
 
 	require.Equal(t, "changed", seenStatus, "the race happened: the stale copy differs in bytes from the rotated published version")
 	require.Contains(t, seenDraft, ":k1:", "the draft holds the old ciphertext that was copied from the stale read")
@@ -191,12 +187,12 @@ func TestRun_EditedSecretIsNotReusedFromAnotherVersion(t *testing.T) {
 	published := w.seal(w.oldC, "published-value", w.ctxs.ExerciseEnv(vid, "web", "A"))
 	edited := w.seal(w.oldC, "edited-value", w.ctxs.ExerciseEnv(vid, "web", "A"))
 	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", published), 22: fmt.Sprintf(pairDoc, vid, "v", edited)}, 21, 22)
-	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	_, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "changed", w.exerciseStatus())
 	secretOf := func(n int) string {
 		var out string
-		require.NoError(t, w.pool.QueryRow(context.Background(),
+		require.NoError(t, w.pool.QueryRow(w.ctx,
 			`SELECT variants #>> '{0,topology,devices,0,bootstrap,env,0,value}' FROM exercise_versions WHERE id = $1`, id(n)).Scan(&out))
 		return out
 	}
@@ -222,7 +218,7 @@ func TestRun_FailedSiblingIsPartlyRotatedAndTheBadValueIsNeverChanged(t *testing
 		22: fmt.Sprintf(two, vid, shared, bad),
 	}, 21, 22)
 
-	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, 1, rep.Failed())
 	var failed secret.Failed
@@ -264,7 +260,7 @@ func TestRun_EqualBytesUnderAnotherContextAreNeverTouched(t *testing.T) {
 	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 23: onlyOthers}, 21, 21)
 	before := w.variants(23)
 
-	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, before, w.variants(23), "values under another context are byte for byte as they were")
 	require.Contains(t, w.variants(23), ct)
@@ -280,7 +276,7 @@ func TestRun_EqualBytesUnderAnotherContextAreNeverTouched(t *testing.T) {
 func firstSecret(t *testing.T, w *world, n int) string {
 	t.Helper()
 	var out string
-	require.NoError(t, w.pool.QueryRow(context.Background(),
+	require.NoError(t, w.pool.QueryRow(w.ctx,
 		`SELECT variants #>> '{0,topology,devices,0,bootstrap,env,0,value}' FROM exercise_versions WHERE id = $1`, id(n)).Scan(&out))
 	return out
 }
@@ -293,7 +289,7 @@ func TestRun_StaleBatchRowIsRecognisedAndARealEditStillWins(t *testing.T) {
 	vid := id(7)
 	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
 	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
-	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 100})
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 100})
 	require.NoError(t, err)
 	for _, s := range rep.Sources {
 		require.Zero(t, s.Conflicts)
@@ -311,8 +307,82 @@ func TestRun_StaleBatchRowIsRecognisedAndARealEditStillWins(t *testing.T) {
 			w2.exec(`UPDATE exercise_versions SET variants = jsonb_set(variants, '{0,topology,devices,0,bootstrap,env,0,value}', to_jsonb($2::text)) WHERE id = $1`, id(22), edited)
 		}
 	}}
-	rep, err = w2.usecase(store).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 100})
+	rep, err = w2.usecase(store).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 100})
 	require.NoError(t, err)
 	require.Equal(t, 1, rep.Sources[0].Conflicts, "an edit that is not the swap's own write is a conflict")
 	require.Equal(t, edited, firstSecret(t, w2, 22), "the edit survives")
+}
+
+// (b) The pass cannot be one side of a wait cycle and cannot block an application writer for long. It waits at most for the
+// exercise row, bounded, holding nothing; the version rows are taken NOWAIT. Both refusals make the row a conflict for the
+// next run, quickly, and the application writer is never held up by the pass afterwards.
+func TestSwap_AnApplicationWriterHoldingTheExerciseRowTimesOutTheSwapAsAConflict(t *testing.T) {
+	w := newWorld(t)
+	vid := id(7)
+	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
+	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
+	before := w.variants(21)
+	w.repo.LockTimeout = 300 * time.Millisecond
+
+	// an application save holds the exercise row (SaveDraft's first lock)
+	app, err := w.pool.Begin(w.ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = app.Rollback(context.WithoutCancel(w.ctx)) })
+	_, err = app.Exec(w.ctx, `SELECT id FROM exercises WHERE id = $1 FOR UPDATE`, id(850))
+	require.NoError(t, err)
+
+	started := time.Now()
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Less(t, time.Since(started), 10*time.Second, "the swap gave up at its lock timeout instead of waiting for ever")
+	require.Equal(t, 2, rep.Sources[0].Conflicts, "both rows are conflicts for the next run")
+	require.Zero(t, rep.Sources[0].Failed)
+	require.Equal(t, before, w.variants(21), "nothing was written")
+
+	require.NoError(t, app.Rollback(w.ctx))
+	rep, err = w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Zero(t, rep.Sources[0].Conflicts)
+	require.NotContains(t, w.variants(21), ":k1:", "the next run takes the rows")
+}
+
+func TestSwap_AVersionRowHeldByAnApplicationWriterIsAConflictAtOnceAndNoCycleForms(t *testing.T) {
+	w := newWorld(t)
+	vid := id(7)
+	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
+	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
+	w.repo.LockTimeout = 30 * time.Second // proves it is NOWAIT that ends the wait, not the timeout
+
+	// an application writer that takes a version row first and the exercise row second (the opposite order of a save)
+	app, err := w.pool.Begin(w.ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = app.Rollback(context.WithoutCancel(w.ctx)) })
+	_, err = app.Exec(w.ctx, `UPDATE exercise_versions SET admin_note = 'busy' WHERE id = $1`, id(21))
+	require.NoError(t, err)
+
+	started := time.Now()
+	rep, err := w.usecase(w.repo).Run(w.ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Less(t, time.Since(started), 5*time.Second, "a version held by a writer is refused at once (NOWAIT), not waited for")
+	require.Positive(t, rep.Sources[0].Conflicts)
+
+	// the writer now takes the exercise row: nothing of the pass holds it, so no cycle can have formed
+	_, err = app.Exec(w.ctx, `SET LOCAL lock_timeout = '2s'`)
+	require.NoError(t, err)
+	_, err = app.Exec(w.ctx, `SELECT id FROM exercises WHERE id = $1 FOR UPDATE`, id(850))
+	require.NoError(t, err, "the pass must not hold the exercise row after it gave up")
+	require.NoError(t, app.Commit(w.ctx))
+}
+
+// A pool that cannot hold a run is refused with a clear error, instead of the run waiting for a connection that its own
+// lock holds.
+func TestLock_RefusesAPoolThatCannotHoldARun(t *testing.T) {
+	w := newWorld(t)
+	cfg := w.db.Pool.Config().Copy()
+	cfg.MaxConns = 2
+	small, err := pgxpool.NewWithConfig(w.ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(small.Close)
+	_, err = keyRotationRepo.New(small, w.ctxs).Lock(w.ctx, keyRotationRepo.FamilyPlatform)
+	require.ErrorIs(t, err, keyRotationRepo.ErrPoolTooSmall)
 }

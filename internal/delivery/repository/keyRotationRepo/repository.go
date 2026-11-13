@@ -14,10 +14,17 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cybericebox/daemon/pkg/secret"
 )
+
+// MinPoolConns is the number of connections a run needs: the family lock, a swap transaction and a progress write.
+const MinPoolConns = 3
+
+// ErrPoolTooSmall: the connection pool cannot hold a run.
+var ErrPoolTooSmall = errors.New("connection pool too small")
 
 // The key families, the same names as in the keys status report.
 const (
@@ -42,6 +49,9 @@ type Contexts struct {
 type Repository struct {
 	pool *pgxpool.Pool
 	ctxs Contexts
+	// LockTimeout bounds how long a swap waits for the exercise row, which an application writer may hold; a timeout is
+	// a conflict for that row (the next run retries it), never a wait without end. Five seconds when zero.
+	LockTimeout time.Duration
 	// AfterLock is a test seam: it runs inside the exercise swap while its locks are held, before anything is written.
 	AfterLock func()
 }
@@ -127,7 +137,7 @@ func (r *Repository) allSources() []secret.Source {
 				}
 				return secret.Row{ID: id.String(), Items: []secret.Item{{Ciphertext: ct, Context: c.VPN(userID, scope, ref)}}}, nil
 			}),
-		&exerciseVersions{pool: p, env: c.ExerciseEnv, afterLock: r.AfterLock},
+		&exerciseVersions{pool: p, env: c.ExerciseEnv, afterLock: r.AfterLock, lockTimeout: r.LockTimeout},
 	}
 }
 
@@ -183,7 +193,17 @@ type exerciseVersions struct {
 	written map[string]string
 	partly  map[string]bool // versions that received a shared value from the swap of a sibling
 
-	afterLock func() // test seam: runs while the locks are held, before anything is written
+	afterLock   func()        // test seam: runs while the locks are held, before anything is written
+	lockTimeout time.Duration // wait for the exercise row; zero means defaultLockTimeout
+}
+
+const defaultLockTimeout = 5 * time.Second
+
+// lockConflict tells a failed lock (a timeout, a refused NOWAIT, a deadlock the server resolved against us) from a real
+// error: the row is a conflict for this run and the next run tries it again.
+func lockConflict(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && (pg.Code == "55P03" || pg.Code == "40P01")
 }
 
 func (s *exerciseVersions) Family() string { return FamilyExercise }
@@ -292,18 +312,31 @@ func (s *exerciseVersions) swap(ctx context.Context, id string, oldValues, newVa
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	// The only place the swap waits is the exercise row, while it holds no other lock, with a bound. The version rows are
+	// taken with NOWAIT: a version held by an application writer makes this row a conflict at once. So the swap can never
+	// be one side of a wait cycle, and never blocks an application writer for longer than its own short transaction.
+	timeout := s.lockTimeout
+	if timeout <= 0 {
+		timeout = defaultLockTimeout
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = '%dms'`, timeout.Milliseconds())); err != nil {
+		return false, err
+	}
 	var exerciseID uuid.UUID
 	if err = tx.QueryRow(ctx, `SELECT e.id FROM exercises e JOIN exercise_versions v ON v.exercise_id = e.id
 WHERE v.id = $1::uuid FOR NO KEY UPDATE OF e`, id).Scan(&exerciseID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || lockConflict(err) {
 			return false, nil
 		}
 		return false, err
 	}
 	rows, err := tx.Query(ctx, `SELECT id, variants FROM exercise_versions WHERE exercise_id = $1
 AND jsonb_path_exists(variants, '$[*].topology.devices[*].bootstrap.env[*] ? (@.secret == true)')
-ORDER BY id FOR NO KEY UPDATE`, exerciseID)
+ORDER BY id FOR NO KEY UPDATE NOWAIT`, exerciseID)
 	if err != nil {
+		if lockConflict(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	var versions []versionRow
@@ -317,6 +350,9 @@ ORDER BY id FOR NO KEY UPDATE`, exerciseID)
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
+		if lockConflict(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	if s.afterLock != nil {
@@ -495,6 +531,11 @@ func str(v any) string { s, _ := v.(string); return s }
 // Lock takes the advisory lock of a family on its own connection, so one run per family goes at a time across
 // every daemon process. It returns ErrAlreadyRunning when the family is taken.
 func (r *Repository) Lock(ctx context.Context, family string) (func(), error) {
+	// The run keeps this connection for its whole length and needs at least two more (a swap transaction, the progress
+	// write): a smaller pool would wait for itself forever.
+	if max := r.pool.Config().MaxConns; max < MinPoolConns {
+		return nil, fmt.Errorf("%w: the pool holds %d connection(s), re-encryption needs %d", ErrPoolTooSmall, max, MinPoolConns)
+	}
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
