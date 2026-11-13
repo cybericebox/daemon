@@ -316,12 +316,17 @@ type LabNeeds struct {
 	MaxFileBytes      int
 	MaxBootstrapBytes int
 	MaxBootstrapLimit int
+	// Gateways is the number of gateways (VPN and Internet) of the lab.
+	Gateways int
 }
 
 // NeedsOf measures the topology (with its resolved bootstraps) and the checks.
 func NeedsOf(t Topology, checks []LabCheck) LabNeeds {
 	var n LabNeeds
 	for _, d := range t.Devices {
+		if d.Type.IsGateway() {
+			n.Gateways++
+		}
 		if d.HasAccess(AccessTerminal) && d.IsNode() {
 			n.Terminal = true
 		}

@@ -24,17 +24,18 @@ type (
 	}
 	labSpec struct {
 		Lifecycle   *labInitialLifecycle `json:"lifecycle,omitempty"`
-		VPN         labNetwork           `json:"vpn,omitempty"`
-		Internet    labNetwork           `json:"internet,omitempty"`
+		Gateways    []labGateway         `json:"gateways,omitempty"`
 		Devices     []labDevice          `json:"devices,omitempty"`
 		Connections []labConnection      `json:"connections,omitempty"`
 	}
 
-	labNetwork struct {
-		Enabled    bool     `json:"enabled,omitempty"`
+	// labGateway is one entry of spec.gateways: a VPN entry or an Internet exit, named like the gateway device of the task.
+	labGateway struct {
+		Name       string   `json:"name"`
+		Kind       string   `json:"kind"` // "vpn" or "internet"
 		DHCPServer *labDHCP `json:"dhcpServer,omitempty"`
-		// ReverseConnections (the VPN only; sent only to an agent that enforces the block) lets the lab start connections
-		// to the VPN clients. Absent = blocked.
+		// ReverseConnections (a VPN gateway only; sent only to an agent that enforces the block) lets the lab start
+		// connections to the VPN clients through this gateway. Absent = blocked.
 		ReverseConnections bool `json:"reverseConnections,omitempty"`
 	}
 
@@ -118,12 +119,12 @@ type (
 	}
 
 	labNetworkIPRef struct {
-		Network string `json:"network"`
+		Gateway string `json:"gateway"`
 		Host    int32  `json:"host"`
 	}
 
 	labNetworkSubnetRef struct {
-		Network string `json:"network"`
+		Gateway string `json:"gateway"`
 	}
 
 	labResources struct {
@@ -143,13 +144,6 @@ type (
 	}
 )
 
-// Reserved endpoint device names the operator interprets as the lab's VPN and
-// internet gateways (lab_controller/connection_reconciler match these literals).
-const (
-	reservedDeviceVPN      = "vpn"
-	reservedDeviceInternet = "internet"
-)
-
 // LabBuild is everything one lab is created with: the spec and the secret material that travels beside it. The agent
 // takes the environment, the bootstrap lists and the checks only as Secrets, so none of them appears in the spec.
 type LabBuild struct {
@@ -158,8 +152,8 @@ type LabBuild struct {
 	Bootstrap []*labpb.DeviceBootstrap
 	// Checks is nil when the lab has none.
 	Checks *labpb.LabChecks
-	// VPNReverseSent: the key that allows connections from the lab to the VPN clients is in the spec.
-	VPNReverseSent bool
+	// ReverseSent names the VPN gateways whose spec carries the key that allows connections from the lab to the VPN clients.
+	ReverseSent map[string]bool
 }
 
 // BuildLabSpec translates a variant's domain Topology into the laboratory Lab
@@ -186,11 +180,7 @@ func BuildLab(t exerciseModel.Topology, checks []exerciseModel.LabCheck) (LabBui
 // exercise asks for it and the VPN is on: an older agent rejects the key and allows everything anyway, and a capable agent
 // blocks by default.
 func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enforcesVPNReverse bool) (LabBuild, error) {
-	spec := labSpec{
-		VPN:      buildNetwork(t.VPN),
-		Internet: buildNetwork(t.Internet),
-	}
-	spec.VPN.ReverseConnections = enforcesVPNReverse && t.VPN.Enabled && t.VPN.ReverseConnections
+	var spec labSpec
 	var build LabBuild
 
 	nameByID := make(map[string]string, len(t.Devices))
@@ -198,6 +188,17 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 	for i, d := range t.Devices {
 		labName := labNames[i]
 		nameByID[d.ID.String()] = labName
+		if d.Type.IsGateway() {
+			gateway := buildGateway(d, enforcesVPNReverse)
+			spec.Gateways = append(spec.Gateways, gateway)
+			if gateway.ReverseConnections {
+				if build.ReverseSent == nil {
+					build.ReverseSent = map[string]bool{}
+				}
+				build.ReverseSent[gateway.Name] = true
+			}
+			continue
+		}
 		device, err := withRuntime(buildDevice(d, labName), d)
 		if err != nil {
 			return LabBuild{}, err
@@ -224,7 +225,6 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 			return LabBuild{}, checksErr
 		}
 	}
-	build.VPNReverseSent = spec.VPN.ReverseConnections
 
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
@@ -234,11 +234,18 @@ func BuildLabFor(t exerciseModel.Topology, checks []exerciseModel.LabCheck, enfo
 	return build, nil
 }
 
-func buildNetwork(n exerciseModel.NetworkSpec) labNetwork {
-	out := labNetwork{Enabled: n.Enabled}
-	if n.Enabled && n.DHCP {
-		out.DHCPServer = &labDHCP{Enabled: true, DNS: n.DNS}
-		for _, r := range n.DHCPRanges {
+// buildGateway maps a gateway device to its entry of spec.gateways. The key that allows connections from the lab to the VPN
+// clients is sent only when the exercise asks for it on this VPN gateway and the agent is known to enforce the block (an older
+// agent rejects the key and allows everything anyway, and a capable agent blocks by default).
+func buildGateway(d exerciseModel.Device, enforcesVPNReverse bool) labGateway {
+	out := labGateway{Name: d.Name, Kind: "internet"}
+	if d.Type == exerciseModel.DeviceTypeVPNGateway {
+		out.Kind = "vpn"
+		out.ReverseConnections = enforcesVPNReverse && d.ReverseConnections
+	}
+	if d.DHCP {
+		out.DHCPServer = &labDHCP{Enabled: true, DNS: d.DNS}
+		for _, r := range d.DHCPRanges {
 			out.DHCPServer.Ranges = append(out.DHCPServer.Ranges, labRange{Start: r.Start, End: r.End})
 		}
 	}
@@ -335,28 +342,20 @@ func buildNetworkIPRef(ref *exerciseModel.NetworkIPRef) *labNetworkIPRef {
 	if ref == nil {
 		return nil
 	}
-	return &labNetworkIPRef{Network: ref.Network, Host: ref.Host}
+	return &labNetworkIPRef{Gateway: ref.Gateway, Host: ref.Host}
 }
 
 func buildNetworkSubnetRef(ref *exerciseModel.NetworkSubnetRef) *labNetworkSubnetRef {
 	if ref == nil {
 		return nil
 	}
-	return &labNetworkSubnetRef{Network: ref.Network}
+	return &labNetworkSubnetRef{Gateway: ref.Gateway}
 }
 
-// buildEndpoint resolves a domain endpoint to the operator's {device, interface}
-// form. VPN/internet endpoints become the reserved gateway device names; a
-// device endpoint resolves its UUID to the device's name.
+// buildEndpoint resolves a domain endpoint to the operator's {device, interface} form: the UUID of the device (a gateway
+// included, which the lab addresses by its name and its one port eth0) becomes the device's name in the lab.
 func buildEndpoint(ep exerciseModel.Endpoint, nameByID map[string]string) labEndpoint {
-	switch ep.Kind {
-	case exerciseModel.EndpointVPN:
-		return labEndpoint{Device: reservedDeviceVPN, Interface: ep.Interface}
-	case exerciseModel.EndpointInternet:
-		return labEndpoint{Device: reservedDeviceInternet, Interface: ep.Interface}
-	default:
-		return labEndpoint{Device: nameByID[ep.DeviceID.String()], Interface: ep.Interface}
-	}
+	return labEndpoint{Device: nameByID[ep.DeviceID.String()], Interface: ep.Interface}
 }
 
 // buildDeviceEnv collects a device's environment (the bootstrap.env of the resolved topology, substitutions made)

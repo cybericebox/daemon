@@ -152,7 +152,7 @@ func TestSaveDraft_NewLinkedVariantInheritsNewBaseTask(t *testing.T) {
 	s := newLinkedSave(t, nil)
 	base := saveVariant(saveBaseID, "Нове", "", "", "")
 	base.Tasks = append(base.Tasks, exerciseModel.Task{Name: "Друге", Difficulty: exerciseModel.DifficultyEasy,
-		Placeholders: []exerciseModel.Placeholder{{Kind: exerciseModel.PlaceholderVPNSubnet}}})
+		Placeholders: []exerciseModel.Placeholder{{Kind: exerciseModel.PlaceholderGatewaySubnet, Gateway: "vpn"}}})
 	linked := linkTo(exerciseModel.Variant{ID: saveLinkedID}, saveBaseID)
 
 	written := s.save(t, exercise.SaveDraftInput{Variants: []exerciseModel.Variant{base, linked}})

@@ -534,7 +534,7 @@ func TestDeployVariantTest_WithVPNCreatesNoClientButTheAuthors(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	topo := exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}, Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}
+	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}, {ID: uuid.Must(uuid.NewV7()), Name: "attack", Type: exerciseModel.DeviceTypeVPNGateway}}}
 	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: topo}})
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
@@ -546,8 +546,8 @@ func TestDeployVariantTest_WithVPNCreatesNoClientButTheAuthors(t *testing.T) {
 		t.Fatal(err)
 	}
 	author := labBindingModel.ParticipantClientName(ownerID)
-	if !infra.deployedTopo.VPN.Enabled || infra.ensured != 1 || infra.client != author {
-		t.Fatalf("a VPN deploy asks for exactly the author's client: vpn=%v %q x%d", infra.deployedTopo.VPN.Enabled, infra.client, infra.ensured)
+	if !infra.deployedTopo.HasGateway(exerciseModel.DeviceTypeVPNGateway) || infra.ensured != 1 || infra.client != author {
+		t.Fatalf("a VPN deploy asks for exactly the author's client: vpn=%v %q x%d", infra.deployedTopo.HasGateway(exerciseModel.DeviceTypeVPNGateway), infra.client, infra.ensured)
 	}
 	for _, c := range infra.deletedClients {
 		if !strings.HasSuffix(c, "/"+author) {

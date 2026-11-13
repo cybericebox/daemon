@@ -439,7 +439,7 @@ func requireSingleValueWithoutDelivery(task Task, delivered map[string]struct{})
 // such an exercise needs an event that allows infrastructure.
 func HasInfrastructure(variants []Variant) bool {
 	for _, variant := range variants {
-		if len(variant.Topology.Devices) > 0 {
+		if variant.Topology.HasLab() {
 			return true
 		}
 	}

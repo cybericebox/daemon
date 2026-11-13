@@ -56,10 +56,23 @@ var (
 	ErrRuntimeDeviceUnresolved = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
 					WithMessage("The device of a resolved bootstrap is not in the topology").
 					WithDetailCode(10)
-	// ErrVPNOptionInvalid: reverse_connections is set without vpn.enabled, or on the internet gateway; field names it.
+	// ErrVPNOptionInvalid: reverse_connections is set on a device that is not a VPN gateway; device and field name it.
 	ErrVPNOptionInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
-				WithMessage("Reverse connections need the VPN network switched on and cannot be set on the Internet gateway").
+				WithMessage("Reverse connections can only be set on a VPN gateway").
 				WithDetailCode(20)
+	// ErrGatewayLimit: the variant has more gateways (VPN and Internet together) than a lab may have; device is the first one
+	// over the limit, limit the most allowed (the capabilities response gives it as MaxLabGateways).
+	ErrGatewayLimit = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+			WithMessage("The lab has more gateways than allowed").
+			WithDetailCode(22)
+	// ErrGatewayOneNetwork: two gateways are connected to the same network; device and other_device name them.
+	ErrGatewayOneNetwork = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("A network can have only one gateway").
+				WithDetailCode(23)
+	// ErrGatewayDeviceInvalid: a gateway carries something only a node has (an image, interfaces, access, a bootstrap...).
+	ErrGatewayDeviceInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseDocumentObjectCode).
+				WithMessage("A gateway has only its own settings: DHCP, DNS and reverse connections").
+				WithDetailCode(24)
 	// ErrServiceUserUnknown: a device is started through the launcher (a bootstrap list, a command or arguments) and the
 	// platform does not know which user its image declares: an image by reference to an external registry, or a platform
 	// image uploaded before its configuration was kept. device and variant name the place, field is "image".

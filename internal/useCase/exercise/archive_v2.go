@@ -149,12 +149,10 @@ type (
 	}
 
 	archiveTopologyV2 struct {
-		Variables    []archiveVariableV2       `json:"variables,omitempty"`
-		VPN          exerciseModel.NetworkSpec `json:"vpn"`
-		Internet     exerciseModel.NetworkSpec `json:"internet"`
-		Devices      []archiveDeviceV2         `json:"devices,omitempty"`
-		Connections  []archiveConnectionV2     `json:"connections,omitempty"`
-		VisualRender json.RawMessage           `json:"visual_render,omitempty"`
+		Variables    []archiveVariableV2   `json:"variables,omitempty"`
+		Devices      []archiveDeviceV2     `json:"devices,omitempty"`
+		Connections  []archiveConnectionV2 `json:"connections,omitempty"`
+		VisualRender json.RawMessage       `json:"visual_render,omitempty"`
 	}
 
 	archiveDeviceV2 struct {
@@ -174,6 +172,11 @@ type (
 		Access         []exerciseModel.Access           `json:"access,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
 		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
+		// The settings of a gateway (vpn_gateway, internet_gateway).
+		DHCP               bool                      `json:"dhcp,omitempty"`
+		DHCPRanges         []exerciseModel.DHCPRange `json:"dhcp_ranges,omitempty"`
+		DNS                string                    `json:"dns,omitempty"`
+		ReverseConnections bool                      `json:"reverse_connections,omitempty"`
 	}
 
 	// archiveEnvVarV2 is a bootstrap env var as the document writes it (the server-side origin of a secret is not).
@@ -923,8 +926,6 @@ func (t archiveTopologyV2) toDomain(
 	links *archiveLinks,
 ) (exerciseModel.Topology, map[string]uuid.UUID, error) {
 	topology := exerciseModel.Topology{
-		VPN:          t.VPN,
-		Internet:     t.Internet,
 		VisualRender: absentIfNull(t.VisualRender),
 	}
 	for _, variable := range t.Variables {
@@ -1004,6 +1005,8 @@ func (t archiveTopologyV2) toDomain(
 			Access:         device.Access,
 			Persistence:    device.Persistence,
 			WaitReadyFile:  device.WaitReadyFile,
+
+			DHCP: device.DHCP, DHCPRanges: device.DHCPRanges, DNS: device.DNS, ReverseConnections: device.ReverseConnections,
 		}
 		domainDevice.Normalize() // the former type container is a node with the container profile
 		topology.Devices = append(topology.Devices, domainDevice)
@@ -1068,8 +1071,6 @@ func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseMode
 func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, imagePaths map[string]string) archiveVariantV2 {
 	refs := newDeviceRefs(variant.Topology.Devices)
 	topology := archiveTopologyV2{
-		VPN:          variant.Topology.VPN,
-		Internet:     variant.Topology.Internet,
 		VisualRender: variant.Topology.VisualRender,
 	}
 	for _, variable := range variant.Topology.Variables {
@@ -1105,6 +1106,8 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 			Access:        device.Access,
 			Persistence:   device.Persistence,
 			WaitReadyFile: device.WaitReadyFile,
+
+			DHCP: device.DHCP, DHCPRanges: device.DHCPRanges, DNS: device.DNS, ReverseConnections: device.ReverseConnections,
 		}
 		topology.Devices = append(topology.Devices, exported)
 	}

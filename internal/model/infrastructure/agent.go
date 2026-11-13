@@ -226,9 +226,11 @@ func (f AgentFeatures) ServesAccess(kind string) bool {
 	return false
 }
 
-// VPNFeature says the agent enforces the block of connections the lab starts to VPN clients and accepts spec.vpn.reverseConnections.
+// VPNFeature says the agent enforces the block of connections the lab starts to VPN clients and accepts the reverseConnections
+// switch of a VPN gateway, and the most gateways (VPN and Internet together) a lab may have there (0: not reported).
 type VPNFeature struct {
-	ReverseConnections bool `json:"reverse_connections"`
+	ReverseConnections bool  `json:"reverse_connections"`
+	MaxGateways        int32 `json:"max_gateways"`
 }
 
 // EnforcesVPNReverse says the agent has reported that it enforces the block (and so accepts the key).
@@ -253,6 +255,9 @@ func (f AgentFeatures) RequireLabOptions(n exerciseModel.LabNeeds) error {
 		if at != nil {
 			where = at
 		}
+	}
+	if f.VPN != nil {
+		over("gateways", n.Gateways, f.VPN.MaxGateways)
 	}
 	if n.Terminal && !f.ServesAccess("terminal") {
 		refused = append(refused, "terminal")
@@ -468,12 +473,14 @@ type LabMeta struct {
 	AgentEnforcesVPNReverse bool
 }
 
-// Labels of a lab that has a VPN. LabelVPNReverse: "1" when its exercise allows lab-initiated connections to the VPN clients,
-// "0" when it does not. LabelVPNReverseSent: "1" when the key that allows them was really requested from the laboratory, "0"
-// when it was not (the default of the laboratory then applies). The status is derived from what was requested.
+// Labels of a lab with VPN gateways, one pair per VPN gateway: the prefix plus the gateway's name (a DNS label of at most 35
+// characters, so the key stays inside the 63 of a label name). LabelVPNReversePrefix: "1" when its exercise allows lab-initiated
+// connections to the VPN clients through that gateway, "0" when it does not. LabelVPNReverseSentPrefix: "1" when the key that
+// allows them was really requested from the laboratory, "0" when it was not (the default of the laboratory then applies). The
+// state of each gateway is derived from what was requested.
 const (
-	LabelVPNReverse     = "cybericebox.com/vpn-reverse"
-	LabelVPNReverseSent = "cybericebox.com/vpn-reverse-sent"
+	LabelVPNReversePrefix     = "cybericebox.com/vpn-reverse."
+	LabelVPNReverseSentPrefix = "cybericebox.com/vpn-reverse-sent."
 )
 
 // ImagePrewarm is the state of one image in the platform image cache.

@@ -121,7 +121,7 @@ var (
 	ErrDeviceAddressRefInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Static address reference is invalid or conflicts with another address").WithDetailCode(44)
 	ErrNetworkDHCPInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("DHCP ranges or internet DNS address are invalid").WithDetailCode(47)
+				WithMessage("DHCP ranges or the DNS address of a gateway are invalid").WithDetailCode(47)
 	ErrDeviceSecurityPresetInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device security preset is invalid").WithDetailCode(34)
 	ErrConnectionArityInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
@@ -149,18 +149,12 @@ var (
 		// value reaches a device only through that device's bootstrap. The gaps are not reusable.
 
 	// ── publish-time graph validation (new specifics, Task 4 review) ──
-	ErrVPNDisabled = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-			WithMessage("VPN is not enabled in this variant's topology").WithDetailCode(29)
-	ErrInternetDisabled = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("Internet is not enabled in this variant's topology").WithDetailCode(30)
-	ErrVPNGatewayInUse = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("VPN gateway is already connected").WithDetailCode(31)
-	ErrInternetGatewayInUse = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("Internet gateway is already connected").WithDetailCode(32)
+	// Detail codes 29-32 (ErrVPNDisabled, ErrInternetDisabled, ErrVPNGatewayInUse, ErrInternetGatewayInUse) are retired:
+	// the VPN and the Internet are gateway devices now; the gaps are not reusable.
 	ErrDeviceNameDuplicate = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Device names must be unique within the topology").WithDetailCode(33)
 	ErrDeviceAddressRefUnreachable = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-					WithMessage("Static address reference must be connected to its gateway network").WithDetailCode(45)
+					WithMessage("Static address reference must be connected to the network of the gateway it names").WithDetailCode(45)
 
 	// ── hints ──
 	ErrHintsInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).

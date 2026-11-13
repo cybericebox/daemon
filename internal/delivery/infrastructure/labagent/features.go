@@ -126,7 +126,7 @@ func vpnFeatureOf(v *labpb.VPNFeature) *infraModel.VPNFeature {
 	if v == nil {
 		return nil
 	}
-	return &infraModel.VPNFeature{ReverseConnections: v.GetReverseConnections()}
+	return &infraModel.VPNFeature{ReverseConnections: v.GetReverseConnections(), MaxGateways: v.GetMaxGateways()}
 }
 
 func accessFeatureOf(a *labpb.AccessFeature) *infraModel.AccessFeature {

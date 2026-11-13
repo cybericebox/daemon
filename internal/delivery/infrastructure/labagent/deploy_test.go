@@ -270,8 +270,7 @@ func TestDeployLabSendsVariantOnceWithLabelsDeployGroupAndAllVariablesAsLabEnv(t
 		},
 	}
 	topo := exerciseModel.Topology{
-		VPN:     exerciseModel.NetworkSpec{Enabled: true},
-		Devices: []exerciseModel.Device{web},
+		Devices: []exerciseModel.Device{web, {ID: uuid.Must(uuid.NewV7()), Name: "attack", Type: exerciseModel.DeviceTypeVPNGateway}},
 	}
 	meta := infraModel.LabMeta{
 		Labels:      map[string]string{infraModel.LabelTask: "task-1", infraModel.LabelTeam: "team-1"},
@@ -308,7 +307,7 @@ func TestDeployLabSendsVariantOnceWithLabelsDeployGroupAndAllVariablesAsLabEnv(t
 
 func TestDeployLabIsIdempotentWhenObjectsExist(t *testing.T) {
 	f := &fakeAgent{groups: readyGroup(), itemState: labpb.ItemState_ITEM_STATE_EXISTS}
-	if err := newClient(f).DeployLab(context.Background(), "event-team", "c-1", infraModel.LabMeta{}, exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}}); err != nil {
+	if err := newClient(f).DeployLab(context.Background(), "event-team", "c-1", infraModel.LabMeta{}, vpnTopology(vpnGateway("attack", false))); err != nil {
 		t.Fatalf("existing objects are the desired state: %v", err)
 	}
 }

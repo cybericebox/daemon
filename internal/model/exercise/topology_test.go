@@ -3,6 +3,7 @@ package exerciseModel_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -24,6 +25,11 @@ func dev(name string, typ exerciseModel.DeviceType, ifaces ...string) exerciseMo
 		}
 	}
 	return d
+}
+
+// gw is a gateway device of the given type (exerciseModel.DeviceTypeVPNGateway or DeviceTypeInternetGateway).
+func gw(name string, typ exerciseModel.DeviceType) exerciseModel.Device {
+	return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: typ}
 }
 
 func TestValidateStructure_TopologyOperatorParity(t *testing.T) {
@@ -66,16 +72,15 @@ func TestValidateStructure_AddressReferences(t *testing.T) {
 		host := dev("host", exerciseModel.DeviceTypeContainer, "eth0")
 		host.Interfaces[0].IP = exerciseModel.IPConfig{
 			Type:       exerciseModel.IPConfigTypeStatic,
-			AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10},
-			GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
+			AddressRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 10},
+			GatewayRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 1},
 			Routes: []exerciseModel.Route{{
-				DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"},
-				ViaRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
+				DstRef: &exerciseModel.NetworkSubnetRef{Gateway: "internet"},
+				ViaRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 1},
 			}},
 		}
 		return exerciseModel.Topology{
-			VPN: exerciseModel.NetworkSpec{Enabled: true}, Internet: exerciseModel.NetworkSpec{Enabled: true},
-			Devices: []exerciseModel.Device{host},
+			Devices: []exerciseModel.Device{host, gw("vpn", exerciseModel.DeviceTypeVPNGateway), gw("internet", exerciseModel.DeviceTypeInternetGateway)},
 		}
 	}
 	for _, tc := range []struct {
@@ -87,21 +92,22 @@ func TestValidateStructure_AddressReferences(t *testing.T) {
 		{"literal plus ref", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.Addresses = []string{"10.0.0.10/24"} }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
 		{"gateway host .1", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.AddressRef.Host = 1 }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
 		{"broadcast host .255", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.AddressRef.Host = 255 }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
-		{"disabled source", func(t *exerciseModel.Topology) { t.VPN.Enabled = false }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
+		{"no such gateway", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.AddressRef.Gateway = "missing" }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
+		{"a node is not a gateway", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.AddressRef.Gateway = "host" }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
 		{"vpn address outside DHCP ranges", func(t *exerciseModel.Topology) {
-			t.VPN.DHCP = true
-			t.VPN.DHCPRanges = []exerciseModel.DHCPRange{{Start: 20, End: 100}}
+			t.Devices[1].DHCP = true
+			t.Devices[1].DHCPRanges = []exerciseModel.DHCPRange{{Start: 20, End: 100}}
 		}, nil},
 		{"internet address with DHCP enabled", func(t *exerciseModel.Topology) {
-			t.Devices[0].Interfaces[0].IP.AddressRef.Network = "internet"
-			t.Internet.DHCP = true
-			t.Internet.DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 9}}
+			t.Devices[0].Interfaces[0].IP.AddressRef.Gateway = "internet"
+			t.Devices[2].DHCP = true
+			t.Devices[2].DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 9}}
 		}, nil},
 		{"vpn address inside DHCP range is a warning only", func(t *exerciseModel.Topology) {
-			t.VPN.DHCP = true
-			t.VPN.DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 10}}
+			t.Devices[1].DHCP = true
+			t.Devices[1].DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 10}}
 		}, nil},
-		{"vpn DHCP needs an explicit range", func(t *exerciseModel.Topology) { t.VPN.DHCP = true }, exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"vpn DHCP needs an explicit range", func(t *exerciseModel.Topology) { t.Devices[1].DHCP = true }, exerciseModel.ErrNetworkDHCPInvalid.Err()},
 		{"nonstatic ref", func(t *exerciseModel.Topology) { t.Devices[0].Interfaces[0].IP.Type = exerciseModel.IPConfigTypeDHCP }, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
 		{"route mixed family", func(t *exerciseModel.Topology) {
 			t.Devices[0].Interfaces[0].IP.Routes[0].DstRef = nil
@@ -110,7 +116,7 @@ func TestValidateStructure_AddressReferences(t *testing.T) {
 		{"duplicate host", func(t *exerciseModel.Topology) {
 			second := dev("second", exerciseModel.DeviceTypeContainer, "eth0")
 			second.Interfaces[0].IP = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic,
-				AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10}}
+				AddressRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 10}}
 			t.Devices = append(t.Devices, second)
 		}, exerciseModel.ErrDeviceAddressRefInvalid.Err()},
 	} {
@@ -127,17 +133,39 @@ func TestValidateStructure_AddressReferences(t *testing.T) {
 }
 
 func TestValidateStructure_DHCPSettings(t *testing.T) {
+	withGateway := func(typ exerciseModel.DeviceType, edit func(*exerciseModel.Device)) exerciseModel.Topology {
+		g := gw("gate", typ)
+		edit(&g)
+		return exerciseModel.Topology{Devices: []exerciseModel.Device{g}}
+	}
+	const vpn, inet = exerciseModel.DeviceTypeVPNGateway, exerciseModel.DeviceTypeInternetGateway
 	for _, tc := range []struct {
 		name string
 		topo exerciseModel.Topology
 		want error
 	}{
-		{"multiple disjoint ranges and DNS", exerciseModel.Topology{Internet: exerciseModel.NetworkSpec{Enabled: true, DHCP: true, DNS: "1.1.1.1", DHCPRanges: []exerciseModel.DHCPRange{{Start: 2, End: 50}, {Start: 100, End: 200}}}}, nil},
-		{"enabled DHCP without range", exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true, DHCP: true}}, exerciseModel.ErrNetworkDHCPInvalid.Err()},
-		{"overlapping ranges", exerciseModel.Topology{Internet: exerciseModel.NetworkSpec{DHCPRanges: []exerciseModel.DHCPRange{{Start: 2, End: 50}, {Start: 50, End: 100}}}}, exerciseModel.ErrNetworkDHCPInvalid.Err()},
-		{"range below host two", exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{DHCPRanges: []exerciseModel.DHCPRange{{Start: 1, End: 20}}}}, exerciseModel.ErrNetworkDHCPInvalid.Err()},
-		{"bad internet DNS", exerciseModel.Topology{Internet: exerciseModel.NetworkSpec{DNS: "not-an-ip"}}, exerciseModel.ErrNetworkDHCPInvalid.Err()},
-		{"VPN DNS forbidden", exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{DNS: "1.1.1.1"}}, exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"multiple disjoint ranges and DNS", withGateway(inet, func(d *exerciseModel.Device) {
+			d.DHCP, d.DNS = true, "1.1.1.1"
+			d.DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 50}, {Start: 100, End: 200}}
+		}), nil},
+		{"enabled DHCP without range", withGateway(vpn, func(d *exerciseModel.Device) { d.DHCP = true }), exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"overlapping ranges", withGateway(inet, func(d *exerciseModel.Device) {
+			d.DHCP = true
+			d.DHCPRanges = []exerciseModel.DHCPRange{{Start: 2, End: 50}, {Start: 50, End: 100}}
+		}), exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"range below host two", withGateway(vpn, func(d *exerciseModel.Device) {
+			d.DHCP = true
+			d.DHCPRanges = []exerciseModel.DHCPRange{{Start: 1, End: 20}}
+		}), exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"bad internet DNS", withGateway(inet, func(d *exerciseModel.Device) { d.DNS = "not-an-ip" }), exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"VPN DNS forbidden", withGateway(vpn, func(d *exerciseModel.Device) { d.DNS = "1.1.1.1" }), exerciseModel.ErrNetworkDHCPInvalid.Err()},
+		{"reverse connections on a vpn gateway", withGateway(vpn, func(d *exerciseModel.Device) { d.ReverseConnections = true }), nil},
+		{"reverse connections on an internet gateway", withGateway(inet, func(d *exerciseModel.Device) { d.ReverseConnections = true }), exerciseModel.ErrVPNOptionInvalid.Err()},
+		{"gateway settings on a node", exerciseModel.Topology{Devices: []exerciseModel.Device{func() exerciseModel.Device {
+			d := dev("web", exerciseModel.DeviceTypeContainer, "eth0")
+			d.DHCP = true
+			return d
+		}()}}, exerciseModel.ErrDeviceTypeInvalid.Err()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(tc.topo)}}
@@ -145,6 +173,61 @@ func TestValidateStructure_DHCPSettings(t *testing.T) {
 				t.Fatalf("validation error = %v; want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidateStructure_GatewayCarriesNothingOfANode(t *testing.T) {
+	for name, edit := range map[string]func(*exerciseModel.Device){
+		"image": func(d *exerciseModel.Device) { d.Image = "img" },
+		"interfaces": func(d *exerciseModel.Device) {
+			d.Interfaces = []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeNone}}}
+		},
+		"access": func(d *exerciseModel.Device) {
+			d.Access = []exerciseModel.Access{{Kind: exerciseModel.AccessHTTP, Port: 80}}
+		},
+		"bootstrap": func(d *exerciseModel.Device) { d.Bootstrap.Script = "true" },
+		"profile":   func(d *exerciseModel.Device) { d.Profile = exerciseModel.NodeProfileContainer },
+		"preset":    func(d *exerciseModel.Device) { d.ResourcePreset = "small" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := gw("gate", exerciseModel.DeviceTypeVPNGateway)
+			edit(&g)
+			version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{g}})}}
+			if err := version.ValidateStructure(); !errors.Is(err, exerciseModel.ErrGatewayDeviceInvalid.Err()) {
+				t.Fatalf("a gateway with %s = %v", name, err)
+			}
+		})
+	}
+}
+
+func TestValidateStructure_GatewayLimit(t *testing.T) {
+	gateways := func(n int) []exerciseModel.Device {
+		out := make([]exerciseModel.Device, n)
+		for i := range out {
+			typ := exerciseModel.DeviceTypeVPNGateway
+			if i%2 == 1 {
+				typ = exerciseModel.DeviceTypeInternetGateway
+			}
+			out[i] = gw(fmt.Sprintf("gate%d", i+1), typ)
+		}
+		return out
+	}
+	if exerciseModel.MaxLabGateways != 10 {
+		t.Fatalf("the rule of the task format is ten gateways, got %d", exerciseModel.MaxLabGateways)
+	}
+	version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: gateways(exerciseModel.MaxLabGateways)})}}
+	if err := version.ValidateStructure(); err != nil {
+		t.Fatalf("ten gateways must pass: %v", err)
+	}
+	version = exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: gateways(exerciseModel.MaxLabGateways + 1)})}}
+	err := version.ValidateStructure()
+	if !errors.Is(err, exerciseModel.ErrGatewayLimit.Err()) {
+		t.Fatalf("eleven gateways = %v", err)
+	}
+	// the public context names the first gateway over the limit, the field and the limit
+	public := publicContext(t, err)
+	if public["device"] != fmt.Sprintf("gate%d", exerciseModel.MaxLabGateways+1) || public["field"] != "devices" || public["limit"] != exerciseModel.MaxLabGateways {
+		t.Fatalf("public context = %v", public)
 	}
 }
 
@@ -185,28 +268,26 @@ func TestValidateStructure_NonContainerDisplayNames(t *testing.T) {
 }
 
 func TestValidateStructure_GatewayEndpointPort(t *testing.T) {
-	for _, kind := range []exerciseModel.EndpointKind{exerciseModel.EndpointVPN, exerciseModel.EndpointInternet} {
+	for _, typ := range []exerciseModel.DeviceType{exerciseModel.DeviceTypeVPNGateway, exerciseModel.DeviceTypeInternetGateway} {
 		for _, tc := range []struct {
 			name, port string
 			wantErr    error
 		}{
-			{"empty", "", exerciseModel.ErrConnectionEndpointsInvalid.Err()},
+			{"empty", "", exerciseModel.ErrEndpointUnresolved.Err()},
 			{"named port", "eth0", nil},
-			{"other port", "eth1", exerciseModel.ErrConnectionEndpointsInvalid.Err()},
+			{"other port", "eth1", exerciseModel.ErrEndpointUnresolved.Err()},
 		} {
-			t.Run(string(kind)+"/"+tc.name, func(t *testing.T) {
+			t.Run(string(typ)+"/"+tc.name, func(t *testing.T) {
 				host := dev("host", exerciseModel.DeviceTypeContainer, "eth0")
+				gate := gw("gate", typ)
 				topo := exerciseModel.Topology{
-					VPN: exerciseModel.NetworkSpec{Enabled: true}, Internet: exerciseModel.NetworkSpec{Enabled: true},
-					Devices: []exerciseModel.Device{host},
-					Connections: []exerciseModel.Connection{conn(
-						exerciseModel.Endpoint{Kind: kind, Interface: tc.port}, devEP(host, "eth0"),
-					)},
+					Devices:     []exerciseModel.Device{host, gate},
+					Connections: []exerciseModel.Connection{conn(devEP(gate, tc.port), devEP(host, "eth0"))},
 				}
 				version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(topo)}}
-				err := version.ValidateStructure()
+				err := version.ValidateForPublish()
 				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("gateway %s port %q: got %v, want %v", kind, tc.port, err, tc.wantErr)
+					t.Fatalf("gateway %s port %q: got %v, want %v", typ, tc.port, err, tc.wantErr)
 				}
 			})
 		}
@@ -275,7 +356,10 @@ func TestValidateForPublish_Graph(t *testing.T) {
 	web := dev("web", exerciseModel.DeviceTypeContainer, "eth0", "eth1")
 	db := dev("db", exerciseModel.DeviceTypeContainer, "eth0")
 	sw1 := dev("sw1", exerciseModel.DeviceTypeUnmanagedSwitch)
-	vpnEP := exerciseModel.Endpoint{Kind: exerciseModel.EndpointVPN, Interface: "eth0"}
+	sw2 := dev("sw2", exerciseModel.DeviceTypeUnmanagedSwitch)
+	vpn := gw("vpn", exerciseModel.DeviceTypeVPNGateway)
+	vpn2 := gw("vpn2", exerciseModel.DeviceTypeVPNGateway)
+	out := gw("out", exerciseModel.DeviceTypeInternetGateway)
 
 	cases := []struct {
 		name    string
@@ -285,19 +369,42 @@ func TestValidateForPublish_Graph(t *testing.T) {
 		{
 			"ok: web-sw-db with vpn",
 			exerciseModel.Topology{
-				VPN:     exerciseModel.NetworkSpec{Enabled: true},
-				Devices: []exerciseModel.Device{web, db, sw1},
+				Devices: []exerciseModel.Device{web, db, sw1, vpn},
 				Connections: []exerciseModel.Connection{
 					conn(devEP(web, "eth0"), devEP(sw1, "GigabitEthernet0/1")),
 					conn(devEP(db, "eth0"), devEP(sw1, "GigabitEthernet0/2")),
-					conn(vpnEP, devEP(sw1, "GigabitEthernet0/3")),
+					conn(devEP(vpn, "eth0"), devEP(sw1, "GigabitEthernet0/3")),
 				},
+			},
+			nil,
+		},
+		{
+			"ok: a vpn and an internet gateway on two networks",
+			exerciseModel.Topology{
+				Devices: []exerciseModel.Device{web, db, vpn, out},
+				Connections: []exerciseModel.Connection{
+					conn(devEP(vpn, "eth0"), devEP(web, "eth0")),
+					conn(devEP(out, "eth0"), devEP(web, "eth1")),
+				},
+			},
+			nil,
+		},
+		{
+			"ok: a lab without any gateway",
+			exerciseModel.Topology{
+				Devices:     []exerciseModel.Device{web, db},
+				Connections: []exerciseModel.Connection{conn(devEP(web, "eth0"), devEP(db, "eth0"))},
 			},
 			nil,
 		},
 		{
 			"duplicate device names",
 			exerciseModel.Topology{Devices: []exerciseModel.Device{web, dev("web", exerciseModel.DeviceTypeContainer, "eth0")}},
+			exerciseModel.ErrDeviceNameDuplicate.Err(),
+		},
+		{
+			"a gateway named like a device",
+			exerciseModel.Topology{Devices: []exerciseModel.Device{web, gw("web", exerciseModel.DeviceTypeVPNGateway)}},
 			exerciseModel.ErrDeviceNameDuplicate.Err(),
 		},
 		{
@@ -315,14 +422,6 @@ func TestValidateForPublish_Graph(t *testing.T) {
 				Connections: []exerciseModel.Connection{conn(devEP(web, "eth9"), devEP(db, "eth0"))},
 			},
 			exerciseModel.ErrEndpointUnresolved.Err(),
-		},
-		{
-			"vpn endpoint while vpn disabled",
-			exerciseModel.Topology{
-				Devices:     []exerciseModel.Device{web},
-				Connections: []exerciseModel.Connection{conn(vpnEP, devEP(web, "eth0"))},
-			},
-			exerciseModel.ErrVPNDisabled.Err(),
 		},
 		{
 			"switch endpoint must name a valid port",
@@ -344,16 +443,57 @@ func TestValidateForPublish_Graph(t *testing.T) {
 			exerciseModel.ErrPortInUse.Err(),
 		},
 		{
-			"two vpn links",
+			"the port of a gateway used twice",
 			exerciseModel.Topology{
-				VPN:     exerciseModel.NetworkSpec{Enabled: true},
-				Devices: []exerciseModel.Device{web, db},
+				Devices: []exerciseModel.Device{web, db, vpn},
 				Connections: []exerciseModel.Connection{
-					conn(vpnEP, devEP(web, "eth0")),
-					conn(vpnEP, devEP(db, "eth0")),
+					conn(devEP(vpn, "eth0"), devEP(web, "eth0")),
+					conn(devEP(vpn, "eth0"), devEP(db, "eth0")),
 				},
 			},
-			exerciseModel.ErrVPNGatewayInUse.Err(),
+			exerciseModel.ErrPortInUse.Err(),
+		},
+		{
+			"two gateways joined directly",
+			exerciseModel.Topology{
+				Devices:     []exerciseModel.Device{vpn, out},
+				Connections: []exerciseModel.Connection{conn(devEP(vpn, "eth0"), devEP(out, "eth0"))},
+			},
+			exerciseModel.ErrGatewayOneNetwork.Err(),
+		},
+		{
+			"two gateways on one switch",
+			exerciseModel.Topology{
+				Devices: []exerciseModel.Device{vpn, out, sw1},
+				Connections: []exerciseModel.Connection{
+					conn(devEP(vpn, "eth0"), devEP(sw1, "GigabitEthernet0/1")),
+					conn(devEP(out, "eth0"), devEP(sw1, "GigabitEthernet0/2")),
+				},
+			},
+			exerciseModel.ErrGatewayOneNetwork.Err(),
+		},
+		{
+			"two gateways on switches chained into one network",
+			exerciseModel.Topology{
+				Devices: []exerciseModel.Device{vpn, vpn2, sw1, sw2},
+				Connections: []exerciseModel.Connection{
+					conn(devEP(vpn, "eth0"), devEP(sw1, "GigabitEthernet0/1")),
+					conn(devEP(sw1, "GigabitEthernet0/2"), devEP(sw2, "GigabitEthernet0/1")),
+					conn(devEP(vpn2, "eth0"), devEP(sw2, "GigabitEthernet0/2")),
+				},
+			},
+			exerciseModel.ErrGatewayOneNetwork.Err(),
+		},
+		{
+			"two gateways on two sides of a router are two networks",
+			exerciseModel.Topology{
+				Devices: []exerciseModel.Device{vpn, vpn2, web},
+				Connections: []exerciseModel.Connection{
+					conn(devEP(vpn, "eth0"), devEP(web, "eth0")),
+					conn(devEP(vpn2, "eth0"), devEP(web, "eth1")),
+				},
+			},
+			nil,
 		},
 	}
 	for _, tc := range cases {
@@ -373,27 +513,26 @@ func TestValidateForPublish_Graph(t *testing.T) {
 func TestValidateForPublish_AddressRefReachability(t *testing.T) {
 	host := dev("host", exerciseModel.DeviceTypeContainer, "eth0")
 	host.Interfaces[0].IP = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic,
-		AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10}}
+		AddressRef: &exerciseModel.NetworkIPRef{Gateway: "vpn", Host: 10}}
 	switchNode := dev("sw", exerciseModel.DeviceTypeUnmanagedSwitch)
-	vpn := exerciseModel.Endpoint{Kind: exerciseModel.EndpointVPN, Interface: "eth0"}
-	internet := exerciseModel.Endpoint{Kind: exerciseModel.EndpointInternet, Interface: "eth0"}
+	vpn := gw("vpn", exerciseModel.DeviceTypeVPNGateway)
+	internet := gw("internet", exerciseModel.DeviceTypeInternetGateway)
 	for _, tc := range []struct {
 		name        string
 		connections []exerciseModel.Connection
 		want        error
 	}{
-		{"direct VPN", []exerciseModel.Connection{conn(devEP(host, "eth0"), vpn)}, nil},
+		{"direct VPN", []exerciseModel.Connection{conn(devEP(host, "eth0"), devEP(vpn, "eth0"))}, nil},
 		{"through switch", []exerciseModel.Connection{
 			conn(devEP(host, "eth0"), devEP(switchNode, "GigabitEthernet0/1")),
-			conn(devEP(switchNode, "GigabitEthernet0/2"), vpn),
+			conn(devEP(switchNode, "GigabitEthernet0/2"), devEP(vpn, "eth0")),
 		}, nil},
-		{"wrong gateway", []exerciseModel.Connection{conn(devEP(host, "eth0"), internet)}, exerciseModel.ErrDeviceAddressRefUnreachable.Err()},
+		{"wrong gateway", []exerciseModel.Connection{conn(devEP(host, "eth0"), devEP(internet, "eth0"))}, exerciseModel.ErrDeviceAddressRefUnreachable.Err()},
 		{"unconnected", nil, exerciseModel.ErrDeviceAddressRefUnreachable.Err()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			topo := exerciseModel.Topology{
-				VPN: exerciseModel.NetworkSpec{Enabled: true}, Internet: exerciseModel.NetworkSpec{Enabled: true},
-				Devices: []exerciseModel.Device{host, switchNode}, Connections: tc.connections,
+				Devices: []exerciseModel.Device{host, switchNode, vpn, internet}, Connections: tc.connections,
 			}
 			variant := publishVariant(topo)
 			version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}

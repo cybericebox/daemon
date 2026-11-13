@@ -3476,11 +3476,16 @@ definitions:
         items:
           $ref: '#/definitions/labview.DeviceResponse'
         type: array
+      Gateways:
+        description: |-
+          Gateways are the VPN entries and Internet exits of the lab with their /24 and state (each VPN gateway has its own
+          reverse-connection state); empty for a lab without any.
+        items:
+          $ref: '#/definitions/labview.GatewayResponse'
+        type: array
       GroupImageWarning:
         type: string
       ImageWarning:
-        type: string
-      InternetCIDR:
         type: string
       Phase:
         type: string
@@ -3490,12 +3495,6 @@ definitions:
         description: Queue is set while the Lab waits in the launch queue (phase Queued).
       Ready:
         type: boolean
-      VPNCIDR:
-        type: string
-      VPNReverse:
-        description: 'VPNReverse: blocked, allowed or not_enforced (see the infrastructure
-          test lab status); absent when unknown.'
-        type: string
     type: object
   event.standPrewarmResponse:
     properties:
@@ -6111,8 +6110,12 @@ definitions:
         items:
           $ref: '#/definitions/eventself.labAccessResponse'
         type: array
-      InternetCIDR:
-        type: string
+      Gateways:
+        description: Gateways are the VPN entries and Internet exits of the lab with
+          their /24 and readiness; empty for a lab without any.
+        items:
+          $ref: '#/definitions/labview.GatewayResponse'
+        type: array
       Lab:
         $ref: '#/definitions/labview.ParticipantLabResponse'
       Phase:
@@ -6122,8 +6125,6 @@ definitions:
       State:
         description: 'State: ready | starting | restarting | unavailable | failed
           | closed. Access holds addresses only when ready.'
-        type: string
-      VPNCIDR:
         type: string
     type: object
   eventself.labVPNConfigResponse:
@@ -7535,14 +7536,19 @@ definitions:
         description: 'ExpiresAt is the end of the lease; Expired: it is over but the
           lab is not removed yet (it can only be ended).'
         type: string
+      Gateways:
+        description: |-
+          Gateways are the VPN entries and Internet exits of the lab with their /24 and state; empty for a lab without any.
+          Each VPN gateway carries its own reverse-connection state.
+        items:
+          $ref: '#/definitions/labview.GatewayResponse'
+        type: array
       GroupImageWarning:
         type: string
       ImageWarning:
         description: |-
           ImageWarning lists the lab images pulled by tag (not pinned to a digest); GroupImageWarning is the same for
           the VPN or gateway image. Empty when fine.
-        type: string
-      InternetCIDR:
         type: string
       Phase:
         type: string
@@ -7557,10 +7563,6 @@ definitions:
         description: 'Removing: the lab is being removed (Phase is "Removing"); the
           answer stays 200 until it is gone, then 404.'
         type: boolean
-      ReverseConnections:
-        description: 'ReverseConnections: the exercise lets devices of the lab start
-          connections to the VPN clients (false: forbidden).'
-        type: boolean
       SolvedTaskIDs:
         description: SolvedTaskIDs are the tasks the author has already checked correctly,
           and the state tasks whose checks pass.
@@ -7574,8 +7576,6 @@ definitions:
         items:
           $ref: '#/definitions/exercise.deployStateTaskResponse'
         type: array
-      VPNCIDR:
-        type: string
       VPNConfig:
         type: string
       VPNConnected:
@@ -7589,11 +7589,6 @@ definitions:
       VPNProbeURL:
         description: VPNProbeURL is the probe page served inside the tunnel by the
           lab group's VPN pod; absent until known.
-        type: string
-      VPNReverse:
-        description: |-
-          VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the
-          exercise forbids them but the agent of the node cannot enforce the block: show a warning, never "blocked").
         type: string
     type: object
   exercise.deployTaskResponse:
@@ -7642,6 +7637,19 @@ definitions:
         items:
           type: string
         type: array
+      DHCP:
+        description: |-
+          The settings of a gateway (Type vpn_gateway or internet_gateway); no other device has them. A gateway has no image,
+          interfaces, access or bootstrap, and one port, eth0, that a connection endpoint names. DHCP switches the DHCP server of the
+          gateway's network on and needs DHCPRanges. DNS (one IPv4 address, internet_gateway only) is what that server advertises.
+          ReverseConnections (vpn_gateway only): devices of the lab may start connections to the participants' machines (default false).
+        type: boolean
+      DHCPRanges:
+        items:
+          $ref: '#/definitions/exercise.dhcpRangeDTO'
+        type: array
+      DNS:
+        type: string
       Hardware:
         enum:
         - fast
@@ -7680,6 +7688,8 @@ definitions:
         - $ref: '#/definitions/exercise.resourcesDTO'
         description: 'Resources is refused (400, 20974): a device size is a preset.
           It is never returned.'
+      ReverseConnections:
+        type: boolean
       SecurityPreset:
         description: |-
           SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
@@ -7694,8 +7704,8 @@ definitions:
         type: string
       Type:
         description: |-
-          Type is node, unmanaged-switch or hub; the former value container is still read as a node with the container
-          profile.
+          Type is node, unmanaged-switch, hub, vpn_gateway or internet_gateway; the former value container is still read as a
+          node with the container profile.
         type: string
       WaitReadyFile:
         description: |-
@@ -8461,34 +8471,16 @@ definitions:
           type: string
         type: array
     type: object
-  exercise.networkDTO:
-    properties:
-      DHCP:
-        type: boolean
-      DHCPRanges:
-        items:
-          $ref: '#/definitions/exercise.dhcpRangeDTO'
-        type: array
-      DNS:
-        type: string
-      Enabled:
-        type: boolean
-      ReverseConnections:
-        description: |-
-          ReverseConnections (the VPN gateway only, needs Enabled): devices of the lab may start connections to the
-          participants' machines. Default false.
-        type: boolean
-    type: object
   exercise.networkIPRefDTO:
     properties:
+      Gateway:
+        type: string
       Host:
         type: integer
-      Network:
-        type: string
     type: object
   exercise.networkSubnetRefDTO:
     properties:
-      Network:
+      Gateway:
         type: string
     type: object
   exercise.pendingElevationCountResponse:
@@ -8532,11 +8524,19 @@ definitions:
         type: boolean
       DeviceName:
         type: string
+      Gateway:
+        description: Gateway names the gateway device of a gateway.subnet or of an
+          ip with IPReference gateway.
+        type: string
       IPReference:
+        description: 'IPReference (ip only): gateway (the address is in the /24 of
+          the gateway named by Gateway) or static.'
         type: string
       Key:
         type: string
       Kind:
+        description: 'Kind: ip, external.link or gateway.subnet (the /24 of the gateway
+          device named by Gateway).'
         type: string
       LastOctet:
         type: integer
@@ -8880,10 +8880,6 @@ definitions:
         items:
           $ref: '#/definitions/exercise.deviceDTO'
         type: array
-      Internet:
-        $ref: '#/definitions/exercise.networkDTO'
-      VPN:
-        $ref: '#/definitions/exercise.networkDTO'
       Variables:
         items:
           $ref: '#/definitions/exercise.variableDTO'
@@ -9390,14 +9386,19 @@ definitions:
         description: ExpiresAt is the end of the lease and Expired says it is over
           while the lab is not removed yet; filled by the use case.
         type: string
+      gateways:
+        description: |-
+          Gateways are the gateways of the lab (VPN entries and Internet exits) in the order of the lab's spec, each with its /24
+          and state (the laboratory's status.gateways, contract 2.0).
+        items:
+          $ref: '#/definitions/exerciseModel.LabDeployedGateway'
+        type: array
       groupImageWarning:
         type: string
       imageWarning:
         description: |-
           ImageWarning lists the lab images that could not be pinned to a digest (pulled by tag);
           GroupImageWarning is the same for the group's VPN or gateway image. Empty when fine.
-        type: string
-      internetCIDR:
         type: string
       labGeneration:
         format: int64
@@ -9425,11 +9426,6 @@ definitions:
         description: 'Removing: the lab is being removed (its lease is over); the
           row goes once the agent no longer has it.'
         type: boolean
-      reverseConnections:
-        description: |-
-          ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
-          effective only with the VPN on); filled by the use case for a test deploy.
-        type: boolean
       solvedTasks:
         description: |-
           SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
@@ -9446,8 +9442,6 @@ definitions:
         type: array
       usageAvailable:
         type: boolean
-      vpncidr:
-        type: string
       vpnconfig:
         description: |-
           VPNConfig is the author's WireGuard config, present once a VPN-enabled lab
@@ -9463,12 +9457,6 @@ definitions:
       vpnprobeURL:
         description: VPNProbeURL is the probe page the group's VPN pod serves inside
           the tunnel; empty when unknown. Filled by the use case.
-        type: string
-      vpnreverse:
-        description: |-
-          VPNReverse is what is in force for connections the lab starts to the VPN clients: "blocked", "allowed", or
-          "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).
-          Empty for a lab without a VPN or whose state is not known.
         type: string
     type: object
   exerciseModel.LabDeployedDevice:
@@ -9498,6 +9486,34 @@ definitions:
         allOf:
         - $ref: '#/definitions/exerciseModel.DeviceSnapshot'
         description: Snapshot is set only for a device with state persistence.
+    type: object
+  exerciseModel.LabDeployedGateway:
+    properties:
+      cidr:
+        description: CIDR is the /24 of the gateway; empty until it has one.
+        type: string
+      kind:
+        description: Kind is "vpn" or "internet".
+        type: string
+      labInitiatedBlocked:
+        description: LabInitiatedBlocked is the laboratory's confirmation that this
+          VPN gateway blocks those connections.
+        type: boolean
+      name:
+        type: string
+      ready:
+        type: boolean
+      reverse:
+        description: |-
+          Reverse (a VPN gateway only) is what is in force for connections the lab starts to the VPN clients through this
+          gateway: "blocked", "allowed", or "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the
+          block, so they are possible). Empty for an Internet gateway or when the state is not known.
+        type: string
+      reverseConnections:
+        description: |-
+          ReverseConnections (a VPN gateway only) says the exercise lets devices of the lab start connections to the VPN clients
+          through this gateway (false: forbidden).
+        type: boolean
     type: object
   exerciseModel.LabQueue:
     properties:
@@ -10592,6 +10608,30 @@ definitions:
       RestartCount:
         type: integer
     type: object
+  labview.GatewayResponse:
+    properties:
+      CIDR:
+        description: CIDR is the /24 of the gateway; empty until it has one.
+        type: string
+      Kind:
+        description: 'Kind: vpn | internet.'
+        type: string
+      Name:
+        type: string
+      Ready:
+        type: boolean
+      Reverse:
+        description: |-
+          Reverse (a VPN gateway, organizers and authors only): what is in force for connections the lab starts to the VPN clients
+          through this gateway: blocked, allowed, or not_enforced (the exercise forbids them but the agent of the node cannot
+          enforce the block: show a warning, never "blocked"). Absent when unknown.
+        type: string
+      ReverseConnections:
+        description: |-
+          ReverseConnections (a VPN gateway, organizers and authors only): the exercise lets devices of the lab start connections
+          to the VPN clients through this gateway.
+        type: boolean
+    type: object
   labview.ParticipantLabResponse:
     properties:
       CanRestart:
@@ -10740,6 +10780,12 @@ definitions:
         items:
           $ref: '#/definitions/labview.DeviceResponse'
         type: array
+      Gateways:
+        description: Gateways are the VPN entries and Internet exits of the lab, in
+          the order of its spec; empty for a lab without any.
+        items:
+          $ref: '#/definitions/labview.GatewayResponse'
+        type: array
       GroupImageWarning:
         type: string
       ImageWarning:
@@ -10755,11 +10801,6 @@ definitions:
         description: Queue is null for a lab that was never queued.
       Ready:
         type: boolean
-      VPNReverse:
-        description: |-
-          VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids
-          them but the agent of the node cannot enforce the block: show a warning, never "blocked"). Absent when unknown.
-        type: string
     type: object
   mail.enabledRequest:
     properties:

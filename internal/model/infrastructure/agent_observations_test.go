@@ -51,3 +51,30 @@ func TestRequireLabOptionsNamesTheTaskOfACheckAboveTheCeiling(t *testing.T) {
 	require.EqualValues(t, 120, ctx["limit"])
 	require.NoError(t, features.RequireLabOptions(exerciseModel.LabNeeds{Checks: true, MaxCheckTimeLimit: 120, LongestCheck: "ospf:2"}))
 }
+
+// A laboratory that lets fewer gateways into a lab than the task format refuses the lab with an error that names the limit; a
+// laboratory that reports none (0) or enough refuses nothing, and so does one that reports no VPN option at all.
+func TestRequireLabOptionsRefusesMoreGatewaysThanTheLaboratoryAccepts(t *testing.T) {
+	needs := exerciseModel.LabNeeds{Gateways: 6}
+	few := &infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{MaxGateways: 4}}
+	err := few.RequireLabOptions(needs)
+	require.ErrorIs(t, err, exerciseModel.ErrLabOptionUnavailable.Err())
+	var withContext interface{ PublicContext() map[string]any }
+	require.ErrorAs(t, err, &withContext)
+	require.Equal(t, "gateways (at most 4)", withContext.PublicContext()["options"])
+
+	require.NoError(t, (&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{MaxGateways: 10}}).RequireLabOptions(needs))
+	require.NoError(t, (&infraModel.AgentFeatures{VPN: &infraModel.VPNFeature{}}).RequireLabOptions(needs), "0 is not reported")
+	require.NoError(t, (&infraModel.AgentFeatures{}).RequireLabOptions(needs))
+	require.NoError(t, few.RequireLabOptions(exerciseModel.LabNeeds{Gateways: 4}), "the limit itself is allowed")
+}
+
+func TestNeedsOfCountsTheGateways(t *testing.T) {
+	topology := exerciseModel.Topology{Devices: []exerciseModel.Device{
+		{Name: "web", Type: exerciseModel.DeviceTypeNode},
+		{Name: "a", Type: exerciseModel.DeviceTypeVPNGateway},
+		{Name: "b", Type: exerciseModel.DeviceTypeInternetGateway},
+		{Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch},
+	}}
+	require.Equal(t, 2, exerciseModel.NeedsOf(topology, nil).Gateways)
+}

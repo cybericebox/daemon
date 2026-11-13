@@ -383,7 +383,7 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		return err
 	}
 	variant := version.Variants[variantIndex]
-	infrastructure := len(variant.Topology.Devices) > 0
+	infrastructure := variant.Topology.HasLab()
 	if infrastructure && e.InfrastructureAllowed {
 		config, getErr := eventConfigRepo.New(txRepo).Get(txCtx, e.ID)
 		if getErr != nil {

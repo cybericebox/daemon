@@ -100,6 +100,23 @@ type (
 		Reason   string `json:"Reason"`
 	}
 
+	// GatewayResponse is one gateway of a lab: a VPN entry or an Internet exit, with its /24 and state.
+	GatewayResponse struct {
+		Name string `json:"Name"`
+		// Kind: vpn | internet.
+		Kind string `json:"Kind"`
+		// CIDR is the /24 of the gateway; empty until it has one.
+		CIDR  string `json:"CIDR"`
+		Ready bool   `json:"Ready"`
+		// ReverseConnections (a VPN gateway, organizers and authors only): the exercise lets devices of the lab start connections
+		// to the VPN clients through this gateway.
+		ReverseConnections bool `json:"ReverseConnections,omitempty"`
+		// Reverse (a VPN gateway, organizers and authors only): what is in force for connections the lab starts to the VPN clients
+		// through this gateway: blocked, allowed, or not_enforced (the exercise forbids them but the agent of the node cannot
+		// enforce the block: show a warning, never "blocked"). Absent when unknown.
+		Reverse string `json:"Reverse,omitempty"`
+	}
+
 	// StatusResponse is the live state of one lab for organizers and administrators.
 	StatusResponse struct {
 		Phase string `json:"Phase"`
@@ -111,9 +128,8 @@ type (
 		ImageWarning      string           `json:"ImageWarning"`
 		GroupImageWarning string           `json:"GroupImageWarning"`
 		Devices           []DeviceResponse `json:"Devices"`
-		// VPNReverse: connections the lab starts to the VPN clients are blocked, allowed, or not_enforced (the exercise forbids
-		// them but the agent of the node cannot enforce the block: show a warning, never "blocked"). Absent when unknown.
-		VPNReverse string `json:"VPNReverse,omitempty"`
+		// Gateways are the VPN entries and Internet exits of the lab, in the order of its spec; empty for a lab without any.
+		Gateways []GatewayResponse `json:"Gateways"`
 	}
 )
 
@@ -176,10 +192,24 @@ func Device(d exerciseModel.LabDeployedDevice) DeviceResponse {
 func Status(s exerciseModel.LabDeployStatus) StatusResponse {
 	out := StatusResponse{
 		Phase: s.Phase, Ready: s.Ready, Queue: Queue(s.Queue), ImageWarning: s.ImageWarning,
-		GroupImageWarning: s.GroupImageWarning, Devices: make([]DeviceResponse, 0, len(s.Devices)), VPNReverse: s.VPNReverse,
+		GroupImageWarning: s.GroupImageWarning, Devices: make([]DeviceResponse, 0, len(s.Devices)), Gateways: Gateways(s, true),
 	}
 	for _, d := range s.Devices {
 		out.Devices = append(out.Devices, Device(d))
+	}
+	return out
+}
+
+// Gateways maps the gateways of a lab status, never nil. The reverse-connection state is shown to organizers and authors only
+// (withReverse); a participant gets the name, kind, /24 and readiness.
+func Gateways(s exerciseModel.LabDeployStatus, withReverse bool) []GatewayResponse {
+	out := make([]GatewayResponse, 0, len(s.Gateways))
+	for _, g := range s.Gateways {
+		item := GatewayResponse{Name: g.Name, Kind: g.Kind, CIDR: g.CIDR, Ready: g.Ready}
+		if withReverse {
+			item.ReverseConnections, item.Reverse = g.ReverseConnections, g.Reverse
+		}
+		out = append(out, item)
 	}
 	return out
 }
@@ -197,24 +227,14 @@ type DeviceInfo struct {
 	Type string
 }
 
-// Gateway device names the lab operator reserves for the lab's VPN and internet gateways.
-const (
-	gatewayVPN      = "vpn"
-	gatewayInternet = "internet"
-)
-
 // AnnotateDevices fills the type and the logical name of every device from the topology, keyed by
-// the device name in the lab. A device the topology does not know keeps them empty, except the
-// reserved VPN and internet gateways, which have no topology device and get their own type.
+// the device name in the lab. A device the topology does not know keeps them empty. The gateways of the lab are not lab
+// devices: they are listed in StatusResponse.Gateways.
 func AnnotateDevices(s *StatusResponse, topology map[string]DeviceInfo) {
 	for i := range s.Devices {
 		d := &s.Devices[i]
 		if info, ok := topology[d.Name]; ok {
 			d.Type, d.LogicalName = info.Type, info.Name
-			continue
-		}
-		if d.Name == gatewayVPN || d.Name == gatewayInternet {
-			d.Type = d.Name
 		}
 	}
 }

@@ -35,7 +35,10 @@ func TestParticipantRuntimeOmitsSchedulerDiagnostics(t *testing.T) {
 	}{{"Queued", false}, {"Running", true}} {
 		t.Run(state.phase, func(t *testing.T) {
 			status := exerciseModel.LabDeployStatus{Phase: state.phase, Ready: state.ready,
-				VPNCIDR: "10.8.0.0/24", InternetCIDR: "10.9.0.0/24",
+				Gateways: []exerciseModel.LabDeployedGateway{
+					{Name: "attack", Kind: "vpn", CIDR: "10.8.0.0/24", Ready: true, ReverseConnections: true, Reverse: "allowed"},
+					{Name: "out", Kind: "internet", CIDR: "10.9.0.0/24", Ready: true},
+				},
 				Access: []exerciseModel.LabAccess{{Device: "web", Port: 80, Protocol: "http", URL: "http://10.8.0.2"}},
 				Queue:  &exerciseModel.LabQueue{Position: 2, Length: 8, Reason: "NodeStarting", Message: "private scheduler detail", Pods: 4, Pending: 2, Attempt: 3, RetryAt: at, WaitingSince: at},
 			}

@@ -94,18 +94,14 @@ type (
 	}
 
 	deployStatusResponse struct {
-		Phase        string                 `json:"Phase"`
-		Ready        bool                   `json:"Ready"`
-		VPNCIDR      string                 `json:"VPNCIDR,omitempty"`
-		InternetCIDR string                 `json:"InternetCIDR,omitempty"`
-		VPNConfig    string                 `json:"VPNConfig,omitempty"`
-		Devices      []deployDeviceResponse `json:"Devices,omitempty"`
-		Access       []deployAccessResponse `json:"Access,omitempty"`
-		// VPNReverse: what is in force for connections the lab starts to the VPN clients: blocked, allowed, or not_enforced (the
-		// exercise forbids them but the agent of the node cannot enforce the block: show a warning, never "blocked").
-		VPNReverse string `json:"VPNReverse,omitempty"`
-		// ReverseConnections: the exercise lets devices of the lab start connections to the VPN clients (false: forbidden).
-		ReverseConnections bool `json:"ReverseConnections"`
+		Phase string `json:"Phase"`
+		Ready bool   `json:"Ready"`
+		// Gateways are the VPN entries and Internet exits of the lab with their /24 and state; empty for a lab without any.
+		// Each VPN gateway carries its own reverse-connection state.
+		Gateways  []labview.GatewayResponse `json:"Gateways"`
+		VPNConfig string                    `json:"VPNConfig,omitempty"`
+		Devices   []deployDeviceResponse    `json:"Devices,omitempty"`
+		Access    []deployAccessResponse    `json:"Access,omitempty"`
 		// VPNConnected: the author's VPN client shook hands within the last three minutes.
 		VPNConnected bool `json:"VPNConnected"`
 		// Queue is set while the lab waits in the launch queue (Phase Queued); otherwise null.
@@ -191,7 +187,7 @@ func deployHandleToResponse(h exerciseModel.DeployHandle) deployResponse {
 
 func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusResponse {
 	out := deployStatusResponse{
-		Phase: s.Phase, Ready: s.Ready, VPNCIDR: s.VPNCIDR, InternetCIDR: s.InternetCIDR, VPNConfig: s.VPNConfig,
+		Phase: s.Phase, Ready: s.Ready, Gateways: labview.Gateways(s, true), VPNConfig: s.VPNConfig,
 		Queue: labview.Queue(s.Queue), ImageWarning: s.ImageWarning, GroupImageWarning: s.GroupImageWarning,
 	}
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
@@ -207,8 +203,6 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 		}
 		out.StateTasks = append(out.StateTasks, item)
 	}
-	out.ReverseConnections = s.ReverseConnections
-	out.VPNReverse = s.VPNReverse
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
 	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt

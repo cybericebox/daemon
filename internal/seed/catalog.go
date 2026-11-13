@@ -165,16 +165,18 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 	if len(v.Devices) == 0 {
 		return topology, ids
 	}
-	topology.VPN = exerciseModel.NetworkSpec{Enabled: true}
-	if v.DHCP {
-		topology.VPN.DHCP = true
-		topology.VPN.DHCPRanges = []exerciseModel.DHCPRange{{Start: 100, End: 200}}
-	}
 	device := func(key string) uuid.UUID { return seedID(exerciseKey, variantKey, "device", key) }
+	// The VPN entry of the lab is a gateway device of its own.
+	gateway := exerciseModel.Device{ID: device("vpn-gateway"), Name: "vpn", Type: exerciseModel.DeviceTypeVPNGateway}
+	if v.DHCP {
+		gateway.DHCP = true
+		gateway.DHCPRanges = []exerciseModel.DHCPRange{{Start: 100, End: 200}}
+	}
+	topology.Devices = append(topology.Devices, gateway)
 	deviceEndpoint := func(id uuid.UUID, iface string) exerciseModel.Endpoint {
 		return exerciseModel.Endpoint{Kind: exerciseModel.EndpointDevice, DeviceID: id, Interface: iface}
 	}
-	vpn := exerciseModel.Endpoint{Kind: exerciseModel.EndpointVPN, Interface: "eth0"}
+	vpn := deviceEndpoint(gateway.ID, exerciseModel.GatewayPort)
 	connect := func(a, b exerciseModel.Endpoint) {
 		topology.Connections = append(topology.Connections, exerciseModel.Connection{Endpoints: []exerciseModel.Endpoint{a, b}})
 	}
@@ -190,7 +192,7 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 		ids[spec.Key] = id
 		ip := exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeDHCPPreset}
 		if spec.Host > 0 {
-			ip = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic, AddressRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: spec.Host}}
+			ip = exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeStatic, AddressRef: &exerciseModel.NetworkIPRef{Gateway: gateway.Name, Host: spec.Host}}
 		}
 		built := exerciseModel.Device{
 			ID:             id,

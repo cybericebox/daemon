@@ -42,11 +42,11 @@ func linkedArchive(t *testing.T, status, variants string, files map[string]strin
 // fullBase is a complete base variant with two tasks.
 const fullBase = `{"id":"0192f0a0-0000-7000-8000-00000000b001","note":"основний","tasks":[
 	{"id":"0192f0a0-0000-7000-8000-00000000b011","name":"Перше","difficulty":"easy","check":{"answer":{"type":"flag","values":["ICE{base-1}"]}},
-	 "description":"Знайди мережу {{net}}","placeholders":[{"key":"net","kind":"vpn.subnet"}],
+	 "description":"Знайди мережу {{net}}","placeholders":[{"key":"net","kind":"gateway.subnet","gateway":"vpn"}],
 	 "hints":[{"text":"підказка","level":"steps"}],
 	 "attachments":[{"file":"files/base.txt"}]},
 	{"id":"0192f0a0-0000-7000-8000-00000000b012","name":"Друге","difficulty":"hard","check":{"answer":{"type":"flag","values":["ICE{base-2}"]}}}],
-	"topology":{"vpn":{"enabled":true},"devices":[{"name":"web","type":"container","image":"nginx:1.27"}]}}`
+	"topology":{"devices":[{"name":"web","type":"container","image":"nginx:1.27"},{"name":"vpn","type":"vpn_gateway"}]}}`
 
 func errorContext(t *testing.T, err error) map[string]any {
 	t.Helper()

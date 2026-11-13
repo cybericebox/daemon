@@ -234,7 +234,7 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Len(t, base.Tasks, 4)
 	require.Contains(t, string(base.Tasks[0].Description), `"type":"variable"`)
 	require.Contains(t, string(base.Tasks[0].Description), `"varName":"server"`)
-	require.Len(t, base.Topology.Devices, 4)
+	require.Len(t, base.Topology.Devices, 6)
 	devices := map[string]exerciseModel.Device{}
 	for _, device := range base.Topology.Devices {
 		devices[device.Name] = device
@@ -242,6 +242,9 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	web := devices["web"]
 	require.Equal(t, exerciseModel.DeviceTypeUnmanagedSwitch, devices["sw1"].Type)
 	require.Equal(t, exerciseModel.DeviceTypeHub, devices["hub1"].Type)
+	require.Equal(t, exerciseModel.DeviceTypeVPNGateway, devices["attack"].Type)
+	require.Equal(t, exerciseModel.DeviceTypeInternetGateway, devices["out"].Type)
+	require.Equal(t, "1.1.1.1", devices["out"].DNS)
 	require.Equal(t, exerciseModel.SecurityPresetStandard, web.SecurityPreset)
 	require.Equal(t, exerciseModel.SecurityPresetExtended, devices["db"].SecurityPreset)
 	require.Nil(t, base.Topology.VisualRender, "visual_render: null is no layout")
@@ -445,8 +448,12 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].tasks[2].hints[2].text":                                         "hint text is required before publication",
 	"versions[1].variants[1].tasks[2].hints[3].text":                                         "hint text is required before publication",
 	"versions[1].variants[1].tasks[2].hints[4].text":                                         "hint text is required before publication",
-	"versions[1].variants[1].topology.internet.dhcp_ranges[1].start":                         "dhcp ranges or internet dns address are invalid",
-	"versions[1].variants[1].topology.internet.dhcp_ranges[1].end":                           "dhcp ranges or internet dns address are invalid",
+	"versions[1].variants[1].topology.devices[5].name":                                       "device named \"attack\"",
+	"versions[1].variants[1].topology.devices[5].type":                                       "device type is invalid",
+	"versions[1].variants[1].topology.devices[5].dhcp_ranges[1].start":                       "dhcp ranges or the dns address of a gateway are invalid",
+	"versions[1].variants[1].topology.devices[5].dhcp_ranges[1].end":                         "dhcp ranges or the dns address of a gateway are invalid",
+	"versions[1].variants[1].topology.devices[6].name":                                       "device named \"out\"",
+	"versions[1].variants[1].topology.devices[6].type":                                       "device type is invalid",
 	"versions[1].variants[1].topology.devices[1].name":                                       "device named \"web\"",
 	"versions[1].variants[1].topology.devices[1].type":                                       "the state check of the task is invalid", // a condition looks at a node, and the device is no node without a type
 	"versions[1].variants[1].topology.devices[1].access[1].kind":                             "a runtime setting of the device is invalid",
@@ -459,7 +466,7 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                           "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref":               "static interface requires exactly one ip address",
-	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.gateway":       "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.host":          "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[1].interfaces[2].name":                         "device interface is invalid",
 	"versions[1].variants[1].topology.devices[1].interfaces[2].ip":                           "device interface is invalid",
@@ -470,12 +477,12 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip":                           "device interface is invalid",
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.type":                      "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref":               "static interface requires exactly one ip address",
-	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref.gateway":       "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.address_ref.host":          "static address reference is invalid or conflicts with another address",
-	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.gateway_ref.network":       "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.gateway_ref.gateway":       "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.gateway_ref.host":          "static address reference is invalid or conflicts with another address",
-	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].dst_ref.network": "static address reference is invalid or conflicts with another address",
-	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].via_ref.network": "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].dst_ref.gateway": "static address reference is invalid or conflicts with another address",
+	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].via_ref.gateway": "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[2].interfaces[1].ip.routes[1].via_ref.host":    "static address reference is invalid or conflicts with another address",
 	"versions[1].variants[1].topology.devices[2].interfaces[2].name":                         "device interface is invalid",
 	"versions[1].variants[1].topology.devices[2].interfaces[2].ip":                           "device interface is invalid",
@@ -489,7 +496,8 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.devices[4].type":                                       "device type is invalid",
 	"versions[1].variants[1].topology.connections[1].endpoints":                              "connection must have exactly two endpoints",
 	"versions[1].variants[1].topology.connections[1].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
-	"versions[1].variants[1].topology.connections[1].endpoints[1].interface":                 "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].interface":                 "connection endpoint references a missing device or interface",
 	"versions[1].variants[1].topology.connections[1].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[1].endpoints[2].device":                    "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[1].endpoints[2].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
@@ -509,7 +517,8 @@ var requiredKeyErrors = map[string]string{
 	"versions[1].variants[1].topology.connections[3].endpoints[2].interface":                 "connection endpoint references a missing device or interface",
 	"versions[1].variants[1].topology.connections[4].endpoints":                              "connection must have exactly two endpoints",
 	"versions[1].variants[1].topology.connections[4].endpoints[1].kind":                      "connection must have exactly two valid endpoints",
-	"versions[1].variants[1].topology.connections[4].endpoints[1].interface":                 "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[1].device":                    "connection must have exactly two valid endpoints",
+	"versions[1].variants[1].topology.connections[4].endpoints[1].interface":                 "connection endpoint references a missing device or interface",
 	"versions[1].variants[1].topology.connections[4].endpoints[2].kind":                      "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[4].endpoints[2].device":                    "connection must have exactly two valid endpoints",
 	"versions[1].variants[1].topology.connections[4].endpoints[2].interface":                 "switch or hub port must be gigabitethernet0/1 through gigabitethernet0/48",
@@ -598,20 +607,20 @@ func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 			"compatible",
 		},
 		"versions.variants.tasks.placeholders.kind": {
-			"vpn.subnet",
-			"internet.subnet",
+			"gateway.subnet",
 			"ip",
 			"external.link",
 		},
 		"versions.variants.tasks.placeholders.ip_reference": {
-			"vpn",
-			"internet",
+			"gateway",
 			"static",
 		},
 		"versions.variants.topology.devices.type": {
 			"node",
 			"unmanaged-switch",
 			"hub",
+			"vpn_gateway",
+			"internet_gateway",
 		},
 		"versions.variants.topology.devices.profile": {
 			"container",
@@ -628,8 +637,7 @@ func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 			"dhcp-preset",
 			"none",
 		},
-		"versions.variants.topology.devices.interfaces.ip.address_ref.network": {"vpn", "internet"},
-		"versions.variants.topology.connections.endpoints.kind":                {"device", "vpn", "internet"},
+		"versions.variants.topology.connections.endpoints.kind": {"device"},
 	}
 	seen := map[string]bool{}
 	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {

@@ -322,13 +322,13 @@ func toParticipantFormAnswerResponse(v eventUseCase.ParticipantFormAnswerView) p
 
 type labStatusResponse struct {
 	// State: ready | starting | restarting | unavailable | failed | closed. Access holds addresses only when ready.
-	State        string                          `json:"State"`
-	Lab          *labview.ParticipantLabResponse `json:"Lab"`
-	Phase        string                          `json:"Phase"`
-	Ready        bool                            `json:"Ready"`
-	VPNCIDR      string                          `json:"VPNCIDR"`
-	InternetCIDR string                          `json:"InternetCIDR"`
-	Access       []labAccessResponse             `json:"Access"`
+	State string                          `json:"State"`
+	Lab   *labview.ParticipantLabResponse `json:"Lab"`
+	Phase string                          `json:"Phase"`
+	Ready bool                            `json:"Ready"`
+	// Gateways are the VPN entries and Internet exits of the lab with their /24 and readiness; empty for a lab without any.
+	Gateways []labview.GatewayResponse `json:"Gateways"`
+	Access   []labAccessResponse       `json:"Access"`
 }
 
 type labVPNConfigResponse struct {

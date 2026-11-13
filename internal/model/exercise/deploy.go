@@ -102,10 +102,11 @@ type LabDeployStatus struct {
 	LabGeneration int64
 	Phase         string
 	Ready         bool
-	VPNCIDR       string
-	InternetCIDR  string
-	Devices       []LabDeployedDevice
-	Access        []LabAccess
+	// Gateways are the gateways of the lab (VPN entries and Internet exits) in the order of the lab's spec, each with its /24
+	// and state (the laboratory's status.gateways, contract 2.0).
+	Gateways []LabDeployedGateway
+	Devices  []LabDeployedDevice
+	Access   []LabAccess
 	// VPNConfig is the author's WireGuard config, present once a VPN-enabled lab
 	// has provisioned its client. Empty for labs without VPN or before it is ready.
 	VPNConfig string
@@ -125,13 +126,6 @@ type LabDeployStatus struct {
 	VPNLastHandshake           time.Time
 	// VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
 	VPNProbeURL string
-	// ReverseConnections says the exercise lets the lab start connections to the VPN clients (topology.vpn.reverse_connections,
-	// effective only with the VPN on); filled by the use case for a test deploy.
-	ReverseConnections bool
-	// VPNReverse is what is in force for connections the lab starts to the VPN clients: "blocked", "allowed", or
-	// "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the block, so they are possible).
-	// Empty for a lab without a VPN or whose state is not known.
-	VPNReverse string
 	// SolvedTasks are the tasks the author has already checked correctly, and the state tasks whose checks pass (see
 	// StateTasks); filled by the use case.
 	SolvedTasks []uuid.UUID
@@ -192,7 +186,26 @@ type CheckDetail struct {
 	Detail        string
 }
 
-// States of LabDeployStatus.VPNReverse.
+// LabDeployedGateway is the state of one gateway of a lab.
+type LabDeployedGateway struct {
+	Name string
+	// Kind is "vpn" or "internet".
+	Kind string
+	// CIDR is the /24 of the gateway; empty until it has one.
+	CIDR  string
+	Ready bool
+	// ReverseConnections (a VPN gateway only) says the exercise lets devices of the lab start connections to the VPN clients
+	// through this gateway (false: forbidden).
+	ReverseConnections bool
+	// LabInitiatedBlocked is the laboratory's confirmation that this VPN gateway blocks those connections.
+	LabInitiatedBlocked bool
+	// Reverse (a VPN gateway only) is what is in force for connections the lab starts to the VPN clients through this
+	// gateway: "blocked", "allowed", or "not_enforced" (the exercise forbids them but the agent of this node cannot enforce the
+	// block, so they are possible). Empty for an Internet gateway or when the state is not known.
+	Reverse string
+}
+
+// States of LabDeployedGateway.Reverse.
 const (
 	VPNReverseBlocked     = "blocked"
 	VPNReverseAllowed     = "allowed"

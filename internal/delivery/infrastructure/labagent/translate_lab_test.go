@@ -72,7 +72,15 @@ func contractFixture() (exerciseModel.Topology, []exerciseModel.LabCheck) {
 			Command: []string{"/app/serve"}, Args: []string{"--port", "80"},
 			ImageService: &exerciseModel.ImageService{Entrypoint: []string{"nginx"}, User: "www-data"},
 		},
+		{
+			ID: uuid.FromStringOrNil("00000000-0000-7000-8000-000000000003"), Name: "attack", Type: exerciseModel.DeviceTypeVPNGateway,
+			DHCP: true, DHCPRanges: []exerciseModel.DHCPRange{{Start: 100, End: 200}},
+		},
 	}}
+	topology.Connections = []exerciseModel.Connection{{Endpoints: []exerciseModel.Endpoint{
+		{Kind: exerciseModel.EndpointDevice, DeviceID: topology.Devices[2].ID, Interface: "eth0"},
+		{Kind: exerciseModel.EndpointDevice, DeviceID: r1, Interface: "eth0"},
+	}}}
 	checks := []exerciseModel.LabCheck{
 		{
 			ID: "ospf:1", TaskKey: "ospf", Device: "r1", Mode: exerciseModel.StateModeContinuous,

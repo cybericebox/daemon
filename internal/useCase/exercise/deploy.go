@@ -293,7 +293,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	}
 	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
 	// no agent. An event preview always needs a laboratory.
-	if eventID == nil && len(variant.Topology.Devices) == 0 {
+	if eventID == nil && !variant.Topology.HasLab() {
 		return u.deployStaticTest(ctx, ownerID, versionID, variant, lease)
 	}
 	if u.infra == nil {
@@ -312,7 +312,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
 		return exerciseModel.DeployHandle{}, exerciseModel.InVariant(err, number)
 	}
-	if len(variant.Topology.Devices) == 0 {
+	if !variant.Topology.HasLab() {
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployNoLab.Err()
 	}
 	topo, err := u.decryptTopologySecrets(variant.ID, variant.Topology)
@@ -621,7 +621,7 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 	client := testClientName(deploy.CreatedBy)
 	// The author's group has one user (the author's client); its gateway is for the labs that use the internet.
 	plan := infraModel.GroupPlan{MaxUsers: 1}
-	if topo.Internet.Enabled {
+	if topo.HasGateway(exerciseModel.DeviceTypeInternetGateway) {
 		plan.InternetLabs = 1
 	}
 	if legacyEventPreview(deploy) {

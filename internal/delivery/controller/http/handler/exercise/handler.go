@@ -410,6 +410,9 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 		Laboratories bool `json:"Laboratories"`
 		// MaxActiveTestDeploys is how many test labs one user may run at once.
 		MaxActiveTestDeploys int `json:"MaxActiveTestDeploys"`
+		// MaxLabGateways is the most gateways (VPN and Internet together) one lab may have; the editor stops at it (the backend
+		// refuses more with a field error on the first gateway over it).
+		MaxLabGateways int `json:"MaxLabGateways"`
 		// DevicePersistence is false when the cluster does not let devices keep their state: the editor
 		// hides the option then.
 		DevicePersistence bool `json:"DevicePersistence"`
@@ -419,7 +422,7 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 		// LabCapabilities is what the laboratories that are used can run, without naming any: see labCapabilitiesResponse.
 		LabCapabilities labCapabilitiesResponse `json:"LabCapabilities"`
 	}{
-		Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(),
+		Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(), MaxLabGateways: exerciseModel.MaxLabGateways,
 		DevicePersistence: h.useCase.DevicePersistenceAllowed(), Resources: toResourceSettings(h.useCase.Policy()),
 		LabCapabilities: toLabCapabilities(h.useCase.LabCapabilities(ctx)),
 	})

@@ -47,10 +47,10 @@ func hasTaskDescriptionContent(description json.RawMessage) bool {
 type PlaceholderKind string
 
 const (
-	PlaceholderVPNSubnet      PlaceholderKind = "vpn.subnet"
-	PlaceholderInternetSubnet PlaceholderKind = "internet.subnet"
-	PlaceholderIP             PlaceholderKind = "ip"            // IP constructor
-	PlaceholderExternalLink   PlaceholderKind = "external.link" // proxy access URL
+	// PlaceholderGatewaySubnet is the /24 of a gateway of the lab (Placeholder.Gateway names the gateway device).
+	PlaceholderGatewaySubnet PlaceholderKind = "gateway.subnet"
+	PlaceholderIP            PlaceholderKind = "ip"            // IP constructor
+	PlaceholderExternalLink  PlaceholderKind = "external.link" // proxy access URL
 )
 
 const maxPlaceholderPathLength = 200
@@ -89,10 +89,12 @@ type Placeholder struct {
 	Kind PlaceholderKind `json:"kind"`
 
 	// IP constructor (Kind == PlaceholderIP)
-	IPReference string `json:"ip_reference,omitempty"` // "vpn" | "internet" | "static"
-	Octets1to3  string `json:"octets_1to3,omitempty"`  // static only
-	LastOctet   int    `json:"last_octet,omitempty"`   // 0..255
-	ShowMask    bool   `json:"show_mask,omitempty"`
+	IPReference string `json:"ip_reference,omitempty"` // "gateway" | "static"
+	// Gateway (gateway.subnet, and ip with ip_reference "gateway") is the name of the gateway device whose /24 it is.
+	Gateway    string `json:"gateway,omitempty"`
+	Octets1to3 string `json:"octets_1to3,omitempty"` // static only
+	LastOctet  int    `json:"last_octet,omitempty"`  // 0..255
+	ShowMask   bool   `json:"show_mask,omitempty"`
 
 	// IP constructor link form: the resolved value is scheme://ip[:port][path].
 	AsLink bool   `json:"as_link,omitempty"`
@@ -185,19 +187,15 @@ func (t Topology) validatePlaceholders(phs []Placeholder) error {
 // classifyPlaceholder reports (malformed, missingNode) for one placeholder.
 func classifyPlaceholder(t Topology, byName map[string]Device, p Placeholder) (bool, bool) {
 	switch p.Kind {
-	case PlaceholderVPNSubnet:
-		return false, !t.VPN.Enabled
-	case PlaceholderInternetSubnet:
-		return false, !t.Internet.Enabled
+	case PlaceholderGatewaySubnet:
+		return p.Gateway == "", p.Gateway != "" && !t.gatewayRefValid(p.Gateway)
 	case PlaceholderIP:
 		if p.LastOctet < 0 || p.LastOctet > 255 {
 			return true, false
 		}
 		switch p.IPReference {
-		case "vpn":
-			return false, !t.VPN.Enabled
-		case "internet":
-			return false, !t.Internet.Enabled
+		case "gateway":
+			return p.Gateway == "", p.Gateway != "" && !t.gatewayRefValid(p.Gateway)
 		case "static":
 			address := net.ParseIP(p.Octets1to3 + "." + strconv.Itoa(p.LastOctet))
 			return address == nil || address.To4() == nil, false

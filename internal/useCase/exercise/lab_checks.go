@@ -70,7 +70,6 @@ func (u *ExerciseUseCase) withTaskStates(ctx context.Context, status *exerciseMo
 	if loadErr != nil {
 		return
 	}
-	status.ReverseConnections = variant.Topology.VPN.Enabled && variant.Topology.VPN.ReverseConnections
 	if u.labChecks == nil || len(variant.StateTasks()) == 0 {
 		return
 	}
