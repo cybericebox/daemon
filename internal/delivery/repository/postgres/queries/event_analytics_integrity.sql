@@ -70,7 +70,7 @@ SELECT tc.id                                                                    
                WHERE lb.event_team_id = tc.event_team_id
                  AND lb.event_challenge_id = tc.event_challenge_id)::boolean            AS has_lab,
        -- the access paths the task text offers: VPN addresses, a proxy link
-       jsonb_path_exists(c.snapshot, '$.placeholders[*] ? (@.kind == "gateway.subnet" || (@.kind == "ip" && @.ip_reference == "gateway"))')::boolean AS vpn_access,
+       task_offers_vpn_access(c.snapshot, ev.variants, c.task_id)::boolean                                                                AS vpn_access,
        jsonb_path_exists(c.snapshot, '$.placeholders[*] ? (@.kind == "external.link")')::boolean                                         AS proxy_access,
        (CASE WHEN fl.materialized < 2 THEN -1 WHEN fl.same_flag > 1 THEN 1 ELSE 0 END)::int AS static_flag,
        COALESCE((SELECT min(o.at)
@@ -98,6 +98,7 @@ JOIN event_teams t ON t.id = tc.event_team_id
     AND event_team_visible(t.hidden, t.moderators, t.event_id, t.individual, t.admitted_manually, t.admission_locked, t.member_count)
 JOIN event_challenges c ON c.id = tc.event_challenge_id
 JOIN event_exercises ee ON ee.id = c.event_exercise_id
+LEFT JOIN exercise_versions ev ON ev.id = ee.exercise_version_id
 WHERE tc.event_id = sqlc.arg(event_id)
 ORDER BY s.solved_at, tc.id;
 
