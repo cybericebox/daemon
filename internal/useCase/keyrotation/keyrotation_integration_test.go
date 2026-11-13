@@ -153,6 +153,7 @@ type hooked struct {
 	keyrotation.Store
 	beforeRows func(source string)
 	beforeSwap func(source, rowID string)
+	afterSwap  func(source, rowID string)
 }
 
 func (h hooked) Sources(family string) []secret.Source {
@@ -179,7 +180,11 @@ func (s hookedSource) Swap(ctx context.Context, rowID string, o, n []string) (bo
 	if s.h.beforeSwap != nil {
 		s.h.beforeSwap(s.Name(), rowID)
 	}
-	return s.Source.Swap(ctx, rowID, o, n)
+	swapped, err := s.Source.Swap(ctx, rowID, o, n)
+	if err == nil && swapped && s.h.afterSwap != nil {
+		s.h.afterSwap(s.Name(), rowID)
+	}
+	return swapped, err
 }
 
 // 12. a concurrent edit between the read and the write wins; the row is a conflict, not a failure.
@@ -203,33 +208,62 @@ func TestRun_ConcurrentEditWins(t *testing.T) {
 	require.Zero(t, failed)
 }
 
-// 13 and 24. readers and writers during the pass: at every barrier (before, between batches, after) every stored value
-// opens, and the rows written meanwhile under the current key are all there at the end.
+// 13 and 24. readers and writers during the pass, as real goroutines ordered by barriers: at every barrier (before each
+// batch, between batches, after) a reader opens every stored value and a writer adds rows, some sealed with the OLD key.
+// No value is ever unreadable, no written row is lost, and the old-key rows written late are taken by the next run.
 func TestRun_ReadersAndWritersDuringThePass(t *testing.T) {
 	w := newWorld(t)
-	for n := 1; n <= 5; n++ {
+	const initial = 5
+	for n := 1; n <= initial; n++ {
 		w.smtp(n, w.seal(w.oldC, fmt.Sprintf("p%d", n), w.ctxs.SMTP(id(n))))
 	}
-	next := 100
-	barriers := 0
-	check := func(string) {
-		barriers++
-		require.Zero(t, w.problems(), "a row was unreadable at a barrier")
-		if next < 104 { // a writer on the current key; bounded, or every page would bring a new row
-			w.smtp(next, w.seal(w.ring, "late", w.ctxs.SMTP(id(next))))
-			next++
+	type step struct{ n int }
+	barrier := make(chan step)
+	ack := make(chan struct{})
+	var problems []string
+	written := 0
+	go func() { // the reader and the writer
+		for st := range barrier {
+			if p := w.problems(); p != 0 {
+				problems = append(problems, fmt.Sprintf("barrier %d: %d unreadable", st.n, p))
+			}
+			if written < 4 {
+				n := 100 + written
+				key := w.ring
+				if written%2 == 0 {
+					key = w.oldC // a writer that still seals with the old key
+				}
+				w.smtp(n, w.seal(key, "late", w.ctxs.SMTP(id(n))))
+				written++
+			}
+			ack <- struct{}{}
 		}
-	}
-	store := hooked{Store: w.repo, beforeRows: check}
+	}()
+	barriers := 0
+	store := hooked{Store: w.repo, beforeRows: func(string) {
+		barriers++
+		barrier <- step{barriers}
+		<-ack
+	}}
 	_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
+	close(barrier)
 	require.NoError(t, err)
+	require.Empty(t, problems, "a value was unreadable at a barrier")
 	require.Greater(t, barriers, 3)
+	require.Equal(t, 4, written)
 	require.Zero(t, w.problems())
-	for n := 100; n < next; n++ {
+
+	// the old-key rows written after the smtp source had passed them are left for the next run
+	for i := 0; i < 3 && w.byKey()["k1"] > 0; i++ {
+		_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+		require.NoError(t, err)
+	}
+	require.Zero(t, w.byKey()["k1"], "the next run takes the rows that were written under the old key during the pass")
+	for n := 100; n < 104; n++ {
 		_, err := w.ring.DecryptWithContext(w.smtpValue(n), w.ctxs.SMTP(id(n)))
 		require.NoError(t, err, "a row written during the pass was lost or damaged")
 	}
-	for n := 1; n <= 5; n++ {
+	for n := 1; n <= initial; n++ {
 		require.Equal(t, "k2", keyOf(w.smtpValue(n)))
 	}
 }
@@ -379,7 +413,9 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 	w := newWorld(t)
 	plainBad := "very-secret-plaintext"
 	bad := w.seal(w.oldC, plainBad, w.ctxs.SMTP(id(999)))
-	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
+	plainGood := "good-secret-plaintext"
+	good := w.seal(w.oldC, plainGood, w.ctxs.SMTP(id(1)))
+	w.smtp(1, good)
 	w.smtp(2, bad)
 	rep, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
 	require.NoError(t, err)
@@ -403,8 +439,21 @@ func TestRun_ProgressTableHoldsCountsOnly(t *testing.T) {
 	// the table and the report hold no plaintext and no ciphertext
 	var dump string
 	require.NoError(t, w.pool.QueryRow(context.Background(), `SELECT coalesce(string_agg(t::text, ' '), '') FROM key_rotation_progress t`).Scan(&dump))
-	out := dump + fmt.Sprintf("%+v", rep)
-	for _, leak := range []string{plainBad, bad, strings.TrimPrefix(bad, "v1:k1:"), w.smtpValue(1)} {
+	// everything an operator or a log can see: the progress table, the report struct, the printed report (CLI), the status
+	var printed strings.Builder
+	rep.Write(&printed)
+	statusRep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+	require.NoError(t, err)
+	stored, err := w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	for _, p := range stored {
+		statusRep.Rotation = append(statusRep.Rotation, secretkeys.RotationState{Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Failed: p.Failed, FailedByReason: p.FailedByReason})
+	}
+	var status strings.Builder
+	statusRep.Write(&status)
+	out := dump + fmt.Sprintf("%+v", rep) + printed.String() + status.String() + fmt.Sprintf("%+v", stored)
+	for _, leak := range []string{plainBad, plainGood, bad, good, strings.TrimPrefix(bad, "v1:k1:"), strings.TrimPrefix(good, "v1:k1:"),
+		w.smtpValue(1), strings.TrimPrefix(w.smtpValue(1), "v1:k2:"), w.smtpValue(2)} {
 		require.NotContains(t, out, leak)
 	}
 	require.Contains(t, out, id(2).String(), "the failed row is named by id")
@@ -788,4 +837,35 @@ func TestKeys_SealingAndReadOnly(t *testing.T) {
 	require.ErrorIs(t, err, keyrotation.ErrUnknownFamily)
 	_, _, err = keyrotation.New(w.repo, keyrotation.Rings{}).Keys(keyRotationRepo.FamilyVPN)
 	require.ErrorIs(t, err, keyrotation.ErrFamilyKeyMissing)
+}
+
+// 8. the cancel arrives right after a write returned (a write finished with a live context), and the next write runs with
+// a cancelled one: every row stays readable, the state is interrupted, and a new run finishes the job.
+func TestRun_CancelAfterAWriteThenResume(t *testing.T) {
+	w := newWorld(t)
+	for n := 1; n <= 4; n++ {
+		w.smtp(n, w.seal(w.oldC, "p", w.ctxs.SMTP(id(n))))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	swaps := 0
+	store := hooked{Store: w.repo, afterSwap: func(string, string) {
+		swaps++
+		if swaps == 2 {
+			cancel()
+		}
+	}}
+	rep, err := w.usecase(store).Run(ctx, keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 1})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 2, swaps, "two writes finished with a live context, none after the cancel")
+	require.Equal(t, 2, rep.Sources[0].Done)
+	require.Zero(t, w.problems())
+	got, err := w.repo.Progress(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, keyRotationRepo.StateInterrupted, got[0].State)
+	require.Equal(t, 2, got[0].Done)
+	require.Equal(t, 2, w.byKey()["k2"])
+
+	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 1})
+	require.NoError(t, err)
+	require.Zero(t, w.byKey()["k1"])
 }
