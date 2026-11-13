@@ -1,0 +1,35 @@
+{
+  "url": [
+    { "value": "", "valid": true },
+    { "value": "https://example.org", "valid": true },
+    { "value": "https://example.org/", "valid": true },
+    { "value": "https://example.org/privacy", "valid": true },
+    { "value": "https://example.org/a/b?c=d&e=f", "valid": true },
+    { "value": "https://example.org:8443/x", "valid": true },
+    { "value": "https://sub-1.example.org/x", "valid": true },
+    { "value": "http://example.org", "valid": false },
+    { "value": "example.org", "valid": false },
+    { "value": "https://", "valid": false },
+    { "value": "https:///path", "valid": false },
+    { "value": "https://user@example.org", "valid": false },
+    { "value": "https://user:pw@example.org", "valid": false },
+    { "value": "https://example.org/#frag", "valid": false },
+    { "value": "https://example.org/a b", "valid": false },
+    { "value": "https://example.org/\"x", "valid": false },
+    { "value": "https://example.org/'x", "valid": false },
+    { "value": "https://example.org/<x>", "valid": false },
+    { "value": "https://example.org/\\x", "valid": false },
+    { "value": "https://exa mple.org", "valid": false },
+    { "value": "https://example.org:port/x", "valid": false },
+    { "value": "javascript:alert(1)", "valid": false },
+    { "value": "https://ex_ample.org", "valid": false }
+  ],
+  "flag": [
+    { "value": "", "valid": true },
+    { "value": "true", "valid": true },
+    { "value": "false", "valid": true },
+    { "value": "TRUE", "valid": false },
+    { "value": "1", "valid": false },
+    { "value": "yes", "valid": false }
+  ]
+}

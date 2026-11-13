@@ -27,7 +27,7 @@ func (c AuthConfig) ValidateSiteLinks() error {
 	return nil
 }
 
-// validateOptionalURL accepts an empty value or https://host[/path][?query]: a lower case host name without a port,
+// validateOptionalURL accepts an empty value or https://host[/path][?query]: a lower case host name with an optional port,
 // no userinfo, no fragment, no whitespace or control characters and none of " ' < > \. The same rule keeps the value
 // safe inside an HTML attribute where a frontend substitutes it.
 const schemeHTTPS = "https"
@@ -50,8 +50,6 @@ func validateOptionalURL(name, value string) error {
 		return fmt.Errorf("%s must name a host", name)
 	case parsed.User != nil:
 		return fmt.Errorf("%s must not contain credentials", name)
-	case parsed.Port() != "":
-		return fmt.Errorf("%s must not contain a port", name)
 	case strings.Contains(value, "#"):
 		return fmt.Errorf("%s must not contain a fragment", name)
 	case len(parsed.Hostname()) > 253 || !domainPattern.MatchString(parsed.Hostname()):
