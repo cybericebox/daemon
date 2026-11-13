@@ -305,8 +305,9 @@ func TestReencrypt_InterruptedThenResumed(t *testing.T) {
 			t.Fatalf("row %s on %s", id, keyOf(f.get(id)[0]))
 		}
 	}
-	if last.Done != 2 && last.Done != 3 {
-		t.Fatalf("progress should show the finished batches, got %+v", last)
+	// the cancel came inside the second batch, so the last report is the one after the first batch: exactly 2
+	if last.Done != 2 || last.Total != 2 {
+		t.Fatalf("progress should show exactly the first batch, got %+v", last)
 	}
 	f.afterSwap = nil
 	if _, err := run(t, r, f, secret.Options{}); err != nil {
