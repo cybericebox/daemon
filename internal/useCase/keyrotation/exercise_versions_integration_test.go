@@ -149,7 +149,7 @@ func TestRun_DraftCopiedFromStaleReadEndsEqual(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var blocked bool
 		require.NoError(t, w.pool.QueryRow(context.Background(),
-			`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0)`).Scan(&blocked))
+			`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%locked_draft%' AND cardinality(pg_blocking_pids(pid)) > 0)`).Scan(&blocked))
 		return blocked
 	}, 10*time.Second, 5*time.Millisecond, "the copy must be waiting for the swap's lock")
 	p.finish(t)
