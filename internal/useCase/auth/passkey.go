@@ -41,16 +41,16 @@ type PasskeyCeremony struct {
 	Options    json.RawMessage
 }
 
-// newWebAuthn builds the relying party from the single DOMAIN (hosts.Main is DOMAIN): the RP ID is the platform domain itself (not a
+// newWebAuthn builds the relying party from the single DOMAIN (hosts.Root is DOMAIN): the RP ID is the platform domain itself (not a
 // wider registrable domain, so no sibling site can use the keys) and the only origin that may ask for a ceremony
 // is the sign-in site. Registration needs a discoverable key with user verification, no attestation.
 func newWebAuthn(hosts config.HostsConfig) (*webauthn.WebAuthn, error) {
-	if hosts.Main == "" || hosts.ID == "" {
+	if hosts.Root == "" || hosts.ID == "" {
 		return nil, errors.New("hosts are not resolved")
 	}
 	required := true
 	return webauthn.New(&webauthn.Config{
-		RPID:                  hosts.Main,
+		RPID:                  hosts.Root,
 		RPDisplayName:         relyingPartyName,
 		RPOrigins:             []string{hosts.IDURL("")},
 		AttestationPreference: protocol.PreferNoAttestation,

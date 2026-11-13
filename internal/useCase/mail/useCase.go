@@ -51,8 +51,8 @@ type (
 		// Env is the bootstrap SMTP_* transport, used only while the database
 		// holds no platform settings.
 		Env config.SMTPConfig
-		// Domain is MAIN_HOST: the main site link in the footer.
-		Domain string
+		// SiteURL is the site address for footer variables: MAIN_SITE_URL, or the ID site when it is not set.
+		SiteURL string
 		// SupportEmail is SUPPORT_EMAIL: the default Reply-To and the footer contact.
 		SupportEmail string
 		// SMTPPolicy limits what an organizer may point an event SMTP at (SMTP_ALLOWED_PORTS).
@@ -68,7 +68,7 @@ type (
 		dispatches *dispatchRepo.Repository
 		cipher     *secret.Cipher
 		env        config.SMTPConfig
-		domain     string
+		siteURL    string
 		support    string
 		smtpPolicy mailModel.SMTPPolicy
 		newSender  func(email.Config) (sender, error)
@@ -92,7 +92,7 @@ func NewMailUseCase(deps Dependencies) *MailUseCase {
 		dispatches: dispatchRepo.New(deps.Repo),
 		cipher:     deps.Cipher,
 		env:        deps.Env,
-		domain:     deps.Domain,
+		siteURL:    deps.SiteURL,
 		support:    deps.SupportEmail,
 		smtpPolicy: deps.SMTPPolicy,
 		newSender:  newSender,
@@ -417,5 +417,5 @@ func (u *MailUseCase) footer(ctx context.Context, supportEmail string) (mailMode
 		return mailModel.Footer{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load email footer").Err()
 	}
 	doc := mailModel.StoredFooterDoc(stored.FooterContent, stored.FooterLegacy)
-	return renderFooter(doc, supportEmail, mailModel.PlatformSite(u.domain)), nil
+	return renderFooter(doc, supportEmail, u.siteURL), nil
 }

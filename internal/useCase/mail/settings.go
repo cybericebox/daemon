@@ -364,7 +364,7 @@ func (u *MailUseCase) PreviewPlatformFooter(ctx context.Context, content json.Ra
 	if err != nil {
 		return FooterPreview{}, err
 	}
-	footer := renderFooter(doc, identity.ReplyToAddress, mailModel.PlatformSite(u.domain))
+	footer := renderFooter(doc, identity.ReplyToAddress, u.siteURL)
 	return FooterPreview{HTML: footer.HTML, Text: footer.Text}, nil
 }
 

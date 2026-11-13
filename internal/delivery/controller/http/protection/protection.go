@@ -366,12 +366,12 @@ func (p *Protection) setSignedInHint(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(SignedInHintCookie, "1", int(p.ttl.Seconds()), "/", p.hosts.Main, true, false)
+	ctx.SetCookie(SignedInHintCookie, "1", int(p.ttl.Seconds()), "/", p.hosts.Root, true, false)
 }
 
 func (p *Protection) clearSignedInHint(ctx *gin.Context) {
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(SignedInHintCookie, "", -1, "/", p.hosts.Main, true, false)
+	ctx.SetCookie(SignedInHintCookie, "", -1, "/", p.hosts.Root, true, false)
 }
 
 // DeAuthenticate clears the session cookie and deletes the session. Reads the

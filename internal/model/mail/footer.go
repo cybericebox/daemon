@@ -20,14 +20,6 @@ const (
 	LanguageEN Language = "en"
 )
 
-// PlatformSite is the main site URL of the platform.
-func PlatformSite(domain string) string {
-	if domain == "" {
-		return ""
-	}
-	return "https://" + domain
-}
-
 // WithPlatformDefaults fills what the platform sender leaves empty: the
 // product name and the support Reply-To (SUPPORT_EMAIL).
 func (id Identity) WithPlatformDefaults(supportEmail string) Identity {

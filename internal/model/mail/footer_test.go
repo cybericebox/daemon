@@ -200,11 +200,6 @@ func TestPlatformDefaults(t *testing.T) {
 	require.Empty(t, Identity{}.WithPlatformDefaults("").ReplyToAddress, "no support address → no fallback")
 }
 
-func TestPlatformSite(t *testing.T) {
-	require.Equal(t, "https://cybericebox.com", PlatformSite("cybericebox.com"))
-	require.Empty(t, PlatformSite(""))
-}
-
 func TestFooter_AppendEmptyFooterKeepsBody(t *testing.T) {
 	html, text := Footer{}.Append("<p>b</p>", "b")
 	require.Equal(t, "<p>b</p>", html)

@@ -50,7 +50,7 @@ func newEventTenantRouter(resolver middleware.EventResolver, apex string) (*gin.
 	r := gin.New()
 	reached := new(bool)
 	r.Use(middleware.ResolveEventTenant(resolver, config.HostsConfig{
-		Main: apex, API: "api." + apex, ID: "id." + apex, Admin: "admin." + apex, Exercises: "exercises." + apex, EventDomain: apex,
+		Root: apex, API: "api." + apex, ID: "id." + apex, Admin: "admin." + apex, Exercises: "exercises." + apex, EventDomain: apex,
 	}))
 	r.GET("/api/events/self", func(c *gin.Context) {
 		*reached = true
@@ -214,7 +214,7 @@ func TestResolveEventTenant_PrivateEventGate(t *testing.T) {
 				c.Next()
 			})
 		}
-		r.Use(middleware.ResolveEventTenant(resolver, config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}))
+		r.Use(middleware.ResolveEventTenant(resolver, config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}))
 		r.GET("/api/events/self/live-screen", func(c *gin.Context) { c.String(http.StatusOK, "screen") })
 		req := httptest.NewRequest(http.MethodGet, "/api/events/self/live-screen", nil)
 		req.Header.Set("Origin", origin)

@@ -118,7 +118,7 @@ func (r *SiteResolver) fromOrigin(ctx context.Context, origin string) (siteModel
 	}
 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	switch host {
-	case r.hosts.Main:
+	case r.hosts.Root:
 		return siteModel.Site{Kind: siteModel.Main}, nil
 	case r.hosts.ID:
 		return siteModel.Site{Kind: siteModel.ID}, nil

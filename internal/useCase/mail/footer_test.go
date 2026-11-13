@@ -290,6 +290,21 @@ func TestPreviewPlatformFooter_RendersUnsavedDocWithPlatformValues(t *testing.T)
 	require.Contains(t, preview.Text, "Політика конфіденційності")
 }
 
+// {site_url} is the address the use case was given (MAIN_SITE_URL, or the ID site when it is not set), shown without the scheme.
+func TestPreviewPlatformFooter_UsesTheGivenSiteURL(t *testing.T) {
+	for siteURL, want := range map[string]string{
+		"https://example.org":     "Дякуємо! support@cybericebox.com · example.org",
+		"https://id.example.test": "Дякуємо! support@cybericebox.com · id.example.test",
+	} {
+		uc, repo, _ := newTestUseCase(t, config.SMTPConfig{}, nil)
+		uc.siteURL = siteURL
+		expectPlatformIdentity(repo, &platformIdentityRow)
+		preview, err := uc.PreviewPlatformFooter(context.Background(), []byte(savedFooterDoc))
+		require.NoError(t, err)
+		require.Equal(t, want, preview.Text)
+	}
+}
+
 func TestPreviewPlatformFooterKeepsRootAlignment(t *testing.T) {
 	uc, repo, _ := newTestUseCase(t, config.SMTPConfig{}, nil)
 	expectPlatformIdentity(repo, &platformIdentityRow)

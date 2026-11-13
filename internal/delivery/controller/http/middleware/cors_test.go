@@ -14,7 +14,7 @@ import (
 )
 
 func newRouter(domain string) *gin.Engine {
-	hosts := config.HostsConfig{Main: domain, API: "api." + domain, ID: "id." + domain, Admin: "admin." + domain, Exercises: "exercises." + domain, EventDomain: domain}
+	hosts := config.HostsConfig{Root: domain, API: "api." + domain, ID: "id." + domain, Admin: "admin." + domain, Exercises: "exercises." + domain, EventDomain: domain}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.HandleCORSMiddleWare(hosts))
@@ -164,7 +164,7 @@ func (s tagSet) EventTagExists(_ context.Context, tag string) bool { return s[ta
 // An event site whose event is gone is a missing tenant (404, like the tenant resolver says), a foreign
 // origin stays 403, and an existing event passes on to the handler.
 func TestHandleCORS_MissingEventSiteIs404NotForbidden(t *testing.T) {
-	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
+	hosts := config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.HandleCORS(middleware.OriginPolicy{Hosts: hosts, Tags: tagSet{"alive1": true}}))
@@ -187,7 +187,7 @@ func TestHandleCORS_MissingEventSiteIs404NotForbidden(t *testing.T) {
 // An unknown or deleted event site is answered 404 WITH the CORS headers (so the browser lets the frontend
 // read it), its preflight is a normal one, and a foreign origin still gets neither.
 func TestHandleCORS_MissingEventSiteIsReadable(t *testing.T) {
-	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
+	hosts := config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.HandleCORS(middleware.OriginPolicy{Hosts: hosts, Tags: tagSet{"alive1": true, "deleted1": false}}))

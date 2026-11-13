@@ -18,7 +18,7 @@ import (
 )
 
 var siteHosts = config.HostsConfig{
-	Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
+	Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
 	Exercises: "exercises.example.test", EventDomain: "example.test",
 }
 

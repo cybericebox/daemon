@@ -1,11 +1,15 @@
-package config
+package config_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cybericebox/daemon/internal/config"
+)
 
 // The root domain (DOMAIN itself) keeps every role it has: allowed origin, frontend origin, platform host.
 // The table is written without the field that holds the root host, so it holds before and after any rename.
 func TestRootDomainKeepsItsRoles(t *testing.T) {
-	h := HostsConfig{Domain: "example.test"}
+	h := config.HostsConfig{Domain: "example.test"}
 	if err := h.Validate(); err != nil {
 		t.Fatal(err)
 	}

@@ -129,7 +129,7 @@ func buildRoutePolicy(t *testing.T) []routeSummary {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
+	hosts := config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
 	NewAPIHandler(nil, probeProtector{}, config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: hosts}).Init(router)
 
 	var out []routeSummary
@@ -513,7 +513,7 @@ func TestUngatedPublicRoutesMatchTheMountedRouter(t *testing.T) {
 // right after the guard, so no use case is needed.
 func TestChunkUploadPassesTheOriginGuardOnTheRealRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
+	hosts := config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
 	router := gin.New()
 	router.Use(middleware.OriginGuardWith(middleware.OriginPolicy{Hosts: hosts}))
 	NewAPIHandler(nil, probeProtector{}, config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: hosts}).Init(router)

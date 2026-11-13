@@ -253,7 +253,15 @@ type (
 	AuthConfig struct {
 		Hosts HostsConfig `                                            envPrefix:""`
 		// SupportEmail is the default Reply-To of all mail and the contact in the mail footer.
-		SupportEmail   string `env:"SUPPORT_EMAIL,required"`
+		SupportEmail string `env:"SUPPORT_EMAIL,required"`
+		// MainSiteURL (MAIN_SITE_URL, optional) is the address of the installation's own public site. Set: mail footers use
+		// it as {site_url}. Empty: the ID site is used where mail needs a site address. Nothing else follows from it
+		// (no origin, cookie or redirect), see Hosts.Root for the root domain.
+		MainSiteURL string `env:"MAIN_SITE_URL"`
+		// TermsURL (TERMS_URL) and PrivacyURL (PRIVACY_URL), optional, are the installation's Terms and Privacy Policy.
+		// Empty means the document does not exist: it is not linked and not required on account creation.
+		TermsURL       string `env:"TERMS_URL"`
+		PrivacyURL     string `env:"PRIVACY_URL"`
 		TokenSignature string `env:"JWT_TOKEN_SIGNATURE"`
 		// SetupTokenTTL is the life of a setup link (account setup and invitations).
 		SetupTokenTTL time.Duration `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
@@ -1120,6 +1128,10 @@ func MustGetConfig() *Config {
 	eventModel.SetExtraReservedTags(instance.Auth.Hosts.ExtraReservedTags)
 	if addr, perr := mail.ParseAddress(instance.Auth.SupportEmail); perr != nil || addr.Address != instance.Auth.SupportEmail {
 		log.Fatal().Msg("Config: SUPPORT_EMAIL must be a bare email address")
+	}
+
+	if err = instance.Auth.ValidateSiteLinks(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid site links")
 	}
 
 	if err = instance.ResolveKeys(); err != nil {

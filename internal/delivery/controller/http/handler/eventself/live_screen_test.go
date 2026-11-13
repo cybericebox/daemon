@@ -340,7 +340,7 @@ func TestScreenLinkOpensItsOwnUnpublishedEventOnly(t *testing.T) {
 	h := NewEventSelfAPIHandler(fakeUseCase{}, nil)
 	serve := func(eventID uuid.UUID, origin, token string) *httptest.ResponseRecorder {
 		r := gin.New()
-		resolve := middleware.ResolveEventTenant(unpublishedResolver{eventID: eventID}, config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"})
+		resolve := middleware.ResolveEventTenant(unpublishedResolver{eventID: eventID}, config.HostsConfig{Root: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"})
 		r.GET("/api/events/self/live-screen", h.liveScreenGate, resolve, h.liveScreen)
 		req := httptest.NewRequest(http.MethodGet, "/api/events/self/live-screen?token="+token, nil)
 		req.Header.Set("Origin", origin)
