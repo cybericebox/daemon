@@ -19,6 +19,10 @@ const (
 	PurposeSession  Purpose = "session"  // the session cookie, and the seed of the event-render signing keys
 )
 
+// AllPurposes lists every purpose a key is derived for. It is the list `keys check` walks to say, for each purpose, whether
+// the daemon scans what it seals; a purpose added above must be added here (a test compares the two).
+var AllPurposes = []Purpose{PurposePlatform, PurposeVPN, PurposeExercise, PurposeSession}
+
 // derivedPrefix starts the id of a derived key: "d-" and the id of the master version it was derived from. The id is what a
 // ciphertext carries, so a stored value says both that its key was derived and from which master version.
 const derivedPrefix = "d-"
