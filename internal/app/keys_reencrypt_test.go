@@ -76,8 +76,8 @@ func TestReencryptCommand_ListsFailedRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, n, "failed rows and rows changed meanwhile give a non-zero exit")
 	text := out.String()
-	require.Contains(t, text, "mail_smtp_configs.password_ciphertext row row-a: aad_mismatch (key id: k1)")
-	require.Contains(t, text, "mail_smtp_configs.password_ciphertext row row-b: unknown_key_id (key id: k0)")
+	require.Contains(t, text, `mail_smtp_configs.password_ciphertext row "row-a": aad_mismatch (key id: "k1")`)
+	require.Contains(t, text, `mail_smtp_configs.password_ciphertext row "row-b": unknown_key_id (key id: "k0")`)
 	require.Contains(t, text, "unknown_key_id: 1, aad_mismatch: 1")
 }
 
