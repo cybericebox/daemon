@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+	"github.com/stretchr/testify/require"
 
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
@@ -25,6 +26,7 @@ import (
 )
 
 type fakeUC struct {
+	completeErr       error
 	completeCalls     int
 	acceptedDocuments []string
 	cookie, redirect  string
@@ -91,6 +93,9 @@ func (f *fakeUC) CompleteRegistration(
 ) (string, string, error) {
 	f.completeCalls++
 	f.acceptedDocuments = accepted
+	if f.completeErr != nil {
+		return "", "", f.completeErr
+	}
 	return "c", "l", nil
 }
 func (f *fakeUC) PasswordPolicy() authUseCase.PasswordPolicy         { return f.policy }
@@ -960,6 +965,7 @@ func postSetup(t *testing.T, uc *fakeUC, body string) *httptest.ResponseRecorder
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(response.WithErrorHandler)
 	authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig).Init(r.Group("api"), r.Group("api"))
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -1007,4 +1013,26 @@ func TestCompleteSetup_RejectsAnUnknownDocument(t *testing.T) {
 	if len(uc.acceptedDocuments) != 0 {
 		t.Fatalf("the version number must not count as an acceptance: %v", uc.acceptedDocuments)
 	}
+}
+
+// A list that does not cover the required documents answers 400 with code 20407 and tells the page which documents
+// the installation requires; the message names no document of anyone.
+func TestCompleteSetup_DocumentsNotAcceptedSaysWhichAreRequired(t *testing.T) {
+	failure := userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "a@b.test", time.Now())
+	completeErr := failure.CompleteSetup("a", "b", "pwd", nil, []string{"terms", "privacy"}, func() (bool, error) { return false, nil }, time.Now())
+	require.Error(t, completeErr)
+
+	w := postSetup(t, &fakeUC{completeErr: completeErr}, `{"Token":"t","AcceptedDocuments":[]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	var env struct {
+		Status struct {
+			Code    int
+			Message string
+			Context map[string]any
+		}
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Equal(t, 20407, env.Status.Code)
+	require.Equal(t, "The required documents must be accepted", env.Status.Message)
+	require.Equal(t, []any{"terms", "privacy"}, env.Status.Context["required_documents"])
 }
