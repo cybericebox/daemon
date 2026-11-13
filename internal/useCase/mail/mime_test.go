@@ -68,7 +68,7 @@ func TestDeliver_MIMEBodiesKeepContentAndFooter(t *testing.T) {
 			plain := strings.ReplaceAll(parts["text/plain"], "\r\n", "\n")
 			require.True(t, strings.HasPrefix(plain, text+"\n\nЦей лист надіслано автоматично."), plain)
 			require.Contains(t, plain, "Цей лист надіслано автоматично.")
-			require.Equal(t, 1, strings.Count(plain, "Політика конфіденційності"), "the footer is appended once")
+			require.Equal(t, 1, strings.Count(plain, "Цей лист надіслано автоматично."), "the footer is appended once")
 		})
 	}
 }

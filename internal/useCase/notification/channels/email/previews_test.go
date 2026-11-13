@@ -30,7 +30,7 @@ func (noPresets) ListPresets(context.Context) ([]emailModel.BlockPreset, error) 
 type platformFooters struct{}
 
 func (platformFooters) Footer(context.Context, *uuid.UUID) (mailModel.Footer, error) {
-	return mailUseCase.RenderPlatformFooter("support@cybericebox.com", "https://cybericebox.com"), nil
+	return mailUseCase.RenderPlatformFooter("support@cybericebox.com", "https://cybericebox.com", ""), nil
 }
 
 // sampleValues are realistic variable values for the previews.

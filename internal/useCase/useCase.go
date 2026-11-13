@@ -429,7 +429,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 
 	mailUC := mailUseCase.NewMailUseCase(mailUseCase.Dependencies{
 		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, SMTPPolicy: mailModel.SMTPPolicy{AllowedPorts: deps.SMTPAllowedPorts},
-		SiteURL: deps.AuthConfig.SiteURL(), SupportEmail: deps.AuthConfig.SupportEmail,
+		SiteURL: deps.AuthConfig.SiteURL(), PrivacyURL: deps.AuthConfig.PrivacyURL, SupportEmail: deps.AuthConfig.SupportEmail,
 	})
 	handlers := buildNotificationHandlers(deps.Repo, mailUC, mediaUC, eventUC)
 	notificationDispatcher := dispatcherUseCase.NewNotificationDispatcher(

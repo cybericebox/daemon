@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -22,11 +23,10 @@ import (
 func requireFooter(t *testing.T, msg email.Message, supportEmail string) {
 	t.Helper()
 	require.Contains(t, msg.HTML, `href="mailto:`+supportEmail+`"`)
-	require.Contains(t, msg.HTML, `href="https://cybericebox.com/privacy"`)
 	require.True(t, strings.HasSuffix(msg.Text,
 		"Цей лист надіслано автоматично. Звʼязатися з нами (mailto:"+supportEmail+")\n"+
-			"Cyber\u00a0ICE\u00a0Box (https://cybericebox.com) · Політика конфіденційності (https://cybericebox.com/privacy)"), msg.Text)
-	require.Equal(t, 1, strings.Count(msg.HTML, `href="https://cybericebox.com/privacy"`), "footer appended once")
+			"Cyber\u00a0ICE\u00a0Box"), msg.Text)
+	require.Equal(t, 1, strings.Count(msg.HTML, `href="mailto:`+supportEmail+`"`), "footer appended once")
 }
 
 func TestDeliver_PlatformMailEndsWithFooter(t *testing.T) {
@@ -190,6 +190,7 @@ func TestDeliver_FooterSavedAsTextIsStillRendered(t *testing.T) {
 	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{platformRow}, nil)
 	row := platformIdentityRow
 	row.FooterText = "Дякуємо! {reply_to} · [Політика]({privacy_url})"
+	uc.privacyURL = "https://cybericebox.com/privacy"
 	expectPlatformIdentity(repo, &row)
 
 	require.NoError(t, uc.Deliver(context.Background(), nil, email.Message{To: "u@example.org", HTML: "<p>x</p>", Text: "x"}))
@@ -210,7 +211,7 @@ func TestDeliver_CorruptSavedFooterFallsBackToTheDefault(t *testing.T) {
 }
 
 func TestFooterHTML_NoShadowsAndEscapesValues(t *testing.T) {
-	footer := renderFooter(nil, `a"<b>@x.y`, "https://x.y")
+	footer := renderFooter(nil, `a"<b>@x.y`, "https://x.y", "")
 	require.NotContains(t, footer.HTML, "shadow")
 	require.NotContains(t, footer.HTML, `a"<b>`)
 	require.NotContains(t, footer.HTML, ">—</p>", "the footer needs no extra decorative line")
@@ -219,7 +220,7 @@ func TestFooterHTML_NoShadowsAndEscapesValues(t *testing.T) {
 
 func TestRenderFooter_NothingToShowIsEmpty(t *testing.T) {
 	only := []byte(`{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"variable","varName":"reply_to"}]}]}}`)
-	require.Equal(t, mailModel.Footer{}, renderFooter(only, "", "https://x.y"), "the only paragraph needs a Reply-To that is missing")
+	require.Equal(t, mailModel.Footer{}, renderFooter(only, "", "https://x.y", ""), "the only paragraph needs a Reply-To that is missing")
 }
 
 func TestUpdatePlatformFooter_ValidatesSavesAndReturnsSettings(t *testing.T) {
@@ -287,7 +288,8 @@ func TestPreviewPlatformFooter_RendersUnsavedDocWithPlatformValues(t *testing.T)
 
 	preview, err = uc.PreviewPlatformFooter(context.Background(), nil)
 	require.NoError(t, err)
-	require.Contains(t, preview.Text, "Політика конфіденційності")
+	require.NotContains(t, preview.Text, "Політика")
+	require.NotContains(t, preview.Text, "http")
 }
 
 // {site_url} is the address the use case was given (MAIN_SITE_URL, or the ID site when it is not set), shown without the scheme.
@@ -317,14 +319,11 @@ func TestPreviewPlatformFooterKeepsRootAlignment(t *testing.T) {
 }
 
 func TestFooter_ShortLinksStayTogetherWithoutChangingAddresses(t *testing.T) {
-	footer := renderFooter(nil, "support@cybericebox.com", "https://cybericebox.com")
+	footer := renderFooter(nil, "support@cybericebox.com", "https://cybericebox.com", "")
 	require.Contains(t, footer.HTML, "Звʼязатися&nbsp;з&nbsp;нами")
-	require.Contains(t, footer.HTML, "Політика&nbsp;конфіденційності")
 	require.Contains(t, footer.HTML, `href="mailto:support@cybericebox.com"`)
-	require.Contains(t, footer.HTML, `href="https://cybericebox.com/privacy"`)
-	en := renderFooter(mailModel.DefaultFooterDoc(mailModel.LanguageEN), "support@example.org", "https://example.org")
+	en := renderFooter(mailModel.DefaultFooterDoc(mailModel.LanguageEN), "support@example.org", "https://example.org", "")
 	require.Contains(t, en.HTML, "Contact&nbsp;us")
-	require.Contains(t, en.HTML, "Privacy&nbsp;Policy")
 	require.Contains(t, en.Text, "Contact us", "plain-text content stays readable")
 }
 
@@ -334,4 +333,45 @@ func TestFooterLinkWords_DoesNotRewriteURLsOrMakeLongCustomLinksUnbreakable(t *t
 	require.Contains(t, got, `href="https://example.org/Contact us"`)
 	require.Contains(t, got, ">Contact&nbsp;us</a>")
 	require.Contains(t, got, "A long custom footer link with many words")
+}
+
+// golden: a stored footer document equal to the former default, rendered with the owner's values, gives exactly what the
+// code rendered before the default became neutral (captured from the code before this change, domain example.org).
+func TestRenderFooter_StoredFormerDefaultStaysIdentical(t *testing.T) {
+	raw, err := os.ReadFile("testdata/footer_golden_develop.json")
+	require.NoError(t, err)
+	var golden map[string]struct {
+		Doc  json.RawMessage `json:"doc"`
+		HTML string          `json:"html"`
+		Text string          `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &golden))
+	require.Len(t, golden, 2)
+	for lang, want := range golden {
+		got := renderFooter(want.Doc, "support@example.org", "https://example.org", "https://example.org/privacy")
+		require.Equal(t, want.HTML, got.HTML, lang)
+		require.Equal(t, want.Text, got.Text, lang)
+	}
+}
+
+func TestRenderFooter_DefaultHasNoLinkToASiteOrPolicy(t *testing.T) {
+	for _, lang := range []mailModel.Language{mailModel.LanguageUK, mailModel.LanguageEN} {
+		footer := renderFooter(mailModel.DefaultFooterDoc(lang), "support@example.org", "https://example.org", "https://example.org/privacy")
+		require.Equal(t, 1, strings.Count(footer.HTML, "<a "), string(lang))
+		require.Contains(t, footer.HTML, `href="mailto:support@example.org"`)
+		require.NotContains(t, footer.HTML, "http")
+		require.NotContains(t, footer.Text, "http")
+	}
+}
+
+// {site_url} is the address the caller passes (MAIN_SITE_URL or the ID site); {privacy_url} is empty without PRIVACY_URL.
+func TestRenderFooter_SiteAndPrivacyVariables(t *testing.T) {
+	doc := []byte(`{"root":{"type":"root","children":[` +
+		`{"type":"paragraph","children":[{"type":"variable","varName":"site_url"}]},` +
+		`{"type":"paragraph","children":[{"type":"variable","varName":"privacy_url"}]}]}}`)
+	both := renderFooter(doc, "", "https://id.example.test", "https://example.org/privacy")
+	require.Equal(t, "id.example.test\nexample.org/privacy", both.Text)
+	siteOnly := renderFooter(doc, "", "https://id.example.test", "")
+	require.Equal(t, "id.example.test", siteOnly.Text)
+	require.NotContains(t, siteOnly.HTML, "privacy")
 }

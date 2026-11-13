@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var testVars = FooterValues("org@uni.edu", "https://cybericebox.com")
+var testVars = FooterValues("org@uni.edu", "https://cybericebox.com", "https://cybericebox.com/privacy")
 
 func resolved(t *testing.T, doc json.RawMessage, vars map[string]string) (json.RawMessage, bool) {
 	t.Helper()
@@ -20,21 +20,23 @@ func TestDefaultFooterDoc_UsesReadableLinkLabels(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []string{
 		"Цей лист надіслано автоматично. Звʼязатися з нами (mailto:org@uni.edu)",
-		"Cyber ICE Box (https://cybericebox.com) · Політика конфіденційності (https://cybericebox.com/privacy)",
+		"Cyber ICE Box",
 	}, FooterPlainLines(doc))
 }
 
 func TestDefaultFooterDoc_English(t *testing.T) {
-	doc, ok := resolved(t, DefaultFooterDoc(LanguageEN), FooterValues("support@cybericebox.com", "https://cybericebox.com"))
+	doc, ok := resolved(t, DefaultFooterDoc(LanguageEN), FooterValues("support@cybericebox.com", "https://cybericebox.com", "https://cybericebox.com/privacy"))
 	require.True(t, ok)
 	require.Equal(t, []string{
 		"This email was sent automatically. Contact us (mailto:support@cybericebox.com)",
-		"Cyber ICE Box (https://cybericebox.com) · Privacy Policy (https://cybericebox.com/privacy)",
+		"Cyber ICE Box",
 	}, FooterPlainLines(doc))
 }
 
 func TestResolveFooterDoc_UrlVariablesBecomeLinks(t *testing.T) {
-	doc, _ := resolved(t, DefaultFooterDoc(LanguageUK), testVars)
+	custom := json.RawMessage(`{"root":{"type":"root","children":[{"type":"paragraph","children":[` +
+		`{"type":"variable","varName":"reply_to"},{"type":"variable","varName":"site_url"},{"type":"variable","varName":"privacy_url"}]}]}}`)
+	doc, _ := resolved(t, custom, testVars)
 	s := string(doc)
 	require.Contains(t, s, `"url":"mailto:org@uni.edu"`)
 	require.Contains(t, s, `"url":"https://cybericebox.com"`)
@@ -43,13 +45,21 @@ func TestResolveFooterDoc_UrlVariablesBecomeLinks(t *testing.T) {
 }
 
 func TestResolveFooterDoc_ParagraphWithEmptyVariableIsLeftOut(t *testing.T) {
-	vars := FooterValues("", "https://cybericebox.com")
+	vars := FooterValues("", "https://cybericebox.com", "")
 	doc, ok := resolved(t, DefaultFooterDoc(LanguageUK), vars)
 	require.True(t, ok)
-	require.Len(t, FooterPlainLines(doc), 1, "the {reply_to} paragraph is dropped")
+	require.Equal(t, []string{"Cyber ICE Box"}, FooterPlainLines(doc), "the {reply_to} paragraph is dropped")
 
-	_, ok = resolved(t, DefaultFooterDoc(LanguageUK), FooterValues("", ""))
-	require.False(t, ok, "no site and no support: nothing but the name is left, and it shares a paragraph with the site")
+	// A paragraph that uses {privacy_url} is dropped when the installation has no privacy policy address.
+	custom := json.RawMessage(`{"root":{"type":"root","children":[` +
+		`{"type":"paragraph","children":[{"type":"variable","varName":"platform_name"}]},` +
+		`{"type":"paragraph","children":[{"type":"variable","varName":"privacy_url"}]}]}}`)
+	doc, ok = resolved(t, custom, FooterValues("", "https://cybericebox.com", ""))
+	require.True(t, ok)
+	require.Equal(t, []string{"Cyber ICE Box"}, FooterPlainLines(doc))
+	doc, ok = resolved(t, custom, FooterValues("", "https://cybericebox.com", "https://example.org/privacy"))
+	require.True(t, ok)
+	require.Equal(t, []string{"Cyber ICE Box", "example.org/privacy"}, FooterPlainLines(doc))
 }
 
 func TestResolveFooterDoc_VariableFormatsBecomeTextFormat(t *testing.T) {
@@ -207,7 +217,7 @@ func TestFooter_AppendEmptyFooterKeepsBody(t *testing.T) {
 }
 
 // The built-in footers follow the owner's wording: the automatic-mail line,
-// the platform line with the bare site and privacy address, no banned spelling.
+// the plain platform name, no link to a site or a policy, no banned spelling.
 func TestDefaultFooters_Wording(t *testing.T) {
 	banned := []string{"noreply", "Питання?", "подія", "імейл", "кукі"}
 	for lang, text := range defaultFooterTexts {
@@ -215,6 +225,24 @@ func TestDefaultFooters_Wording(t *testing.T) {
 			require.NotContains(t, strings.ToLower(text), strings.ToLower(word), string(lang))
 		}
 		require.Contains(t, text, "{reply_to}")
-		require.Contains(t, text, "{privacy_url}")
+		require.NotContains(t, text, "{privacy_url}")
+		require.NotContains(t, text, "{site_url}")
+		require.NotContains(t, text, "http")
 	}
+}
+
+// The default follows the platform: it is stored as nothing. The former default (links to the site and the policy) is
+// now an ordinary custom document and is kept as written.
+func TestNormalizeFooterDoc_NewDefaultIsNilOldDefaultIsKept(t *testing.T) {
+	for _, lang := range []Language{LanguageUK, LanguageEN} {
+		got, err := NormalizeFooterDoc(DefaultFooterDoc(lang))
+		require.NoError(t, err)
+		require.Nil(t, got, string(lang))
+	}
+	old := footerDoc("Цей лист надіслано автоматично. [Звʼязатися з нами]({reply_to})\n"+
+		"[{platform_name}]({site_url}) · [Політика конфіденційності]({privacy_url})", "center")
+	got, err := NormalizeFooterDoc(old)
+	require.NoError(t, err)
+	require.NotNil(t, got, "the old default is a custom document now")
+	require.Contains(t, string(got), "privacy_url")
 }
