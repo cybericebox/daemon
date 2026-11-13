@@ -444,3 +444,81 @@ func TestRun_UnknownFamilyAndMissingKey(t *testing.T) {
 	_, err = uc.Run(context.Background(), keyRotationRepo.FamilyVPN, keyrotation.Options{})
 	require.ErrorIs(t, err, keyrotation.ErrFamilyKeyMissing)
 }
+
+// 19, 20, 21, 26. `keys status` before, during and after a run: counts per key id move from the old key to the current
+// one, the run shows as running with partial counts and finished at the end, the failed rows are counted per reason, and
+// the printed report holds no value.
+func TestStatus_BeforeDuringAfter(t *testing.T) {
+	w := newWorld(t)
+	plain := "status-plain-secret"
+	for n := 1; n <= 4; n++ {
+		w.smtp(n, w.seal(w.oldC, plain, w.ctxs.SMTP(id(n))))
+	}
+	w.smtp(5, w.seal(w.ring, plain, w.ctxs.SMTP(id(5))))
+	broken := w.seal(w.oldC, plain, w.ctxs.SMTP(id(999)))
+	w.smtp(6, broken)
+
+	status := func() (secretkeys.Report, string) {
+		rep, err := secretkeys.New(secretKeysRepo.New(w.pool), secretkeys.Ciphers{Platform: w.ring, VPN: w.ring, Exercise: w.ring}).Check(context.Background(), true)
+		require.NoError(t, err)
+		stored, err := w.repo.Progress(context.Background())
+		require.NoError(t, err)
+		for _, p := range stored {
+			rep.Rotation = append(rep.Rotation, secretkeys.RotationState{Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State,
+				Total: p.Total, Done: p.Done, Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt})
+		}
+		var out strings.Builder
+		rep.Write(&out)
+		return rep, out.String()
+	}
+	smtpCol := func(rep secretkeys.Report) secretkeys.Column {
+		for _, c := range rep.Columns {
+			if c.Name == "mail_smtp_configs.password_ciphertext" {
+				return c
+			}
+		}
+		t.Fatal("column missing")
+		return secretkeys.Column{}
+	}
+
+	before, text := status()
+	require.Equal(t, map[string]int{"k1": 5, "k2": 1}, smtpCol(before).ByKey)
+	require.Equal(t, map[secret.Reason]int{secret.ReasonAAD: 1}, smtpCol(before).ByReason)
+	require.Empty(t, before.Rotation)
+	require.NotContains(t, text, "Re-encryption runs")
+
+	var during secretkeys.Report
+	var duringText string
+	swaps := 0
+	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
+		swaps++
+		if swaps == 3 {
+			during, duringText = status()
+		}
+	}}
+	_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 2})
+	require.NoError(t, err)
+	d := smtpCol(during).ByKey
+	require.Equal(t, 5+1, d["k1"]+d["k2"], "no row is lost while the run is going")
+	require.Equal(t, 1+2, d["k2"], "two rows are already moved")
+	require.Len(t, during.Rotation, 1)
+	require.Equal(t, keyRotationRepo.StateRunning, during.Rotation[0].State)
+	require.Contains(t, duringText, "running")
+	require.Zero(t, during.Problems()-1, "only the broken row does not open during the run")
+
+	after, afterText := status()
+	require.Equal(t, map[string]int{"k1": 1, "k2": 5}, smtpCol(after).ByKey, "only the broken value stays on the old key")
+	require.Len(t, after.Rotation, 6, "one row per source of the family")
+	for _, r := range after.Rotation {
+		require.Equal(t, keyRotationRepo.StateFinished, r.State, r.Source)
+		if r.Source == "mail_smtp_configs.password_ciphertext" {
+			require.Equal(t, 1, r.Failed)
+		}
+	}
+	require.Contains(t, afterText, "aad_mismatch: 1")
+	require.Contains(t, afterText, "finished")
+	for _, leak := range []string{plain, broken, strings.TrimPrefix(broken, "v1:k1:")} {
+		require.NotContains(t, afterText, leak)
+		require.NotContains(t, duringText, leak)
+	}
+}

@@ -47,13 +47,21 @@ func (r Report) Write(w io.Writer) {
 		}
 		fmt.Fprintf(w, "  [%s] %s: %d value(s); %s\n", c.Family, c.Name, c.Total, strings.Join(parts, "; "))
 		if c.Problems > 0 {
-			fmt.Fprintf(w, "    CANNOT BE OPENED: %d\n", c.Problems)
+			fmt.Fprintf(w, "    CANNOT BE OPENED: %d (%s)\n", c.Problems, reasonCounts(c.ByReason))
 			for _, p := range c.ProblemRefs {
 				fmt.Fprintf(w, "      %s (%s)\n", p.Ref, p.describe())
 			}
 			if c.Problems > len(c.ProblemRefs) {
 				fmt.Fprintf(w, "      ... and %d more\n", c.Problems-len(c.ProblemRefs))
 			}
+		}
+	}
+	if len(r.Rotation) > 0 {
+		fmt.Fprintln(w, "\nRe-encryption runs:")
+		for _, s := range r.Rotation {
+			fmt.Fprintf(w, "  [%s] %s: %s, to key %s: %d scanned, %d rewritten, %d failed, %d changed meanwhile (%s), %s\n",
+				s.Family, s.Source, s.State, s.KeyID, s.Total, s.Done, s.Failed, s.Conflicts, reasonCountsOf(s.FailedByReason),
+				s.UpdatedAt.UTC().Format("2006-01-02 15:04:05Z"))
 		}
 	}
 	fmt.Fprintln(w, "\nNot covered (short-lived):")
@@ -87,4 +95,26 @@ func (p Problem) describe() string {
 		return "no key is configured for this family"
 	}
 	return p.Kind
+}
+
+// reasonCounts lists the counts per reason class in a fixed order, zero ones left out.
+func reasonCounts(by map[secret.Reason]int) string {
+	m := make(map[string]int, len(by))
+	for k, v := range by {
+		m[string(k)] = v
+	}
+	return reasonCountsOf(m)
+}
+
+func reasonCountsOf(by map[string]int) string {
+	var parts []string
+	for _, r := range secret.Reasons {
+		if n := by[string(r)]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s: %d", r, n))
+		}
+	}
+	if len(parts) == 0 {
+		return "no failures"
+	}
+	return strings.Join(parts, ", ")
 }

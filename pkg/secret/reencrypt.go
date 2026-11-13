@@ -283,6 +283,10 @@ func (r *Reencryptor) verified(sealed string, context, plain []byte) bool {
 	return err == nil && bytes.Equal(back, plain)
 }
 
+// ReasonOf classes the error of a failed open: an unknown key id, a damaged or foreign text, or (what a wrong
+// context and a wrong key both give) a failed authentication.
+func ReasonOf(err error) Reason { return classify(err) }
+
 func classify(err error) Reason {
 	switch {
 	case errors.Is(err, ErrUnknownKey):
