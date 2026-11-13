@@ -106,3 +106,29 @@ WHERE pi.digest = sqlc.arg(digest)
 DELETE
 FROM image_blob_pushes
 WHERE updated_at < $1;
+
+-- name: PlatformImageNameByDigest :one
+-- The name an earlier upload recorded for a digest (the newest row). In the platform's own registry a digest lives in
+-- one repository, platform/<name>, so a second upload of the same image reuses that name.
+SELECT name
+FROM platform_images
+WHERE digest = $1
+ORDER BY uploaded_at DESC, tag
+LIMIT 1;
+
+-- name: ListReferencedPlatformImages :many
+-- Every distinct platform:<name>@<digest> a device of any exercise version (draft, published, any status) names.
+-- `images migrate-uploads` copies each of them into the own registry under exactly that name.
+SELECT DISTINCT (device ->> 'image')::text AS image
+FROM exercise_versions v,
+     jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+     jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+WHERE jsonb_typeof(device -> 'image') = 'string'
+  AND (device ->> 'image') LIKE 'platform:%'
+ORDER BY 1;
+
+-- name: ListPlatformImages :many
+-- Every recorded platform image (one row per digest and tag), oldest first: what `images migrate-uploads` walks.
+SELECT *
+FROM platform_images
+ORDER BY uploaded_at, digest, tag;

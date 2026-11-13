@@ -10,7 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/keyrotation"
 )
 
-const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status [--strict] | keys check [<family> <key id>] | keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>]]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status [--strict] | keys check [<family> <key id>] | keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>] | images migrate-uploads]"
 
 func main() {
 	args := os.Args[1:]
@@ -96,6 +96,17 @@ func main() {
 			os.Exit(2)
 		}
 		if rows > 0 {
+			os.Exit(1)
+		}
+	case len(args) == 2 && args[0] == "images" && args[1] == "migrate-uploads":
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		failed, err := app.RunImagesMigrateUploads(context.Background(), cfg, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "images migrate-uploads:", err)
+			os.Exit(2)
+		}
+		if failed > 0 {
 			os.Exit(1)
 		}
 	default:

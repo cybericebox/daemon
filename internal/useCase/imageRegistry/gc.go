@@ -3,11 +3,13 @@ package imageRegistryUseCase
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/model"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry/provider"
 )
@@ -28,6 +30,10 @@ const (
 // also carries tags of other rows waits until those go too. A digest with a tag that another digest's row also maps
 // is never collected (the list, the re-check and the conditional row delete all skip it): its tags are not sent to
 // the provider and its rows stay until the other digest's row goes, so the tag serving the other digest survives.
+//
+// With the own registry in use there is no provider API: the manifest of the digest is deleted from platform/<name>
+// (DELETE by digest, which takes its tags with it) and the registry's own collector frees the blobs. A manifest that
+// is already gone counts as removed; a registry failure keeps the row for the next pass.
 func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.Time) (int, error) {
 	if n, err := u.blobPushes.DeleteStale(ctx, now.Add(-stalePushAfter)); err != nil {
 		log.Warn().Err(err).Msg("image registry: dropping stale blob push states failed")
@@ -35,16 +41,22 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 		log.Debug().Int64("count", n).Msg("image registry: dropped stale blob push states")
 	}
 
-	s, token, err := u.platformToken(ctx, true)
-	if err != nil {
-		return 0, err
-	}
-	if token == "" {
-		return 0, nil
-	}
-	adapter := u.adapter(s.Provider)
-	if adapter == nil {
-		return 0, nil
+	var (
+		s       imageRegistryModel.Settings
+		token   string
+		adapter provider.Adapter
+	)
+	if !u.own.Enabled() {
+		var err error
+		if s, token, err = u.platformToken(ctx, true); err != nil {
+			return 0, err
+		}
+		if token == "" {
+			return 0, nil
+		}
+		if adapter = u.adapter(s.Provider); adapter == nil {
+			return 0, nil
+		}
 	}
 	cutoff := now.Add(-unusedTagGrace)
 	rows, err := u.images.ListUnreferenced(ctx, cutoff)
@@ -56,11 +68,15 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 	// only when every tag it carries is being removed (a tag-by-tag removal would wait on the others forever).
 	var digests []string
 	tags := map[string][]string{}
+	names := map[string][]string{}
 	for _, row := range rows {
 		if _, ok := tags[row.Digest]; !ok {
 			digests = append(digests, row.Digest)
 		}
 		tags[row.Digest] = append(tags[row.Digest], row.Tag)
+		if !slices.Contains(names[row.Digest], row.Name) {
+			names[row.Digest] = append(names[row.Digest], row.Name)
+		}
 	}
 	deleted := 0
 	var failed error
@@ -83,7 +99,12 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 			continue
 		}
 		// A row can exist whose tag was never pushed (the record precedes the manifest push): an absent tag is gone.
-		derr := adapter.DeleteTags(ctx, s.Account, token, s.Repository, tags[digest])
+		var derr error
+		if u.own.Enabled() {
+			derr = u.deleteOwnImage(ctx, digest, names[digest])
+		} else {
+			derr = adapter.DeleteTags(ctx, s.Account, token, s.Repository, tags[digest])
+		}
 		switch {
 		case derr == nil, errors.Is(derr, ociregistry.ErrNotFound):
 		case errors.Is(derr, provider.ErrTagShared):
@@ -108,4 +129,24 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 		return deleted, model.ErrPlatform.WithError(failed).WithMessage("Failed to drop the records of removed registry tags").Err()
 	}
 	return deleted, nil
+}
+
+// deleteOwnImage removes the manifest of a digest from the repository of each name that holds it in the own
+// registry (DELETE by digest; the registry drops its tags with it, and its own collector frees the blobs no
+// manifest references any more). A manifest that is already gone is not a failure; the first other failure is
+// returned after every name has been tried.
+func (u *ImageRegistryUseCase) deleteOwnImage(ctx context.Context, digest string, names []string) error {
+	var failed error
+	for _, name := range names {
+		ref, err := imageRegistryModel.NewPlatformRef(name, digest)
+		if err != nil {
+			// a name the registry never held (an old row with a name that is not a valid repository path): nothing to delete
+			continue
+		}
+		err = u.ownClient(ref.Repository()).DeleteManifest(ctx, digest)
+		if err != nil && !errors.Is(err, ociregistry.ErrNotFound) {
+			failed = errors.Join(failed, err)
+		}
+	}
+	return failed
 }

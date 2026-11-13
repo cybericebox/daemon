@@ -43,6 +43,20 @@ func ParsePlatformRef(s string) (PlatformRef, bool) {
 
 func (r PlatformRef) String() string { return platformPrefix + r.Name + "@" + r.Digest }
 
+const (
+	// PlatformRepositoryPrefix opens the repository of every platform image in the platform's own registry.
+	PlatformRepositoryPrefix = "platform/"
+	// StagingRepository holds the blobs of uploads until their image is created: the browser sends layers before
+	// the image has a name, a registry keeps blobs per repository, so they wait here and are mounted into the
+	// image's repository at creation. The name has a double hyphen, which no platform image name can have
+	// (NewPlatformRef refuses it), so the two never collide.
+	StagingRepository = PlatformRepositoryPrefix + "blob--staging"
+)
+
+// Repository is the repository of the image in the platform's own registry: platform/<name>, the same path the
+// laboratory agent pulls (platform:<name>@<digest> maps to <node registry>/platform/<name>@<digest>).
+func (r PlatformRef) Repository() string { return PlatformRepositoryPrefix + r.Name }
+
 // tagPrefix opens every platform tag: sha256-<64 hex> (a tag cannot hold the ":" of a digest).
 const tagPrefix = "sha256-"
 

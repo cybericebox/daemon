@@ -10382,6 +10382,21 @@ func (mr *MockQuerierMockRecorder) ListPlatformGroupAllocations(ctx any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformGroupAllocations", reflect.TypeOf((*MockQuerier)(nil).ListPlatformGroupAllocations), ctx)
 }
 
+// ListPlatformImages mocks base method.
+func (m *MockQuerier) ListPlatformImages(ctx context.Context) ([]postgres.PlatformImage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPlatformImages", ctx)
+	ret0, _ := ret[0].([]postgres.PlatformImage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPlatformImages indicates an expected call of ListPlatformImages.
+func (mr *MockQuerierMockRecorder) ListPlatformImages(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformImages", reflect.TypeOf((*MockQuerier)(nil).ListPlatformImages), ctx)
+}
+
 // ListPlatformInfraCapacity mocks base method.
 func (m *MockQuerier) ListPlatformInfraCapacity(ctx context.Context, arg postgres.ListPlatformInfraCapacityParams) ([]postgres.ListPlatformInfraCapacityRow, error) {
 	m.ctrl.T.Helper()
@@ -10770,6 +10785,21 @@ func (m *MockQuerier) ListPublishedVariantDevices(ctx context.Context, ids []uui
 func (mr *MockQuerierMockRecorder) ListPublishedVariantDevices(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPublishedVariantDevices", reflect.TypeOf((*MockQuerier)(nil).ListPublishedVariantDevices), ctx, ids)
+}
+
+// ListReferencedPlatformImages mocks base method.
+func (m *MockQuerier) ListReferencedPlatformImages(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListReferencedPlatformImages", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListReferencedPlatformImages indicates an expected call of ListReferencedPlatformImages.
+func (mr *MockQuerierMockRecorder) ListReferencedPlatformImages(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReferencedPlatformImages", reflect.TypeOf((*MockQuerier)(nil).ListReferencedPlatformImages), ctx)
 }
 
 // ListResourceAlarms mocks base method.
@@ -12287,6 +12317,21 @@ func (m *MockQuerier) OpenReadyEventLabRevealBarriers(ctx context.Context, arg p
 func (mr *MockQuerierMockRecorder) OpenReadyEventLabRevealBarriers(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenReadyEventLabRevealBarriers", reflect.TypeOf((*MockQuerier)(nil).OpenReadyEventLabRevealBarriers), ctx, arg)
+}
+
+// PlatformImageNameByDigest mocks base method.
+func (m *MockQuerier) PlatformImageNameByDigest(ctx context.Context, digest string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlatformImageNameByDigest", ctx, digest)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PlatformImageNameByDigest indicates an expected call of PlatformImageNameByDigest.
+func (mr *MockQuerierMockRecorder) PlatformImageNameByDigest(ctx, digest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlatformImageNameByDigest", reflect.TypeOf((*MockQuerier)(nil).PlatformImageNameByDigest), ctx, digest)
 }
 
 // PlatformImageTagTakenByOtherDigest mocks base method.

@@ -157,7 +157,8 @@ func (u *ImageRegistryUseCase) ImageServices(ctx context.Context, images []strin
 // PrepareDeployImages checks every device image of a lab topology right before
 // the deploy (forwarding devices and empty images are skipped), rewrites the
 // platform references and collects the pull credentials, one per registry
-// host. Two different credentials for one host, or more hosts than the agent
+// host. With the own registry in use platform references are neither rewritten nor given a credential (the agent
+// maps platform:<name>@<digest> to its node registry itself); the check only asks the registry for the manifest. Two different credentials for one host, or more hosts than the agent
 // takes, make the images concerned unavailable (credential_conflict). Any
 // unavailable image refuses the deploy with ErrImagesUnavailable, whose public
 // context "images" carries the list (also in DeployImages.Unavailable);
@@ -364,7 +365,7 @@ func (u *ImageRegistryUseCase) checkImages(parent context.Context, scope Scope, 
 		}
 	}
 	c := &imageChecker{u: u, scope: scope}
-	if needPlatform {
+	if needPlatform && !u.own.Enabled() {
 		s, token, err := u.platformToken(ctx, false)
 		if err != nil {
 			return nil, contextErr(parent, err)
@@ -479,6 +480,15 @@ func (c *imageChecker) check(ctx context.Context, image string) checkResult {
 }
 
 func (c *imageChecker) checkPlatform(ctx context.Context, image string, ref imageRegistryModel.PlatformRef) checkResult {
+	if c.u.own.Enabled() {
+		// The platform:<name>@<digest> reference goes to the agent as it is: the agent maps it to the node's
+		// registry and pulls without a credential (the node forwarder holds the reader account). Nothing is
+		// rewritten and no credential is attached, so no credential rule applies. The registry is asked only
+		// whether the manifest is there.
+		r := c.manifest(ctx, image, "own", ref.Digest, c.u.ownClient(ref.Repository()), false)
+		r.identity = ""
+		return r
+	}
 	if c.platformToken == "" {
 		return unavailableResult(image, imageRegistryModel.ReasonNotConfigured)
 	}

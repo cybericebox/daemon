@@ -43436,6 +43436,10 @@ const docTemplate = `{
                 "Configured": {
                     "type": "boolean"
                 },
+                "Managed": {
+                    "description": "Managed: the platform's own registry set by the deployment is in use; Provider is \"own\" and the settings\ncannot be changed here.",
+                    "type": "boolean"
+                },
                 "Provider": {
                     "type": "string"
                 },

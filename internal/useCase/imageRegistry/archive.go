@@ -53,7 +53,10 @@ func (u *ImageRegistryUseCase) InspectImageArchive(ctx context.Context, archive 
 	if err != nil {
 		return ArchiveImageInspection{}, err
 	}
-	have, found, err := u.inspectManifest(ctx, ref.Tag())
+	if ref, err = u.ownRef(ctx, ref); err != nil {
+		return ArchiveImageInspection{}, err
+	}
+	have, found, err := u.inspectManifest(ctx, ref)
 	if err != nil {
 		return ArchiveImageInspection{}, err
 	}
@@ -68,7 +71,16 @@ func (u *ImageRegistryUseCase) InspectImageArchive(ctx context.Context, archive 
 // with the push token: the preview answers what the push will see. A refusal of the token that was used last is
 // ErrRegistryAccessDenied naming it; an outage stays ErrRegistryUnavailable. The cause is logged (it never carries
 // a token): the HTTP answer of a 409 does not reach the server log otherwise.
-func (u *ImageRegistryUseCase) inspectManifest(ctx context.Context, tag string) (string, bool, error) {
+func (u *ImageRegistryUseCase) inspectManifest(ctx context.Context, ref imageRegistryModel.PlatformRef) (string, bool, error) {
+	tag := ref.Tag()
+	if u.own.Enabled() {
+		have, found, err := u.ownClient(ref.Repository()).ManifestDigest(ctx, tag)
+		if err != nil {
+			log.Warn().Err(err).Str("tag", tag).Msg("image archive: manifest check failed")
+			return "", false, RegistryFailure(err, pushTokenName)
+		}
+		return have, found, nil
+	}
 	s, pullToken, err := u.platformToken(ctx, false)
 	if err != nil {
 		return "", false, err

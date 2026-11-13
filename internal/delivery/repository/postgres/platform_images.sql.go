@@ -121,6 +121,72 @@ func (q *Queries) IsDigestCollectable(ctx context.Context, arg IsDigestCollectab
 	return collectable, err
 }
 
+const listPlatformImages = `-- name: ListPlatformImages :many
+SELECT digest, tag, name, exercise_id, uploaded_by, uploaded_at
+FROM platform_images
+ORDER BY uploaded_at, digest, tag
+`
+
+// Every recorded platform image (one row per digest and tag), oldest first: what `images migrate-uploads` walks.
+func (q *Queries) ListPlatformImages(ctx context.Context) ([]PlatformImage, error) {
+	rows, err := q.db.Query(ctx, listPlatformImages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformImage{}
+	for rows.Next() {
+		var i PlatformImage
+		if err := rows.Scan(
+			&i.Digest,
+			&i.Tag,
+			&i.Name,
+			&i.ExerciseID,
+			&i.UploadedBy,
+			&i.UploadedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReferencedPlatformImages = `-- name: ListReferencedPlatformImages :many
+SELECT DISTINCT (device ->> 'image')::text AS image
+FROM exercise_versions v,
+     jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+     jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+WHERE jsonb_typeof(device -> 'image') = 'string'
+  AND (device ->> 'image') LIKE 'platform:%'
+ORDER BY 1
+`
+
+// Every distinct platform:<name>@<digest> a device of any exercise version (draft, published, any status) names.
+// `images migrate-uploads` copies each of them into the own registry under exactly that name.
+func (q *Queries) ListReferencedPlatformImages(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listReferencedPlatformImages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var image string
+		if err := rows.Scan(&image); err != nil {
+			return nil, err
+		}
+		items = append(items, image)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnreferencedPlatformImages = `-- name: ListUnreferencedPlatformImages :many
 WITH candidates AS (SELECT digest
                     FROM platform_images
@@ -177,6 +243,23 @@ func (q *Queries) ListUnreferencedPlatformImages(ctx context.Context, before tim
 		return nil, err
 	}
 	return items, nil
+}
+
+const platformImageNameByDigest = `-- name: PlatformImageNameByDigest :one
+SELECT name
+FROM platform_images
+WHERE digest = $1
+ORDER BY uploaded_at DESC, tag
+LIMIT 1
+`
+
+// The name an earlier upload recorded for a digest (the newest row). In the platform's own registry a digest lives in
+// one repository, platform/<name>, so a second upload of the same image reuses that name.
+func (q *Queries) PlatformImageNameByDigest(ctx context.Context, digest string) (string, error) {
+	row := q.db.QueryRow(ctx, platformImageNameByDigest, digest)
+	var name string
+	err := row.Scan(&name)
+	return name, err
 }
 
 const platformImageTagTakenByOtherDigest = `-- name: PlatformImageTagTakenByOtherDigest :one

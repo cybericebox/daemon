@@ -13,6 +13,9 @@ type Provider string
 const (
 	ProviderDockerHub Provider = "dockerhub"
 	ProviderGHCR      Provider = "ghcr"
+	// ProviderOwn is the platform's own registry (the zot of the laboratory chart), configured by the deployment
+	// (PLATFORM_REGISTRY_*), never stored in the settings and never chosen in the panel: Valid is false for it.
+	ProviderOwn Provider = "own"
 )
 
 func (p Provider) Valid() bool {

@@ -163,6 +163,7 @@ Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_
 | `PLATFORM_SECRETS_KEY` | none | One 64-hex-character key (AES-256), or a keyring `id:hex,id:hex` (see below). Seals platform secrets: SMTP provider passwords, the private keys of enrolled agents and the variables of queued notifications (River job arguments carry ids only; the names, addresses and links wait in sealed rows until the mail is sent). Empty disables them and notifications cannot be queued; an invalid value is fatal. |
 | `EXERCISE_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals exercise secret env vars. Empty disables them (saving one answers 409). |
 | `VPN_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals stored VPN client configs. Empty disables their storage. |
+| `PLATFORM_REGISTRY_HOST`, `PLATFORM_REGISTRY_USERNAME`, `PLATFORM_REGISTRY_PASSWORD` | none | The platform's own image registry (the zot of the laboratory chart): `host:port` without a scheme (`laboratory-registry.<namespace>.svc:5000`, plain http on the cluster network) and its `platform-writer` account (Secret `laboratory-registry-platform`). Set: every platform image (browser uploads, task archives) is stored under `platform/<name>` there, the labs pull it by digest without a credential, unused images are deleted from it (manifest delete, then the registry's own GC), and the Docker Hub / GHCR settings of the platform panel no longer apply (the panel shows them as managed by the deployment). All three or none; a half-set value stops the start. Empty: the provider settings of the panel are used. |
 
 Generate a key with `openssl rand -hex 32`. Keep every key stable: changing one makes data sealed with it unreadable.
 
@@ -187,6 +188,8 @@ One provider for the whole platform: the sign-in, sign-up and password-reset for
 | `none` | none | Accepts every token: local development and tests only. Fatal in production. |
 
 Only the chosen provider's keys are required; any other value, or missing keys, stops the start. `RECAPTCHA_SCORE` (default `0.5`) is the minimum accepted reCAPTCHA score; below `0.3` (0 accepts every bot) is fatal in production.
+
+**Moving uploaded images to the own registry.** Images uploaded while Docker Hub or GHCR was the platform registry stay there. With `PLATFORM_REGISTRY_*` set, run `daemon images migrate-uploads` once (where the backend's variables are present): it copies each recorded image, and each `platform:<name>@<digest>` a task version names, from the provider repository saved in the panel into `platform/<name>` of the own registry, streaming the blobs through a digest check. Task references do not change. It skips what the own registry already has (safe to run again), deletes nothing, and exits 1 if some image could not be copied (for example the provider already collected it).
 
 ### Mail
 
@@ -263,6 +266,7 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EVENT_STAND_DEPLOY_TIMEOUT` | `20m` | A Lab the agent accepted but never reported ready fails after this. |
 | `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
 | `VPN_SECRETS_KEY` | none | See above. |
+| `PLATFORM_REGISTRY_HOST`, `PLATFORM_REGISTRY_USERNAME`, `PLATFORM_REGISTRY_PASSWORD` | none | The platform's own image registry (the zot of the laboratory chart): `host:port` without a scheme (`laboratory-registry.<namespace>.svc:5000`, plain http on the cluster network) and its `platform-writer` account (Secret `laboratory-registry-platform`). Set: every platform image (browser uploads, task archives) is stored under `platform/<name>` there, the labs pull it by digest without a credential, unused images are deleted from it (manifest delete, then the registry's own GC), and the Docker Hub / GHCR settings of the platform panel no longer apply (the panel shows them as managed by the deployment). All three or none; a half-set value stops the start. Empty: the provider settings of the panel are used. |
 
 ### Resource calendar
 

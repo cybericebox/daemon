@@ -8,6 +8,7 @@ package imageRegistryUseCase
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
@@ -33,6 +34,8 @@ type (
 	// ExternalClientFactory builds the OCI client for a registry host taken from an image reference (public
 	// and organizer images). The default dials through ociregistry.GuardedTransport.
 	ExternalClientFactory func(host, repository, username, password string) *ociregistry.Client
+	// OwnClientFactory builds the OCI client for one repository of the platform's own registry.
+	OwnClientFactory func(own OwnRegistry, repository string) *ociregistry.Client
 	// AdapterFactory returns the provider API adapter (repository listing, tag deletion); nil for an unknown provider.
 	AdapterFactory func(p imageRegistryModel.Provider) provider.Adapter
 
@@ -47,6 +50,11 @@ type (
 		NewExternalClient ExternalClientFactory
 		// Adapter defaults to provider.Default.
 		Adapter AdapterFactory
+		// Own is the platform's own registry (PLATFORM_REGISTRY_*). When it is set, every platform image lives there
+		// and the Docker Hub / GHCR settings of the panel no longer apply (they stay readable for migrate-uploads).
+		Own OwnRegistry
+		// NewOwnClient defaults to DefaultOwnClient (plain http on the cluster address).
+		NewOwnClient OwnClientFactory
 		// Now defaults to time.Now.
 		Now func() time.Time
 		// Media reads and drops the chunked uploads of image blobs; QueueBlobPush queues their background push.
@@ -92,6 +100,8 @@ type (
 		newClient     ClientFactory
 		external      ExternalClientFactory
 		adapter       AdapterFactory
+		own           OwnRegistry
+		newOwnClient  OwnClientFactory
 		now           func() time.Time
 		available     *availabilityCache
 
@@ -114,6 +124,42 @@ func DefaultExternalClient(host, repository, username, password string) *ociregi
 	})
 }
 
+// OwnRegistry is the platform's own registry, the zot of the laboratory chart, as the deployment configures it:
+// the in-cluster address, and the platform-writer account that writes (and deletes) under platform/**. It is
+// never read from a settings form or an image reference.
+type OwnRegistry struct {
+	// Host is host:port without a scheme (laboratory-registry.<namespace>.svc:5000). Empty: not in use.
+	Host               string
+	Username, Password string
+}
+
+// Enabled reports whether the platform's own registry is in use.
+func (o OwnRegistry) Enabled() bool { return o.Host != "" }
+
+// Validate checks a configured registry; the error never carries the password.
+func (o OwnRegistry) Validate() error {
+	if !o.Enabled() {
+		return nil
+	}
+	if strings.ContainsAny(o.Host, "/@ \t\r\n") || strings.Contains(o.Host, "://") {
+		return errors.New("PLATFORM_REGISTRY_HOST must be host:port, without a scheme or a path")
+	}
+	// the laboratory agent refuses a username with ':' (it would split the credential)
+	if o.Username == "" || o.Password == "" || strings.Contains(o.Username, ":") {
+		return errors.New("PLATFORM_REGISTRY_USERNAME and PLATFORM_REGISTRY_PASSWORD must be set (the username has no ':')")
+	}
+	return nil
+}
+
+// DefaultOwnClient talks to the own registry over plain http (the registry is on the cluster network and has no
+// TLS). It does not use the guarded transport: the address is the operator's configuration, and it is a cluster
+// address by design.
+func DefaultOwnClient(own OwnRegistry, repository string) *ociregistry.Client {
+	return ociregistry.New(ociregistry.Options{
+		Host: own.Host, Repository: repository, Username: own.Username, Password: own.Password, PlainHTTP: true,
+	})
+}
+
 // DefaultAdapter is the provider's real API.
 func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 	return provider.Default(string(p))
@@ -133,6 +179,8 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 		newClient:     deps.NewClient,
 		external:      deps.NewExternalClient,
 		adapter:       deps.Adapter,
+		own:           deps.Own,
+		newOwnClient:  deps.NewOwnClient,
 		now:           deps.Now,
 		available:     newAvailabilityCache(),
 		headTimeout:   deps.HeadTimeout,
@@ -146,6 +194,9 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 	}
 	if u.adapter == nil {
 		u.adapter = DefaultAdapter
+	}
+	if u.newOwnClient == nil {
+		u.newOwnClient = DefaultOwnClient
 	}
 	if u.now == nil {
 		u.now = time.Now
@@ -163,7 +214,14 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 // settings (tokens still sealed). push selects the push token; a pull uses the
 // pull token, falling back to the push token when none is set or it cannot be opened. Not configured, or no cipher to
 // open the tokens: ErrRegistryNotConfigured.
+//
+// With the own registry in use this is the client of the staging repository (every blob of an upload waits there
+// until its image is created) and the settings are the synthetic own ones; the manifest of an image is read and
+// written through imageClient.
 func (u *ImageRegistryUseCase) PlatformRegistryClient(ctx context.Context, push bool) (*ociregistry.Client, imageRegistryModel.Settings, error) {
+	if u.own.Enabled() {
+		return u.ownClient(imageRegistryModel.StagingRepository), u.ownSettings(), nil
+	}
 	s, token, err := u.platformToken(ctx, push)
 	if err != nil {
 		return nil, imageRegistryModel.Settings{}, err
@@ -278,4 +336,42 @@ func RegistryFailure(cause error, token string) error {
 		e = e.WithPublicContext(imageRegistryModel.ContextToken, token)
 	}
 	return e.Err()
+}
+
+// ownClient is the client of one repository of the own registry.
+func (u *ImageRegistryUseCase) ownClient(repository string) *ociregistry.Client {
+	return u.newOwnClient(u.own, repository)
+}
+
+// ownSettings are the settings the panel and the checks see when the own registry is in use: nothing stored.
+func (u *ImageRegistryUseCase) ownSettings() imageRegistryModel.Settings {
+	return imageRegistryModel.Settings{Provider: imageRegistryModel.ProviderOwn, Repository: imageRegistryModel.PlatformRepositoryPrefix + "**"}
+}
+
+// imageClient is the client of the repository that holds the image of a platform reference: with the own registry
+// platform/<name>, otherwise the one provider repository (PlatformRegistryClient). push selects the push token
+// of a provider registry; the own registry has one account.
+func (u *ImageRegistryUseCase) imageClient(ctx context.Context, push bool, ref imageRegistryModel.PlatformRef) (*ociregistry.Client, error) {
+	if u.own.Enabled() {
+		return u.ownClient(ref.Repository()), nil
+	}
+	client, _, err := u.PlatformRegistryClient(ctx, push)
+	return client, err
+}
+
+// ownRef is the reference an image is published under. With the own registry a digest lives in one repository, so
+// a digest an earlier upload recorded under another name keeps that name (a second repository would hold a copy
+// the collector does not know). Without it, ref is returned as it is.
+func (u *ImageRegistryUseCase) ownRef(ctx context.Context, ref imageRegistryModel.PlatformRef) (imageRegistryModel.PlatformRef, error) {
+	if !u.own.Enabled() {
+		return ref, nil
+	}
+	name, found, err := u.images.NameOfDigest(ctx, ref.Digest)
+	if err != nil {
+		return ref, model.ErrPlatform.WithError(err).WithMessage("Failed to read the recorded name of the image").Err()
+	}
+	if !found || name == ref.Name {
+		return ref, nil
+	}
+	return imageRegistryModel.NewPlatformRef(name, ref.Digest)
 }

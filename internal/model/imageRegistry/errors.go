@@ -118,6 +118,10 @@ var (
 	// "unauthorized" (the same Reason the availability checks use).
 	ErrRegistryAccessDenied = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("The image registry refused the platform token: check the registry token in the platform panel").WithDetailCode(32)
+	// ErrRegistryManaged: the platform registry is the one the deployment configures (PLATFORM_REGISTRY_*), so the
+	// provider settings of the platform panel do not apply and cannot be saved.
+	ErrRegistryManaged = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("The platform image registry is set by the deployment and cannot be changed here").WithDetailCode(33)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

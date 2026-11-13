@@ -50,7 +50,7 @@ func (u *ImageRegistryUseCase) ResolveImageExport(ctx context.Context, reference
 	if !ok {
 		return ImageExport{}, imageNotExportable(imageRegistryModel.ReasonInvalidReference, nil)
 	}
-	client, _, err := u.PlatformRegistryClient(ctx, false)
+	client, err := u.imageClient(ctx, false, ref)
 	if err != nil {
 		if errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
 			return ImageExport{}, imageNotExportable(imageRegistryModel.ReasonNotConfigured, err)

@@ -143,6 +143,8 @@ type (
 		ExerciseCipher *secret.Cipher // exercise secret env vars
 		VPNCipher      *secret.Cipher // VPN client configs
 		PlatformCipher *secret.Cipher // platform settings secrets (SMTP, image registry tokens)
+		// PlatformRegistry is the platform's own image registry (PLATFORM_REGISTRY_*); zero: the provider settings.
+		PlatformRegistry imageRegistryUseCase.OwnRegistry
 		// LabAgent is the infrastructure port, the agent fleet; nil in tests without infrastructure.
 		LabAgent infrastructureUseCase.Agent
 		// AgentFleet applies the admin-configured agents to the live fleet and probes them; nil without one.
@@ -401,7 +403,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		registrySealer = deps.PlatformCipher
 	}
 	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
-		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
+		Repo: deps.Repo, Cipher: registrySealer, Own: deps.PlatformRegistry, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
 		Configs:         imageRegistryRepo.NewImageConfigs(deps.Repo.Pool()),
 		ExternalConfigs: imageRegistryRepo.NewExternalImageConfigs(deps.Repo.Pool()),
 	})

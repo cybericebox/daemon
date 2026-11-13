@@ -64,6 +64,9 @@ type settingsResponse struct {
 	// a pull token).
 	PushCheck checkResponse `json:"PushCheck"`
 	PullCheck checkResponse `json:"PullCheck"`
+	// Managed: the platform's own registry set by the deployment is in use; Provider is "own" and the settings
+	// cannot be changed here.
+	Managed bool `json:"Managed"`
 }
 
 // checkResponse is the last check result of a credential: reason codes and times, never a token. State is "ok",
@@ -107,7 +110,7 @@ func toResponse(v imageRegistryUseCase.SettingsView) settingsResponse {
 	return settingsResponse{
 		Configured: v.Configured, Provider: v.Provider, Account: v.Account, Repository: v.Repository,
 		PushTokenSet: v.PushTokenSet, PullTokenSet: v.PullTokenSet, SecretsKeyMissing: v.SecretsKeyMissing, UpdatedAt: v.UpdatedAt,
-		PushCheck: toCheckResponse(v.PushCheck), PullCheck: toCheckResponse(v.PullCheck),
+		PushCheck: toCheckResponse(v.PushCheck), PullCheck: toCheckResponse(v.PullCheck), Managed: v.Managed,
 	}
 }
 

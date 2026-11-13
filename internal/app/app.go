@@ -136,6 +136,7 @@ func Run(cfg *config.Config) {
 		ExerciseCipher:     cls.exerciseCipher,
 		VPNCipher:          cls.vpnCipher,
 		PlatformCipher:     cls.platformCipher,
+		PlatformRegistry:   platformRegistry(cfg),
 		ErrorJournal:       errorJournalConfig(cfg),
 		Telegram:           telegram.New(cfg.Telegram.BotToken),
 	}
