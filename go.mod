@@ -7,7 +7,7 @@ toolchain go1.27.1
 require (
 	cloud.google.com/go/recaptchaenterprise/v2 v2.28.0
 	github.com/caarlos0/env/v11 v11.4.1
-	github.com/cybericebox/laboratory v1.2.1-0.20261112212506-50c6d5c5551d
+	github.com/cybericebox/laboratory v1.2.1-0.20261113023112-4eed7261e747
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/gofrs/uuid v4.4.0+incompatible
