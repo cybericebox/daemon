@@ -1,10 +1,13 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
@@ -48,7 +51,7 @@ func report() keyrotation.Report {
 func TestReencryptCommand_PreconditionsAndYes(t *testing.T) {
 	f := &fakeRun{rep: report()}
 	var out bytes.Buffer
-	_, err := reencryptCommand(context.Background(), f, "platform", false, false, &out)
+	_, err := reencryptCommand(context.Background(), f, "platform", false, false, "", &out)
 	require.ErrorIs(t, err, ErrNeedsYes)
 	require.Zero(t, f.calls, "nothing runs without --yes")
 	for _, line := range keyrotation.Preconditions {
@@ -64,11 +67,11 @@ func TestReencryptCommand_PreconditionsAndYes(t *testing.T) {
 func TestReencryptCommand_DryRunAndYes(t *testing.T) {
 	f := &fakeRun{rep: report()}
 	var out bytes.Buffer
-	_, err := reencryptCommand(context.Background(), f, "platform", true, false, &out)
+	_, err := reencryptCommand(context.Background(), f, "platform", true, false, "", &out)
 	require.NoError(t, err)
 	require.True(t, f.opts.DryRun)
 	f2 := &fakeRun{rep: report()}
-	_, err = reencryptCommand(context.Background(), f2, "vpn", false, true, &bytes.Buffer{})
+	_, err = reencryptCommand(context.Background(), f2, "vpn", false, true, "", &bytes.Buffer{})
 	require.NoError(t, err)
 	require.Equal(t, 1, f2.calls)
 	require.False(t, f2.opts.DryRun)
@@ -77,7 +80,7 @@ func TestReencryptCommand_DryRunAndYes(t *testing.T) {
 // 26. failed rows are listed with source, row id, key id and reason; the count per reason is printed.
 func TestReencryptCommand_ListsFailedRows(t *testing.T) {
 	var out bytes.Buffer
-	n, err := reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", false, true, &out)
+	n, err := reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", false, true, "", &out)
 	require.NoError(t, err)
 	require.Equal(t, 3, n, "failed rows and rows changed meanwhile give a non-zero exit")
 	text := out.String()
@@ -89,7 +92,7 @@ func TestReencryptCommand_ListsFailedRows(t *testing.T) {
 // A stopped run prints what it did and returns the error (exit 2), not a row count.
 func TestReencryptCommand_StoppedRun(t *testing.T) {
 	var out bytes.Buffer
-	_, err := reencryptCommand(context.Background(), &fakeRun{rep: report(), err: errors.New("connection reset")}, "platform", false, true, &out)
+	_, err := reencryptCommand(context.Background(), &fakeRun{rep: report(), err: errors.New("connection reset")}, "platform", false, true, "", &out)
 	require.Error(t, err)
 	require.Contains(t, out.String(), "mail_smtp_configs.password_ciphertext")
 }
@@ -97,7 +100,7 @@ func TestReencryptCommand_StoppedRun(t *testing.T) {
 // 25. nothing in the output is a plaintext or a ciphertext: the report carries only source, row id, key id, class.
 func TestReencryptCommand_OutputHoldsNoValues(t *testing.T) {
 	var out bytes.Buffer
-	_, _ = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", false, true, &out)
+	_, _ = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", false, true, "", &out)
 	require.False(t, strings.Contains(out.String(), "v1:"), "no ciphertext form in the output")
 }
 
@@ -106,14 +109,14 @@ func TestReencryptCommand_OutputHoldsNoValues(t *testing.T) {
 func TestReencryptCommand_ShowsSealingKeyBeforeTheGate(t *testing.T) {
 	f := &fakeRun{rep: report()}
 	var out bytes.Buffer
-	_, err := reencryptCommand(context.Background(), f, "platform", false, false, &out)
+	_, err := reencryptCommand(context.Background(), f, "platform", false, false, "", &out)
 	require.ErrorIs(t, err, ErrNeedsYes)
 	require.Contains(t, out.String(), `Values will be sealed with key "k2".`)
 	require.Contains(t, out.String(), `Read only (never seal): "k1".`)
 	require.Zero(t, f.calls)
 
 	out.Reset()
-	_, err = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", true, false, &out)
+	_, err = reencryptCommand(context.Background(), &fakeRun{rep: report()}, "platform", true, false, "", &out)
 	require.NoError(t, err)
 	require.Contains(t, out.String(), `Values will be sealed with key "k2".`)
 }
@@ -127,5 +130,68 @@ func TestSignalContext_EndsOnSIGTERM(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(5 * time.Second):
 		t.Fatal("the context was not cancelled by SIGTERM")
+	}
+}
+
+// 7. --expect-key: a keyring whose sealing key is not the expected one is refused before anything runs, also in a dry run;
+// the right key goes through. The help says scripts must pass it.
+func TestReencryptCommand_ExpectKey(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		f := &fakeRun{rep: report()}
+		var out bytes.Buffer
+		_, err := reencryptCommand(context.Background(), f, "platform", dry, true, "k1", &out)
+		require.ErrorIs(t, err, ErrUnexpectedKey)
+		require.Contains(t, err.Error(), `expected "k1", found "k2"`)
+		require.Zero(t, f.calls, "nothing runs when the sealing key is not the expected one")
+	}
+	f := &fakeRun{rep: report()}
+	_, err := reencryptCommand(context.Background(), f, "platform", false, true, "k2", &bytes.Buffer{})
+	require.NoError(t, err)
+	require.Equal(t, 1, f.calls)
+	require.Contains(t, keyrotation.Help, "--expect-key")
+	require.Contains(t, keyrotation.Help, "always pass it")
+	require.Contains(t, keyrotation.Help, "direct database connection")
+	require.Contains(t, keyrotation.Help, "never changed")
+}
+
+// 6. after the first signal the handler is released, so a second one ends the process at once. A child process runs
+// signalContext with SIGTERM: the first signal cancels the context and the child keeps working; the second kills it.
+func TestSignalContext_SecondSignalKills(t *testing.T) {
+	if os.Getenv("KEYS_SIGNAL_HELPER") == "1" {
+		ctx, stop := signalContext(context.Background(), syscall.SIGTERM)
+		defer stop()
+		fmt.Println("ready")
+		<-ctx.Done()
+		fmt.Println("cancelled")
+		time.Sleep(30 * time.Second) // a long cleanup: only the second signal can end it
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestSignalContext_SecondSignalKills")
+	cmd.Env = append(os.Environ(), "KEYS_SIGNAL_HELPER=1")
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	reader := bufio.NewReader(stdout)
+	waitLine := func(want string) {
+		for {
+			line, readErr := reader.ReadString('\n')
+			require.NoError(t, readErr)
+			if strings.TrimSpace(line) == want {
+				return
+			}
+		}
+	}
+	waitLine("ready")
+	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
+	waitLine("cancelled")
+	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case waitErr := <-done:
+		require.Error(t, waitErr, "the second signal must kill the process")
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the second signal did not end the process")
 	}
 }

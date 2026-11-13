@@ -70,6 +70,23 @@ type Source interface {
 	Swap(ctx context.Context, id string, oldValues, newValues []string) (swapped bool, err error)
 }
 
+// ReuseSource is a Source that can replace a freshly sealed value by an equal one it finds under its own lock: a
+// ciphertext of the current key, with the same context, that opens to the same plaintext. same reports exactly that.
+// Rows that must stay byte-equal (a draft and the published version it was copied from) end equal this way even when a
+// copy was made from a stale read while the run was going.
+type ReuseSource interface {
+	Source
+	SwapReusing(ctx context.Context, id string, oldValues, newValues []string,
+		same func(itemContext []byte, candidate, fresh string) bool) (swapped bool, err error)
+}
+
+// PartlyRotatedSource is a Source whose swap of one row can also move values shared with another row. A row that is
+// reported failed may then have had such values moved: PartlyRotated says so.
+type PartlyRotatedSource interface {
+	Source
+	PartlyRotated(rowID string) bool
+}
+
 // Ring is what the job needs from a Cipher.
 type Ring interface {
 	Sealer
@@ -90,6 +107,9 @@ type Failed struct {
 	KeyID  string // the key id named by the failing value, empty when it names none, "invalid-id" when it is not an id
 	Reason Reason
 	Detail string // where inside the row the failing value sits, when the row holds several
+	// PartlyRotated: values of this row that are shared with another row were moved to the current key by the swap of
+	// that row. The values that cannot be opened were not changed.
+	PartlyRotated bool
 }
 
 // Progress is the state of one run, reported after every batch.
@@ -158,8 +178,15 @@ func (r *Reencryptor) sleep(ctx context.Context, d time.Duration) error {
 
 // Run moves every row of the source that is not on the current key to the current key. On a context cancel or a
 // store error it returns the partial result with the error; the rows already written stay written and readable.
-func (r *Reencryptor) Run(ctx context.Context, src Source, opts Options) (Result, error) {
-	res := Result{ByReason: map[Reason]int{}}
+func (r *Reencryptor) Run(ctx context.Context, src Source, opts Options) (res Result, err error) {
+	res = Result{ByReason: map[Reason]int{}}
+	defer func() {
+		if p, ok := src.(PartlyRotatedSource); ok {
+			for i := range res.FailedRows {
+				res.FailedRows[i].PartlyRotated = p.PartlyRotated(res.FailedRows[i].RowID)
+			}
+		}
+	}()
 	res.Family, res.Source, res.DryRun = src.Family(), src.Name(), opts.DryRun
 	if r.Ring == nil || len(r.Ring.KeyIDs()) == 0 {
 		return res, ErrNoCurrentKey
@@ -272,7 +299,13 @@ func (r *Reencryptor) row(ctx context.Context, src Source, row Row, opts Options
 		res.Done++
 		return nil
 	}
-	swapped, err := src.Swap(ctx, row.ID, oldValues, newValues)
+	var swapped bool
+	var err error
+	if rs, ok := src.(ReuseSource); ok {
+		swapped, err = rs.SwapReusing(ctx, row.ID, oldValues, newValues, r.sameContent)
+	} else {
+		swapped, err = src.Swap(ctx, row.ID, oldValues, newValues)
+	}
 	if err != nil {
 		return fmt.Errorf("%w: %s: writing a row: %w", ErrStore, src.Name(), err)
 	}
@@ -282,6 +315,20 @@ func (r *Reencryptor) row(ctx context.Context, src Source, row Row, opts Options
 	}
 	res.Done++
 	return nil
+}
+
+// sameContent tells whether a stored value is on the current key and opens, under the context, to the same plaintext as a
+// freshly sealed one.
+func (r *Reencryptor) sameContent(itemContext []byte, candidate, fresh string) bool {
+	if id, legacy := KeyID(candidate); legacy || id != r.Ring.CurrentKeyID() {
+		return false
+	}
+	a, err := r.Ring.DecryptWithContext(candidate, itemContext)
+	if err != nil {
+		return false
+	}
+	b, err := r.Ring.DecryptWithContext(fresh, itemContext)
+	return err == nil && bytes.Equal(a, b)
 }
 
 // verified opens the new value again and checks it names the current key and holds the same plaintext.

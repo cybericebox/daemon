@@ -68,10 +68,16 @@ type UseCase struct {
 	store Store
 	rings Rings
 	now   func() time.Time
+	// ProgressTimeout bounds the write of the progress table that must go on after the run's context ended (the final
+	// state): a hung database must not keep a stopped command alive.
+	ProgressTimeout time.Duration
 }
 
+// DefaultProgressTimeout is the bound of the final progress write.
+const DefaultProgressTimeout = 5 * time.Second
+
 func New(store Store, rings Rings) *UseCase {
-	return &UseCase{store: store, rings: rings, now: time.Now}
+	return &UseCase{store: store, rings: rings, now: time.Now, ProgressTimeout: DefaultProgressTimeout}
 }
 
 // Keys tells which key of the family's keyring will seal and which only read, so an operator sees a wrong ring order
@@ -159,7 +165,9 @@ func (u *UseCase) Run(ctx context.Context, family string, opts Options) (Report,
 			}
 			res.UpdatedAt = u.now()
 			// The final state is written even when the run's context is already cancelled.
-			u.save(context.WithoutCancel(ctx), &rep, res.Progress, state, started)
+			final, cancelFinal := context.WithTimeout(context.WithoutCancel(ctx), u.ProgressTimeout)
+			u.save(final, &rep, res.Progress, state, started)
+			cancelFinal()
 		}
 		if runErr != nil {
 			return rep, runErr

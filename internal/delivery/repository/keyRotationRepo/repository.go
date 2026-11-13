@@ -42,6 +42,8 @@ type Contexts struct {
 type Repository struct {
 	pool *pgxpool.Pool
 	ctxs Contexts
+	// AfterLock is a test seam: it runs inside the exercise swap while its locks are held, before anything is written.
+	AfterLock func()
 }
 
 func New(pool *pgxpool.Pool, ctxs Contexts) *Repository { return &Repository{pool: pool, ctxs: ctxs} }
@@ -125,7 +127,7 @@ func (r *Repository) allSources() []secret.Source {
 				}
 				return secret.Row{ID: id.String(), Items: []secret.Item{{Ciphertext: ct, Context: c.VPN(userID, scope, ref)}}}, nil
 			}),
-		&exerciseVersions{pool: p, env: c.ExerciseEnv},
+		&exerciseVersions{pool: p, env: c.ExerciseEnv, afterLock: r.AfterLock},
 	}
 }
 
@@ -179,6 +181,9 @@ type exerciseVersions struct {
 	// row that an earlier swap already rewrote together with its sibling is recognised and not counted as a conflict.
 	mu      sync.Mutex
 	written map[string]string
+	partly  map[string]bool // versions that received a shared value from the swap of a sibling
+
+	afterLock func() // test seam: runs while the locks are held, before anything is written
 }
 
 func (s *exerciseVersions) Family() string { return FamilyExercise }
@@ -227,8 +232,57 @@ func (s *exerciseVersions) items(doc []any) []secret.Item {
 // versions of the same exercise (the draft copied from the published version, checkpoints): the published version
 // and its draft are compared by raw jsonb equality, so equal documents must stay equal, also across an interruption.
 // "Identical" means the same ciphertext under the same context; a value of another row that was not readable under its
-// own context is never touched.
+// own context is never touched (a row that fails for another reason can still receive a shared value; it is then
+// reported as partly rotated, see PartlyRotated).
+//
+// Locks: the exercise row and the version rows that hold a secret, FOR NO KEY UPDATE, in the order a save of the
+// exercise takes them (exercise first, then versions by id). The pass changes no key column, so foreign-key checks of
+// other writers (a pin to an event, a file reference) do not wait. Round trips: BEGIN, one statement that locks the
+// exercise and finds it, one that reads the versions with secrets, one UPDATE for the version and one per sibling that
+// holds a shared value, COMMIT.
 func (s *exerciseVersions) Swap(ctx context.Context, id string, oldValues, newValues []string) (bool, error) {
+	return s.swap(ctx, id, oldValues, newValues, nil)
+}
+
+// SwapReusing is Swap that also looks, under the same lock, for a ciphertext of the current key with the same context
+// in the other versions that opens to the same plaintext as the freshly sealed value, and writes that one instead.
+// Equal content then ends with equal bytes also when a copy was made from a stale read while the pass was running.
+func (s *exerciseVersions) SwapReusing(ctx context.Context, id string, oldValues, newValues []string,
+	same func(itemContext []byte, candidate, fresh string) bool) (bool, error) {
+	return s.swap(ctx, id, oldValues, newValues, same)
+}
+
+// PartlyRotated tells whether a shared value of this version was moved to the current key by the swap of a sibling.
+func (s *exerciseVersions) PartlyRotated(rowID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.partly[rowID]
+}
+
+type versionRow struct {
+	id  uuid.UUID
+	raw []byte
+	doc []any
+}
+
+type slot struct {
+	env map[string]any
+	ctx []byte
+	cur string
+}
+
+func (s *exerciseVersions) slots(doc []any) []slot {
+	var out []slot
+	walkSecretEnvs(doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
+		if v, _ := env["value"].(string); v != "" {
+			out = append(out, slot{env: env, ctx: s.env(variantID, device, name), cur: v})
+		}
+	})
+	return out
+}
+
+func (s *exerciseVersions) swap(ctx context.Context, id string, oldValues, newValues []string,
+	same func(itemContext []byte, candidate, fresh string) bool) (bool, error) {
 	if len(oldValues) != len(newValues) {
 		return false, errors.New("old and new values differ in number")
 	}
@@ -239,27 +293,22 @@ func (s *exerciseVersions) Swap(ctx context.Context, id string, oldValues, newVa
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	var exerciseID uuid.UUID
-	if err = tx.QueryRow(ctx, `SELECT exercise_id FROM exercise_versions WHERE id = $1::uuid`, id).Scan(&exerciseID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT e.id FROM exercises e JOIN exercise_versions v ON v.exercise_id = e.id
+WHERE v.id = $1::uuid FOR NO KEY UPDATE OF e`, id).Scan(&exerciseID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
 	}
-	// The same lock order as a save of the exercise: the exercise first, then its versions by id.
-	if _, err = tx.Exec(ctx, `SELECT 1 FROM exercises WHERE id = $1 FOR UPDATE`, exerciseID); err != nil {
-		return false, err
-	}
-	rows, err := tx.Query(ctx, `SELECT id, variants FROM exercise_versions WHERE exercise_id = $1 ORDER BY id FOR UPDATE`, exerciseID)
+	rows, err := tx.Query(ctx, `SELECT id, variants FROM exercise_versions WHERE exercise_id = $1
+AND jsonb_path_exists(variants, '$[*].topology.devices[*].bootstrap.env[*] ? (@.secret == true)')
+ORDER BY id FOR NO KEY UPDATE`, exerciseID)
 	if err != nil {
 		return false, err
 	}
-	type version struct {
-		id  uuid.UUID
-		raw []byte
-	}
-	var versions []version
+	var versions []versionRow
 	for rows.Next() {
-		var v version
+		var v versionRow
 		if err = rows.Scan(&v.id, &v.raw); err != nil {
 			rows.Close()
 			return false, err
@@ -270,79 +319,95 @@ func (s *exerciseVersions) Swap(ctx context.Context, id string, oldValues, newVa
 	if err = rows.Err(); err != nil {
 		return false, err
 	}
-
-	// The version being swapped: compare every value with what the job read (compare-and-swap), and record each
-	// (context, old value) -> new value.
-	type docOf struct {
-		v   version
-		doc []any
+	if s.afterLock != nil {
+		s.afterLock()
 	}
-	var target *docOf
-	for _, v := range versions {
-		if v.id.String() != id {
+
+	var target *versionRow
+	for i := range versions {
+		doc, perr := parseVariants(versions[i].raw)
+		if perr != nil {
 			continue
 		}
-		doc, perr := parseVariants(v.raw)
-		if perr != nil {
-			return false, nil
+		versions[i].doc = doc
+		if versions[i].id.String() == id {
+			target = &versions[i]
 		}
-		target = &docOf{v: v, doc: doc}
 	}
 	if target == nil {
 		return false, nil
 	}
-	replace := map[string]string{}
-	i, same := 0, true
-	walkSecretEnvs(target.doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
-		v, _ := env["value"].(string)
-		if v == "" {
-			return
-		}
-		if i >= len(oldValues) {
-			same = false
-			return
-		}
-		key := string(s.env(variantID, device, name)) + "\x00" + oldValues[i]
-		switch {
-		case v == oldValues[i]:
-			replace[key] = newValues[i]
-			env["value"] = newValues[i]
-		case s.wasWritten(key, v):
-			// already rewritten with its sibling earlier in this run
-		default:
-			same = false
-		}
-		i++
-	})
-	if !same || i != len(oldValues) {
+
+	// Compare every value with what the job read (compare-and-swap); a value that an earlier swap of this run already
+	// moved together with its sibling is accepted as it is.
+	slots := s.slots(target.doc)
+	if len(slots) != len(oldValues) {
 		return false, nil
 	}
+	keyOf := func(ctxBytes []byte, old string) string { return string(ctxBytes) + "\x00" + old }
+	moved := make([]bool, len(slots))
+	for i, sl := range slots {
+		switch {
+		case sl.cur == oldValues[i]:
+			moved[i] = true
+		case s.wasWritten(keyOf(sl.ctx, oldValues[i]), sl.cur):
+		default:
+			return false, nil
+		}
+	}
+
+	// Reuse: the same content under the same context in another version, already on the current key.
+	replace := map[string]string{}
+	for i, sl := range slots {
+		if !moved[i] {
+			continue
+		}
+		next := newValues[i]
+		if same != nil {
+			for j := range versions {
+				if versions[j].doc == nil || versions[j].id == target.id {
+					continue
+				}
+				found := ""
+				for _, other := range s.slots(versions[j].doc) {
+					if string(other.ctx) == string(sl.ctx) && other.cur != oldValues[i] && other.cur != next && same(sl.ctx, other.cur, next) {
+						found = other.cur
+						break
+					}
+				}
+				if found != "" {
+					next = found
+					break
+				}
+			}
+		}
+		replace[keyOf(sl.ctx, oldValues[i])] = next
+		sl.env["value"] = next
+	}
 	if len(replace) > 0 {
-		if err = s.write(ctx, tx, target.v.id, target.v.raw, target.doc); err != nil {
+		if err = s.write(ctx, tx, target.id, target.raw, target.doc); err != nil {
 			return false, err
 		}
 	}
 
-	for _, v := range versions {
-		if v.id == target.v.id {
-			continue
-		}
-		doc, perr := parseVariants(v.raw)
-		if perr != nil {
+	touched := map[string]bool{}
+	for i := range versions {
+		v := &versions[i]
+		if v.id == target.id || v.doc == nil {
 			continue
 		}
 		changed := false
-		walkSecretEnvs(doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
-			cur, _ := env["value"].(string)
-			if next, ok := replace[string(s.env(variantID, device, name))+"\x00"+cur]; ok && cur != "" {
-				env["value"] = next
+		for _, sl := range s.slots(v.doc) {
+			if next, ok := replace[keyOf(sl.ctx, sl.cur)]; ok {
+				sl.env["value"] = next
 				changed = true
 			}
-		})
+		}
 		if changed {
-			if err = s.write(ctx, tx, v.id, v.raw, doc); err != nil {
+			if err = s.write(ctx, tx, v.id, v.raw, v.doc); err != nil {
 				return false, err
 			}
+			touched[v.id.String()] = true
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -351,9 +416,13 @@ func (s *exerciseVersions) Swap(ctx context.Context, id string, oldValues, newVa
 	s.mu.Lock()
 	if s.written == nil {
 		s.written = map[string]string{}
+		s.partly = map[string]bool{}
 	}
 	for k, v := range replace {
 		s.written[k] = v
+	}
+	for k := range touched {
+		s.partly[k] = true
 	}
 	s.mu.Unlock()
 	return true, nil
@@ -491,6 +560,8 @@ type StoredProgress struct {
 	// ProcessGone: the row says running but no process holds the family lock, so the run died without finishing.
 	// State is then reported as interrupted.
 	ProcessGone bool
+	// LockUnknown: the table was read from a replica, which cannot tell a live run from a dead one.
+	LockUnknown bool
 }
 
 // Progress reads the progress table, ordered by family and source.
@@ -516,8 +587,20 @@ FROM key_rotation_progress ORDER BY family, source`)
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
+	// A replica sees only its own locks: the run's lock is on the primary, so "no holder" proves nothing there. The
+	// rows are then shown as stored, with the lock state unknown.
+	var replica bool
+	if err = r.pool.QueryRow(ctx, `SELECT pg_is_in_recovery()`).Scan(&replica); err != nil {
+		return nil, err
+	}
 	held := map[string]bool{}
 	for i := range out {
+		if replica && out[i].State == StateRunning {
+			out[i].LockUnknown = true
+		}
+		if replica {
+			continue
+		}
 		if out[i].State != StateRunning {
 			continue
 		}
@@ -539,7 +622,10 @@ FROM key_rotation_progress ORDER BY family, source`)
 // would refuse a run that starts at that moment).
 func (r *Repository) lockHeld(ctx context.Context, family string) (bool, error) {
 	var held bool
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted
+	// The two-int form of an advisory key is classid (high 32 bits) and objid (low 32 bits) with objsubid 1; the lock is
+	// scoped to this database.
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 1
+ AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
  AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('cybericebox.key-reencrypt:' || $1, 0))`, family).Scan(&held)
 	return held, err
 }

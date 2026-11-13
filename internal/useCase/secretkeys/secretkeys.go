@@ -106,6 +106,7 @@ type RotationState struct {
 	FailedByReason               map[string]int
 	UpdatedAt                    time.Time
 	ProcessGone                  bool // a running row whose process is gone: shown as interrupted
+	LockUnknown                  bool // read from a replica: a running row cannot be told from a dead one
 }
 
 // Report is the state of every keyed secret the scan covers.

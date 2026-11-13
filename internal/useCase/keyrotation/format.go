@@ -17,19 +17,28 @@ var Preconditions = []string{
 }
 
 // Help is the text of `daemon keys reencrypt`.
-const Help = `usage: daemon keys reencrypt <family> [--dry-run] [--yes]
+const Help = `usage: daemon keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>]
 
 Moves every stored ciphertext of a key family (platform, vpn, exercise) to the current key of its keyring. Each value is
-opened with its row context, sealed again, opened once more and compared before one compare-and-swap write; a value that
-cannot be opened is left as it is and listed. No key and no row is deleted. Safe to stop and run again.
+opened with its row context, sealed again, opened once more and compared before one compare-and-swap write. A value that
+cannot be opened is never changed; its row is listed (a row of an exercise version can still receive a value it shares
+with another version of the same exercise, and is then marked partly rotated). No key and no row is deleted. Safe to
+stop and run again.
 
   --dry-run  open and count everything, write nothing (the progress table is not touched)
   --yes      required for a real run, also in scripts
+  --expect-key <id>
+             refuse to run (exit 2, before anything is locked or read) when the key that would seal is not <id>; a
+             script must always pass it, it is what catches a keyring with the old key first
 
 Before a real run:
   1. ` + "Every instance must have the new key loaded before reencrypt starts." + `
   2. ` + "Take a database backup first." + `
   3. ` + "Keep the old key file until `keys check` passes." + `
+
+Scripts and the runbook call it as:  daemon keys reencrypt <family> --expect-key <new key id> --yes
+The command holds a session advisory lock: it needs a direct database connection (not a transaction pooler such as
+pgbouncer), and keys status should be read from the primary.
 
 Exit code: 0 all rows moved or already current, 1 some rows could not be opened or were changed meanwhile, 2 the run stopped.`
 
@@ -59,7 +68,7 @@ func (r Report) Write(w io.Writer) {
 	if failed == 0 {
 		return
 	}
-	fmt.Fprintln(w, "\nRows that cannot be opened (left untouched):")
+	fmt.Fprintln(w, "\nRows with values that cannot be opened (a value that cannot be opened is never changed):")
 	for _, s := range r.Sources {
 		for _, f := range s.FailedRows {
 			key := "none"
@@ -70,7 +79,11 @@ func (r Report) Write(w io.Writer) {
 			if f.Detail != "" {
 				detail = ", " + f.Detail
 			}
-			fmt.Fprintf(w, "  %s row %q%s: %s (key id: %q)\n", secret.Printable(f.Source, 120), f.RowID, detail, f.Reason, key)
+			note := ""
+			if f.PartlyRotated {
+				note = " [partly rotated: values shared with another version were moved to the current key]"
+			}
+			fmt.Fprintf(w, "  %s row %q%s: %s (key id: %q)%s\n", secret.Printable(f.Source, 120), f.RowID, detail, f.Reason, key, note)
 		}
 	}
 	by := map[secret.Reason]int{}

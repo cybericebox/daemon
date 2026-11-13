@@ -63,6 +63,9 @@ func (r Report) Write(w io.Writer) {
 			if s.ProcessGone {
 				state += " (process gone)"
 			}
+			if s.LockUnknown {
+				state += " (read from a replica: a live run cannot be told from a dead one; ask the primary)"
+			}
 			fmt.Fprintf(w, "  [%s] %s: %s, to key %s: %d scanned, %d rewritten, %d failed, %d changed meanwhile (%s), %s\n",
 				s.Family, s.Source, state, s.KeyID, s.Total, s.Done, s.Failed, s.Conflicts, reasonCountsOf(s.FailedByReason),
 				s.UpdatedAt.UTC().Format("2006-01-02 15:04:05Z"))

@@ -36,6 +36,7 @@ func id(n int) uuid.UUID {
 }
 
 type world struct {
+	db    *testhelpers.TestDB
 	t     *testing.T
 	pool  *pgxpool.Pool
 	repo  *keyRotationRepo.Repository
@@ -57,7 +58,7 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 	// All statements of the fixture and the job must see the same session setting, so the job uses a pool that does
 	// not need it: the foreign keys are not checked by the job's UPDATEs.
-	w := &world{t: t, pool: db.Pool, ctxs: keyrotation.Contexts(), clock: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
+	w := &world{db: db, t: t, pool: db.Pool, ctxs: keyrotation.Contexts(), clock: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}
 	w.repo = keyRotationRepo.New(db.Pool, w.ctxs)
 	w.oldC, err = secret.New("k1:" + hexOld)
 	require.NoError(t, err)
@@ -80,6 +81,21 @@ func (w *world) seal(c *secret.Cipher, plain string, ctx []byte) string {
 
 func (w *world) smtp(n int, ct string) {
 	w.exec(`INSERT INTO mail_smtp_configs (id, host, port, tls_mode, password_ciphertext, name) VALUES ($1, 'smtp.example', 587, 'starttls', $2, $3)`, id(n), ct, fmt.Sprintf("smtp-%d", n))
+}
+
+// idLow gives ids that sort before id(1) .. id(n).
+func idLow(k int) uuid.UUID {
+	return uuid.FromStringOrNil(fmt.Sprintf("00000000-0000-4000-7000-%012d", k))
+}
+
+func (w *world) smtpAt(rowID uuid.UUID, name, ct string) {
+	w.exec(`INSERT INTO mail_smtp_configs (id, host, port, tls_mode, password_ciphertext, name) VALUES ($1, 'smtp.example', 587, 'starttls', $2, $3)`, rowID, ct, name)
+}
+
+func (w *world) smtpValueAt(rowID uuid.UUID) string {
+	var ct string
+	require.NoError(w.t, w.pool.QueryRow(context.Background(), `SELECT password_ciphertext FROM mail_smtp_configs WHERE id = $1`, rowID).Scan(&ct))
+	return ct
 }
 
 func (w *world) smtpValue(n int) string {
@@ -228,12 +244,14 @@ func TestRun_ReadersAndWritersDuringThePass(t *testing.T) {
 				problems = append(problems, fmt.Sprintf("barrier %d: %d unreadable", st.n, p))
 			}
 			if written < 4 {
-				n := 100 + written
-				key := w.ring
-				if written%2 == 0 {
-					key = w.oldC // a writer that still seals with the old key
+				// ids that sort before every row the job has already passed (the cursor only moves up): the rows written
+				// under the old key cannot be picked up by this pass, whatever the barrier
+				rowID := idLow(written)
+				key := w.oldC // a writer that still seals with the old key
+				if st.n == 1 {
+					key = w.ring // before the first read: a row on the current key
 				}
-				w.smtp(n, w.seal(key, "late", w.ctxs.SMTP(id(n))))
+				w.smtpAt(rowID, fmt.Sprintf("late-%d", written), w.seal(key, "late", w.ctxs.SMTP(rowID)))
 				written++
 			}
 			ack <- struct{}{}
@@ -253,14 +271,13 @@ func TestRun_ReadersAndWritersDuringThePass(t *testing.T) {
 	require.Equal(t, 4, written)
 	require.Zero(t, w.problems())
 
-	// the old-key rows written after the smtp source had passed them are left for the next run
-	for i := 0; i < 3 && w.byKey()["k1"] > 0; i++ {
-		_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
-		require.NoError(t, err)
-	}
+	// the old-key rows sorted before the cursor: more than one is left for the next run, none is lost
+	require.GreaterOrEqual(t, w.byKey()["k1"], 2, "rows written under the old key behind the cursor wait for the next run")
+	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err)
 	require.Zero(t, w.byKey()["k1"], "the next run takes the rows that were written under the old key during the pass")
-	for n := 100; n < 104; n++ {
-		_, err := w.ring.DecryptWithContext(w.smtpValue(n), w.ctxs.SMTP(id(n)))
+	for k := 0; k < 4; k++ {
+		_, err := w.ring.DecryptWithContext(w.smtpValueAt(idLow(k)), w.ctxs.SMTP(idLow(k)))
 		require.NoError(t, err, "a row written during the pass was lost or damaged")
 	}
 	for n := 1; n <= initial; n++ {
@@ -741,30 +758,23 @@ func TestRun_DraftWithOtherFieldKeepsSharedSecret(t *testing.T) {
 	require.Equal(t, "k2", keyOf(secretOf(21)))
 }
 
-// An interruption between the published row and the draft row must not split them: the shared value is rewritten in
-// every row of the exercise in one transaction.
-func TestRun_InterruptionDoesNotSplitVersions(t *testing.T) {
+// A cancel right after the first write (the published row and its draft are rewritten together by it) ends the run
+// with the context error, and the two rows are already equal: the cut cannot fall between them.
+func TestRun_CancelAfterTheFirstWriteLeavesPublishedAndDraftEqual(t *testing.T) {
 	w := newWorld(t)
 	vid := id(7)
 	ct := w.seal(w.oldC, "shared", w.ctxs.ExerciseEnv(vid, "web", "A"))
 	w.exercisePair(vid, map[int]string{21: fmt.Sprintf(pairDoc, vid, "v", ct), 22: fmt.Sprintf(pairDoc, vid, "v", ct)}, 21, 22)
 	ctx, cancel := context.WithCancel(context.Background())
-	swaps := 0
-	store := hooked{Store: w.repo, beforeSwap: func(string, string) {
-		swaps++
-		if swaps == 2 {
-			cancel()
-		}
-	}}
+	store := hooked{Store: w.repo, afterSwap: func(string, string) { cancel() }}
 	_, err := w.usecase(store).Run(ctx, keyRotationRepo.FamilyExercise, keyrotation.Options{BatchSize: 1})
-	if err != nil {
-		require.ErrorIs(t, err, context.Canceled)
-	}
+	require.ErrorIs(t, err, context.Canceled, "the cancel must end the run, the hook always fires after the first write")
 	require.Equal(t, "published", w.exerciseStatus())
+	require.Equal(t, w.variants(21), w.variants(22))
+	require.NotContains(t, w.variants(21), ":k1:")
 	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
 	require.NoError(t, err)
 	require.Equal(t, "published", w.exerciseStatus())
-	require.Equal(t, w.variants(21), w.variants(22))
 }
 
 // 4. a clean run is finished; a run with rows changed meanwhile is finished with failures (the next run must retry them).
@@ -868,4 +878,37 @@ func TestRun_CancelAfterAWriteThenResume(t *testing.T) {
 	_, err = w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{BatchSize: 1})
 	require.NoError(t, err)
 	require.Zero(t, w.byKey()["k1"])
+}
+
+type hungProgress struct{ keyrotation.Store }
+
+func (hungProgress) SaveProgress(ctx context.Context, _ secret.Progress, state string, _ time.Time) error {
+	if state == keyRotationRepo.StateRunning {
+		return nil
+	}
+	<-ctx.Done() // the final write hangs until its own timeout
+	return ctx.Err()
+}
+
+// 6. the final write of the progress state has a timeout: a hung database does not keep a stopped command alive.
+func TestRun_FinalProgressWriteIsBounded(t *testing.T) {
+	w := newWorld(t)
+	w.smtp(1, w.seal(w.oldC, "p1", w.ctxs.SMTP(id(1))))
+	uc := w.usecase(hungProgress{w.repo})
+	uc.ProgressTimeout = 150 * time.Millisecond
+	started := time.Now()
+	rep, err := uc.Run(context.Background(), keyRotationRepo.FamilyPlatform, keyrotation.Options{})
+	require.NoError(t, err)
+	require.Less(t, time.Since(started), 5*time.Second)
+	require.True(t, rep.ProgressNotRecorded, "the lost final write is reported")
+	require.Equal(t, "k2", keyOf(w.smtpValue(1)))
+}
+
+// 5. read from a replica, a running row cannot be told from a dead one, and the status says so instead of claiming it.
+func TestStatus_ReplicaReadSaysTheLockStateIsUnknown(t *testing.T) {
+	rep := secretkeys.Report{Rotation: []secretkeys.RotationState{{Family: "platform", Source: "s", KeyID: "k2", State: "running", LockUnknown: true}}}
+	var out strings.Builder
+	rep.Write(&out)
+	require.Contains(t, out.String(), "read from a replica")
+	require.NotContains(t, out.String(), "process gone")
 }
