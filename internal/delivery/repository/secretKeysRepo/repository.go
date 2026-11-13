@@ -5,8 +5,11 @@ package secretKeysRepo
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 )
@@ -14,6 +17,48 @@ import (
 type Repository struct{ db postgres.DBTX }
 
 func New(db postgres.DBTX) *Repository { return &Repository{db: db} }
+
+// Snapshot opens the transaction `keys check` reads in: one consistent view of every table, and no write possible. The caller
+// builds the repository on it (New(tx)) and ends it with Rollback.
+func Snapshot(ctx context.Context, pool *pgxpool.Pool) (pgx.Tx, error) {
+	return pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+}
+
+// sealedID finds the key id of a value of this package inside a text (a jsonb document): v1:<id>:.
+var sealedID = regexp.MustCompile(`v1:([a-z0-9_-]{1,16}):`)
+
+// TemporalCodeKeys visits the key id of every sealed value in the temporal codes that have not expired (queued
+// notifications, auth deliveries). Expired codes are not read: nothing will use them.
+func (r *Repository) TemporalCodeKeys(ctx context.Context, visit func(keyID string) error) error {
+	return r.eachID(ctx, `SELECT data::text FROM temporal_codes WHERE expires_at > now()`, visit)
+}
+
+// QueuedJobKeys visits the key id of every sealed value in the arguments of the jobs that have not finished (a sealed archive
+// password). Jobs that completed, were cancelled or discarded are not read: nothing will open their password again.
+func (r *Repository) QueuedJobKeys(ctx context.Context, visit func(keyID string) error) error {
+	// The job tables are created by the queue's own migration when the backend first starts: before that there are no jobs. (A
+	// missing table must be tested for, not caught: an error would abort the snapshot transaction.)
+	var exists bool
+	if err := r.db.QueryRow(ctx, `SELECT to_regclass('river_job') IS NOT NULL`).Scan(&exists); err != nil || !exists {
+		return err
+	}
+	return r.eachID(ctx, `SELECT args::text FROM river_job WHERE state IN ('available', 'pending', 'running', 'retryable', 'scheduled')`, visit)
+}
+
+func (r *Repository) eachID(ctx context.Context, query string, visit func(keyID string) error) error {
+	return r.each(ctx, query, func(row interface{ Scan(...any) error }) error {
+		var doc string
+		if err := row.Scan(&doc); err != nil {
+			return err
+		}
+		for _, m := range sealedID.FindAllStringSubmatch(doc, -1) {
+			if err := visit(m[1]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
 // each runs the query and hands every row to scan, which reads it from the row's own columns.
 func (r *Repository) each(ctx context.Context, query string, scan func(row interface{ Scan(...any) error }) error) error {

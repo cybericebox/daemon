@@ -111,18 +111,26 @@ func RunKeysStatus(ctx context.Context, cfg *config.Config, strict bool, out io.
 	if err != nil {
 		return 0, fmt.Errorf("read the re-encryption progress: %w", err)
 	}
-	for _, p := range stored {
-		rep.Rotation = append(rep.Rotation, secretkeys.RotationState{
-			Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Total: p.Total, Done: p.Done,
-			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt, ProcessGone: p.ProcessGone, LockUnknown: p.LockUnknown,
-		})
-	}
+	rep.Rotation = rotationStates(stored)
 	rep.Write(out)
 	return rep.StrictProblems(strict), nil
 }
 
 // ErrUnexpectedKey: the key that would seal is not the one the caller expects (a wrong ring order).
 var ErrUnexpectedKey = errors.New("the sealing key is not the expected one; nothing was done")
+
+// rotationStates turns the stored progress rows into what the report shows.
+func rotationStates(stored []keyRotationRepo.StoredProgress) []secretkeys.RotationState {
+	out := make([]secretkeys.RotationState, 0, len(stored))
+	for _, p := range stored {
+		out = append(out, secretkeys.RotationState{
+			Family: p.Family, Source: p.Source, KeyID: p.KeyID, State: p.State, Total: p.Total, Done: p.Done,
+			Failed: p.Failed, Conflicts: p.Conflicts, FailedByReason: p.FailedByReason, UpdatedAt: p.UpdatedAt,
+			ProcessGone: p.ProcessGone, LockUnknown: p.LockUnknown, LastMovedAt: p.LastMovedAt,
+		})
+	}
+	return out
+}
 
 // ErrNeedsYes: a real re-encryption run was started without --yes.
 var ErrNeedsYes = errors.New("a real run needs --yes (use --dry-run to look first)")

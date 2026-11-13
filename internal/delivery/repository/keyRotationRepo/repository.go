@@ -582,11 +582,12 @@ func (r *Repository) SaveProgress(ctx context.Context, p secret.Progress, state 
 		return err
 	}
 	_, err = r.pool.Exec(ctx, `INSERT INTO key_rotation_progress
-(family, source, key_id, state, total, done, failed, conflicts, failed_by_reason, started_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+(family, source, key_id, state, total, done, failed, conflicts, failed_by_reason, started_at, updated_at, last_moved_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, CASE WHEN $6 > 0 THEN $11::timestamptz END)
 ON CONFLICT (family, source) DO UPDATE SET key_id = EXCLUDED.key_id, state = EXCLUDED.state, total = EXCLUDED.total,
  done = EXCLUDED.done, failed = EXCLUDED.failed, conflicts = EXCLUDED.conflicts, failed_by_reason = EXCLUDED.failed_by_reason,
- started_at = EXCLUDED.started_at, updated_at = EXCLUDED.updated_at`,
+ started_at = EXCLUDED.started_at, updated_at = EXCLUDED.updated_at,
+ last_moved_at = COALESCE(EXCLUDED.last_moved_at, key_rotation_progress.last_moved_at)`,
 		p.Family, p.Source, p.KeyID, state, p.Total, p.Done, p.Failed, p.Conflicts, string(raw), startedAt, p.UpdatedAt)
 	return err
 }
@@ -598,6 +599,8 @@ type StoredProgress struct {
 	Conflicts                    int
 	FailedByReason               map[string]int
 	StartedAt, UpdatedAt         time.Time
+	// LastMovedAt is when a run last moved a value to the current key; kept by runs that move nothing. Nil: never.
+	LastMovedAt *time.Time
 	// ProcessGone: the row says running but no process holds the family lock, so the run died without finishing.
 	// State is then reported as interrupted.
 	ProcessGone bool
@@ -607,7 +610,19 @@ type StoredProgress struct {
 
 // Progress reads the progress table, ordered by family and source.
 func (r *Repository) Progress(ctx context.Context) ([]StoredProgress, error) {
-	rows, err := r.pool.Query(ctx, `SELECT family, source, key_id, state, total, done, failed, conflicts, failed_by_reason, started_at, updated_at
+	return r.ProgressIn(ctx, r.pool)
+}
+
+// Querier is what reading the progress needs: a pool or a transaction.
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// ProgressIn reads the progress table (and the lock state) through q, so a caller can read it in the same snapshot as
+// other tables.
+func (r *Repository) ProgressIn(ctx context.Context, q Querier) ([]StoredProgress, error) {
+	rows, err := q.Query(ctx, `SELECT family, source, key_id, state, total, done, failed, conflicts, failed_by_reason, started_at, updated_at, last_moved_at
 FROM key_rotation_progress ORDER BY family, source`)
 	if err != nil {
 		return nil, err
@@ -617,7 +632,7 @@ FROM key_rotation_progress ORDER BY family, source`)
 	for rows.Next() {
 		var sp StoredProgress
 		var reasons []byte
-		if err := rows.Scan(&sp.Family, &sp.Source, &sp.KeyID, &sp.State, &sp.Total, &sp.Done, &sp.Failed, &sp.Conflicts, &reasons, &sp.StartedAt, &sp.UpdatedAt); err != nil {
+		if err := rows.Scan(&sp.Family, &sp.Source, &sp.KeyID, &sp.State, &sp.Total, &sp.Done, &sp.Failed, &sp.Conflicts, &reasons, &sp.StartedAt, &sp.UpdatedAt, &sp.LastMovedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(reasons, &sp.FailedByReason); err != nil {
@@ -631,7 +646,7 @@ FROM key_rotation_progress ORDER BY family, source`)
 	// A replica sees only its own locks: the run's lock is on the primary, so "no holder" proves nothing there. The
 	// rows are then shown as stored, with the lock state unknown.
 	var replica bool
-	if err = r.pool.QueryRow(ctx, `SELECT pg_is_in_recovery()`).Scan(&replica); err != nil {
+	if err = q.QueryRow(ctx, `SELECT pg_is_in_recovery()`).Scan(&replica); err != nil {
 		return nil, err
 	}
 	held := map[string]bool{}
@@ -647,7 +662,7 @@ FROM key_rotation_progress ORDER BY family, source`)
 		}
 		h, known := held[out[i].Family]
 		if !known {
-			if h, err = r.lockHeld(ctx, out[i].Family); err != nil {
+			if h, err = r.lockHeld(ctx, q, out[i].Family); err != nil {
 				return nil, err
 			}
 			held[out[i].Family] = h
@@ -661,11 +676,11 @@ FROM key_rotation_progress ORDER BY family, source`)
 
 // lockHeld tells whether some session holds the advisory lock of the family, without taking it (taking it for a moment
 // would refuse a run that starts at that moment).
-func (r *Repository) lockHeld(ctx context.Context, family string) (bool, error) {
+func (r *Repository) lockHeld(ctx context.Context, q Querier, family string) (bool, error) {
 	var held bool
 	// The two-int form of an advisory key is classid (high 32 bits) and objid (low 32 bits) with objsubid 1; the lock is
 	// scoped to this database.
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 1
+	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 1
  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
  AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('cybericebox.key-reencrypt:' || $1, 0))`, family).Scan(&held)
 	return held, err

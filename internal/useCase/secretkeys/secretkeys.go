@@ -42,6 +42,13 @@ type Store interface {
 	ExerciseVersions(ctx context.Context, visit func(versionID uuid.UUID, variants []byte) error) error
 }
 
+// ShortLivedStore is a Store that can also count the sealed values in places that expire or finish by themselves. Check
+// uses it when the store has it; `keys check` needs it, the start-up guard and `keys status` do not.
+type ShortLivedStore interface {
+	TemporalCodeKeys(ctx context.Context, visit func(keyID string) error) error
+	QueuedJobKeys(ctx context.Context, visit func(keyID string) error) error
+}
+
 // Ciphers are the loaded keyrings; a nil one means the family has no key configured.
 type Ciphers struct {
 	Platform, VPN, Exercise *secret.Cipher
@@ -98,6 +105,14 @@ type Column struct {
 	ByReason map[secret.Reason]int
 }
 
+// ShortLived is what one short-lived place holds: sealed values that are never rewritten, because they expire or finish.
+type ShortLived struct {
+	Family Family
+	Name   string
+	// ByKey counts the values by the key id they name.
+	ByKey map[string]int
+}
+
 // RotationState is a row of the re-encryption progress table: counts only.
 type RotationState struct {
 	Family, Source, KeyID, State string
@@ -105,8 +120,9 @@ type RotationState struct {
 	Conflicts                    int
 	FailedByReason               map[string]int
 	UpdatedAt                    time.Time
-	ProcessGone                  bool // a running row whose process is gone: shown as interrupted
-	LockUnknown                  bool // read from a replica: a running row cannot be told from a dead one
+	ProcessGone                  bool       // a running row whose process is gone: shown as interrupted
+	LockUnknown                  bool       // read from a replica: a running row cannot be told from a dead one
+	LastMovedAt                  *time.Time // when a run last moved a value; kept across runs that move nothing
 }
 
 // Report is the state of every keyed secret the scan covers.
@@ -118,6 +134,10 @@ type Report struct {
 	Columns []Column
 	// Rotation is the state of the re-encryption runs; filled by the caller that has the progress table.
 	Rotation []RotationState
+	// ShortLived are the places that hold sealed values for a while only (set when the store can count them).
+	ShortLived []ShortLived
+	// SnapshotAt is when the scan began.
+	SnapshotAt time.Time
 }
 
 // Problems counts the values that cannot be opened, over all columns.
@@ -162,7 +182,7 @@ var NotScanned = []string{
 // status` does); with false only the key id a value names is compared with the keyring (cheap, what the start-up guard
 // does).
 func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
-	rep := Report{Opened: open, Keys: map[Family][]string{}}
+	rep := Report{Opened: open, Keys: map[Family][]string{}, SnapshotAt: time.Now().UTC()}
 	for _, f := range []Family{FamilyPlatform, FamilyVPN, FamilyExercise} {
 		if c := u.ciphers.of(f); c != nil {
 			rep.Keys[f] = c.KeyIDs()
@@ -276,6 +296,21 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 		return Report{}, fmt.Errorf("read the exercise secrets: %w", err)
 	}
 
+	if sl, ok := u.store.(ShortLivedStore); ok {
+		for _, place := range []struct {
+			name  string
+			count func(context.Context, func(string) error) error
+		}{
+			{"temporal_codes.data (not expired)", sl.TemporalCodeKeys},
+			{"river_job.args (not finished)", sl.QueuedJobKeys},
+		} {
+			entry := ShortLived{Family: FamilyPlatform, Name: place.name, ByKey: map[string]int{}}
+			if err := place.count(ctx, func(id string) error { entry.ByKey[secret.SafeKeyID(id)]++; return nil }); err != nil {
+				return Report{}, fmt.Errorf("read %s: %w", place.name, err)
+			}
+			rep.ShortLived = append(rep.ShortLived, entry)
+		}
+	}
 	for _, c := range cols {
 		rep.Columns = append(rep.Columns, *c)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/keyrotation"
 )
 
-const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status [--strict] | keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>]]"
+const usage = "usage: daemon [admin-link | recompute-lab-telemetry <event id or tag> [--force] | erase-lab-telemetry <user id> | keys status [--strict] | keys check [<family> <key id>] | keys reencrypt <family> [--dry-run] [--yes] [--expect-key <id>]]"
 
 func main() {
 	args := os.Args[1:]
@@ -53,6 +53,18 @@ func main() {
 		if problems > 0 {
 			os.Exit(1)
 		}
+	case args[0] == "keys" && len(args) >= 2 && args[1] == "check" && (len(args) == 2 || len(args) == 4):
+		cfg := config.MustGetConfig()
+		config.SetupLogger(cfg)
+		family, keyID := "", ""
+		if len(args) == 4 {
+			family, keyID = args[2], args[3]
+		}
+		code, err := app.RunKeysCheck(context.Background(), cfg, family, keyID, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "keys check:", err)
+		}
+		os.Exit(code)
 	case len(args) >= 3 && args[0] == "keys" && args[1] == "reencrypt":
 		dryRun, yes, ok, expectKey := false, false, true, ""
 		for i := 3; i < len(args); i++ {
