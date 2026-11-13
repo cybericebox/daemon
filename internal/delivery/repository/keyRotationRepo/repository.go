@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -173,6 +174,11 @@ func (s *column) Swap(ctx context.Context, id string, oldValues, newValues []str
 type exerciseVersions struct {
 	pool *pgxpool.Pool
 	env  func(variantID uuid.UUID, device, env string) []byte
+
+	// written remembers, in memory only and never printed, which new value this run gave to (context, old value), so a
+	// row that an earlier swap already rewrote together with its sibling is recognised and not counted as a conflict.
+	mu      sync.Mutex
+	written map[string]string
 }
 
 func (s *exerciseVersions) Family() string { return FamilyExercise }
@@ -216,47 +222,164 @@ func (s *exerciseVersions) items(doc []any) []secret.Item {
 	return items
 }
 
+// Swap rewrites the secret values of one version and, in the same transaction, every identical value of the other
+// versions of the same exercise (the draft copied from the published version, checkpoints): the published version
+// and its draft are compared by raw jsonb equality, so equal documents must stay equal, also across an interruption.
+// "Identical" means the same ciphertext under the same context; a value of another row that was not readable under its
+// own context is never touched.
 func (s *exerciseVersions) Swap(ctx context.Context, id string, oldValues, newValues []string) (bool, error) {
 	if len(oldValues) != len(newValues) {
 		return false, errors.New("old and new values differ in number")
 	}
-	var current []byte
-	if err := s.pool.QueryRow(ctx, `SELECT variants FROM exercise_versions WHERE id = $1::uuid`, id).Scan(&current); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var exerciseID uuid.UUID
+	if err = tx.QueryRow(ctx, `SELECT exercise_id FROM exercise_versions WHERE id = $1::uuid`, id).Scan(&exerciseID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
 	}
-	doc, err := parseVariants(current)
+	// The same lock order as a save of the exercise: the exercise first, then its versions by id.
+	if _, err = tx.Exec(ctx, `SELECT 1 FROM exercises WHERE id = $1 FOR UPDATE`, exerciseID); err != nil {
+		return false, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id, variants FROM exercise_versions WHERE exercise_id = $1 ORDER BY id FOR UPDATE`, exerciseID)
 	if err != nil {
+		return false, err
+	}
+	type version struct {
+		id  uuid.UUID
+		raw []byte
+	}
+	var versions []version
+	for rows.Next() {
+		var v version
+		if err = rows.Scan(&v.id, &v.raw); err != nil {
+			rows.Close()
+			return false, err
+		}
+		versions = append(versions, v)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return false, err
+	}
+
+	// The version being swapped: compare every value with what the job read (compare-and-swap), and record each
+	// (context, old value) -> new value.
+	type docOf struct {
+		v   version
+		doc []any
+	}
+	var target *docOf
+	for _, v := range versions {
+		if v.id.String() != id {
+			continue
+		}
+		doc, perr := parseVariants(v.raw)
+		if perr != nil {
+			return false, nil
+		}
+		target = &docOf{v: v, doc: doc}
+	}
+	if target == nil {
 		return false, nil
 	}
+	replace := map[string]string{}
 	i, same := 0, true
-	walkSecretEnvs(doc, func(_ uuid.UUID, _, _ string, env map[string]any) {
+	walkSecretEnvs(target.doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
 		v, _ := env["value"].(string)
 		if v == "" {
 			return
 		}
-		if i >= len(oldValues) || v != oldValues[i] {
+		if i >= len(oldValues) {
 			same = false
-		} else {
+			return
+		}
+		key := string(s.env(variantID, device, name)) + "\x00" + oldValues[i]
+		switch {
+		case v == oldValues[i]:
+			replace[key] = newValues[i]
 			env["value"] = newValues[i]
+		case s.wasWritten(key, v):
+			// already rewritten with its sibling earlier in this run
+		default:
+			same = false
 		}
 		i++
 	})
 	if !same || i != len(oldValues) {
 		return false, nil
 	}
+	if len(replace) > 0 {
+		if err = s.write(ctx, tx, target.v.id, target.v.raw, target.doc); err != nil {
+			return false, err
+		}
+	}
+
+	for _, v := range versions {
+		if v.id == target.v.id {
+			continue
+		}
+		doc, perr := parseVariants(v.raw)
+		if perr != nil {
+			continue
+		}
+		changed := false
+		walkSecretEnvs(doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
+			cur, _ := env["value"].(string)
+			if next, ok := replace[string(s.env(variantID, device, name))+"\x00"+cur]; ok && cur != "" {
+				env["value"] = next
+				changed = true
+			}
+		})
+		if changed {
+			if err = s.write(ctx, tx, v.id, v.raw, doc); err != nil {
+				return false, err
+			}
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	if s.written == nil {
+		s.written = map[string]string{}
+	}
+	for k, v := range replace {
+		s.written[k] = v
+	}
+	s.mu.Unlock()
+	return true, nil
+}
+
+func (s *exerciseVersions) wasWritten(key, current string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next, ok := s.written[key]
+	return ok && next == current
+}
+
+// write replaces a version's document if it still holds the bytes that were read; the rows are locked by the caller.
+func (s *exerciseVersions) write(ctx context.Context, tx pgx.Tx, versionID uuid.UUID, read []byte, doc []any) error {
 	next, err := json.Marshal(doc)
 	if err != nil {
-		return false, err
+		return err
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE exercise_versions SET variants = $3::jsonb WHERE id = $1::uuid AND variants = $2::jsonb`,
-		id, string(current), string(next))
+	tag, err := tx.Exec(ctx, `UPDATE exercise_versions SET variants = $3::jsonb WHERE id = $1 AND variants = $2::jsonb`,
+		versionID, string(read), string(next))
 	if err != nil {
-		return false, err
+		return err
 	}
-	return tag.RowsAffected() == 1, nil
+	if tag.RowsAffected() != 1 {
+		return errors.New("a locked version row changed")
+	}
+	return nil
 }
 
 func parseVariants(raw []byte) ([]any, error) {
