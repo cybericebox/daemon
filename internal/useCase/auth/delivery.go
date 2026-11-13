@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/tools"
 	"github.com/cybericebox/daemon/pkg/worker"
@@ -37,7 +38,7 @@ type authDeliveryQueue struct {
 func (u *AuthUseCase) SetDeliveryQueue(queue worker.IEnqueuer, cipher *secret.Cipher, unit postgres.IUnitOfWorker[IRepository]) {
 	u.delivery = &authDeliveryQueue{queue: queue, cipher: cipher, unit: unit}
 }
-func authDeliveryKey(id uuid.UUID) string { return "auth-delivery:" + id.String() }
+func authDeliveryKey(id uuid.UUID) string { return string(secretctx.AuthDelivery(id)) }
 
 func (u *AuthUseCase) queueAuthDelivery(ctx context.Context, command authDeliveryCommand) error {
 	d := u.delivery

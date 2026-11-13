@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry/provider"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -22,8 +23,8 @@ import (
 
 // Token sealing contexts: a ciphertext opens only as the token it was sealed as.
 const (
-	PushContext = "image-registry:push"
-	PullContext = "image-registry:pull"
+	PushContext = secretctx.RegistryPush
+	PullContext = secretctx.RegistryPull
 )
 
 type (

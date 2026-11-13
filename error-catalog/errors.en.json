@@ -269,6 +269,7 @@
   "23102": "The platform does not support this node profile",
   "23105": "State persistence is not available for devices with the microvm or vm profile",
   "23201": "This device name is reserved by the platform",
+  "23202": "A device or variable name must not contain ':'",
   "23302": "Passkey request expired, try again",
   "23303": "Passkey limit reached",
   "23305": "Passkey registration failed",

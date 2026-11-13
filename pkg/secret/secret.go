@@ -191,14 +191,17 @@ func (c *Cipher) NeedsRotation(encoded string) bool {
 	return !ok || id != c.keys[0].id
 }
 
-// Encrypt returns v1:<key id>:base64( [nonce | ciphertext | tag] ).
-func (c *Cipher) Encrypt(plaintext string) (string, error) {
-	return c.EncryptWithContext([]byte(plaintext), nil)
-}
+// ErrNoContext: a value was sealed or opened without a context. Every secret is bound to the row or purpose it belongs to
+// (see internal/secretctx), so there is no way to seal without one.
+var ErrNoContext = errors.New("secret: a context is required")
 
-// EncryptWithContext seals plaintext with the current key, bound to authenticated context. A different context
-// cannot decrypt the result.
+// EncryptWithContext seals plaintext with the current key, bound to authenticated context, as
+// v1:<key id>:base64( [nonce | ciphertext | tag] ). A different context cannot decrypt the result, and an empty one is
+// refused (ErrNoContext).
 func (c *Cipher) EncryptWithContext(plaintext, context []byte) (string, error) {
+	if len(context) == 0 {
+		return "", ErrNoContext
+	}
 	gcm, err := newGCM(c.keys[0].key)
 	if err != nil {
 		return "", err
@@ -211,19 +214,13 @@ func (c *Cipher) EncryptWithContext(plaintext, context []byte) (string, error) {
 	return versionPrefix + c.keys[0].id + ":" + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt reverses Encrypt.
-func (c *Cipher) Decrypt(encoded string) (string, error) {
-	plain, err := c.DecryptWithContext(encoded, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
-}
-
 // DecryptWithContext reverses EncryptWithContext when the same authenticated
 // context is provided. A ciphertext that names its key is opened with that key; an older one is tried against
 // each key of the ring.
 func (c *Cipher) DecryptWithContext(encoded string, context []byte) ([]byte, error) {
+	if len(context) == 0 {
+		return nil, ErrNoContext
+	}
 	if id, body, ok := splitCiphertext(encoded); ok {
 		for _, k := range c.keys {
 			if k.id == id {

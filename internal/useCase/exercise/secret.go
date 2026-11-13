@@ -8,6 +8,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/secretctx"
 )
 
 // secretKey scopes a secret env-var to its variant: device and env-var names
@@ -238,7 +239,7 @@ func (u *ExerciseUseCase) secretPlaintext(variantID uuid.UUID, deviceName, envNa
 // EnvSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity
 // the draft merge keeps a secret by): a value copied to another variable does not open there.
 func EnvSecretContext(variantID uuid.UUID, device, name string) []byte {
-	return []byte("exercise-env:" + variantID.String() + ":" + device + ":" + name)
+	return secretctx.ExerciseEnv(variantID, device, name)
 }
 
 // originTypedSecrets gives every secret value the author typed in this save (submitted, before the merge and the

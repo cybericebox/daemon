@@ -14,12 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/keyRotationRepo"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
-	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
-	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
-	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
-	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
-	vpnUseCase "github.com/cybericebox/daemon/internal/useCase/vpn"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
 
@@ -32,16 +27,14 @@ var ErrFamilyKeyMissing = errors.New("the key family has no key configured")
 // Contexts are the real context builders of every sealed value, the ones the code seals with.
 func Contexts() keyRotationRepo.Contexts {
 	return keyRotationRepo.Contexts{
-		SMTP:          mailUseCase.PasswordContext,
-		AgentKey:      func(id uuid.UUID) []byte { return infraModel.AgentSecretContext(id, "key") },
-		AgentAccess:   func(id uuid.UUID) []byte { return infraModel.AgentSecretContext(id, "access") },
-		RegistryPush:  []byte(imageRegistryUseCase.PushContext),
-		RegistryPull:  []byte(imageRegistryUseCase.PullContext),
-		EventRegistry: func(id uuid.UUID) []byte { return []byte(imageRegistryUseCase.EventSecretContext(id)) },
-		VPN: func(userID uuid.UUID, scope string, ref uuid.NullUUID) []byte {
-			return vpnUseCase.ConfigContext(userID, vpnModel.Scope(scope), ref)
-		},
-		ExerciseEnv: exerciseUseCase.EnvSecretContext,
+		SMTP:          secretctx.SMTPPassword,
+		AgentKey:      func(id uuid.UUID) []byte { return secretctx.AgentSecret(id, "key") },
+		AgentAccess:   func(id uuid.UUID) []byte { return secretctx.AgentSecret(id, "access") },
+		RegistryPush:  []byte(secretctx.RegistryPush),
+		RegistryPull:  []byte(secretctx.RegistryPull),
+		EventRegistry: secretctx.EventRegistry,
+		VPN:           secretctx.VPNConfig,
+		ExerciseEnv:   secretctx.ExerciseEnv,
 	}
 }
 

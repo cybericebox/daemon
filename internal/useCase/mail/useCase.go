@@ -7,7 +7,6 @@ package mailUseCase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/email"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
@@ -305,9 +305,7 @@ func (u *MailUseCase) seal(id uuid.UUID, password string) (string, error) {
 }
 
 // PasswordContext binds ciphertext to its row: a copied value fails to open.
-func PasswordContext(id uuid.UUID) []byte {
-	return []byte(fmt.Sprintf("mail.smtp:%s", id))
-}
+func PasswordContext(id uuid.UUID) []byte { return secretctx.SMTPPassword(id) }
 
 // send is the single exit of every email: it appends the standard footer to
 // both parts, so no template (admin or organizer edited) can drop it. The

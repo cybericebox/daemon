@@ -139,7 +139,7 @@ func TestSaveDraft_KeepsPriorSecret(t *testing.T) {
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
-	priorCipher, _ := cipher.Encrypt("old-secret")
+	priorCipher, _ := sealPlain(cipher, "old-secret")
 	prior := draftVariants(priorCipher, true)
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
@@ -173,7 +173,7 @@ func TestSaveDraft_FallsBackToPublishedWhenNoDraft(t *testing.T) {
 	exID := uuid.Must(uuid.NewV7())
 	publishedID := uuid.Must(uuid.NewV7())
 
-	priorCipher, _ := cipher.Encrypt("published-secret")
+	priorCipher, _ := sealPlain(cipher, "published-secret")
 	published := draftVariants(priorCipher, true)
 	publishedBlob := mustMarshal(t, published)
 
@@ -218,8 +218,8 @@ func TestSaveDraft_TwoVariants_NoCrossContamination(t *testing.T) {
 
 	// Prior draft: two variants, both device "web" / env "DB_PASS", each with
 	// its OWN stored ciphertext.
-	priorCipherA, _ := cipher.Encrypt("old-secret-A")
-	priorCipherB, _ := cipher.Encrypt("old-secret-B")
+	priorCipherA, _ := sealPlain(cipher, "old-secret-A")
+	priorCipherB, _ := sealPlain(cipher, "old-secret-B")
 	prior := append(draftVariantsWithID(idA, priorCipherA, true), draftVariantsWithID(idB, priorCipherB, true)...)
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{
@@ -284,8 +284,8 @@ func TestSaveDraft_VariantsReordered_SecretsFollowID(t *testing.T) {
 	expectEditableExercise(q, exID)
 	idA, idB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 
-	priorCipherA, _ := cipher.Encrypt("old-secret-A")
-	priorCipherB, _ := cipher.Encrypt("old-secret-B")
+	priorCipherA, _ := sealPlain(cipher, "old-secret-A")
+	priorCipherB, _ := sealPlain(cipher, "old-secret-B")
 	// Stored order: [A, B].
 	prior := append(draftVariantsWithID(idA, priorCipherA, true), draftVariantsWithID(idB, priorCipherB, true)...)
 	priorBlob := mustMarshal(t, prior)
@@ -350,8 +350,8 @@ func TestSaveDraft_LegacySourceWithoutVariantIDs_KeepsSecrets(t *testing.T) {
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
-	priorCipherA, _ := cipher.Encrypt("legacy-secret-A")
-	priorCipherB, _ := cipher.Encrypt("legacy-secret-B")
+	priorCipherA, _ := sealPlain(cipher, "legacy-secret-A")
+	priorCipherB, _ := sealPlain(cipher, "legacy-secret-B")
 	// Legacy stored draft: two variants, NO variant ids (pre-migration blob).
 	prior := append(draftVariantsWithID(uuid.Nil, priorCipherA, true), draftVariantsWithID(uuid.Nil, priorCipherB, true)...)
 	priorBlob := mustMarshal(t, prior)
@@ -408,7 +408,7 @@ func TestSaveDraft_LegacySource_AddedVariantStoresEmpty(t *testing.T) {
 	exID := uuid.Must(uuid.NewV7())
 	expectEditableExercise(q, exID)
 
-	priorCipher, _ := cipher.Encrypt("legacy-secret")
+	priorCipher, _ := sealPlain(cipher, "legacy-secret")
 	prior := draftVariantsWithID(uuid.Nil, priorCipher, true) // one legacy variant
 	priorBlob := mustMarshal(t, prior)
 	q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{

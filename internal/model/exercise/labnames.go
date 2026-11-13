@@ -35,13 +35,28 @@ func LabDeviceNames(devices []Device) []string {
 	return names
 }
 
-// ValidateDeviceNames refuses the first device of the variants named like a platform endpoint. A switch or a hub has
-// a display name only and is named in the lab by its id, so it is not checked.
+// ValidateDeviceNames refuses the first device of the variants named like a platform endpoint, or with ':' in its name or in
+// the name of one of its variables (see ErrNameHasSeparator). A switch or a hub has a display name only, is named in the
+// lab by its id and holds no variables, so it is not checked.
 func ValidateDeviceNames(variants []Variant) error {
 	for vi, variant := range variants {
 		for _, device := range variant.Topology.Devices {
 			if !device.IsNode() {
 				continue
+			}
+			if strings.Contains(device.Name, ":") {
+				return ErrNameHasSeparator.WithPublicContext("variant", vi+1).
+					WithPublicContext("device", device.Name).
+					WithPublicContext("field", "device").
+					Err()
+			}
+			for _, env := range device.Bootstrap.Env {
+				if strings.Contains(env.Name, ":") {
+					return ErrNameHasSeparator.WithPublicContext("variant", vi+1).
+						WithPublicContext("device", device.Name).
+						WithPublicContext("field", "env").
+						Err()
+				}
 			}
 			for _, reserved := range labnames.ReservedDeviceNames {
 				if strings.EqualFold(strings.TrimSpace(device.Name), reserved) {
