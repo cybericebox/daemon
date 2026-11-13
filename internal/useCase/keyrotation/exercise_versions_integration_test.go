@@ -124,8 +124,9 @@ func TestSwap_LocksDoNotBlockForeignKeyWritersOrVersionsWithoutSecrets(t *testin
 }
 
 // 3. the race: a copy of the published version into the draft is made by a single statement that started before the pass
-// committed, so it copies the OLD ciphertext after the published row was rotated. The next pass must end with equal
-// bytes, not with a fresh nonce for the draft.
+// committed, so it copies the OLD ciphertext after the published row was rotated. The pass must end with equal bytes,
+// not with a fresh nonce for the draft. The pass is held before its closing read until the copy has committed, so the
+// stale draft is there for it to find; the state before that read proves the race really happened.
 func TestRun_DraftCopiedFromStaleReadEndsEqual(t *testing.T) {
 	w := newWorld(t)
 	vid := id(7)
@@ -136,10 +137,24 @@ func TestRun_DraftCopiedFromStaleReadEndsEqual(t *testing.T) {
 	}, 21, 22)
 
 	p := w.pauseFirstSwap()
-	w.startPass(p)
+	restored := make(chan error, 1)
+	copyCommitted := make(chan struct{})
+	var seenStatus, seenDraft string
+	reads := 0
+	store := hooked{Store: w.repo, beforeRows: func(string) {
+		reads++
+		if reads == 2 { // the closing read: the published row is rotated, the copy has not been checked yet
+			<-copyCommitted
+			seenStatus, seenDraft = w.exerciseStatus(), w.variants(22)
+		}
+	}}
+	go func() {
+		_, err := w.usecase(store).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
+		p.done <- err
+	}()
+	<-p.locked
 
 	// RestoreVersionPreservingDraft copies the published version into the draft; it blocks on the exercise lock.
-	restored := make(chan error, 1)
 	go func() {
 		_, err := w.db.Queries.RestoreVersionPreservingDraft(context.Background(), postgres.RestoreVersionPreservingDraftParams{
 			ExerciseID: id(850), SourceID: id(21), CheckpointID: id(30), CreatedAt: w.clock,
@@ -152,18 +167,21 @@ func TestRun_DraftCopiedFromStaleReadEndsEqual(t *testing.T) {
 			`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%locked_draft%' AND cardinality(pg_blocking_pids(pid)) > 0)`).Scan(&blocked))
 		return blocked
 	}, 10*time.Second, 5*time.Millisecond, "the copy must be waiting for the swap's lock")
-	p.finish(t)
+	close(p.release)
 	require.NoError(t, <-restored)
+	close(copyCommitted)
+	select {
+	case err := <-p.done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the pass did not finish")
+	}
 
-	// the race happened: the draft holds the old ciphertext that was copied from the stale read
-	require.Equal(t, "changed", w.exerciseStatus(), "the stale copy makes the draft differ in bytes from the rotated published version")
-	require.Contains(t, w.variants(22), ":k1:")
-
-	w.repo.AfterLock = nil
-	_, err := w.usecase(w.repo).Run(context.Background(), keyRotationRepo.FamilyExercise, keyrotation.Options{})
-	require.NoError(t, err)
+	require.Equal(t, "changed", seenStatus, "the race happened: the stale copy differs in bytes from the rotated published version")
+	require.Contains(t, seenDraft, ":k1:", "the draft holds the old ciphertext that was copied from the stale read")
 	require.Equal(t, "published", w.exerciseStatus(), "equal content must end with equal bytes")
 	require.Equal(t, w.variants(21), w.variants(22))
+	require.NotContains(t, w.variants(22), ":k1:")
 }
 
 // A value that was edited (another plaintext under the same context) is never replaced by the other version's ciphertext.
