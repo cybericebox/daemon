@@ -14,12 +14,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
-	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
-	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
-	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
-	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
-	vpnUseCase "github.com/cybericebox/daemon/internal/useCase/vpn"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
 
@@ -242,34 +237,34 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 	}
 
 	if err := u.store.SMTPPasswords(ctx, func(id uuid.UUID, ct string) error {
-		record(FamilyPlatform, "mail_smtp_configs.password_ciphertext", id.String(), ct, mailUseCase.PasswordContext(id))
+		record(FamilyPlatform, "mail_smtp_configs.password_ciphertext", id.String(), ct, secretctx.SMTPPassword(id))
 		return nil
 	}); err != nil {
 		return Report{}, fmt.Errorf("read the SMTP passwords: %w", err)
 	}
 	if err := u.store.AgentKeys(ctx, func(id uuid.UUID, clientKey, accessKey string) error {
-		record(FamilyPlatform, "infrastructure_agents.client_key_ciphertext", id.String(), clientKey, infraModel.AgentSecretContext(id, "key"))
-		record(FamilyPlatform, "infrastructure_agents.access_private_key_ciphertext", id.String(), accessKey, infraModel.AgentSecretContext(id, "access"))
+		record(FamilyPlatform, "infrastructure_agents.client_key_ciphertext", id.String(), clientKey, secretctx.AgentSecret(id, "key"))
+		record(FamilyPlatform, "infrastructure_agents.access_private_key_ciphertext", id.String(), accessKey, secretctx.AgentSecret(id, "access"))
 		return nil
 	}); err != nil {
 		return Report{}, fmt.Errorf("read the agent keys: %w", err)
 	}
 	if err := u.store.RegistrySettings(ctx, func(push, pull string) error {
-		record(FamilyPlatform, "image_registry_settings.push_token_ciphertext", "settings", push, []byte(imageRegistryUseCase.PushContext))
-		record(FamilyPlatform, "image_registry_settings.pull_token_ciphertext", "settings", pull, []byte(imageRegistryUseCase.PullContext))
+		record(FamilyPlatform, "image_registry_settings.push_token_ciphertext", "settings", push, []byte(secretctx.RegistryPush))
+		record(FamilyPlatform, "image_registry_settings.pull_token_ciphertext", "settings", pull, []byte(secretctx.RegistryPull))
 		return nil
 	}); err != nil {
 		return Report{}, fmt.Errorf("read the registry settings: %w", err)
 	}
 	if err := u.store.EventRegistryTokens(ctx, func(id uuid.UUID, ct string) error {
-		record(FamilyPlatform, "event_registry_secrets.token_ciphertext", id.String(), ct, []byte(imageRegistryUseCase.EventSecretContext(id)))
+		record(FamilyPlatform, "event_registry_secrets.token_ciphertext", id.String(), ct, secretctx.EventRegistry(id))
 		return nil
 	}); err != nil {
 		return Report{}, fmt.Errorf("read the event registry tokens: %w", err)
 	}
 	if err := u.store.VPNConfigs(ctx, func(userID uuid.UUID, scope string, ref uuid.NullUUID, ct string) error {
 		record(FamilyVPN, "user_vpn_configs.config", fmt.Sprintf("user %s, scope %s", userID, scope), ct,
-			vpnUseCase.ConfigContext(userID, vpnModel.Scope(scope), ref))
+			secretctx.VPNConfig(userID, scope, ref))
 		return nil
 	}); err != nil {
 		return Report{}, fmt.Errorf("read the VPN configs: %w", err)
@@ -287,7 +282,7 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 					}
 					ref := fmt.Sprintf("version %s, variant %s, device %s, env %s", versionID, variant.ID, device.Name, env.Name)
 					record(FamilyExercise, "exercise_versions.variants@topology.devices[].bootstrap.env[]", ref, env.Value,
-						exerciseUseCase.EnvSecretContext(variant.ID, device.Name, env.Name))
+						secretctx.ExerciseEnv(variant.ID, device.Name, env.Name))
 				}
 			}
 		}

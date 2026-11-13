@@ -9,11 +9,12 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	"github.com/cybericebox/daemon/internal/secretctx"
 )
 
 // EventSecretContext binds a sealed token to its secret: a ciphertext copied
 // to another secret does not open.
-func EventSecretContext(id uuid.UUID) string { return "event-registry:" + id.String() }
+func EventSecretContext(id uuid.UUID) string { return string(secretctx.EventRegistry(id)) }
 
 type (
 	// EventSecretView is an organizer registry secret as «Панель заходу» sees

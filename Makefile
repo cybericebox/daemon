@@ -6,7 +6,7 @@ HANDLER_DIR     := ./internal/delivery/controller/http/handler
 RESPONSE_DIR    := ./internal/delivery/controller/http/response
 APIDOCS_DIR     := ./internal/delivery/controller/http/handler/apidocs
 
-.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog error-catalog-check seed
+.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog error-catalog-check seed lint-secretctx
 
 sqlcGenerate:
 	@docker run --rm -v ./internal/delivery/repository/postgres:/src -w /src sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537 generate
@@ -46,6 +46,7 @@ vet:
 	@go run ./tools/checkerrorcodes internal pkg
 	@go run ./tools/checklayers internal/model
 	@go run ./tools/checkroutes
+	@go run ./tools/checksecretctx
 
 ## test: run the full test suite
 test:
@@ -72,6 +73,10 @@ lint-errors:
 ## lint-layers: fail when internal/model imports application/delivery packages
 lint-layers:
 	@go run ./tools/checklayers internal/model
+
+## lint-secretctx: fail when a secret context is built outside internal/secretctx or a seal has none
+lint-secretctx:
+	@go run ./tools/checksecretctx
 
 ## lint-routes: fail on handler routes lacking a RequirePermission gate
 lint-routes:

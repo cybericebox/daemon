@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/tools"
 )
@@ -26,11 +27,10 @@ type payloadStore struct {
 	cipher *secret.Cipher
 }
 
-func payloadCode(dispatchID uuid.UUID) string { return "notify-payload:" + dispatchID.String() }
+// payloadCode is the lookup code of the stored payload (temporal_codes.code). It is not the context the payload is sealed with.
+func payloadCode(dispatchID uuid.UUID) string { return "notify-payload:" + dispatchID.String() } // secretctx:ignore
 
-func payloadContext(dispatchID uuid.UUID) []byte {
-	return []byte("notify-payload:" + dispatchID.String())
-}
+func payloadContext(dispatchID uuid.UUID) []byte { return secretctx.NotifyPayload(dispatchID) }
 
 func (s *payloadStore) put(ctx context.Context, dispatchID, userID uuid.UUID, p dispatchModel.Payload) error {
 	if s.cipher == nil {

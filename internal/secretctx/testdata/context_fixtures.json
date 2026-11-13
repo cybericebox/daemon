@@ -1,0 +1,118 @@
+{
+  "comment": "Ciphertexts sealed by the context builders of origin/develop 485211d9, before they were moved to internal/secretctx. Generated once; never regenerate from the new code. Key: id k1, hex = 'a1' x 32.",
+  "generated_from": "485211d9",
+  "key": "k1:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "fixtures": [
+    {
+      "name": "smtp",
+      "inputs": {
+        "id": "00000000-0000-4000-8000-000000000001"
+      },
+      "plaintext": "plain-smtp",
+      "ciphertext": "v1:k1:yySBNgvK5ZCaRFIN20YWWTCpg/OlOkRdUJ8MYJ/nFnnGZ7kqPlg="
+    },
+    {
+      "name": "agent-key",
+      "inputs": {
+        "id": "00000000-0000-4000-8000-000000000002"
+      },
+      "plaintext": "plain-agent-key",
+      "ciphertext": "v1:k1:g5gbdMg+Cj4nZvwoX/LOKyx1+24qUWVdxWOIDqs2mrpwy/X4tJq+LemG0g=="
+    },
+    {
+      "name": "agent-access",
+      "inputs": {
+        "id": "00000000-0000-4000-8000-000000000002"
+      },
+      "plaintext": "plain-agent-access",
+      "ciphertext": "v1:k1:PHkuOK6rOQ8n2WqVQMO6soJyQZk/IOT7QZnldu/tnzt4hfAjh3nKTnrmJI3RZg=="
+    },
+    {
+      "name": "registry-push",
+      "inputs": null,
+      "plaintext": "plain-push",
+      "ciphertext": "v1:k1:2bpMsqRVjhTXYjjaKR9eFB+zjBnF+wjNXijdcY3+dT3b/Mdtbm8="
+    },
+    {
+      "name": "registry-pull",
+      "inputs": null,
+      "plaintext": "plain-pull",
+      "ciphertext": "v1:k1:AVIteVJHGHjsZDmn8m9Xdi/yi+c+3LBKJLfA9XoWV0v/oMu3TZI="
+    },
+    {
+      "name": "event-registry",
+      "inputs": {
+        "id": "00000000-0000-4000-8000-000000000003"
+      },
+      "plaintext": "plain-event-registry",
+      "ciphertext": "v1:k1:z+jNTKdYxl+L1OoLMItRDlQvvrt8UeOsNYs43xWBWxHhkxAAGOYCHsYen6TlBJNZ"
+    },
+    {
+      "name": "vpn-event",
+      "inputs": {
+        "ref": "00000000-0000-4000-8000-000000000005",
+        "scope": "event",
+        "user": "00000000-0000-4000-8000-000000000004"
+      },
+      "plaintext": "plain-vpn-event",
+      "ciphertext": "v1:k1:nWzvNLPH4INnkzMHBQL3XRRhfdxIPAZq3ElVjFx8dW3tXhBxGX2ryIAdoQ=="
+    },
+    {
+      "name": "vpn-test",
+      "inputs": {
+        "scope": "test",
+        "user": "00000000-0000-4000-8000-000000000004"
+      },
+      "plaintext": "plain-vpn-test",
+      "ciphertext": "v1:k1:Apn4yB28i99cJ0o0vWR3ZSTFNmIkyXcxxyyv/iYM7uFLRsHpjh6sdjDw"
+    },
+    {
+      "name": "exercise-env",
+      "inputs": {
+        "device": "web",
+        "env": "DB_PASS",
+        "variant": "00000000-0000-4000-8000-000000000006"
+      },
+      "plaintext": "plain-env",
+      "ciphertext": "v1:k1:h7Fpo4rVmFizu68BkEpHDxPIpi+s1rHm/QRettJg1sGaWAwALw=="
+    },
+    {
+      "name": "session-ticket",
+      "inputs": null,
+      "plaintext": "plain-ticket",
+      "ciphertext": "v1:k1:akHhpGGp4n3y9Nf1tVy/9dhgB4CF3+UHcO3TkPKkUSM2rATmrTmbnA=="
+    },
+    {
+      "name": "notify-payload",
+      "inputs": {
+        "dispatch": "00000000-0000-4000-8000-000000000007"
+      },
+      "plaintext": "plain-payload",
+      "ciphertext": "v1:k1:sCf4eElBix54dJ2S3CoTf/kHxuIoRGd/eodFDc8/MNhebu5yDHoAjNg="
+    },
+    {
+      "name": "auth-delivery",
+      "inputs": {
+        "id": "00000000-0000-4000-8000-000000000009"
+      },
+      "plaintext": "plain-delivery",
+      "ciphertext": "v1:k1:/JYMkaLMmKfmay7SquX1ilABJF4cdPtcM/vRGXNldGTFMvxrUydRtPpG"
+    },
+    {
+      "name": "archive-import-password",
+      "inputs": {
+        "job": "00000000-0000-4000-8000-000000000008"
+      },
+      "plaintext": "plain-import-password",
+      "ciphertext": "v1:k1:g0pKzJPBL+YQRMaXvPA77akXCqFhXAOfJW6cIRWYc6EOmYGfdzZsd1fQtrzzIzM8Ag=="
+    },
+    {
+      "name": "archive-export-password",
+      "inputs": {
+        "job": "00000000-0000-4000-8000-000000000008"
+      },
+      "plaintext": "plain-export-password",
+      "ciphertext": "v1:k1:eRjaBzIoJ6Cm/LqMqaZVduHiYBPPr6ydZ7qrt4EsVJqXE+dfERPwujg0hZloaENGIw=="
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import (
 	labnames "github.com/cybericebox/laboratory/pkg/names"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/secretctx"
 )
 
 // Agent sources: an agent an administrator enrolled, or the agent bootstrapped from the deployment
@@ -526,9 +527,7 @@ type DeviceController interface {
 // AgentSecretContext binds the ciphertext of one private key of an agent to the agent: a value
 // copied to another row fails to open. field is "key" (the mTLS client key) or "access" (the signing
 // key of the lab access tokens).
-func AgentSecretContext(id uuid.UUID, field string) []byte {
-	return []byte("infra.agent:" + id.String() + ":" + field)
-}
+func AgentSecretContext(id uuid.UUID, field string) []byte { return secretctx.AgentSecret(id, field) }
 
 // ErrEnrollmentDenied is what the agent adapter returns when the agent refuses the enrollment token or
 // the request (a used, expired or unknown token is PERMISSION_DENIED).

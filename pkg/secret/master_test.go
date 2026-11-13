@@ -73,7 +73,7 @@ func TestDerivedIDsSayDerivedAndTheMasterVersion(t *testing.T) {
 	c := ring(t, spec)
 	require.Equal(t, []string{"d-m2", "d-m1"}, c.KeyIDs())
 	require.Equal(t, "d-m2", c.CurrentKeyID(), "the current master version seals")
-	sealed, err := c.Encrypt("x")
+	sealed, err := sealPlain(c, "x")
 	require.NoError(t, err)
 	id, _ := KeyID(sealed)
 	master, derived := IsDerivedID(id)
@@ -114,31 +114,31 @@ func TestOldExplicitKeysStillOpenOldCiphertext(t *testing.T) {
 func TestAMixedRingOpensEveryGeneration(t *testing.T) {
 	explicit := "k1:" + hexB + ",k0:" + hexA // an old keyring of the purpose (not the master)
 	first := ring(t, explicit)
-	v0, err := first.Encrypt("generation 0")
+	v0, err := sealPlain(first, "generation 0")
 	require.NoError(t, err)
 
 	masterOne, err := Resolve("m1:"+hexA, explicit, PurposeVPN, false)
 	require.NoError(t, err)
 	gen1 := ring(t, masterOne)
-	v1, err := gen1.Encrypt("generation 1")
+	v1, err := sealPlain(gen1, "generation 1")
 	require.NoError(t, err)
 
 	masterTwo, err := Resolve("m2:"+hexB+",m1:"+hexA, explicit, PurposeVPN, false)
 	require.NoError(t, err)
 	gen2 := ring(t, masterTwo)
 	require.Equal(t, []string{"d-m2", "d-m1", "k1", "k0"}, gen2.KeyIDs())
-	v2, err := gen2.Encrypt("generation 2")
+	v2, err := sealPlain(gen2, "generation 2")
 	require.NoError(t, err)
 
 	for want, value := range map[string]string{"generation 0": v0, "generation 1": v1, "generation 2": v2} {
-		got, err := gen2.Decrypt(value)
+		got, err := openPlain(gen2, value)
 		require.NoError(t, err, want)
 		require.Equal(t, want, got)
 	}
 	// dropping the m1 master version from the ring makes its values unreadable: the lost key the guard reports
 	onlyTwo, err := Resolve("m2:"+hexB, explicit, PurposeVPN, false)
 	require.NoError(t, err)
-	_, err = ring(t, onlyTwo).Decrypt(v1)
+	_, err = openPlain(ring(t, onlyTwo), v1)
 	require.ErrorContains(t, err, `"d-m1"`)
 }
 

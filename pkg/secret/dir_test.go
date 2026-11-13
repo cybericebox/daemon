@@ -104,7 +104,7 @@ func TestSpecFromDirFollowsLinks(t *testing.T) {
 func TestKeyIDAndHasKey(t *testing.T) {
 	c, err := New("k2:" + hexB + ",k1:" + hexA)
 	require.NoError(t, err)
-	sealed, err := c.Encrypt("v")
+	sealed, err := sealPlain(c, "v")
 	require.NoError(t, err)
 	id, legacy := KeyID(sealed)
 	require.Equal(t, "k2", id)

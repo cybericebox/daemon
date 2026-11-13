@@ -1,6 +1,7 @@
 package secret_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -14,14 +15,14 @@ func TestCipher_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	ct, err := c.Encrypt("s3cret-value")
+	ct, err := sealPlain(c, "s3cret-value")
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
 	if ct == "s3cret-value" || ct == "" {
 		t.Fatalf("ciphertext must differ from plaintext, got %q", ct)
 	}
-	pt, err := c.Decrypt(ct)
+	pt, err := openPlain(c, ct)
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}
@@ -32,8 +33,8 @@ func TestCipher_RoundTrip(t *testing.T) {
 
 func TestCipher_NonDeterministicNonce(t *testing.T) {
 	c, _ := secret.New(testKey)
-	a, _ := c.Encrypt("same")
-	b, _ := c.Encrypt("same")
+	a, _ := sealPlain(c, "same")
+	b, _ := sealPlain(c, "same")
 	if a == b {
 		t.Fatal("two encryptions of the same value must differ (random nonce)")
 	}
@@ -50,7 +51,7 @@ func TestNew_RejectsBadKey(t *testing.T) {
 
 func TestDecrypt_RejectsGarbage(t *testing.T) {
 	c, _ := secret.New(testKey)
-	if _, err := c.Decrypt("bm90LWEtY2lwaGVydGV4dA=="); err == nil {
+	if _, err := openPlain(c, "bm90LWEtY2lwaGVydGV4dA=="); err == nil {
 		t.Fatal("garbage ciphertext must be rejected")
 	}
 }
@@ -89,7 +90,7 @@ func TestKeyringSealsWithTheFirstKeyAndOpensWithAny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealedByOld, _ := old.Encrypt("kept")
+	sealedByOld, _ := sealPlain(old, "kept")
 	if !strings.HasPrefix(sealedByOld, "v1:old:") {
 		t.Fatalf("a ciphertext names its key: %q", sealedByOld)
 	}
@@ -98,10 +99,10 @@ func TestKeyringSealsWithTheFirstKeyAndOpensWithAny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plain, err := rotated.Decrypt(sealedByOld); err != nil || plain != "kept" {
+	if plain, err := openPlain(rotated, sealedByOld); err != nil || plain != "kept" {
 		t.Fatalf("a value of the old key must still open: %q %v", plain, err)
 	}
-	fresh, _ := rotated.Encrypt("fresh")
+	fresh, _ := sealPlain(rotated, "fresh")
 	if !strings.HasPrefix(fresh, "v1:new:") || rotated.CurrentKeyID() != "new" {
 		t.Fatalf("the first key seals: %q", fresh)
 	}
@@ -110,10 +111,10 @@ func TestKeyringSealsWithTheFirstKeyAndOpensWithAny(t *testing.T) {
 	}
 	// Once the old key is gone from the ring its values no longer open, and the error says which key is missing.
 	only, _ := secret.New("new:" + newKey)
-	if _, err = only.Decrypt(sealedByOld); err == nil || !strings.Contains(err.Error(), `"old"`) {
+	if _, err = openPlain(only, sealedByOld); err == nil || !strings.Contains(err.Error(), `"old"`) {
 		t.Fatalf("a key missing from the ring: %v", err)
 	}
-	if plain, err := only.Decrypt(fresh); err != nil || plain != "fresh" {
+	if plain, err := openPlain(only, fresh); err != nil || plain != "fresh" {
 		t.Fatal("the new key opens its own values")
 	}
 }
@@ -122,9 +123,9 @@ func TestAnOlderValueWithoutAKeyIdOpensWithTheRing(t *testing.T) {
 	// The previous format: plain base64 of nonce|ciphertext|tag, sealed by the single key of the old setup.
 	c, _ := secret.New("new:" + newKey + ",old:" + oldKey)
 	single, _ := secret.New(oldKey)
-	ct, _ := single.Encrypt("legacy-value")
+	ct, _ := sealPlain(single, "legacy-value")
 	bare := strings.TrimPrefix(ct, "v1:default:")
-	if plain, err := c.Decrypt(bare); err != nil || plain != "legacy-value" {
+	if plain, err := openPlain(c, bare); err != nil || plain != "legacy-value" {
 		t.Fatalf("a value without a key id opens with the keys of the ring: %q %v", plain, err)
 	}
 	if !c.NeedsRotation(bare) {
@@ -143,6 +144,26 @@ func TestKeyringSyntaxIsValidated(t *testing.T) {
 	} {
 		if _, err := secret.New(spec); err == nil {
 			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+// 3. there is no way to seal or open without a context: an empty or nil one is refused in both directions.
+func TestCipher_RefusesAnEmptyContext(t *testing.T) {
+	c, err := secret.New(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ctx := range [][]byte{nil, {}} {
+		if _, err = c.EncryptWithContext([]byte("x"), ctx); !errors.Is(err, secret.ErrNoContext) {
+			t.Fatalf("seal with %v: want ErrNoContext, got %v", ctx, err)
+		}
+		sealed, sealErr := c.EncryptWithContext([]byte("x"), []byte("c"))
+		if sealErr != nil {
+			t.Fatal(sealErr)
+		}
+		if _, err = c.DecryptWithContext(sealed, ctx); !errors.Is(err, secret.ErrNoContext) {
+			t.Fatalf("open with %v: want ErrNoContext, got %v", ctx, err)
 		}
 	}
 }

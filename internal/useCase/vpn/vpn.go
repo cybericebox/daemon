@@ -7,7 +7,6 @@ package vpn
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -16,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/vpnRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
 
@@ -51,11 +51,7 @@ type ConfigView struct {
 // ConfigContext binds a stored config to its row (user, scope and scope reference): a ciphertext copied to
 // another row, or another user's, does not open.
 func ConfigContext(userID uuid.UUID, scope vpnModel.Scope, scopeRef uuid.NullUUID) []byte {
-	ref := ""
-	if scopeRef.Valid {
-		ref = scopeRef.UUID.String()
-	}
-	return []byte(fmt.Sprintf("vpn-config:%s:%v:%s", userID, scope, ref))
+	return secretctx.VPNConfig(userID, string(scope), scopeRef)
 }
 
 // StoreConfig encrypts and upserts a user's VPN config for a scope. Re-issuing

@@ -22,14 +22,14 @@ func TestNewCipher(t *testing.T) {
 func TestNewCipher_KeysAreIndependent(t *testing.T) {
 	vpn, _ := newCipher(strings.Repeat("ab", 32))
 	exercise, _ := newCipher(strings.Repeat("cd", 32))
-	sealed, err := vpn.Encrypt("wg-config")
+	sealed, err := sealPlain(vpn, "wg-config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := exercise.Decrypt(sealed); err == nil {
+	if _, err := openPlain(exercise, sealed); err == nil {
 		t.Fatal("another family's key must not open a VPN config")
 	}
-	if got, err := vpn.Decrypt(sealed); err != nil || got != "wg-config" {
+	if got, err := openPlain(vpn, sealed); err != nil || got != "wg-config" {
 		t.Fatalf("own key opens it: %q %v", got, err)
 	}
 }

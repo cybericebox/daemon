@@ -17,6 +17,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	appErr "github.com/cybericebox/daemon/pkg/err"
@@ -116,9 +117,7 @@ func (u *ExerciseUseCase) SetArchiveImport(deps ArchiveImportDependencies) {
 }
 
 // passwordContext binds a sealed archive password to its job.
-func passwordContext(jobID uuid.UUID) []byte {
-	return []byte("exercise-import:password:" + jobID.String())
-}
+func passwordContext(jobID uuid.UUID) []byte { return secretctx.ArchiveImportPassword(jobID) }
 
 // ImportUploadedArchive imports a task archive uploaded in chunks (purpose exercise-archive) of the caller. An
 // archive naming no image file is imported at once (the archive limits apply; the upload is then dropped); one

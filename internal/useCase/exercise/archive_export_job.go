@@ -22,6 +22,7 @@ import (
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	"github.com/cybericebox/daemon/internal/secretctx"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
 
@@ -80,9 +81,7 @@ func (u *ExerciseUseCase) SetArchiveExport(deps ArchiveExportDependencies) {
 }
 
 // exportPasswordContext binds a sealed archive password to its job.
-func exportPasswordContext(jobID uuid.UUID) []byte {
-	return []byte("exercise-export:password:" + jobID.String())
-}
+func exportPasswordContext(jobID uuid.UUID) []byte { return secretctx.ArchiveExportPassword(jobID) }
 
 // StartArchiveExport records the background export of the tasks «з образами» and queues it; it returns the job id.
 func (u *ExerciseUseCase) StartArchiveExport(ctx context.Context, in StartExportInput) (uuid.UUID, error) {
