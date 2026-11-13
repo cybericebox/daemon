@@ -182,10 +182,12 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 		col := column(f, name)
 		col.Total++
 		id, legacy := secret.KeyID(ciphertext)
+		shown := secret.SafeKeyID(id)
+		ref = secret.Printable(ref, 160)
 		if legacy {
 			col.Legacy++
 		} else {
-			col.ByKey[id]++
+			col.ByKey[shown]++
 		}
 		var problem *Problem
 		reason := secret.ReasonAAD
@@ -193,7 +195,7 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 		case cipher == nil:
 			problem = &Problem{Kind: NoFamilyKey, Ref: ref}
 		case !legacy && !cipher.HasKey(id):
-			problem = &Problem{Kind: KeyNotLoaded, KeyID: id, Ref: ref}
+			problem = &Problem{Kind: KeyNotLoaded, KeyID: shown, Ref: ref}
 			reason = secret.ReasonUnknownKey
 		case open:
 			if _, err := cipher.DecryptWithContext(ciphertext, context); err != nil {
@@ -201,7 +203,7 @@ func (u *UseCase) Check(ctx context.Context, open bool) (Report, error) {
 				if legacy {
 					problem = &Problem{Kind: NoKeyOpens, Ref: ref}
 				} else {
-					problem = &Problem{Kind: CannotOpen, KeyID: id, Ref: ref}
+					problem = &Problem{Kind: CannotOpen, KeyID: shown, Ref: ref}
 				}
 			}
 		}

@@ -62,11 +62,15 @@ func (r Report) Write(w io.Writer) {
 	fmt.Fprintln(w, "\nRows that cannot be opened (left untouched):")
 	for _, s := range r.Sources {
 		for _, f := range s.FailedRows {
-			key := f.KeyID
-			if key == "" {
-				key = "none"
+			key := "none"
+			if f.KeyID != "" {
+				key = f.KeyID
 			}
-			fmt.Fprintf(w, "  %s row %s: %s (key id: %s)\n", f.Source, f.RowID, f.Reason, key)
+			detail := ""
+			if f.Detail != "" {
+				detail = ", " + f.Detail
+			}
+			fmt.Fprintf(w, "  %s row %q%s: %s (key id: %q)\n", secret.Printable(f.Source, 120), f.RowID, detail, f.Reason, key)
 		}
 	}
 	by := map[secret.Reason]int{}

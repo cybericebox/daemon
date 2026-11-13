@@ -50,6 +50,7 @@ type fakeSource struct {
 	swaps      int
 	afterSwap  func(n int)
 	rowCalls   int
+	refs       []string
 }
 
 func newFake() *fakeSource {
@@ -78,7 +79,11 @@ func (f *fakeSource) Rows(_ context.Context, after string, limit int) ([]secret.
 		}
 		row := secret.Row{ID: id}
 		for i, v := range f.rows[id] {
-			row.Items = append(row.Items, secret.Item{Ciphertext: v, Context: []byte(f.ctxs[id][i])})
+			it := secret.Item{Ciphertext: v, Context: []byte(f.ctxs[id][i])}
+			if i < len(f.refs) {
+				it.Ref = f.refs[i]
+			}
+			row.Items = append(row.Items, it)
 		}
 		out = append(out, row)
 		if len(out) == limit {
@@ -473,5 +478,46 @@ func TestReencrypt_ResultHoldsNoValues(t *testing.T) {
 		if strings.Contains(out, leak) {
 			t.Fatalf("result leaks a value: %s", out)
 		}
+	}
+}
+
+// 2. a failed value of a multi-value row is named by its place inside the row.
+func TestReencrypt_FailedValueIsNamedInsideTheRow(t *testing.T) {
+	c := bothRing(t)
+	f := newFake()
+	f.add("row", "c", seal(t, oldRing(t), "p1", "c"), seal(t, oldRing(t), "p2", "other"))
+	f.refs = []string{"variant 0, device \"web\", env \"A\"", "variant 1, device \"db\", env \"B\""}
+	res, err := run(t, &secret.Reencryptor{Ring: c}, f, secret.Options{})
+	if err != nil || len(res.FailedRows) != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if got := res.FailedRows[0].Detail; got != f.refs[1] {
+		t.Fatalf("detail %q", got)
+	}
+}
+
+// 5. nothing from stored data can reach a terminal as a control sequence: key ids, row ids and refs are cleaned.
+func TestReencrypt_StoredTextIsCleanedForDisplay(t *testing.T) {
+	c := bothRing(t)
+	f := newFake()
+	f.add("row\x1b[2J-id", "c", "v1:evil\x1b[31m\nkey:AAAA")
+	f.refs = []string{"dev\x1b]0;title\x07"}
+	res, err := run(t, &secret.Reencryptor{Ring: c}, f, secret.Options{})
+	if err != nil || len(res.FailedRows) != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	got := res.FailedRows[0]
+	if got.KeyID != "invalid-id" {
+		t.Fatalf("key id %q", got.KeyID)
+	}
+	for _, s := range []string{got.RowID, got.Detail, got.KeyID} {
+		for _, r := range s {
+			if r < 0x20 || r == 0x7f {
+				t.Fatalf("control character in %q", s)
+			}
+		}
+	}
+	if long := secret.Printable(strings.Repeat("x", 500), 120); len([]rune(long)) > 121 {
+		t.Fatalf("not cut: %d", len(long))
 	}
 }

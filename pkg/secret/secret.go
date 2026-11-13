@@ -19,6 +19,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // versionPrefix marks a ciphertext that names its key. A value without it is the older plain base64 form,
@@ -148,6 +149,32 @@ func (c *Cipher) HasKey(id string) bool {
 		}
 	}
 	return false
+}
+
+// SafeKeyID returns the key id for display: an id read from stored data that does not have the shape of a key id is
+// replaced, so nothing from the database can put control characters or long text into an operator's terminal.
+func SafeKeyID(id string) string {
+	if keyIDPattern.MatchString(id) {
+		return id
+	}
+	return "invalid-id"
+}
+
+// Printable returns s for display, with every non-printable rune replaced and the text cut to max runes. Stored text
+// (names inside a document) goes through it before it reaches output.
+func Printable(s string, max int) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if len(out) == max {
+			out = append(out, '…')
+			break
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || !unicode.IsPrint(r) {
+			r = '?'
+		}
+		out = append(out, r)
+	}
+	return string(out)
 }
 
 // KeyID reads which key sealed a stored ciphertext without opening it. legacy is true for the older form that names

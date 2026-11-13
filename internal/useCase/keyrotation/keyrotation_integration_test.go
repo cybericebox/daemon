@@ -347,6 +347,13 @@ func TestRun_MixedDatabaseEveryFamily(t *testing.T) {
 	reasons := map[secret.Reason]int{secret.ReasonAAD: 2, secret.ReasonUnknownKey: 1}
 	require.Equal(t, reasons, map[secret.Reason]int{secret.ReasonAAD: byReason[secret.ReasonAAD], secret.ReasonUnknownKey: byReason[secret.ReasonUnknownKey]})
 	require.Len(t, failed, 3)
+	var detail string
+	for _, f := range failed {
+		if f.RowID == id(8).String() {
+			detail = f.Detail
+		}
+	}
+	require.Equal(t, `variant 0, device "db", env "C"`, detail, "the failing value is named inside its version")
 
 	// 18. nothing was deleted, no key was touched
 	for _, tb := range tables {

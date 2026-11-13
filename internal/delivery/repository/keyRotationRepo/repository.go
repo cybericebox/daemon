@@ -214,9 +214,10 @@ ORDER BY id LIMIT $2`, after, limit)
 
 func (s *exerciseVersions) items(doc []any) []secret.Item {
 	var items []secret.Item
-	walkSecretEnvs(doc, func(variantID uuid.UUID, device, name string, env map[string]any) {
+	walkSecretEnvsAt(doc, func(variant int, variantID uuid.UUID, device, name string, env map[string]any) {
 		if v, _ := env["value"].(string); v != "" {
-			items = append(items, secret.Item{Ciphertext: v, Context: s.env(variantID, device, name)})
+			items = append(items, secret.Item{Ciphertext: v, Context: s.env(variantID, device, name),
+				Ref: fmt.Sprintf("variant %d, device %q, env %q", variant, device, name)})
 		}
 	})
 	return items
@@ -394,7 +395,14 @@ func parseVariants(raw []byte) ([]any, error) {
 
 // walkSecretEnvs visits every env entry marked secret of every device of every variant, in document order.
 func walkSecretEnvs(doc []any, visit func(variantID uuid.UUID, device, name string, env map[string]any)) {
-	for _, v := range doc {
+	walkSecretEnvsAt(doc, func(_ int, variantID uuid.UUID, device, name string, env map[string]any) {
+		visit(variantID, device, name, env)
+	})
+}
+
+// walkSecretEnvsAt is walkSecretEnvs with the position of the variant in the document.
+func walkSecretEnvsAt(doc []any, visit func(variant int, variantID uuid.UUID, device, name string, env map[string]any)) {
+	for vi, v := range doc {
 		variant, _ := v.(map[string]any)
 		vid, _ := uuid.FromString(str(variant["id"]))
 		topology, _ := variant["topology"].(map[string]any)
@@ -406,7 +414,7 @@ func walkSecretEnvs(doc []any, visit func(variantID uuid.UUID, device, name stri
 			for _, e := range envs {
 				env, _ := e.(map[string]any)
 				if secret, _ := env["secret"].(bool); secret {
-					visit(vid, str(device["name"]), str(env["name"]), env)
+					visit(vi, vid, str(device["name"]), str(env["name"]), env)
 				}
 			}
 		}

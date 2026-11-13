@@ -44,6 +44,9 @@ var (
 type Item struct {
 	Ciphertext string
 	Context    []byte
+	// Ref says where the value sits inside its row (a position and names), shown when this value is the one that
+	// fails. It is not secret; it is stored text, so it goes through Printable before it is shown.
+	Ref string
 }
 
 // Row is one unit of rewriting: all items of a row are written together or not at all.
@@ -84,8 +87,9 @@ type Locker interface {
 type Failed struct {
 	Source string
 	RowID  string
-	KeyID  string // the key id named by the failing value, empty when it names none
+	KeyID  string // the key id named by the failing value, empty when it names none, "invalid-id" when it is not an id
 	Reason Reason
+	Detail string // where inside the row the failing value sits, when the row holds several
 }
 
 // Progress is the state of one run, reported after every batch.
@@ -220,16 +224,22 @@ func (r *Reencryptor) report(res *Result) {
 	}
 }
 
-func (r *Reencryptor) fail(res *Result, src Source, id, keyID string, reason Reason) {
+const maxShown = 120
+
+func (r *Reencryptor) fail(res *Result, src Source, id, keyID string, reason Reason, detail string) {
 	res.Failed++
 	res.ByReason[reason]++
-	res.FailedRows = append(res.FailedRows, Failed{Source: src.Name(), RowID: id, KeyID: keyID, Reason: reason})
+	if keyID != "" {
+		keyID = SafeKeyID(keyID)
+	}
+	res.FailedRows = append(res.FailedRows, Failed{Source: src.Name(), RowID: Printable(id, maxShown), KeyID: keyID,
+		Reason: reason, Detail: Printable(detail, maxShown)})
 }
 
 func (r *Reencryptor) row(ctx context.Context, src Source, row Row, opts Options, res *Result) error {
 	res.Total++
 	if row.Unreadable {
-		r.fail(res, src, row.ID, "", ReasonCorrupt)
+		r.fail(res, src, row.ID, "", ReasonCorrupt, "")
 		return nil
 	}
 	oldValues := make([]string, len(row.Items))
@@ -244,12 +254,12 @@ func (r *Reencryptor) row(ctx context.Context, src Source, row Row, opts Options
 		keyID, _ := KeyID(it.Ciphertext)
 		plain, err := r.Ring.DecryptWithContext(it.Ciphertext, it.Context)
 		if err != nil {
-			r.fail(res, src, row.ID, keyID, classify(err))
+			r.fail(res, src, row.ID, keyID, classify(err), it.Ref)
 			return nil
 		}
 		sealed, err := r.Ring.EncryptWithContext(plain, it.Context)
 		if err != nil || !r.verified(sealed, it.Context, plain) {
-			r.fail(res, src, row.ID, keyID, ReasonVerify)
+			r.fail(res, src, row.ID, keyID, ReasonVerify, it.Ref)
 			return nil
 		}
 		newValues[i] = sealed
