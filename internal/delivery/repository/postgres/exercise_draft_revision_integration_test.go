@@ -183,3 +183,31 @@ func TestDraftRevisionRecordsWhoSavedLast(t *testing.T) {
 	require.False(t, saved.UpdatedBy.Valid, "the last save carries the last saver (here none), not the creator")
 	require.Equal(t, first, saved.CreatedBy, "the creator of the working copy does not change")
 }
+
+// Key rotation re-encrypts the stored secrets of a working copy without changing what an editor sees: it says so for its
+// transaction and the revision stays, so an editor in the middle of a session is not refused. Any other write moves it.
+func TestDraftRevisionKeyRotationKeepsItAndAnyOtherWriteMovesIt(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	ex := mustCreateExercise(t, repo, "Rotation keeps the revision")
+	base, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), contentWithNote("base"), itNow, uuid.NullUUID{}, time.Time{})
+	require.NoError(t, err)
+
+	tx, err := db.Pool.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SELECT set_config('cybericebox.keep_revision', '1', true)`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE exercise_versions SET variants = '[]'::jsonb WHERE id = $1`, base.ID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	after, err := repo.GetDraftRevision(ctx, ex.ID)
+	require.NoError(t, err)
+	require.True(t, base.UpdatedAt.Equal(after.UpdatedAt), "a rotation does not move the revision")
+
+	_, err = db.Pool.Exec(ctx, `UPDATE exercise_versions SET admin_note = 'edited elsewhere' WHERE id = $1`, base.ID)
+	require.NoError(t, err)
+	moved, err := repo.GetDraftRevision(ctx, ex.ID)
+	require.NoError(t, err)
+	require.True(t, moved.UpdatedAt.After(base.UpdatedAt), "a write outside the rotation does")
+}

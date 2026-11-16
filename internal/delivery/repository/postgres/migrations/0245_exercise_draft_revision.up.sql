@@ -10,11 +10,15 @@ SET updated_at = GREATEST(created_at, COALESCE(published_at, created_at)),
     updated_by = created_by;
 
 -- Every real change of a row moves the revision strictly forward (microsecond timestamptz, never equal to the one before),
--- whichever statement or release wrote it. A write that changes nothing keeps it.
+-- whichever statement or release wrote it. A write that changes nothing keeps it. A transaction that only re-encrypts stored
+-- secrets (key rotation) says so with cybericebox.keep_revision = 1 and leaves the revision alone: the editor sees the same
+-- content, so an editor in the middle of a session is not refused for it.
 CREATE FUNCTION exercise_version_revision() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    IF coalesce(current_setting('cybericebox.keep_revision', true), '') = '1' THEN
+        NEW.updated_at := OLD.updated_at;
+    ELSIF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
         NEW.updated_at := GREATEST(clock_timestamp(), OLD.updated_at + interval '1 microsecond');
     ELSE
         NEW.updated_at := OLD.updated_at;
