@@ -133,6 +133,7 @@ func TestCreateExercise_DuplicateName(t *testing.T) {
 func TestUpdateExerciseIdentity_ConflictDiscrimination(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().GetDraftRevision(gomock.Any(), gomock.Any()).Return(postgres.GetDraftRevisionRow{}, pgx.ErrNoRows).AnyTimes()
 	uc := newUC(q, newFakeMedia())
 	id := uuid.Must(uuid.NewV7())
 	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
@@ -303,6 +304,7 @@ func TestGetExercise_HasChangesAndArchivedAt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			q := postgresMocks.NewMockQuerier(ctrl)
+			q.EXPECT().GetDraftRevision(gomock.Any(), gomock.Any()).Return(postgres.GetDraftRevisionRow{}, pgx.ErrNoRows).AnyTimes()
 			uc := newUC(q, newFakeMedia())
 			exID := uuid.Must(uuid.NewV7())
 			q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{

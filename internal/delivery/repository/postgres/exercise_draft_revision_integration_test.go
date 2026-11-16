@@ -55,9 +55,11 @@ func TestDraftRevisionIsAssignedAndMovesOnEveryChange(t *testing.T) {
 func TestDraftRevisionStaysWhenNothingChanged(t *testing.T) {
 	ctx, repo, ex, author := newDraftRevisionRepo(t)
 	by := uuid.NullUUID{UUID: author, Valid: true}
-	first, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), contentWithNote("same"), itNow, by, time.Time{})
+	// The same content: itVariants gives every task a fresh id, so build it once.
+	content := contentWithNote("same")
+	first, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, by, time.Time{})
 	require.NoError(t, err)
-	again, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), contentWithNote("same"), itNow, by, first.UpdatedAt)
+	again, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, by, first.UpdatedAt)
 	require.NoError(t, err)
 	require.True(t, first.UpdatedAt.Equal(again.UpdatedAt), "a save of identical content by the same author is not a new revision")
 }

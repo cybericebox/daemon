@@ -116,7 +116,7 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, err
 	}
 	if !sameSecretMergeSnapshot(mergeSource, currentSource) {
-		return VersionView{}, session.draftModified(ctx, exerciseID)
+		return VersionView{}, exerciseModel.ErrExerciseModified.Err()
 	}
 	if err = session.requireInfrastructureAllowed(ctx, latest, version.Variants); err != nil {
 		return VersionView{}, err
