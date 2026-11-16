@@ -48,7 +48,7 @@ func TestSaveDraft_StaleMergeSourceAfterReencryptionIsRefused(t *testing.T) {
 	sealed, err := oldRing.EncryptWithContext([]byte("db-password"), exercise.EnvSecretContext(variantID, "web", "DB_PASS"))
 	require.NoError(t, err)
 	stored := draftVariantsWithID(variantID, sealed, true)
-	_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: stored}, importJobT0, uuid.NullUUID{})
+	_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: stored}, importJobT0, uuid.NullUUID{})
 	require.NoError(t, err)
 
 	rotate := func() {

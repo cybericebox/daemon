@@ -76,11 +76,11 @@ func TestSourceReimportAtomicallyUpdatesDraftAndCreatesNewFamily(t *testing.T) {
 			require.NoError(t, err)
 			entity, err = repo.Create(ctx, entity)
 			require.NoError(t, err)
-			published, err := repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published old"}, importJobT0, uuid.NullUUID{})
+			published, err := repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published old"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			published, err = repo.Publish(ctx, entity.ID, importJobT0)
 			require.NoError(t, err)
-			draft, err := repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged old draft"}, importJobT0, uuid.NullUUID{})
+			draft, err := repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged old draft"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			oldFile, err := db.Queries.CreateFile(ctx, postgres.CreateFileParams{ID: uuid.Must(uuid.NewV7()), Name: "pinned.txt", ContentType: "text/plain", SizeBytes: 1, ContentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CreatedAt: importJobT0, CreatedBy: uuid.NullUUID{UUID: user.ID, Valid: true}})
 			require.NoError(t, err)
@@ -271,12 +271,12 @@ func TestReimportRechecksPreviewAgainstConcurrentFamilyAndActorChanges(t *testin
 			require.NoError(t, err)
 			e, err = repo.Create(ctx, e)
 			require.NoError(t, err)
-			_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published"}, importJobT0, uuid.NullUUID{})
+			_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			_, err = repo.Publish(ctx, e.ID, importJobT0)
 			require.NoError(t, err)
 			if change != "first-draft" {
-				_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "previewed draft"}, importJobT0, uuid.NullUUID{})
+				_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "previewed draft"}, importJobT0, uuid.NullUUID{})
 				require.NoError(t, err)
 			}
 			archive := mustExerciseArchive(t, `{"name":"Must never be applied"}`, `[{"status":"draft","variants":[]}]`)
@@ -292,11 +292,11 @@ func TestReimportRechecksPreviewAgainstConcurrentFamilyAndActorChanges(t *testin
 				var err error
 				switch change {
 				case "save", "first-draft":
-					_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged concurrent save"}, importJobT0, uuid.NullUUID{})
+					_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged concurrent save"}, importJobT0, uuid.NullUUID{})
 				case "publish":
 					_, err = repo.Publish(ctx, e.ID, importJobT0)
 				case "discard":
-					_, err = repo.Discard(ctx, e.ID)
+					_, err = repo.ForceDiscard(ctx, e.ID)
 				case "archive":
 					_, err = db.Pool.Exec(ctx, `UPDATE exercises SET archived_at=now() WHERE id=$1`, e.ID)
 				case "delete":
@@ -343,7 +343,7 @@ func TestQueuedReimportRestoresPlanAndRechecksRightsBeforeMutation(t *testing.T)
 			require.NoError(t, err)
 			e, err = repo.Create(ctx, e)
 			require.NoError(t, err)
-			draft, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "prior working copy"}, importJobT0, uuid.NullUUID{})
+			draft, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "prior working copy"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			sources := newPostgresSources(t, db)
 			sources.stage(archiveUpID, user.ID, mustExerciseArchive(t, `{"name":"Queued updated name"}`, `[{"status":"draft","admin_note":"queued import content","variants":[]}]`), mediaModel.UploadPurposeExerciseArchive)
@@ -371,7 +371,7 @@ func TestQueuedReimportRestoresPlanAndRechecksRightsBeforeMutation(t *testing.T)
 				require.NoError(t, err)
 			}
 			if mode == "changed-target" {
-				_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "saved after queueing"}, importJobT0, uuid.NullUUID{})
+				_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "saved after queueing"}, importJobT0, uuid.NullUUID{})
 				require.NoError(t, err)
 			}
 			require.NoError(t, uc.RunArchiveImport(ctx, args))
@@ -410,7 +410,7 @@ func TestConcurrentReimportsWithReversedChoicesSerializeWithoutDeadlock(t *testi
 		e, err = repo.Create(ctx, e)
 		require.NoError(t, err)
 		ids[i] = e.ID
-		_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "original"}, importJobT0, uuid.NullUUID{})
+		_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "original"}, importJobT0, uuid.NullUUID{})
 		require.NoError(t, err)
 	}
 	archive, err := exercise.BuildArchiveV1(map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported first"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Imported second"},"versions":[{"status":"draft","variants":[]}]}`)})

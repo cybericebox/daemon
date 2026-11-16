@@ -415,6 +415,10 @@ func (u *ExerciseUseCase) ListExerciseTags(ctx context.Context, actor Actor, pre
 // UpdateExerciseIdentity preserves the PATCH DTO while editing the full draft
 // snapshot. The public identity projection changes only in Publish's SQL CTE.
 func (u *ExerciseUseCase) UpdateExerciseIdentity(ctx context.Context, in UpdateExerciseInput) (ExerciseView, error) {
+	expectedDraft, err := exerciseModel.ParseRevision(in.Revision)
+	if err != nil {
+		return ExerciseView{}, err
+	}
 	e, err := u.loadEditable(ctx, in.ID)
 	if err != nil {
 		return ExerciseView{}, err
@@ -423,13 +427,17 @@ func (u *ExerciseUseCase) UpdateExerciseIdentity(ctx context.Context, in UpdateE
 	if err = e.UpdateIdentity(in.Name, in.Description, in.Tags, in.UpdatedBy, time.Now()); err != nil {
 		return ExerciseView{}, err
 	}
-	draft, err := u.exercises.SaveDraftIdentity(ctx, e, expected, freshID())
+	draft, err := u.exercises.SaveDraftIdentity(ctx, e, expected, freshID(), expectedDraft)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			if _, readErr := u.exercises.GetByID(ctx, in.ID); repositoryTools.IsObjectNotFoundError(readErr) {
 				return ExerciseView{}, exerciseModel.ErrExerciseNotFound.Err()
 			} else if readErr != nil {
 				return ExerciseView{}, model.ErrPlatform.WithError(readErr).Err()
+			}
+			if current, readErr := u.exercises.GetDraftRevision(ctx, in.ID); (readErr == nil && !current.UpdatedAt.Equal(expectedDraft)) ||
+				(repositoryTools.IsObjectNotFoundError(readErr) && !expectedDraft.IsZero()) || (readErr == nil && expectedDraft.IsZero()) {
+				return ExerciseView{}, u.draftModified(ctx, in.ID)
 			}
 			return ExerciseView{}, exerciseModel.ErrExerciseModified.Err()
 		}

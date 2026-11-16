@@ -75,7 +75,7 @@ func TestPublishCannotPromoteContentReplacedAfterValidation(t *testing.T) {
 	valid := itMetadataVariants()
 	valid.Variants[0].ID = uuid.Must(uuid.NewV7())
 	valid.Variants[0].Tasks[0].Description = json.RawMessage(`{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"Solve the task"}]}]}}`)
-	_, err := repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), valid, itNow, uuid.NullUUID{})
+	_, err := repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), valid, itNow, uuid.NullUUID{})
 	require.NoError(t, err)
 	paused := &pausedPublishQueries{Queries: db.Queries, entered: make(chan struct{}), release: make(chan struct{})}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: paused})
@@ -90,7 +90,7 @@ func TestPublishCannotPromoteContentReplacedAfterValidation(t *testing.T) {
 	}
 	// Import permits incomplete drafts. Replace after Publish validated the
 	// former content, before its final transition SQL obtains the family lock.
-	_, err = repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "incomplete imported draft"}, time.Now(), uuid.NullUUID{})
+	_, err = repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "incomplete imported draft"}, time.Now(), uuid.NullUUID{})
 	require.NoError(t, err)
 	close(paused.release)
 	require.Error(t, <-result, "Publish must not promote an unvalidated replacement")
@@ -157,7 +157,7 @@ func TestSaveDraftAndReplacementSerializeContentWithReferences(t *testing.T) {
 			content.AdminNote = "imported replacement"
 			content.Variants[0].Tasks[0].Attachments = []exerciseModel.AttachmentRef{{FileID: file.ID, Name: file.Name}}
 			var draft exerciseModel.ExerciseVersion
-			draft, err = exerciseRepo.New(q).UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, time.Now(), uuid.NullUUID{})
+			draft, err = exerciseRepo.New(q).ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, time.Now(), uuid.NullUUID{})
 			if err == nil {
 				err = q.ReplaceFileReferences(ctx, postgres.ReplaceFileReferencesParams{RefType: "exercise_version", RefID: draft.ID, FileIds: []uuid.UUID{file.ID}})
 			}

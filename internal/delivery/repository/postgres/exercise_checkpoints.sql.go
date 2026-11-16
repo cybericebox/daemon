@@ -25,7 +25,7 @@ WHERE src.exercise_id = $5
                         FROM exercise_versions dv
                         WHERE dv.exercise_id = $5
                           AND dv.status = 'draft')))
-RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 `
 
 type CreateExerciseCheckpointParams struct {
@@ -64,6 +64,8 @@ func (q *Queries) CreateExerciseCheckpoint(ctx context.Context, arg CreateExerci
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -79,7 +81,7 @@ WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDAT
     -- A parent lock acquired after waiting does not refresh this statement's
     -- snapshot. Lock the draft too: READ COMMITTED rechecks an updated row and
     -- returns its current full contents, including the just-acknowledged edit.
-    SELECT d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags
+    SELECT d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags, d.updated_at, d.updated_by
     FROM exercise_versions d JOIN ex ON ex.id = d.exercise_id
     WHERE d.status = 'draft' AND EXISTS (SELECT 1 FROM source)
     FOR UPDATE OF d
@@ -98,9 +100,9 @@ WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDAT
     WHERE d.exercise_id = $1
       AND d.status = 'draft'
       AND EXISTS (SELECT 1 FROM preserved)
-    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags
+    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty, d.name, d.description, d.tags, d.updated_at, d.updated_by
 )
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM restored
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM restored
 `
 
 type RestoreVersionPreservingDraftParams struct {
@@ -125,6 +127,8 @@ type RestoreVersionPreservingDraftRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // Save the current draft as a checkpoint in the same statement before
@@ -153,6 +157,8 @@ func (q *Queries) RestoreVersionPreservingDraft(ctx context.Context, arg Restore
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }

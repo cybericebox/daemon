@@ -1,0 +1,27 @@
+-- The revision of a working copy: when and by whom a version row was last written. The database assigns it on every
+-- change of the row (never the application clock), so a client that echoes the value it read can be checked atomically
+-- (UPDATE ... WHERE updated_at = $expected). A new column with a default keeps the writers of the previous release working.
+ALTER TABLE exercise_versions
+    ADD COLUMN updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    ADD COLUMN updated_by uuid REFERENCES users (id) ON DELETE SET NULL;
+
+UPDATE exercise_versions
+SET updated_at = GREATEST(created_at, COALESCE(published_at, created_at)),
+    updated_by = created_by;
+
+-- Every real change of a row moves the revision strictly forward (microsecond timestamptz, never equal to the one before),
+-- whichever statement or release wrote it. A write that changes nothing keeps it.
+CREATE FUNCTION exercise_version_revision() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+        NEW.updated_at := GREATEST(clock_timestamp(), OLD.updated_at + interval '1 microsecond');
+    ELSE
+        NEW.updated_at := OLD.updated_at;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER exercise_version_revision BEFORE UPDATE ON exercise_versions
+FOR EACH ROW EXECUTE FUNCTION exercise_version_revision();

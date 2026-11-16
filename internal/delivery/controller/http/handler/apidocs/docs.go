@@ -21076,6 +21076,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
+                    },
+                    "409": {
+                        "description": "the working copy was changed by someone else (Revision, SavedBy, SavedAt in the context)",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
                     }
                 }
             },
@@ -21094,6 +21100,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Revision of the working copy the editor saw, sent back unchanged (empty: it saw none)",
+                        "name": "revision",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -21105,6 +21117,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "the working copy was changed by someone else",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -41490,6 +41508,19 @@ const docTemplate = `{
                 "Description": {
                     "type": "string"
                 },
+                "DraftRevision": {
+                    "description": "DraftRevision is the opaque revision of the working copy (\"\" when there is none): send it back, unchanged and\nunparsed, with the next write of the working copy. DraftUpdatedAt/By/ByName say when and by whom it was last saved.",
+                    "type": "string"
+                },
+                "DraftUpdatedAt": {
+                    "type": "string"
+                },
+                "DraftUpdatedBy": {
+                    "type": "string"
+                },
+                "DraftUpdatedByName": {
+                    "type": "string"
+                },
                 "DraftVersionID": {
                     "type": "string"
                 },
@@ -42576,6 +42607,10 @@ const docTemplate = `{
                 "AdminNote": {
                     "type": "string"
                 },
+                "Revision": {
+                    "description": "Revision is the Revision of the working copy the editor started from, sent back unchanged (\"\" when it had none).\nA stale one is refused with 409 and the current revision, who saved it and when.",
+                    "type": "string"
+                },
                 "Variants": {
                     "description": "Variants is the full snapshot; a variant Weight outside 1..100 (0 included) is refused with 400.",
                     "type": "array",
@@ -42777,6 +42812,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Name": {
+                    "type": "string"
+                },
+                "Revision": {
+                    "description": "Revision is the DraftRevision of the card the editor started from, sent back unchanged (\"\" when the card had no\nworking copy). A stale one is refused with 409.",
                     "type": "string"
                 },
                 "Tags": {
@@ -43050,6 +43089,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "Revision": {
+                    "description": "Revision is the opaque revision of the version: for the working copy, send it back unchanged (never parse it)\nwith the next save. UpdatedAt/UpdatedBy(Name) are when and by whom it was last saved.",
+                    "type": "string"
+                },
                 "Status": {
                     "type": "string"
                 },
@@ -43058,6 +43101,15 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                },
+                "UpdatedBy": {
+                    "type": "string"
+                },
+                "UpdatedByName": {
+                    "type": "string"
                 },
                 "Variants": {
                     "type": "array",

@@ -28,7 +28,7 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 	// The deploy runs the second variant: the list reports its 1-based position.
 	variants := append(itVariants(), itVariants()...)
 	variants[0].ID, variants[1].ID = uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
+	version, err := exercises.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestPlatformTestLabs_StaticRowIsNotListed(t *testing.T) {
 	deploys := testDeployRepo.New(db.Queries)
 	owner := seedVPNUser(t, db, "ptl-static@test.test")
 	ex := mustCreateExercise(t, exercises, "IT static test lab")
-	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
+	version, err := exercises.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}

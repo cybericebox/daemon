@@ -31,7 +31,7 @@ func publishLifecycleSource(t *testing.T, f *standFixture, set sharedSet) uuid.U
 	if len(version.Variants[0].Topology.Devices) > 0 {
 		version.Variants[0].Topology.Devices[0].Image = "registry.test/updated:2"
 	}
-	next, err := exercises.UpsertDraft(ctx, version.ExerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), uuid.NullUUID{})
+	next, err := exercises.ForceUpsertDraft(ctx, version.ExerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}

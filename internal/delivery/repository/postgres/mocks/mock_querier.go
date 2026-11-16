@@ -3655,18 +3655,18 @@ func (mr *MockQuerierMockRecorder) DiscardEventPageDraft(ctx, arg any) *gomock.C
 }
 
 // DiscardExerciseDraft mocks base method.
-func (m *MockQuerier) DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+func (m *MockQuerier) DiscardExerciseDraft(ctx context.Context, arg postgres.DiscardExerciseDraftParams) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DiscardExerciseDraft", ctx, id)
+	ret := m.ctrl.Call(m, "DiscardExerciseDraft", ctx, arg)
 	ret0, _ := ret[0].(uuid.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DiscardExerciseDraft indicates an expected call of DiscardExerciseDraft.
-func (mr *MockQuerierMockRecorder) DiscardExerciseDraft(ctx, id any) *gomock.Call {
+func (mr *MockQuerierMockRecorder) DiscardExerciseDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).DiscardExerciseDraft), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).DiscardExerciseDraft), ctx, arg)
 }
 
 // DismissExerciseImportJob mocks base method.
@@ -4429,6 +4429,21 @@ func (m *MockQuerier) GetDispatch(ctx context.Context, id uuid.UUID) (postgres.G
 func (mr *MockQuerierMockRecorder) GetDispatch(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDispatch", reflect.TypeOf((*MockQuerier)(nil).GetDispatch), ctx, id)
+}
+
+// GetDraftRevision mocks base method.
+func (m *MockQuerier) GetDraftRevision(ctx context.Context, exerciseID uuid.UUID) (postgres.GetDraftRevisionRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDraftRevision", ctx, exerciseID)
+	ret0, _ := ret[0].(postgres.GetDraftRevisionRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDraftRevision indicates an expected call of GetDraftRevision.
+func (mr *MockQuerierMockRecorder) GetDraftRevision(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDraftRevision", reflect.TypeOf((*MockQuerier)(nil).GetDraftRevision), ctx, exerciseID)
 }
 
 // GetDraftVersion mocks base method.

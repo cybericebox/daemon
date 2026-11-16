@@ -69,7 +69,7 @@ type (
 		// lifecycle
 		SaveDraft(ctx context.Context, exerciseID uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error)
 		PublishDraft(ctx context.Context, exerciseID uuid.UUID) (exerciseUseCase.VersionView, error)
-		DiscardDraft(ctx context.Context, exerciseID uuid.UUID) error
+		DiscardDraft(ctx context.Context, exerciseID uuid.UUID, revision string) error
 		RollbackToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (exerciseUseCase.VersionView, error)
 		CreateCheckpoint(ctx context.Context, exerciseID, by uuid.UUID, label string) (exerciseUseCase.VersionView, error)
 		RestoreToVersion(ctx context.Context, exerciseID, versionID, by uuid.UUID) (exerciseUseCase.VersionView, error)
@@ -595,7 +595,7 @@ func (h *Handler) update(ctx *gin.Context) {
 		return
 	}
 	v, err := h.useCase.UpdateExerciseIdentity(ctx, exerciseUseCase.UpdateExerciseInput{
-		ID: id, Name: req.Name, Description: req.Description, Tags: req.Tags, UpdatedBy: claims.UserID,
+		ID: id, Name: req.Name, Description: req.Description, Tags: req.Tags, UpdatedBy: claims.UserID, Revision: req.Revision,
 	})
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -865,6 +865,7 @@ func (h *Handler) getDraft(ctx *gin.Context) {
 // @Param    body  body  saveDraftRequest  true  "full variant snapshot"
 // @Success  200  {object}  response.Response{data=versionResponse}
 // @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response  "the working copy was changed by someone else (Revision, SavedBy, SavedAt in the context)"
 // @Router   /exercises/{id}/draft [put]
 func (h *Handler) saveDraft(ctx *gin.Context) {
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
@@ -896,6 +897,7 @@ func (h *Handler) saveDraft(ctx *gin.Context) {
 		Variants:  variants,
 		CopyOf:    copyOf,
 		SavedBy:   claims.UserID,
+		Revision:  req.Revision,
 	})
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -908,16 +910,18 @@ func (h *Handler) saveDraft(ctx *gin.Context) {
 // @Summary  Discard the draft version
 // @Tags     exercises
 // @Produce  json
-// @Param    id  path  string  true  "exercise ID"
+// @Param    id        path   string  true   "exercise ID"
+// @Param    revision  query  string  false  "Revision of the working copy the editor saw, sent back unchanged (empty: it saw none)"
 // @Success  200  {object}  response.Response
 // @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response  "the working copy was changed by someone else"
 // @Router   /exercises/{id}/draft [delete]
 func (h *Handler) discardDraft(ctx *gin.Context) {
 	id, ok := parseExerciseID(ctx)
 	if !ok {
 		return
 	}
-	if err := h.useCase.DiscardDraft(ctx, id); err != nil {
+	if err := h.useCase.DiscardDraft(ctx, id, ctx.Query("revision")); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

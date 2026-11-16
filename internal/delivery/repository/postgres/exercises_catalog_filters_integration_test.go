@@ -93,7 +93,7 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	}
 	save := func(id uuid.UUID, variants []exerciseModel.Variant, at time.Time) {
 		t.Helper()
-		if _, err := repo.UpsertDraft(ctx, id, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, at, uuid.NullUUID{}); err != nil {
+		if _, err := repo.ForceUpsertDraft(ctx, id, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, at, uuid.NullUUID{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -246,7 +246,7 @@ func TestListExercisesPage_SubtaskCountEdgeCases(t *testing.T) {
 			levels(exerciseModel.DifficultyEasy)[0]), want: intPtr(3)},
 	} {
 		e := mustCreateExerciseFull(t, repo, tc.name, "", nil, itNow)
-		if _, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: tc.variants}, itNow, uuid.NullUUID{}); err != nil {
+		if _, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: tc.variants}, itNow, uuid.NullUUID{}); err != nil {
 			t.Fatal(err)
 		}
 		rows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: tc.name, Archived: "exclude", SortBy: "name", SortDir: "asc", Limit: 5})
@@ -305,20 +305,20 @@ func TestCatalogSubtaskNames(t *testing.T) {
 	}
 	published := levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyHard) // «Task A», «Task B»: average 4
 	published = append(published, exerciseModel.Variant{Index: 1, Tasks: levels(exerciseModel.DifficultyInsane)[0].Tasks})
-	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: published}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: published}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	draft := []exerciseModel.Variant{{Index: 0, Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Secret draft subtask", Difficulty: exerciseModel.DifficultyEasy}}}}
-	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: draft}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: draft}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	workingIdentity := task
 	workingIdentity.Name, workingIdentity.Description, workingIdentity.Tags = "Working picker task", "private working description", []string{"crypto"}
 	workingIdentity.UpdatedAt = itNow.Add(3 * time.Minute)
-	if _, err := repo.SaveDraftIdentity(ctx, workingIdentity, task.UpdatedAt, uuid.Must(uuid.NewV7())); err != nil {
+	if _, err := repo.ForceSaveDraftIdentity(ctx, workingIdentity, task.UpdatedAt, uuid.Must(uuid.NewV7())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -364,7 +364,7 @@ func TestEventCatalogDifficultyAndAttachedFilters(t *testing.T) {
 			t.Fatal(err)
 		}
 		versionID := uuid.Must(uuid.NewV7())
-		if _, err := repo.UpsertDraft(ctx, task.ID, versionID, exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
+		if _, err := repo.ForceUpsertDraft(ctx, task.ID, versionID, exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
@@ -430,7 +430,7 @@ func TestEventExerciseDetailsPinnedStats(t *testing.T) {
 		{ID: first[0].Tasks[1].ID, Name: "Variant two B", Difficulty: exerciseModel.DifficultyMedium},
 	}}
 	pinnedID := uuid.Must(uuid.NewV7())
-	if _, err := repo.UpsertDraft(ctx, task.ID, pinnedID, exerciseModel.ExerciseVersion{Variants: append(first, second)}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, task.ID, pinnedID, exerciseModel.ExerciseVersion{Variants: append(first, second)}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
@@ -448,7 +448,7 @@ func TestEventExerciseDetailsPinnedStats(t *testing.T) {
 	}
 	attach(0, 0, 1)
 	// A newer published version with other subtasks must not show for the attachment pinned to the first one.
-	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: levels(exerciseModel.DifficultyInsane)}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: levels(exerciseModel.DifficultyInsane)}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Publish(ctx, task.ID, itNow.Add(3*time.Minute)); err != nil {

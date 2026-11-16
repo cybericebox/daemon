@@ -25,7 +25,7 @@ func TestInfraKinds_TestLabRunsAreLoggedByTriggersAndCounted(t *testing.T) {
 	ex := mustCreateExercise(t, exercises, "IT infra kinds")
 	variants := itVariants()
 	variants[0].ID = uuid.Must(uuid.NewV7())
-	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
+	version, err := exercises.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestInfraKinds_StaticRunsAreNotLabs(t *testing.T) {
 	ex := mustCreateExercise(t, exercises, "IT infra kinds static")
 	variants := itVariants()
 	variants[0].ID = uuid.Must(uuid.NewV7())
-	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
+	version, err := exercises.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}

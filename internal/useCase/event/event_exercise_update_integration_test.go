@@ -25,7 +25,7 @@ func publishSetVersion(t *testing.T, f *standFixture, set sharedSet, mutate func
 	version, err := exercises.GetVersion(ctx, previous)
 	require.NoError(t, err)
 	mutate(&version)
-	next, err := exercises.UpsertDraft(ctx, version.ExerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), uuid.NullUUID{})
+	next, err := exercises.ForceUpsertDraft(ctx, version.ExerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), uuid.NullUUID{})
 	require.NoError(t, err)
 	_, err = exercises.Publish(ctx, version.ExerciseID, time.Now())
 	require.NoError(t, err)

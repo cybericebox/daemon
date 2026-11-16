@@ -656,7 +656,7 @@ func (f *standFixture) attach(t *testing.T, infrastructure bool) uuid.UUID {
 		variant.Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer}}
 		f.infraTaskID, f.infraDevice = variant.Tasks[0].ID, variant.Topology.Devices[0].ID
 	}
-	draft, err := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
+	draft, err := exercises.ForceUpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -134,7 +134,7 @@ WITH ex AS (SELECT id, draft_version_id, published_version_id
                  -- index "one published per exercise" in the same instant,
                  -- raising a spurious 23505 even though the end state is valid.
                  AND (SELECT count(*) FROM demoted) IS NOT NULL
-             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty, exercise_versions.name, exercise_versions.description, exercise_versions.tags),
+             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty, exercise_versions.name, exercise_versions.description, exercise_versions.tags, exercise_versions.updated_at, exercise_versions.updated_by),
      pointers AS (
          UPDATE exercises
              SET published_version_id = (SELECT promoted.id FROM promoted),
@@ -144,7 +144,7 @@ WITH ex AS (SELECT id, draft_version_id, published_version_id
                  tags = (SELECT promoted.tags FROM promoted)
              WHERE exercises.id = (SELECT ex.id FROM ex)
                  AND EXISTS (SELECT 1 FROM promoted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM promoted
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM promoted
 `
 
 type PublishValidatedExerciseDraftParams struct {
@@ -172,6 +172,8 @@ type PublishValidatedExerciseDraftRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // Atomic family transition: demote the current published row, promote the
@@ -203,6 +205,8 @@ func (q *Queries) PublishValidatedExerciseDraft(ctx context.Context, arg Publish
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }

@@ -3,6 +3,7 @@ package exercise
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
@@ -88,4 +89,20 @@ func TestReimportParsesEveryItemBeforeReturningAny(t *testing.T) {
 	items, err := parseArchiveRead(read)
 	require.Error(t, err)
 	require.Nil(t, items)
+}
+
+// A confirmation is bound to the revision of the working copy it was made against: a save after the preview, even one that
+// leaves the content as it was, is a different revision and the old confirmation is stale.
+func TestPreviewRevisionChangesWithTheRevisionOfTheWorkingCopy(t *testing.T) {
+	e := exerciseModel.Exercise{ID: uuid.Must(uuid.NewV7())}
+	v := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), ExerciseID: e.ID, Status: exerciseModel.VersionStatusDraft, AdminNote: "same"}
+	target := ImportTarget{ItemKey: ".", Mode: "update", ExerciseID: e.ID}
+	at := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+
+	v.UpdatedAt = at
+	before := previewRevision(PreviewArchiveInput{}, "hash", ".", 0, target, e, v)
+	v.UpdatedAt = at.Add(time.Microsecond)
+	after := previewRevision(PreviewArchiveInput{}, "hash", ".", 0, target, e, v)
+
+	require.NotEqual(t, before, after)
 }

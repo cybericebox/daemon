@@ -86,7 +86,7 @@ func TestSourceHTTPRecoversOwnedActiveAndCompletedReimport(t *testing.T) {
 				require.NoError(t, err)
 				entity, err = repo.Create(ctx, entity)
 				require.NoError(t, err)
-				draft, err := repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "before"}, now, uuid.NullUUID{})
+				draft, err := repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "before"}, now, uuid.NullUUID{})
 				require.NoError(t, err)
 				archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Replay updated"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":{"file":"images/web.tar"}}]}}]}]}`), "images/web.tar": archivetest.Legacy(archivetest.Amd64([]byte("replay layer")))})
 				require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestSourceHTTPRecoversOwnedActiveAndCompletedReimport(t *testing.T) {
 						require.Error(t, err, "successful source was consumed")
 					}
 				} else {
-					_, err = repo.UpsertDraft(ctx, entity.ID, draft.ID, exerciseModel.ExerciseVersion{AdminNote: "changed after queue"}, time.Now(), uuid.NullUUID{})
+					_, err = repo.ForceUpsertDraft(ctx, entity.ID, draft.ID, exerciseModel.ExerciseVersion{AdminNote: "changed after queue"}, time.Now(), uuid.NullUUID{})
 					require.NoError(t, err)
 				}
 				before, err := repo.GetDraft(ctx, entity.ID)

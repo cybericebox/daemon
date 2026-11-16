@@ -145,7 +145,7 @@ func TestExerciseLifecycle_CTERoundTrip(t *testing.T) {
 	// 1. Save a draft (insert branch).
 	draftID := uuid.Must(uuid.NewV7())
 	v := exerciseModel.ExerciseVersion{AdminNote: "first cut", Variants: itVariants()}
-	saved, err := repo.UpsertDraft(ctx, ex.ID, draftID, v, itNow, uuid.NullUUID{})
+	saved, err := repo.ForceUpsertDraft(ctx, ex.ID, draftID, v, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatalf("UpsertDraft insert: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestExerciseLifecycle_CTERoundTrip(t *testing.T) {
 
 	// 2. Save again (update branch) — same row, new content.
 	v.AdminNote = "second cut"
-	saved2, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), v, itNow, uuid.NullUUID{})
+	saved2, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), v, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatalf("UpsertDraft update: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestExerciseLifecycle_CTERoundTrip(t *testing.T) {
 
 	// 5. Second draft, publish -> old published becomes unpublished.
 	secondID := uuid.Must(uuid.NewV7())
-	if _, err = repo.UpsertDraft(ctx, ex.ID, secondID, v, itNow, uuid.NullUUID{}); err != nil {
+	if _, err = repo.ForceUpsertDraft(ctx, ex.ID, secondID, v, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("second draft: %v", err)
 	}
 	if _, err = repo.Publish(ctx, ex.ID, itNow.Add(2*time.Hour)); err != nil {
@@ -213,7 +213,7 @@ func TestExerciseLifecycle_CTERoundTrip(t *testing.T) {
 	}
 
 	// 8. Discard -> pointer auto-clears via ON DELETE SET NULL.
-	discardedID, err := repo.Discard(ctx, ex.ID)
+	discardedID, err := repo.ForceDiscard(ctx, ex.ID)
 	if err != nil || discardedID != rolled.ID {
 		t.Fatalf("Discard: id=%v err=%v", discardedID, err)
 	}
@@ -251,7 +251,7 @@ func TestExerciseCheckpointRestorePreservesCurrentDraft(t *testing.T) {
 			},
 		},
 	}
-	if _, err := repo.UpsertDraft(ctx, ex.ID, draftID, first, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, draftID, first, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("first draft: %v", err)
 	}
 	checkpointID := uuid.Must(uuid.NewV7())
@@ -260,7 +260,7 @@ func TestExerciseCheckpointRestorePreservesCurrentDraft(t *testing.T) {
 		t.Fatalf("checkpoint: %+v err=%v", checkpoint, err)
 	}
 	second := exerciseModel.ExerciseVersion{AdminNote: "second state", Variants: itVariants()}
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), second, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), second, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
 		t.Fatalf("second draft: %v", err)
 	}
 	beforeRestoreID := uuid.Must(uuid.NewV7())
@@ -279,7 +279,7 @@ func TestExerciseCheckpointRestorePreservesCurrentDraft(t *testing.T) {
 		t.Fatalf("missing source must not mutate the draft: %v", err)
 	}
 	other := mustCreateExercise(t, repo, "IT other checkpoint owner")
-	if _, err := repo.UpsertDraft(ctx, other.ID, uuid.Must(uuid.NewV7()), first, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, other.ID, uuid.Must(uuid.NewV7()), first, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("other draft: %v", err)
 	}
 	foreign, err := repo.CreateCheckpoint(ctx, other.ID, uuid.Must(uuid.NewV7()), "", itNow, uuid.NullUUID{})
@@ -305,7 +305,7 @@ func TestExerciseCheckpoint_LabelAndPublishedFallback(t *testing.T) {
 	repo := exerciseRepo.New(db.Queries)
 	ex := mustCreateExercise(t, repo, "IT checkpoint label")
 	content := exerciseModel.ExerciseVersion{AdminNote: "published note", Variants: itVariants()}
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	published, err := repo.Publish(ctx, ex.ID, itNow)
@@ -319,7 +319,7 @@ func TestExerciseCheckpoint_LabelAndPublishedFallback(t *testing.T) {
 	}
 
 	content.AdminNote = "draft note"
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	labelled, err := repo.CreateCheckpoint(ctx, ex.ID, uuid.Must(uuid.NewV7()), "Before refactor", itNow.Add(2*time.Minute), uuid.NullUUID{})
@@ -331,7 +331,7 @@ func TestExerciseCheckpoint_LabelAndPublishedFallback(t *testing.T) {
 	}
 
 	content.AdminNote = "later note"
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	autoID := uuid.Must(uuid.NewV7())
@@ -514,7 +514,7 @@ func TestListExercisesPage_FiltersVersionStatus(t *testing.T) {
 	published := mustCreateExercise(t, repo, "Published version")
 
 	for _, id := range []uuid.UUID{draft.ID, published.ID} {
-		if _, err := repo.UpsertDraft(ctx, id, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{}); err != nil {
+		if _, err := repo.ForceUpsertDraft(ctx, id, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{}); err != nil {
 			t.Fatalf("create draft for %s: %v", id, err)
 		}
 	}
@@ -597,7 +597,7 @@ func TestExerciseDraftDiffersFromPublished(t *testing.T) {
 	ex := mustCreateExercise(t, repo, "IT has changes")
 	content := exerciseModel.ExerciseVersion{AdminNote: "note", Variants: itVariants()}
 	firstID := uuid.Must(uuid.NewV7())
-	if _, err := repo.UpsertDraft(ctx, ex.ID, firstID, content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, firstID, content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Publish(ctx, ex.ID, itNow); err != nil {
@@ -611,7 +611,7 @@ func TestExerciseDraftDiffersFromPublished(t *testing.T) {
 	}
 
 	secondID := uuid.Must(uuid.NewV7())
-	saved, err := repo.UpsertDraft(ctx, ex.ID, secondID, content, itNow.Add(time.Minute), uuid.NullUUID{})
+	saved, err := repo.ForceUpsertDraft(ctx, ex.ID, secondID, content, itNow.Add(time.Minute), uuid.NullUUID{})
 	if err != nil || saved.ID != secondID || saved.ID == firstID {
 		t.Fatalf("first save after publish must create a new draft row: %+v err=%v", saved, err)
 	}
@@ -620,7 +620,7 @@ func TestExerciseDraftDiffersFromPublished(t *testing.T) {
 	}
 
 	content.AdminNote = "changed note"
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if differs, err := repo.DraftDiffersFromPublished(ctx, ex.ID); err != nil || !differs {
@@ -629,7 +629,7 @@ func TestExerciseDraftDiffersFromPublished(t *testing.T) {
 
 	content.AdminNote = "note"
 	content.Variants[0].Note = "variant note"
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if differs, err := repo.DraftDiffersFromPublished(ctx, ex.ID); err != nil || !differs {
@@ -646,7 +646,7 @@ func TestListExerciseUsageEvents(t *testing.T) {
 	events := eventRepo.New(db.Queries)
 	ex := mustCreateExercise(t, exercises, "IT used exercise")
 	unused := mustCreateExercise(t, exercises, "IT unused exercise")
-	draft, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
+	draft, err := exercises.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +689,7 @@ func TestExerciseVersionCopies_KeepLinks(t *testing.T) {
 	variants[0].ID = baseID
 	variants[1].ID = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000e002")
 	variants[1].LinkedTo = uuid.NullUUID{UUID: baseID, Valid: true}
-	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("UpsertDraft: %v", err)
 	}
 	published, err := repo.Publish(ctx, ex.ID, itNow.Add(time.Minute))
@@ -717,7 +717,7 @@ func TestExerciseVersionCopies_KeepLinks(t *testing.T) {
 	}
 	requireLinked("checkpoint", checkpoint)
 
-	if _, err = repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow.Add(4*time.Minute), uuid.NullUUID{}); err != nil {
+	if _, err = repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow.Add(4*time.Minute), uuid.NullUUID{}); err != nil {
 		t.Fatalf("UpsertDraft unlinked: %v", err)
 	}
 	restored, err := repo.RestoreVersionPreservingDraft(ctx, ex.ID, checkpoint.ID, uuid.Must(uuid.NewV7()), itNow.Add(5*time.Minute), uuid.NullUUID{})
