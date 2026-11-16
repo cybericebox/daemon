@@ -278,7 +278,7 @@ func TestReimportPreviewWorksInRealReadOnlyPostgresTransaction(t *testing.T) {
 	require.NoError(t, err)
 	entity, err = repo.Create(ctx, entity)
 	require.NoError(t, err)
-	_, err = repo.UpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged draft"}, importJobT0, uuid.NullUUID{})
+	_, err = repo.ForceUpsertDraft(ctx, entity.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged draft"}, importJobT0, uuid.NullUUID{})
 	require.NoError(t, err)
 	tx, err := db.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	require.NoError(t, err)

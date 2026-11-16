@@ -105,7 +105,7 @@ func TestFlagFilters_IssueDistinctAndRebuildOnTeamLimitChange(t *testing.T) {
 			},
 		}
 		variant.Topology.Devices = []exerciseModel.Device{}
-		draft, draftErr := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
+		draft, draftErr := exercises.ForceUpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
 		if draftErr != nil {
 			t.Fatal(draftErr)
 		}

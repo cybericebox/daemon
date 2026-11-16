@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -19,6 +20,7 @@ import (
 func TestIdentityPatchSavesWorkingMetadataWithoutUpdatingPublishedIdentity(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().GetDraftRevision(gomock.Any(), gomock.Any()).Return(postgres.GetDraftRevisionRow{}, pgx.ErrNoRows).AnyTimes()
 	exID, draftID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	before := time.Now().Add(-time.Hour)
 	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, Name: "Published", UpdatedAt: before}, nil)
@@ -40,6 +42,7 @@ func TestExerciseMetadataCardProjectsWorkingSnapshotOnlyForFullReaders(t *testin
 		t.Run(string(role), func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			q := postgresMocks.NewMockQuerier(ctrl)
+			q.EXPECT().GetDraftRevision(gomock.Any(), gomock.Any()).Return(postgres.GetDraftRevisionRow{}, pgx.ErrNoRows).AnyTimes()
 			exID, draftID, publishedID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 			entry := postgres.Exercise{ID: exID, Name: "Published", Tags: []string{"web"}, DraftVersionID: uuid.NullUUID{UUID: draftID, Valid: true}, PublishedVersionID: uuid.NullUUID{UUID: publishedID, Valid: true}}
 			q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(entry, nil).AnyTimes()

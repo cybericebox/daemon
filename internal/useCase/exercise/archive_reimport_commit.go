@@ -104,11 +104,14 @@ func (u *ExerciseUseCase) currentImportActor(ctx context.Context, q interface {
 
 // confirmImportTargets performs no writes and is repeated under sorted parent
 // locks after uploads. Its revision binds source bytes/snapshot + target state.
-func (u *ExerciseUseCase) confirmImportTargets(ctx context.Context, actor Actor, in CommitArchiveInput, tasks []ParsedExerciseArchive, choices map[string]ImportTarget, sourceHash string) error {
+func (u *ExerciseUseCase) confirmImportTargets(ctx context.Context, actor Actor, in CommitArchiveInput, tasks []ParsedExerciseArchive, choices map[string]ImportTarget, sourceHash string) (map[string]time.Time, error) {
+	// revisions is, per update target, the revision of the working copy the confirmation was made against (the zero time:
+	// there was none); the write that follows must still find exactly that.
+	revisions := map[string]time.Time{}
 	confirmed := map[string]ConfirmedImportUpdate{}
 	for _, c := range in.ConfirmedUpdates {
 		if c.ItemKey == "" || confirmed[c.ItemKey].ItemKey != "" || choices[c.ItemKey].Mode != "update" {
-			return importItemError(exerciseModel.ErrImportConfirmationRequired.Err(), c.ItemKey, "confirmation")
+			return nil, importItemError(exerciseModel.ErrImportConfirmationRequired.Err(), c.ItemKey, "confirmation")
 		}
 		confirmed[c.ItemKey] = c
 	}
@@ -116,28 +119,31 @@ func (u *ExerciseUseCase) confirmImportTargets(ctx context.Context, actor Actor,
 		choice := choices[task.ItemKey]
 		if choice.Mode == "new" {
 			if err := u.AuthorizeImport(ctx, actor, in.OwnerEventID); err != nil {
-				return importItemError(err, task.ItemKey, "target")
+				return nil, importItemError(err, task.ItemKey, "target")
 			}
 			continue
 		}
 		e, v, err := u.previewTarget(ctx, actor, choice.ExerciseID)
 		if err != nil {
-			return importItemError(err, task.ItemKey, "target")
+			return nil, importItemError(err, task.ItemKey, "target")
 		}
 		selected := workingImportVersion(task.Versions)
 		source := task.Versions[selected]
 		if err = u.requireInfrastructureAllowed(ctx, e, source.Variants); err != nil {
-			return importItemError(err, task.ItemKey, "target")
+			return nil, importItemError(err, task.ItemKey, "target")
 		}
 		c := confirmed[task.ItemKey]
 		if c.Revision == "" || (e.DraftVersionID.Valid && !c.ReplaceDraft) {
-			return importItemError(exerciseModel.ErrImportConfirmationRequired.Err(), task.ItemKey, "confirmation")
+			return nil, importItemError(exerciseModel.ErrImportConfirmationRequired.Err(), task.ItemKey, "confirmation")
 		}
 		if c.Revision != previewRevision(in.PreviewArchiveInput, sourceHash, task.ItemKey, selected, choice, e, v) {
-			return importItemError(exerciseModel.ErrImportConfirmationStale.Err(), task.ItemKey, "confirmation")
+			return nil, importItemError(exerciseModel.ErrImportConfirmationStale.Err(), task.ItemKey, "confirmation")
+		}
+		if e.DraftVersionID.Valid {
+			revisions[task.ItemKey] = v.UpdatedAt
 		}
 	}
-	return nil
+	return revisions, nil
 }
 
 type preparedArchiveCommit struct {
@@ -189,7 +195,7 @@ func (u *ExerciseUseCase) prepareArchiveCommit(ctx context.Context, actor Actor,
 		return nil, err
 	}
 	sourceHash := previewSourceFingerprint(read, hashes)
-	if err = u.confirmImportTargets(ctx, actor, *in, tasks, choices, sourceHash); err != nil {
+	if _, err = u.confirmImportTargets(ctx, actor, *in, tasks, choices, sourceHash); err != nil {
 		return nil, err
 	}
 	return &preparedArchiveCommit{tasks: tasks, choices: choices, sourceHash: sourceHash}, nil
@@ -294,7 +300,8 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 	if err = session.lockArchiveImportSource(ctx, q, actor, in.PreviewArchiveInput); err != nil {
 		return ArchiveImportStart{}, err
 	}
-	if err = session.confirmImportTargets(ctx, actor, in, tasks, choices, sourceHash); err != nil {
+	revisions, err := session.confirmImportTargets(ctx, actor, in, tasks, choices, sourceHash)
+	if err != nil {
 		return ArchiveImportStart{}, err
 	}
 	result := ArchiveImportStart{Exercises: []ExerciseView{}, Results: []exerciseModel.ImportResult{}}
@@ -314,7 +321,7 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 				mode = ImportModeUnchanged
 				result.Unchanged++
 			} else if err == nil {
-				view, err = session.storeStagedUpdate(ctx, choice.ExerciseID, parsed.Versions[0], actor.UserID)
+				view, err = session.storeStagedUpdate(ctx, choice.ExerciseID, parsed.Versions[0], actor.UserID, revisions[parsed.ItemKey])
 				result.Updated++
 			}
 		}
@@ -351,7 +358,7 @@ func (u *ExerciseUseCase) commitArchiveRead(ctx context.Context, actor Actor, in
 	return result, nil
 }
 
-func (u *ExerciseUseCase) storeStagedUpdate(ctx context.Context, id uuid.UUID, source exerciseModel.ExerciseVersion, by uuid.UUID) (ExerciseView, error) {
+func (u *ExerciseUseCase) storeStagedUpdate(ctx context.Context, id uuid.UUID, source exerciseModel.ExerciseVersion, by uuid.UUID, expected time.Time) (ExerciseView, error) {
 	e, err := u.loadEditable(ctx, id)
 	if err != nil {
 		return ExerciseView{}, err
@@ -362,14 +369,17 @@ func (u *ExerciseUseCase) storeStagedUpdate(ctx context.Context, id uuid.UUID, s
 	if err = u.adoptFiles(ctx, id, source.Variants); err != nil {
 		return ExerciseView{}, err
 	}
-	saved, err := u.exercises.UpsertDraft(ctx, id, freshID(), source, u.timeNow(), uuid.NullUUID{UUID: by, Valid: by != uuid.Nil})
+	saved, err := u.exercises.UpsertDraft(ctx, id, freshID(), source, u.timeNow(), uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}, expected)
 	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return ExerciseView{}, u.draftModified(ctx, id)
+		}
 		return ExerciseView{}, err
 	}
 	metadata := e.WithVersionMetadata(source)
 	metadata.UpdatedAt = u.timeNow()
 	metadata.UpdatedBy = uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}
-	saved, err = u.exercises.SaveDraftIdentity(ctx, metadata, e.UpdatedAt, freshID())
+	saved, err = u.exercises.SaveDraftIdentity(ctx, metadata, e.UpdatedAt, freshID(), saved.UpdatedAt)
 	if err != nil {
 		return ExerciseView{}, classifyExerciseWriteError(err, "import draft metadata")
 	}

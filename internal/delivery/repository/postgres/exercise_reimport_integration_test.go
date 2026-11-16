@@ -39,7 +39,7 @@ func TestEditableImportTargetsFilterBeforePaginationAndKeepOwnershipContext(t *t
 	renamed := own
 	renamed.Name = "Working task name"
 	renamed.Tags = []string{"web"}
-	_, err := repo.SaveDraftIdentity(ctx, renamed, own.UpdatedAt, uuid.Must(uuid.NewV7()))
+	_, err := repo.ForceSaveDraftIdentity(ctx, renamed, own.UpdatedAt, uuid.Must(uuid.NewV7()))
 	require.NoError(t, err)
 	// All denied rows are newer than own: filtering after LIMIT 1 would hide it.
 	catalog := create(exerciseModel.ScopeCatalog, uuid.Nil, "Repeated task")

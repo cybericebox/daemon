@@ -69,7 +69,8 @@ func (u *ExerciseUseCase) versionView(ctx context.Context, v exerciseModel.Exerc
 	view := toVersionView(v)
 	view.Resources = u.versionResources(ctx, v.ExerciseID, v.Variants)
 	view.Elevation = u.elevationView(ctx, v.ExerciseID, "")
-	view.AuthorName = u.authorNames(ctx, v.CreatedBy)[v.CreatedBy.UUID]
+	names := u.authorNames(ctx, v.CreatedBy, v.UpdatedBy)
+	view.AuthorName, view.UpdatedByName = names[v.CreatedBy.UUID], names[v.UpdatedBy.UUID]
 	view.SecretGroups = u.secretValueGroups(v.Variants)
 	view.FileHashes = u.attachmentHashes(ctx, v.Variants)
 	return view

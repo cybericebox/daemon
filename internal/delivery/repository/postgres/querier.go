@@ -416,7 +416,8 @@ type Querier interface {
 	DiscardEventLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error)
 	DiscardEventPageDraft(ctx context.Context, arg DiscardEventPageDraftParams) (int64, error)
 	// exercises.draft_version_id clears itself via ON DELETE SET NULL.
-	DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Only the revision the writer saw is discarded; zero rows: no draft, or it changed meanwhile.
+	DiscardExerciseDraft(ctx context.Context, arg DiscardExerciseDraftParams) (uuid.UUID, error)
 	// Only the user who started the import closes its row: a foreign job inserts nothing (zero rows).
 	DismissExerciseImportJob(ctx context.Context, arg DismissExerciseImportJobParams) (int64, error)
 	DismissInAppBanner(ctx context.Context, arg DismissInAppBannerParams) (int64, error)
@@ -519,6 +520,8 @@ type Querier interface {
 	GetCurrentEventLabAccessMonitoring(ctx context.Context, eventTeamID uuid.UUID) (LabMonitoringCurrent, error)
 	GetDatabaseTime(ctx context.Context) (time.Time, error)
 	GetDispatch(ctx context.Context, id uuid.UUID) (GetDispatchRow, error)
+	// The revision of the working copy (when and by whom it was last written) without its content.
+	GetDraftRevision(ctx context.Context, exerciseID uuid.UUID) (GetDraftRevisionRow, error)
 	GetDraftVersion(ctx context.Context, exerciseID uuid.UUID) (ExerciseVersion, error)
 	GetEarliestEventResultChangeRevision(ctx context.Context, eventID uuid.UUID) (int64, error)
 	GetEffectiveTeamChallengeSolvedAt(ctx context.Context, teamChallengeID uuid.UUID) (GetEffectiveTeamChallengeSolvedAtRow, error)
@@ -2397,6 +2400,13 @@ type Querier interface {
 	// Serialize family writers on the identity first, then use PostgreSQL's
 	// partial-unique conflict target. ON CONFLICT sees a concurrent first draft
 	// even when it committed after this statement's read snapshot was taken.
+	// expected_updated_at is the revision the writer started from: the draft is
+	// replaced only when it still has it, and a first draft is created only when
+	// the writer saw none (NULL). Zero rows: the draft was changed (or created or
+	// discarded) meanwhile, the caller reads the current revision and says so.
+	// ignore_revision is for tests and tools that own the exercise (never an API writer).
+	// cur locks the working copy at the revision the writer saw (it is empty when that is no longer the case: the copy was
+	// discarded or saved meanwhile), so a first insert is never mistaken for a replace of a copy that is gone.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
 	// The whole push state of one blob in one statement (queued, failed).
 	UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error

@@ -24,7 +24,7 @@ func boardSet(t *testing.T, q *postgres.Queries, eventID uuid.UUID, name string,
 	ctx := context.Background()
 	exercises := exerciseRepo.New(q)
 	exercise := mustCreateExercise(t, exercises, name)
-	draft, err := exercises.UpsertDraft(ctx, exercise.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
+	draft, err := exercises.ForceUpsertDraft(ctx, exercise.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
 	if err != nil {
 		t.Fatalf("save exercise draft: %v", err)
 	}

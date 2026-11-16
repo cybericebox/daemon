@@ -108,7 +108,7 @@ func newVariantEvent(t *testing.T, weights []int) *variantEvent {
 			variants[i].Weight = weights[i]
 		}
 	}
-	draft, err := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, now, uuid.NullUUID{})
+	draft, err := exercises.ForceUpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, now, uuid.NullUUID{})
 	if err != nil {
 		t.Fatal(err)
 	}

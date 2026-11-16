@@ -22,6 +22,9 @@ type SaveDraftInput struct {
 	// was copied from, so a secret kept blank in the copy takes that variant's value.
 	CopyOf  []uuid.NullUUID
 	SavedBy uuid.UUID
+	// Revision is the revision of the working copy the author started from, exactly as the API gave it (opaque; "" when
+	// the author saw no working copy). A save is applied only on top of that revision: otherwise ErrDraftModified.
+	Revision string
 }
 
 // SaveDraft stores the working copy as-is: it may be incomplete (autosave while
@@ -29,6 +32,10 @@ type SaveDraftInput struct {
 // in PublishDraft. Kept secrets are merged and fresh ones encrypted, then the
 // draft slot is upserted in one CTE. Route gate: exercises.write.
 func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, in SaveDraftInput) (VersionView, error) {
+	expected, err := exerciseModel.ParseRevision(in.Revision)
+	if err != nil {
+		return VersionView{}, err
+	}
 	e, err := u.loadEditable(ctx, exerciseID)
 	if err != nil {
 		return VersionView{}, err
@@ -125,10 +132,11 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	}
 
 	by := uuid.NullUUID{UUID: in.SavedBy, Valid: in.SavedBy != uuid.Nil}
-	saved, err := session.exercises.UpsertDraft(ctx, exerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), by)
+	saved, err := session.exercises.UpsertDraft(ctx, exerciseID, uuid.Must(uuid.NewV7()), version, time.Now(), by, expected)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return VersionView{}, exerciseModel.ErrExerciseNotFound.Err()
+			// The row is locked and was read a moment ago, so zero rows is the revision check: say who saved meanwhile.
+			return VersionView{}, session.draftModified(ctx, exerciseID)
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save draft").Err()
 	}
@@ -140,6 +148,33 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save draft transaction").Err()
 	}
 	return view, nil
+}
+
+// draftModified is the one 409 of the working copy's optimistic check: the writer did not start from the current
+// revision. The public context names the current revision (opaque; "" when the working copy is gone) and who saved it
+// and when, so the editor can offer to reload. A missing exercise is its own error.
+func (u *ExerciseUseCase) draftModified(ctx context.Context, exerciseID uuid.UUID) error {
+	if _, err := u.exercises.GetByID(ctx, exerciseID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return exerciseModel.ErrExerciseNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read exercise").Err()
+	}
+	creator := exerciseModel.ErrDraftModified.WithPublicContext("revision", "")
+	current, err := u.exercises.GetDraftRevision(ctx, exerciseID)
+	switch {
+	case err == nil:
+		creator = creator.WithPublicContext("revision", exerciseModel.FormatRevision(current.UpdatedAt)).
+			WithPublicContext("savedAt", current.UpdatedAt.UTC().Format(time.RFC3339))
+		if name := u.authorNames(ctx, current.UpdatedBy)[current.UpdatedBy.UUID]; name != "" {
+			creator = creator.WithPublicContext("savedBy", name)
+		}
+	case repositoryTools.IsObjectNotFoundError(err):
+		// The working copy was discarded or published meanwhile: no revision to echo.
+	default:
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the working copy revision").Err()
+	}
+	return creator.Err()
 }
 
 func sameSecretMergeSnapshot(a, b *exerciseModel.ExerciseVersion) bool {
@@ -244,14 +279,21 @@ func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseMode
 
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via
 // FK (Discard CTE, Task 6). Route gate: exercises.publish.
-func (u *ExerciseUseCase) DiscardDraft(ctx context.Context, exerciseID uuid.UUID) error {
+func (u *ExerciseUseCase) DiscardDraft(ctx context.Context, exerciseID uuid.UUID, revision string) error {
+	expected, err := exerciseModel.ParseRevision(revision)
+	if err != nil {
+		return err
+	}
 	e, err := u.loadEditable(ctx, exerciseID)
 	if err != nil {
 		return err
 	}
-	draftID, err := u.exercises.Discard(ctx, exerciseID)
+	draftID, err := u.exercises.Discard(ctx, exerciseID, expected)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
+			if _, readErr := u.exercises.GetDraftRevision(ctx, exerciseID); readErr == nil {
+				return u.draftModified(ctx, exerciseID)
+			}
 			return exerciseModel.ErrNoDraft.WithMessage("Exercise has no draft to discard").Err()
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to discard draft").Err()

@@ -31,6 +31,13 @@ type ExerciseView struct {
 	UpdatedAt     time.Time
 	UpdatedBy     *uuid.UUID
 	UpdatedByName string
+
+	// DraftRevision is the revision of the working copy ("" when there is none): opaque, to be sent back with the next
+	// write of it. DraftUpdatedAt / DraftUpdatedBy(Name) are when and by whom it was last saved (the "being edited by" hint).
+	DraftRevision      string
+	DraftUpdatedAt     *time.Time
+	DraftUpdatedBy     *uuid.UUID
+	DraftUpdatedByName string
 }
 
 type ExerciseListItem struct {
@@ -296,6 +303,12 @@ type VersionView struct {
 	CreatedBy    *uuid.UUID
 	AuthorName   string // first and last name of CreatedBy; "" when unknown
 	PublishedAt  *time.Time
+	// Revision is the opaque revision of the version (for the working copy: what the next write must send back);
+	// UpdatedAt/UpdatedBy(Name) are when and by whom it was last written.
+	Revision      string
+	UpdatedAt     time.Time
+	UpdatedBy     *uuid.UUID
+	UpdatedByName string
 	// Resources: the totals of the version (min and max over its variants, per variant), the devices outside
 	// the platform frame and whether the task is resource-heavy.
 	Resources VersionResources
@@ -334,6 +347,9 @@ func toVersionView(v exerciseModel.ExerciseVersion) VersionView {
 		CreatedAt:    v.CreatedAt,
 		CreatedBy:    uuidPtr(v.CreatedBy),
 		PublishedAt:  v.PublishedAt,
+		Revision:     v.Revision(),
+		UpdatedAt:    v.UpdatedAt,
+		UpdatedBy:    uuidPtr(v.UpdatedBy),
 		// Computed from the stored content before it is masked.
 		MissingSecrets:    exerciseModel.MissingSecrets(v.Variants),
 		HasMissingSecrets: len(exerciseModel.MissingSecrets(v.Variants)) > 0,

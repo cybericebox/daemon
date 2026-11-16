@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
@@ -267,6 +268,16 @@ func (u *ExerciseUseCase) exerciseView(ctx context.Context, e exerciseModel.Exer
 	v.HasChanges = hasChanges
 	names := u.authorNames(ctx, e.CreatedBy, e.UpdatedBy)
 	v.AuthorName, v.UpdatedByName = names[e.CreatedBy.UUID], names[e.UpdatedBy.UUID]
+	if e.DraftVersionID.Valid {
+		// Best effort: a failed read leaves the revision empty, and a write that sends it is refused as stale (409).
+		if draft, readErr := u.exercises.GetDraftRevision(ctx, e.ID); readErr == nil {
+			saver := u.authorNames(ctx, draft.UpdatedBy)[draft.UpdatedBy.UUID]
+			updatedAt := draft.UpdatedAt
+			v.DraftRevision, v.DraftUpdatedAt, v.DraftUpdatedBy, v.DraftUpdatedByName = exerciseModel.FormatRevision(updatedAt), &updatedAt, uuidPtr(draft.UpdatedBy), saver
+		} else if !repositoryTools.IsObjectNotFoundError(readErr) {
+			log.Warn().Err(readErr).Str("exercise_id", e.ID.String()).Msg("working copy revision unavailable")
+		}
+	}
 	return v, nil
 }
 

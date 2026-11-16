@@ -48,7 +48,7 @@ func TestSaveDraft_StaleMergeSourceAfterReencryptionIsRefused(t *testing.T) {
 	sealed, err := oldRing.EncryptWithContext([]byte("db-password"), exercise.EnvSecretContext(variantID, "web", "DB_PASS"))
 	require.NoError(t, err)
 	stored := draftVariantsWithID(variantID, sealed, true)
-	_, err = repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: stored}, importJobT0, uuid.NullUUID{})
+	_, err = repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: stored}, importJobT0, uuid.NullUUID{})
 	require.NoError(t, err)
 
 	rotate := func() {
@@ -66,12 +66,20 @@ func TestSaveDraft_StaleMergeSourceAfterReencryptionIsRefused(t *testing.T) {
 		require.NoError(t, getErr)
 		return d.Variants[0].Topology.Devices[0].Bootstrap.Env[0].Value
 	}
+	// The editor read the draft before the pass; the pass must not move its revision, or the retry below would be refused.
+	before, err := repo.GetDraftRevision(ctx, e.ID)
+	require.NoError(t, err)
+	revision := exerciseModel.FormatRevision(before.UpdatedAt)
 	incoming := func() []exerciseModel.Variant { return draftVariantsWithID(variantID, "", true) } // blank secret = keep
 
 	// The first save read the draft with the old-key value, the pass rewrites it, the save then asks for the lock.
-	_, err = uc.SaveDraft(ctx, e.ID, exercise.SaveDraftInput{Variants: incoming(), SavedBy: user.ID})
+	_, err = uc.SaveDraft(ctx, e.ID, exercise.SaveDraftInput{Variants: incoming(), SavedBy: user.ID, Revision: revision})
 	require.ErrorIs(t, err, exerciseModel.ErrExerciseModified.Err(), "a save built on a read from before the pass is refused")
 	afterPass := draftSecret()
+	moved, err := repo.GetDraftRevision(ctx, e.ID)
+	require.NoError(t, err)
+	t.Logf("revision before the pass %s, after %s", revision, exerciseModel.FormatRevision(moved.UpdatedAt))
+	require.Equal(t, revision, exerciseModel.FormatRevision(moved.UpdatedAt), "the re-encryption pass keeps the revision")
 	require.Equal(t, "k2", keyOfCiphertext(afterPass), "the pass moved the stored value to the current key")
 	require.NotContains(t, afterPass, sealed)
 
@@ -81,7 +89,7 @@ func TestSaveDraft_StaleMergeSourceAfterReencryptionIsRefused(t *testing.T) {
 	require.Equal(t, "db-password", string(plain))
 
 	// After a re-read the same save goes through and the row holds only current-key secrets.
-	_, err = uc.SaveDraft(ctx, e.ID, exercise.SaveDraftInput{Variants: incoming(), SavedBy: user.ID})
+	_, err = uc.SaveDraft(ctx, e.ID, exercise.SaveDraftInput{Variants: incoming(), SavedBy: user.ID, Revision: revision})
 	require.NoError(t, err)
 	saved := draftSecret()
 	require.Equal(t, "k2", keyOfCiphertext(saved))

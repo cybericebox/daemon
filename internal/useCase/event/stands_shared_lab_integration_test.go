@@ -80,7 +80,7 @@ func (f *standFixture) attachSharedSet(t *testing.T) sharedSet {
 			exerciseModel.EnvVar{Name: name, Value: "{{task." + variant.Tasks[i].Key + "}}"},
 		)
 	}
-	draft, err := exercises.UpsertDraft(
+	draft, err := exercises.ForceUpsertDraft(
 		ctx,
 		value.ID,
 		uuid.Must(uuid.NewV7()),

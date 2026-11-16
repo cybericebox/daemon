@@ -15,7 +15,7 @@ import (
 
 const createDraftFromVersion = `-- name: CreateDraftFromVersion :one
 WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDATE),
-     src AS (SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+     src AS (SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
              FROM exercise_versions
              WHERE exercise_versions.id = $2
                AND exercise_versions.exercise_id = (SELECT id FROM ex)),
@@ -28,12 +28,12 @@ WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDAT
                                FROM exercise_versions dv
                                WHERE dv.exercise_id = $1
                                  AND dv.status = 'draft')
-             RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags),
+             RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by),
      pointer AS (
          UPDATE exercises
              SET draft_version_id = (SELECT inserted.id FROM inserted)
              WHERE exercises.id = $1 AND EXISTS (SELECT 1 FROM inserted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM inserted
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM inserted
 `
 
 type CreateDraftFromVersionParams struct {
@@ -58,6 +58,8 @@ type CreateDraftFromVersionRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // Rollback: a new draft cloned from a historical version's content. Fails
@@ -86,29 +88,60 @@ func (q *Queries) CreateDraftFromVersion(ctx context.Context, arg CreateDraftFro
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
 
 const discardExerciseDraft = `-- name: DiscardExerciseDraft :one
-WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $1 FOR UPDATE)
+WITH ex AS (SELECT exercises.id FROM exercises WHERE exercises.id = $3 FOR UPDATE)
 DELETE
 FROM exercise_versions
 WHERE exercise_id = (SELECT id FROM ex)
   AND status = 'draft'
+  AND ($1::boolean OR updated_at = $2::timestamptz)
 RETURNING id
 `
 
+type DiscardExerciseDraftParams struct {
+	IgnoreRevision    bool               `json:"ignore_revision"`
+	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
+	ExerciseID        uuid.UUID          `json:"exercise_id"`
+}
+
 // exercises.draft_version_id clears itself via ON DELETE SET NULL.
-func (q *Queries) DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, discardExerciseDraft, id)
-	var id_2 uuid.UUID
-	err := row.Scan(&id_2)
-	return id_2, err
+// Only the revision the writer saw is discarded; zero rows: no draft, or it changed meanwhile.
+func (q *Queries) DiscardExerciseDraft(ctx context.Context, arg DiscardExerciseDraftParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, discardExerciseDraft, arg.IgnoreRevision, arg.ExpectedUpdatedAt, arg.ExerciseID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getDraftRevision = `-- name: GetDraftRevision :one
+SELECT id, updated_at, updated_by
+FROM exercise_versions
+WHERE exercise_id = $1
+  AND status = 'draft'
+`
+
+type GetDraftRevisionRow struct {
+	ID        uuid.UUID     `json:"id"`
+	UpdatedAt time.Time     `json:"updated_at"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
+}
+
+// The revision of the working copy (when and by whom it was last written) without its content.
+func (q *Queries) GetDraftRevision(ctx context.Context, exerciseID uuid.UUID) (GetDraftRevisionRow, error) {
+	row := q.db.QueryRow(ctx, getDraftRevision, exerciseID)
+	var i GetDraftRevisionRow
+	err := row.Scan(&i.ID, &i.UpdatedAt, &i.UpdatedBy)
+	return i, err
 }
 
 const getDraftVersion = `-- name: GetDraftVersion :one
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 FROM exercise_versions
 WHERE exercise_id = $1
   AND status = 'draft'
@@ -131,12 +164,14 @@ func (q *Queries) GetDraftVersion(ctx context.Context, exerciseID uuid.UUID) (Ex
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
 
 const getExerciseVersionByID = `-- name: GetExerciseVersionByID :one
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 FROM exercise_versions
 WHERE id = $1
 `
@@ -158,6 +193,8 @@ func (q *Queries) GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (Exe
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -165,7 +202,7 @@ func (q *Queries) GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (Exe
 const insertImportedExerciseVersion = `-- name: InsertImportedExerciseVersion :one
 INSERT INTO exercise_versions (id, exercise_id, status, admin_note, label, variants, created_at, created_by, published_at, name, description, tags)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 `
 
 type InsertImportedExerciseVersionParams struct {
@@ -213,6 +250,8 @@ func (q *Queries) InsertImportedExerciseVersion(ctx context.Context, arg InsertI
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -244,7 +283,7 @@ func (q *Queries) ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UU
 }
 
 const listExerciseVersions = `-- name: ListExerciseVersions :many
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 FROM exercise_versions
 WHERE exercise_id = $1
 ORDER BY created_at DESC, id DESC
@@ -273,6 +312,8 @@ func (q *Queries) ListExerciseVersions(ctx context.Context, exerciseID uuid.UUID
 			&i.Name,
 			&i.Description,
 			&i.Tags,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -308,7 +349,7 @@ WITH ex AS (SELECT id, draft_version_id, published_version_id
                  -- index "one published per exercise" in the same instant,
                  -- raising a spurious 23505 even though the end state is valid.
                  AND (SELECT count(*) FROM demoted) IS NOT NULL
-             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty, exercise_versions.name, exercise_versions.description, exercise_versions.tags),
+             RETURNING exercise_versions.id, exercise_versions.exercise_id, exercise_versions.status, exercise_versions.admin_note, exercise_versions.variants, exercise_versions.created_at, exercise_versions.created_by, exercise_versions.published_at, exercise_versions.label, exercise_versions.avg_difficulty, exercise_versions.name, exercise_versions.description, exercise_versions.tags, exercise_versions.updated_at, exercise_versions.updated_by),
      pointers AS (
          UPDATE exercises
              SET published_version_id = (SELECT promoted.id FROM promoted),
@@ -318,7 +359,7 @@ WITH ex AS (SELECT id, draft_version_id, published_version_id
                  tags = (SELECT promoted.tags FROM promoted)
              WHERE exercises.id = (SELECT ex.id FROM ex)
                  AND EXISTS (SELECT 1 FROM promoted))
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM promoted
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM promoted
 `
 
 type PublishExerciseDraftParams struct {
@@ -340,6 +381,8 @@ type PublishExerciseDraftRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // Atomic family transition: demote the current published row, promote the
@@ -362,6 +405,8 @@ func (q *Queries) PublishExerciseDraft(ctx context.Context, arg PublishExerciseD
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -372,39 +417,49 @@ WITH ex AS (
     WHERE exercises.id = $1
       AND exercises.updated_at IS NOT DISTINCT FROM $2
     FOR UPDATE
+), cur AS (
+    SELECT d.id FROM exercise_versions d
+    WHERE d.exercise_id = (SELECT id FROM ex) AND d.status = 'draft'
+      AND d.updated_at = $3::timestamptz
+    FOR UPDATE OF d
 ), saved AS (
-    INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
-    SELECT $3, ex.id, 'draft', COALESCE(p.admin_note, ''), COALESCE(p.variants, '[]'::jsonb),
-           $4, $5, $6, $7, $8
+    INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, updated_by, name, description, tags)
+    SELECT $4, ex.id, 'draft', COALESCE(p.admin_note, ''), COALESCE(p.variants, '[]'::jsonb),
+           $5, $6, $6, $7, $8, $9
     FROM ex LEFT JOIN exercise_versions p ON p.id = ex.published_version_id
+    WHERE $3::timestamptz IS NULL OR $10::boolean
+          OR EXISTS (SELECT 1 FROM cur)
     ON CONFLICT (exercise_id) WHERE status = 'draft' DO UPDATE
-        SET name = EXCLUDED.name, description = EXCLUDED.description, tags = EXCLUDED.tags
-    RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+        SET name = EXCLUDED.name, description = EXCLUDED.description, tags = EXCLUDED.tags, updated_by = EXCLUDED.updated_by
+        WHERE $10::boolean OR exercise_versions.updated_at = $3::timestamptz
+    RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
 ), copied_refs AS (
     INSERT INTO file_references (ref_type, ref_id, file_id)
     SELECT 'exercise_version', saved.id, refs.file_id
     FROM saved JOIN ex ON ex.id = saved.exercise_id
     JOIN file_references refs ON refs.ref_type = 'exercise_version' AND refs.ref_id = ex.published_version_id
-    WHERE saved.id = $3
+    WHERE saved.id = $4
     ON CONFLICT DO NOTHING
 ), pointers AS (
     UPDATE exercises
     SET draft_version_id = (SELECT id FROM saved),
-        updated_at = $4, updated_by = $5
+        updated_at = $5, updated_by = $6
     WHERE exercises.id = (SELECT id FROM ex) AND EXISTS (SELECT 1 FROM saved)
 )
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM saved
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM saved
 `
 
 type SaveExerciseDraftIdentityParams struct {
-	ExerciseID        uuid.UUID     `json:"exercise_id"`
-	ExpectedUpdatedAt time.Time     `json:"expected_updated_at"`
-	NewID             uuid.UUID     `json:"new_id"`
-	UpdatedAt         time.Time     `json:"updated_at"`
-	UpdatedBy         uuid.NullUUID `json:"updated_by"`
-	Name              string        `json:"name"`
-	Description       string        `json:"description"`
-	Tags              []string      `json:"tags"`
+	ExerciseID             uuid.UUID          `json:"exercise_id"`
+	ExpectedUpdatedAt      time.Time          `json:"expected_updated_at"`
+	ExpectedDraftUpdatedAt pgtype.Timestamptz `json:"expected_draft_updated_at"`
+	NewID                  uuid.UUID          `json:"new_id"`
+	UpdatedAt              time.Time          `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID      `json:"updated_by"`
+	Name                   string             `json:"name"`
+	Description            string             `json:"description"`
+	Tags                   []string           `json:"tags"`
+	IgnoreRevision         bool               `json:"ignore_revision"`
 }
 
 type SaveExerciseDraftIdentityRow struct {
@@ -421,6 +476,8 @@ type SaveExerciseDraftIdentityRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // The legacy PATCH edits metadata in the draft. A lazy draft inherits the
@@ -430,12 +487,14 @@ func (q *Queries) SaveExerciseDraftIdentity(ctx context.Context, arg SaveExercis
 	row := q.db.QueryRow(ctx, saveExerciseDraftIdentity,
 		arg.ExerciseID,
 		arg.ExpectedUpdatedAt,
+		arg.ExpectedDraftUpdatedAt,
 		arg.NewID,
 		arg.UpdatedAt,
 		arg.UpdatedBy,
 		arg.Name,
 		arg.Description,
 		arg.Tags,
+		arg.IgnoreRevision,
 	)
 	var i SaveExerciseDraftIdentityRow
 	err := row.Scan(
@@ -452,6 +511,8 @@ func (q *Queries) SaveExerciseDraftIdentity(ctx context.Context, arg SaveExercis
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }
@@ -477,29 +538,40 @@ func (q *Queries) SetImportedExercisePointers(ctx context.Context, arg SetImport
 
 const upsertExerciseDraft = `-- name: UpsertExerciseDraft :one
 WITH ex AS (SELECT id, name, description, tags, created_at, created_by, updated_at, updated_by, draft_version_id, published_version_id, archived_at, scope, owner_event_id, access_level, origin_event_id, forked_from_exercise_id, forked_from_version_id FROM exercises WHERE exercises.id = $1 FOR UPDATE),
+     cur AS (
+         SELECT d.id FROM exercise_versions d
+         WHERE d.exercise_id = (SELECT id FROM ex) AND d.status = 'draft'
+           AND d.updated_at = $2::timestamptz
+         FOR UPDATE OF d
+     ),
      saved AS (
-         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, name, description, tags)
-         SELECT $2, ex.id, 'draft', $3, $4,
-                $5, $6,
+         INSERT INTO exercise_versions (id, exercise_id, status, admin_note, variants, created_at, created_by, updated_by, name, description, tags)
+         SELECT $3, ex.id, 'draft', $4, $5,
+                $6, $7, $7,
                 COALESCE(p.name, ex.name), COALESCE(p.description, ex.description), COALESCE(p.tags, ex.tags)
          FROM ex LEFT JOIN exercise_versions p ON p.id = ex.published_version_id
+         WHERE $2::timestamptz IS NULL OR $8::boolean
+               OR EXISTS (SELECT 1 FROM cur)
          ON CONFLICT (exercise_id) WHERE status = 'draft' DO UPDATE
-             SET variants = EXCLUDED.variants, admin_note = EXCLUDED.admin_note
-         RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags
+             SET variants = EXCLUDED.variants, admin_note = EXCLUDED.admin_note, updated_by = EXCLUDED.updated_by
+             WHERE $8::boolean OR exercise_versions.updated_at = $2::timestamptz
+         RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by
      ), pointer AS (
          UPDATE exercises SET draft_version_id = (SELECT id FROM saved)
          WHERE exercises.id = (SELECT id FROM ex) AND EXISTS (SELECT 1 FROM saved)
      )
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags FROM saved
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty, name, description, tags, updated_at, updated_by FROM saved
 `
 
 type UpsertExerciseDraftParams struct {
-	ExerciseID uuid.UUID     `json:"exercise_id"`
-	NewID      uuid.UUID     `json:"new_id"`
-	AdminNote  string        `json:"admin_note"`
-	Variants   []byte        `json:"variants"`
-	CreatedAt  time.Time     `json:"created_at"`
-	CreatedBy  uuid.NullUUID `json:"created_by"`
+	ExerciseID        uuid.UUID          `json:"exercise_id"`
+	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
+	NewID             uuid.UUID          `json:"new_id"`
+	AdminNote         string             `json:"admin_note"`
+	Variants          []byte             `json:"variants"`
+	CreatedAt         time.Time          `json:"created_at"`
+	CreatedBy         uuid.NullUUID      `json:"created_by"`
+	IgnoreRevision    bool               `json:"ignore_revision"`
 }
 
 type UpsertExerciseDraftRow struct {
@@ -516,19 +588,30 @@ type UpsertExerciseDraftRow struct {
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	Tags          []string           `json:"tags"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	UpdatedBy     uuid.NullUUID      `json:"updated_by"`
 }
 
 // Serialize family writers on the identity first, then use PostgreSQL's
 // partial-unique conflict target. ON CONFLICT sees a concurrent first draft
 // even when it committed after this statement's read snapshot was taken.
+// expected_updated_at is the revision the writer started from: the draft is
+// replaced only when it still has it, and a first draft is created only when
+// the writer saw none (NULL). Zero rows: the draft was changed (or created or
+// discarded) meanwhile, the caller reads the current revision and says so.
+// ignore_revision is for tests and tools that own the exercise (never an API writer).
+// cur locks the working copy at the revision the writer saw (it is empty when that is no longer the case: the copy was
+// discarded or saved meanwhile), so a first insert is never mistaken for a replace of a copy that is gone.
 func (q *Queries) UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error) {
 	row := q.db.QueryRow(ctx, upsertExerciseDraft,
 		arg.ExerciseID,
+		arg.ExpectedUpdatedAt,
 		arg.NewID,
 		arg.AdminNote,
 		arg.Variants,
 		arg.CreatedAt,
 		arg.CreatedBy,
+		arg.IgnoreRevision,
 	)
 	var i UpsertExerciseDraftRow
 	err := row.Scan(
@@ -545,6 +628,8 @@ func (q *Queries) UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDra
 		&i.Name,
 		&i.Description,
 		&i.Tags,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
 	)
 	return i, err
 }

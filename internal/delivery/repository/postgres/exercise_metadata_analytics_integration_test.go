@@ -24,7 +24,7 @@ func TestAnalyticsAggregatesOneTaskAcrossPinnedMetadataVersions(t *testing.T) {
 	require.NoError(t, err)
 	oldTime := identity.UpdatedAt
 	identity.Name, identity.Tags, identity.UpdatedAt = "Z older pinned name", []string{"web"}, itNow.Add(time.Minute)
-	_, err = repo.SaveDraftIdentity(ctx, identity, oldTime, uuid.Must(uuid.NewV7()))
+	_, err = repo.ForceSaveDraftIdentity(ctx, identity, oldTime, uuid.Must(uuid.NewV7()))
 	require.NoError(t, err)
 	older, err := repo.Publish(ctx, exerciseID, itNow.Add(2*time.Minute))
 	require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestAnalyticsAggregatesOneTaskAcrossPinnedMetadataVersions(t *testing.T) {
 	require.NoError(t, err)
 	oldTime = identity.UpdatedAt
 	identity.Name, identity.Tags, identity.UpdatedAt = "A newer pinned name", []string{"crypto"}, itNow.Add(3*time.Minute)
-	_, err = repo.SaveDraftIdentity(ctx, identity, oldTime, uuid.Must(uuid.NewV7()))
+	_, err = repo.ForceSaveDraftIdentity(ctx, identity, oldTime, uuid.Must(uuid.NewV7()))
 	require.NoError(t, err)
 	newer, err := repo.Publish(ctx, exerciseID, itNow.Add(4*time.Minute))
 	require.NoError(t, err)

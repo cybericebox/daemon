@@ -186,7 +186,7 @@ func (f *fakeUC) SaveDraft(_ context.Context, _ uuid.UUID, in exerciseUseCase.Sa
 func (f *fakeUC) PublishDraft(_ context.Context, _ uuid.UUID) (exerciseUseCase.VersionView, error) {
 	return f.versionView, f.err
 }
-func (f *fakeUC) DiscardDraft(_ context.Context, _ uuid.UUID) error {
+func (f *fakeUC) DiscardDraft(_ context.Context, _ uuid.UUID, _ string) error {
 	return f.err
 }
 func (f *fakeUC) RollbackToVersion(_ context.Context, _, _, _ uuid.UUID) (exerciseUseCase.VersionView, error) {

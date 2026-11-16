@@ -59,7 +59,7 @@ func seedVariantStats(t *testing.T, tag string) *vsSeed {
 	event := mustSeedEventForParticipants(t, db, tag)
 	exercises := exerciseRepo.New(db.Queries)
 	exercise := mustCreateExercise(t, exercises, "Variant stats")
-	if _, err := exercises.UpsertDraft(ctx, exercise.ID, vsVersion1, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := exercises.ForceUpsertDraft(ctx, exercise.ID, vsVersion1, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatalf("save draft: %v", err)
 	}
 	if _, err := exercises.Publish(ctx, exercise.ID, itNow); err != nil {
@@ -245,7 +245,7 @@ func TestVariantStats_GrowOnly(t *testing.T) {
 	// Switching the event exercise to another version (same variant ids, as a copy keeps them):
 	// the rewrite of the assignment counts the team once for the new version, the old counts stay.
 	exercises := exerciseRepo.New(s.db.Queries)
-	if _, err := exercises.UpsertDraft(ctx, s.exerciseID, vsVersion2, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := exercises.ForceUpsertDraft(ctx, s.exerciseID, vsVersion2, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := exercises.Publish(ctx, s.exerciseID, itNow); err != nil {
@@ -385,7 +385,7 @@ func TestVariantStats_TriggerFailureNeverFailsTheWrite(t *testing.T) {
 
 	// Restore valid content, then make every mark insert fail: the writes still succeed.
 	exercises := exerciseRepo.New(s.db.Queries)
-	if _, err := exercises.UpsertDraft(ctx, s.exerciseID, vsVersion2, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
+	if _, err := exercises.ForceUpsertDraft(ctx, s.exerciseID, vsVersion2, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Pool.Exec(ctx, `UPDATE exercise_versions SET variants = (SELECT variants FROM exercise_versions WHERE id = $2) WHERE id = $1`, vsVersion1, vsVersion2); err != nil {

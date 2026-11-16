@@ -237,6 +237,37 @@ type ExerciseVersion struct {
 	CreatedAt   time.Time
 	CreatedBy   uuid.NullUUID
 	PublishedAt *time.Time
+	// UpdatedAt and UpdatedBy are when and by whom the row was last written (the database assigns UpdatedAt on every
+	// change). UpdatedAt is the revision of a working copy: see Revision.
+	UpdatedAt time.Time
+	UpdatedBy uuid.NullUUID
+}
+
+// revisionLayout is the one text form of a revision: UTC, always six fractional digits (the microseconds the database
+// keeps), so that echoing it back compares equal. Clients must treat it as an opaque string.
+const revisionLayout = "2006-01-02T15:04:05.000000Z"
+
+// Revision is the opaque revision of the version as a client sees it.
+func (v ExerciseVersion) Revision() string { return FormatRevision(v.UpdatedAt) }
+
+// FormatRevision renders a revision; the zero time (no draft) is the empty string.
+func FormatRevision(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Truncate(time.Microsecond).Format(revisionLayout)
+}
+
+// ParseRevision reads a revision the platform issued; the empty string means "no draft" and returns the zero time.
+func ParseRevision(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	t, parseErr := time.Parse(revisionLayout, s)
+	if parseErr != nil || FormatRevision(t) != s {
+		return time.Time{}, ErrDraftRevisionInvalid.Err()
+	}
+	return t, nil
 }
 
 // validFlag reports whether a task's flag candidates are well-formed: an

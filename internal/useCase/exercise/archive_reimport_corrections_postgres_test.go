@@ -119,7 +119,7 @@ func TestRestoreAndRollbackSerializeContentAndReferencesWithReimport(t *testing.
 			repo := exerciseRepo.New(db.Queries)
 			oldFile, err := db.Queries.CreateFile(ctx, postgres.CreateFileParams{ID: uuid.Must(uuid.NewV7()), Name: "old.txt", ContentType: "text/plain", SizeBytes: 1, ContentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CreatedAt: importJobT0, CreatedBy: uuid.NullUUID{UUID: user.ID, Valid: true}})
 			require.NoError(t, err)
-			published, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published", Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{{Name: "published", Attachments: []exerciseModel.AttachmentRef{{FileID: oldFile.ID, Name: "old.txt"}}}}}}}, importJobT0, uuid.NullUUID{})
+			published, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "published", Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{{Name: "published", Attachments: []exerciseModel.AttachmentRef{{FileID: oldFile.ID, Name: "old.txt"}}}}}}}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			published, err = repo.Publish(ctx, e.ID, importJobT0)
 			require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestRestoreAndRollbackSerializeContentAndReferencesWithReimport(t *testing.
 			_, err = db.Queries.CreateEventExercise(ctx, postgres.CreateEventExerciseParams{ID: pin, EventID: event.ID, ExerciseID: e.ID, ExerciseVersionID: published.ID, Revision: 1, CreatedAt: importJobT0})
 			require.NoError(t, err)
 			if mode == "restore-existing" {
-				draft, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged work", Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{{Name: "old", Attachments: []exerciseModel.AttachmentRef{{FileID: oldFile.ID, Name: "old.txt"}}}}}}}, importJobT0, uuid.NullUUID{})
+				draft, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "acknowledged work", Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{{Name: "old", Attachments: []exerciseModel.AttachmentRef{{FileID: oldFile.ID, Name: "old.txt"}}}}}}}, importJobT0, uuid.NullUUID{})
 				require.NoError(t, err)
 				require.NoError(t, db.Queries.ReplaceFileReferences(ctx, postgres.ReplaceFileReferencesParams{RefType: "exercise_version", RefID: draft.ID, FileIds: []uuid.UUID{oldFile.ID}}))
 			}
@@ -279,7 +279,7 @@ func TestReimportRechecksRealSourceAfterTargetLockWait(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			db, ctx, user, e := correctionTarget(t)
 			repo := exerciseRepo.New(db.Queries)
-			draft, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "unchanged"}, importJobT0, uuid.NullUUID{})
+			draft, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "unchanged"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			entries := map[string][]byte{"a/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Forbidden replacement"},"versions":[{"status":"draft","variants":[]}]}`), "b/exercise.json": []byte(`{"schema":"cib-exercise/1.0","exercise":{"name":"Must not create sibling"},"versions":[{"status":"draft","variants":[]}]}`)}
 			if c.worker {
@@ -432,7 +432,7 @@ func TestReimportSourceLockStabilizesDeletionUntilTaskCommit(t *testing.T) {
 		t.Run(map[bool]string{false: "upload", true: "file"}[file], func(t *testing.T) {
 			db, ctx, user, e := correctionTarget(t)
 			repo := exerciseRepo.New(db.Queries)
-			_, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "before"}, importJobT0, uuid.NullUUID{})
+			_, err := repo.ForceUpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{AdminNote: "before"}, importJobT0, uuid.NullUUID{})
 			require.NoError(t, err)
 			archive := mustExerciseArchive(t, `{"name":"Committed with stabilized source"}`, `[{"status":"draft","variants":[]}]`)
 			media := correctionMedia(db)

@@ -77,7 +77,7 @@ func TestArchivedExercise_RejectsMutations(t *testing.T) {
 			return err
 		},
 		"discard": func(uc *exercise.ExerciseUseCase, exID uuid.UUID) error {
-			return uc.DiscardDraft(ctx, exID)
+			return uc.DiscardDraft(ctx, exID, "")
 		},
 		"rollback": func(uc *exercise.ExerciseUseCase, exID uuid.UUID) error {
 			_, err := uc.RollbackToVersion(ctx, exID, uuid.Must(uuid.NewV7()), uuid.Nil)

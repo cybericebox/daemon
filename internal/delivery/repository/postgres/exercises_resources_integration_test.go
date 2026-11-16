@@ -43,7 +43,7 @@ func TestPublishedAndPinnedVariantsCarryOnlyWhatTheTotalsNeed(t *testing.T) {
 		},
 		{ID: uuid.Must(uuid.NewV7()), Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch},
 	}
-	_, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
+	_, err := repo.ForceUpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
 	require.NoError(t, err)
 
 	none, err := repo.PublishedVariants(ctx, []uuid.UUID{ex.ID})

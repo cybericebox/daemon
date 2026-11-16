@@ -477,6 +477,10 @@ func (s *exerciseVersions) write(ctx context.Context, tx pgx.Tx, versionID uuid.
 	if err != nil {
 		return err
 	}
+	// Re-encrypting secrets does not change what an editor sees: keep the revision of the working copy (migration 0245).
+	if _, err = tx.Exec(ctx, `SELECT set_config('cybericebox.keep_revision', '1', true)`); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `UPDATE exercise_versions SET variants = $3::jsonb WHERE id = $1 AND variants = $2::jsonb`,
 		versionID, string(read), string(next))
 	if err != nil {

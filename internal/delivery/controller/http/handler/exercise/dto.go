@@ -28,6 +28,12 @@ type exerciseResponse struct {
 	UpdatedAt          time.Time  `json:"UpdatedAt"`
 	UpdatedBy          *uuid.UUID `json:"UpdatedBy"`
 	UpdatedByName      string     `json:"UpdatedByName"`
+	// DraftRevision is the opaque revision of the working copy ("" when there is none): send it back, unchanged and
+	// unparsed, with the next write of the working copy. DraftUpdatedAt/By/ByName say when and by whom it was last saved.
+	DraftRevision      string     `json:"DraftRevision"`
+	DraftUpdatedAt     *time.Time `json:"DraftUpdatedAt"`
+	DraftUpdatedBy     *uuid.UUID `json:"DraftUpdatedBy"`
+	DraftUpdatedByName string     `json:"DraftUpdatedByName"`
 	exerciseScopeResponse
 }
 
@@ -275,6 +281,9 @@ type updateExerciseRequest struct {
 	Name        string   `json:"Name"`
 	Description string   `json:"Description"`
 	Tags        []string `json:"Tags"`
+	// Revision is the DraftRevision of the card the editor started from, sent back unchanged ("" when the card had no
+	// working copy). A stale one is refused with 409.
+	Revision string `json:"Revision"`
 }
 
 // ── version content DTOs (mirror the domain snapshot) ──
@@ -878,6 +887,12 @@ type versionResponse struct {
 	// whether there are any. The version cannot be published while there are; entering the value in the editor clears the entry.
 	MissingSecrets    []missingSecretResponse `json:"MissingSecrets"`
 	HasMissingSecrets bool                    `json:"HasMissingSecrets"`
+	// Revision is the opaque revision of the version: for the working copy, send it back unchanged (never parse it)
+	// with the next save. UpdatedAt/UpdatedBy(Name) are when and by whom it was last saved.
+	Revision      string     `json:"Revision"`
+	UpdatedAt     time.Time  `json:"UpdatedAt"`
+	UpdatedBy     *uuid.UUID `json:"UpdatedBy"`
+	UpdatedByName string     `json:"UpdatedByName"`
 }
 
 type missingSecretResponse struct {
@@ -899,6 +914,9 @@ type versionListItemResponse struct {
 }
 
 type saveDraftRequest struct {
+	// Revision is the Revision of the working copy the editor started from, sent back unchanged ("" when it had none).
+	// A stale one is refused with 409 and the current revision, who saved it and when.
+	Revision  string `json:"Revision"`
 	AdminNote string `json:"AdminNote"`
 	// Variants is the full snapshot; a variant Weight outside 1..100 (0 included) is refused with 400.
 	Variants []variantDTO `json:"Variants" binding:"dive"`
@@ -1398,6 +1416,7 @@ func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
 		MissingSecrets: missingSecretsToResponse(v.MissingSecrets), HasMissingSecrets: v.HasMissingSecrets,
+		Revision: v.Revision, UpdatedAt: v.UpdatedAt, UpdatedBy: v.UpdatedBy, UpdatedByName: v.UpdatedByName,
 	}
 }
 
@@ -1446,6 +1465,7 @@ func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {
 		DraftVersionID: e.DraftVersionID, PublishedVersionID: e.PublishedVersionID,
 		ArchivedAt: e.ArchivedAt, HasChanges: e.HasChanges,
 		CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, AuthorName: e.AuthorName, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy, UpdatedByName: e.UpdatedByName,
+		DraftRevision: e.DraftRevision, DraftUpdatedAt: e.DraftUpdatedAt, DraftUpdatedBy: e.DraftUpdatedBy, DraftUpdatedByName: e.DraftUpdatedByName,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }

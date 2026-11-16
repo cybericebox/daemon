@@ -140,7 +140,7 @@ func TestExerciseVisibilityAndEventCatalog(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create %q: %v", e.Name, err)
 		}
-		if _, err = repo.UpsertDraft(ctx, created.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{}); err != nil {
+		if _, err = repo.ForceUpsertDraft(ctx, created.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err = repo.Publish(ctx, created.ID, itNow); err != nil {

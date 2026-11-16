@@ -55,7 +55,7 @@ func TestReimportKeepsIdentityReportsUsageAndDryRunWritesNothing(t *testing.T) {
 			),
 		},
 	}
-	_, err = repo.UpsertDraft(
+	_, err = repo.ForceUpsertDraft(
 		ctx,
 		entity.ID,
 		uuid.Must(uuid.NewV7()),
@@ -67,7 +67,7 @@ func TestReimportKeepsIdentityReportsUsageAndDryRunWritesNothing(t *testing.T) {
 	published, err := repo.Publish(ctx, entity.ID, importJobT0)
 	require.NoError(t, err)
 	// A working draft that carries the same identities, as after the first edit of a published task.
-	_, err = repo.UpsertDraft(
+	_, err = repo.ForceUpsertDraft(
 		ctx,
 		entity.ID,
 		uuid.Must(uuid.NewV7()),

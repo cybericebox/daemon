@@ -51,6 +51,14 @@ var (
 	// rows while the row still exists. 409: the client reloads and retries.
 	ErrExerciseModified = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Exercise was modified concurrently").WithDetailCode(4)
+	// ErrDraftModified: the writer started from a revision of the working copy that is no longer the current one (someone
+	// saved, created or discarded it meanwhile). 409; the public context names the current revision and who saved it when.
+	// One call site: the use case helper that every draft writer goes through.
+	ErrDraftModified = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The working copy was changed by someone else").WithDetailCode(22)
+	// ErrDraftRevisionInvalid: the revision sent back is not one the platform issued.
+	ErrDraftRevisionInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The working copy revision is not valid").WithDetailCode(23)
 	// multi-site: covers publish/discard without a draft, the
 	// publish-vs-concurrent-discard race, and checkpoint without a draft or
 	// published version to snapshot — one public "no draft" fact.
