@@ -53,14 +53,25 @@ func TestDraftRevisionIsAssignedAndMovesOnEveryChange(t *testing.T) {
 }
 
 func TestDraftRevisionStaysWhenNothingChanged(t *testing.T) {
-	ctx, repo, ex, author := newDraftRevisionRepo(t)
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	author := mustSeedUser(t, db, "revision-author@test.test")
+	ex := mustCreateExercise(t, repo, "Draft revision")
 	by := uuid.NullUUID{UUID: author, Valid: true}
+	row := func(label string, id uuid.UUID) {
+		var text string
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT (to_jsonb(v) - 'variants')::text || ' variants=' || md5(v.variants::text) FROM exercise_versions v WHERE id = $1`, id).Scan(&text))
+		t.Logf("%s: %s", label, text)
+	}
 	// The same content: itVariants gives every task a fresh id, so build it once.
 	content := contentWithNote("same")
 	first, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, by, time.Time{})
 	require.NoError(t, err)
+	row("after the first save", first.ID)
 	again, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), content, itNow, by, first.UpdatedAt)
 	require.NoError(t, err)
+	row("after the identical save", again.ID)
 	require.True(t, first.UpdatedAt.Equal(again.UpdatedAt), "a save of identical content by the same author is not a new revision")
 }
 
